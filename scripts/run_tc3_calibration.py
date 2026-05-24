@@ -36,14 +36,23 @@ PROVIDERS = ("idsse", "skillcorner", "gradientsports")
 
 @dataclass(frozen=True)
 class MatchData:
-    """Cached per-match data for calibration."""
+    """Cached per-match data for calibration.
+
+    Frames are NOT held in memory — loaded on demand from parquet cache
+    to avoid OOM when 78 matches (13 GB compressed, ~50 GB in-memory)
+    are loaded simultaneously.
+    """
 
     match_id: str
     provider: str
     actions: pd.DataFrame
-    frames: pd.DataFrame
+    frames_path: Path
     home_team_id: str
     home_start_left: bool
+
+    def load_frames(self) -> pd.DataFrame:
+        """Load tracking frames from parquet cache (on demand)."""
+        return pd.read_parquet(self.frames_path)
 
 
 @dataclass
@@ -109,14 +118,13 @@ def _pull_provider_data_sql(provider: str) -> list[MatchData]:
             if (cache_path / "actions.parquet").exists() and (cache_path / "frames.parquet").exists():
                 logger.info("Cache hit: %s/%s", provider, mid)
                 actions = pd.read_parquet(cache_path / "actions.parquet")
-                frames = pd.read_parquet(cache_path / "frames.parquet")
                 meta = json.loads((cache_path / "meta.json").read_text())
                 results.append(
                     MatchData(
                         match_id=mid,
                         provider=provider,
                         actions=actions,
-                        frames=frames,
+                        frames_path=cache_path / "frames.parquet",
                         home_team_id=meta["home_team_id"],
                         home_start_left=meta["home_start_left"],
                     )
@@ -131,7 +139,7 @@ def _pull_provider_data_sql(provider: str) -> list[MatchData]:
                 SELECT * FROM {catalog}.{schema}.spadl_actions
                 WHERE data_source = '{provider}' AND match_id_native = '{mid}'
             """)
-            actions = cursor.fetch_all_as_arrow().to_pandas()
+            actions = cursor.fetchall_arrow().to_pandas()
             cursor.close()
 
             if actions.empty:
@@ -144,33 +152,107 @@ def _pull_provider_data_sql(provider: str) -> list[MatchData]:
                 SELECT * FROM {catalog}.{schema}.{tracking_table}
                 WHERE match_id = '{mid}'
             """)
-            frames_raw = cursor.fetch_all_as_arrow().to_pandas()
+            frames_raw = cursor.fetchall_arrow().to_pandas()
             cursor.close()
 
             if frames_raw.empty:
                 logger.warning("No tracking for %s/%s — skipping", provider, mid)
                 continue
 
-            # Resolve home_team_id + home_start_left per provider
-            home_team_id, home_start_left = _resolve_match_metadata(
-                conn,
-                catalog,
-                schema,
-                provider,
-                mid,
-                actions,
-                frames_raw,
-            )
+            # SkillCorner: join with matches to add team + is_goalkeeper
+            # (mirrors production pipeline tracking_context.py:1703-1713)
+            if provider == "skillcorner":
+                cursor2 = conn.cursor()
+                cursor2.execute(f"""
+                    SELECT player_id,
+                           CAST(team_id AS STRING) AS team,
+                           (position_acronym = 'GK') AS is_goalkeeper
+                    FROM {catalog}.{schema}.skillcorner_matches
+                    WHERE match_id = '{mid}'
+                """)
+                matches_meta = cursor2.fetchall_arrow().to_pandas()
+                cursor2.close()
+                frames_raw = frames_raw.merge(matches_meta, on="player_id", how="left")
 
-            # Convert bronze tracking to silly-kicks frames format
-            frames = _convert_tracking_to_frames(
-                provider,
-                frames_raw,
-                actions,
-                mid,
-                home_team_id,
-                home_start_left,
-            )
+            # Gradient Sports: join roster for player_id/team_id/is_goalkeeper,
+            # and metadata for fps. Keyed on jersey_num + team_side.
+            if provider == "gradientsports":
+                cursor2 = conn.cursor()
+                cursor2.execute(f"""
+                    SELECT `homeTeam.id` AS home_team_id, fps
+                    FROM {catalog}.{schema}.gradientsports_metadata
+                    WHERE match_id = '{mid}'
+                """)
+                meta_row = cursor2.fetchone()
+                cursor2.close()
+                gs_home_team = str(meta_row[0]) if meta_row else None
+                gs_fps = float(meta_row[1]) if meta_row and meta_row[1] else 25.0
+
+                cursor2 = conn.cursor()
+                cursor2.execute(f"""
+                    SELECT `player.id` AS player_id,
+                           `team.id` AS team_id,
+                           shirtNumber AS jersey_num,
+                           (positionGroupType = 'GK') AS is_gk
+                    FROM {catalog}.{schema}.gradientsports_roster
+                    WHERE match_id = '{mid}'
+                """)
+                roster = cursor2.fetchall_arrow().to_pandas()
+                cursor2.close()
+
+                # Build team_side → team_id mapping
+                _gs_home = gs_home_team  # bind for lambda (B023)
+                roster["team_side"] = roster["team_id"].apply(
+                    lambda tid, ht=_gs_home: "home" if str(tid) == ht else "away"
+                )
+
+                # Merge roster onto tracking by team_side + jersey_num
+                frames_raw["jersey_num"] = frames_raw["jersey_num"].astype(str)
+                roster["jersey_num"] = roster["jersey_num"].astype(str)
+                frames_raw = frames_raw.merge(
+                    roster[["team_side", "jersey_num", "player_id", "team_id", "is_gk"]],
+                    on=["team_side", "jersey_num"],
+                    how="left",
+                )
+                frames_raw.rename(
+                    columns={
+                        "player_id": "_gs_roster_player",
+                        "team_id": "_gs_roster_team",
+                        "is_gk": "_gs_roster_gk",
+                    },
+                    inplace=True,
+                )
+                frames_raw["_gs_fps"] = gs_fps
+
+            # Resolve home_team_id + home_start_left per provider
+            try:
+                home_team_id, home_start_left = _resolve_match_metadata(
+                    conn,
+                    catalog,
+                    schema,
+                    provider,
+                    mid,
+                    actions,
+                    frames_raw,
+                )
+
+                # Convert bronze tracking to silly-kicks frames format
+                frames = _convert_tracking_to_frames(
+                    provider,
+                    frames_raw,
+                    actions,
+                    mid,
+                    home_team_id,
+                    home_start_left,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Skipping %s/%s — conversion failed: %s",
+                    provider,
+                    mid,
+                    exc,
+                )
+                continue
 
             # Cache
             cache_path.mkdir(parents=True, exist_ok=True)
@@ -190,7 +272,7 @@ def _pull_provider_data_sql(provider: str) -> list[MatchData]:
                     match_id=mid,
                     provider=provider,
                     actions=actions,
-                    frames=frames,
+                    frames_path=cache_path / "frames.parquet",
                     home_team_id=str(home_team_id),
                     home_start_left=home_start_left,
                 )
@@ -229,7 +311,7 @@ def _resolve_match_metadata(
             SELECT * FROM {catalog}.{schema}.idsse_events
             WHERE match_id = '{mid}'
         """)
-        events_df = cursor.fetch_all_as_arrow().to_pandas()
+        events_df = cursor.fetchall_arrow().to_pandas()
         cursor.close()
         from ingestion.spadl_adapter import adapt_idsse_events_for_silly_kicks
 
@@ -253,14 +335,98 @@ def _resolve_match_metadata(
         return home_team_id, True
 
     elif provider == "gradientsports":
-        home_team_id = str(actions["team_id_native"].dropna().iloc[0])
-        # Default True pending empirical validation on Gradient Sports data.
-        # Phase 0 validation gate checks frame count/GK/NaN but not direction —
-        # add LTR assertion (shot x-cluster) once data is available.
-        return home_team_id, True
+        cursor = conn.cursor()
+        cursor.execute(f"""
+            SELECT `homeTeam.id`, `awayTeam.id`, homeTeamStartLeft
+            FROM {catalog}.{schema}.gradientsports_metadata
+            WHERE match_id = '{mid}'
+        """)
+        row = cursor.fetchone()
+        cursor.close()
+        if row is None:
+            msg = f"No GS metadata for match {mid}"
+            raise ValueError(msg)
+        home_team_id = str(row[0])
+        home_start_left = bool(row[2])
+        return home_team_id, home_start_left
 
     msg = f"Unknown provider: {provider}"
     raise ValueError(msg)
+
+
+def _bronze_gs_to_converter_input(
+    frames_raw: pd.DataFrame,
+    mid: str,
+    home_team_id: str,
+) -> pd.DataFrame:
+    """Transform bronze GS tracking columns to silly-kicks converter input.
+
+    Bronze columns: match_id, frame_num, period, period_elapsed_time,
+        team_side (home/away/None), jersey_num, is_ball, x, y, z, fps (from metadata)
+    Converter expects: game_id, period_id, frame_id, time_seconds, frame_rate,
+        player_id, team_id, is_ball, is_goalkeeper, x_centered, y_centered, z,
+        speed_native, ball_state
+    """
+    out = frames_raw.copy()
+
+    # Rename direct mappings
+    out["game_id"] = int(mid)
+    out["period_id"] = out["period"].astype("Int64")
+    out["frame_id"] = out["frame_num"].astype("Int64")
+    out["time_seconds"] = out["period_elapsed_time"]
+
+    # Frame rate from metadata (stored as _gs_fps by caller)
+    if "_gs_fps" in out.columns:
+        out["frame_rate"] = out["_gs_fps"]
+    else:
+        out["frame_rate"] = 25.0  # fallback
+
+    # Resolve player_id and team_id from jersey_num + team_side via roster
+    # Roster is stored as _gs_roster by the caller: jersey_num -> (player_id, team_id, is_gk)
+    if "_gs_roster_player" in out.columns:
+        out["player_id"] = out["_gs_roster_player"].astype("Int64")
+        out["team_id"] = out["_gs_roster_team"].astype("Int64")
+        out["is_goalkeeper"] = out["_gs_roster_gk"].fillna(False).astype(bool)
+    else:
+        # Fallback: no roster data — use jersey_num as player_id
+        out["player_id"] = pd.to_numeric(out["jersey_num"], errors="coerce").astype("Int64")
+        # Map team_side to team_id
+        out["team_id"] = pd.array([pd.NA] * len(out), dtype="Int64")
+        out["is_goalkeeper"] = False
+
+    # Ball rows: null out player fields
+    ball_mask = out["is_ball"] == True  # noqa: E712
+    out.loc[ball_mask, "player_id"] = pd.NA
+    out.loc[ball_mask, "team_id"] = pd.NA
+
+    # Coordinates are already center-origin in bronze
+    out["x_centered"] = out["x"]
+    out["y_centered"] = out["y"]
+
+    # Speed not available in bronze (derived by converter)
+    out["speed_native"] = np.nan
+
+    # Ball state not available in bronze
+    out["ball_state"] = pd.NA
+
+    # Select only the expected columns
+    expected = [
+        "game_id",
+        "period_id",
+        "frame_id",
+        "time_seconds",
+        "frame_rate",
+        "player_id",
+        "team_id",
+        "is_ball",
+        "is_goalkeeper",
+        "x_centered",
+        "y_centered",
+        "z",
+        "speed_native",
+        "ball_state",
+    ]
+    return out[expected]
 
 
 def _convert_tracking_to_frames(
@@ -299,8 +465,11 @@ def _convert_tracking_to_frames(
         from silly_kicks.tracking import PreprocessConfig
         from silly_kicks.tracking.gradientsports import convert_to_frames
 
+        # Bronze has raw GS columns; convert_to_frames expects processed format.
+        # Transform: jersey_num+team_side → player_id/team_id via roster lookup.
+        processed = _bronze_gs_to_converter_input(frames_raw, mid, home_team_id)
         frames, _report = convert_to_frames(
-            frames_raw,
+            processed,
             home_team_id=int(home_team_id),
             home_team_start_left=home_start_left,
             output_convention="ltr",
@@ -326,24 +495,27 @@ def _validate_gradient_sports(matches: list[MatchData]) -> list[MatchData]:
     valid: list[MatchData] = []
     for m in matches:
         issues: list[str] = []
+        frames = m.load_frames()
 
         # Frame count (at 25fps, 25000 frames = ~17 min = one full half minimum)
-        n_frames = m.frames["frame_id"].nunique()
+        n_frames = frames["frame_id"].nunique()
         if n_frames < 25_000:
             issues.append(f"Low frame count: {n_frames} (min 25,000 for meaningful features)")
         if n_frames > 500_000:
             issues.append(f"Suspiciously high frame count: {n_frames}")
 
         # GK identification
-        gk_mask = m.frames["is_goalkeeper"] == True  # noqa: E712
-        n_gk = m.frames.loc[gk_mask, "player_id"].nunique()
+        gk_mask = frames["is_goalkeeper"] == True  # noqa: E712
+        n_gk = frames.loc[gk_mask, "player_id"].nunique()
         if n_gk < 2:
             issues.append(f"Only {n_gk} distinct GK player(s) identified (expected 2)")
 
         # NaN prevalence
-        xy_nan_frac = m.frames[["x", "y"]].isna().mean().max()
+        xy_nan_frac = frames[["x", "y"]].isna().mean().max()
         if xy_nan_frac > 0.3:
             issues.append(f"High NaN rate in x/y: {xy_nan_frac:.1%}")
+
+        del frames  # Release memory immediately
 
         # Team coverage
         n_teams = m.actions["team_id_native"].nunique()
@@ -367,17 +539,31 @@ def _validate_gradient_sports(matches: list[MatchData]) -> list[MatchData]:
     return valid
 
 
+def _add_spadl_names(actions: pd.DataFrame) -> pd.DataFrame:
+    """Add type_name/result_name/bodypart_name from integer IDs."""
+    from silly_kicks.spadl.config import actiontypes, bodyparts, results
+
+    actions = actions.copy()
+    actions["type_name"] = actions["type_id"].map(dict(enumerate(actiontypes)))
+    actions["result_name"] = actions["result_id"].map(dict(enumerate(results)))
+    actions["bodypart_name"] = actions["bodypart_id"].map(dict(enumerate(bodyparts)))
+    return actions
+
+
 def _compute_vaep_labels(matches: list[MatchData]) -> dict[str, pd.DataFrame]:
     """Compute VAEP scoring/conceding labels per match."""
-    from silly_kicks.vaep.labels import compute_scores_and_concedes
+    from silly_kicks.vaep.labels import concedes as compute_concedes
+    from silly_kicks.vaep.labels import scores as compute_scores
 
     labels: dict[str, pd.DataFrame] = {}
     for m in matches:
-        scores, concedes = compute_scores_and_concedes(m.actions, nr_actions=10)
+        acts = _add_spadl_names(m.actions)
+        sc = compute_scores(acts, nr_actions=10)
+        co = compute_concedes(acts, nr_actions=10)
         labels[m.match_id] = pd.DataFrame(
             {
-                "scores": scores.values.ravel(),
-                "concedes": concedes.values.ravel(),
+                "scores": sc.values.ravel(),
+                "concedes": co.values.ravel(),
             }
         )
     return labels
@@ -654,15 +840,17 @@ def _compute_carrier_accuracy_for_match(
     """
     from silly_kicks.tracking import infer_ball_carrier, link_actions_to_frames
 
+    frames = match.load_frames()
+
     carrier = infer_ball_carrier(
-        match.frames,
+        frames,
         tolerance_m=tolerance_m,
         beta=beta,
         gamma=gamma,
     )
 
     # Link actions to frames to get ground-truth timestamps
-    links, _ = link_actions_to_frames(match.actions, match.frames)
+    links, _ = link_actions_to_frames(match.actions, frames)
 
     # Filter to action types where actor == ball carrier by definition.
     carrier_action_types = {"pass", "cross", "shot", "dribble"}
@@ -679,9 +867,10 @@ def _compute_carrier_accuracy_for_match(
     filtered_actions = match.actions[actor_mask]
 
     # Merge carrier (one row per frame) with links to get carrier at action time
+    # links has frame_id but not period_id, so merge on frame_id only
     merged = links.merge(
-        carrier[["frame_id", "period_id", "ball_carrier_player_id"]],
-        on=["frame_id", "period_id"],
+        carrier[["frame_id", "ball_carrier_player_id"]],
+        on="frame_id",
         how="inner",
     )
     merged = merged.merge(
@@ -699,8 +888,10 @@ def _compute_carrier_accuracy_for_match(
     # Carrier switch rate diagnostic
     carrier_sorted = carrier.sort_values(["period_id", "frame_id"])
     switches = (carrier_sorted["ball_carrier_player_id"] != carrier_sorted["ball_carrier_player_id"].shift()).sum()
-    total_seconds = match.frames["time_seconds"].max() - match.frames["time_seconds"].min()
+    total_seconds = frames["time_seconds"].max() - frames["time_seconds"].min()
     switches_per_min = (switches / max(total_seconds, 1)) * 60
+
+    del frames  # Release memory after use
 
     return float(accuracy), float(switches_per_min)
 
@@ -709,7 +900,7 @@ def run_stage1(
     dataset: CalibrationDataset,
     *,
     n_trials: int = 100,
-    n_workers: int = 8,
+    n_workers: int = 4,
     seed: int = 42,
 ) -> None:
     """Stage 1: Optimize carrier accuracy via Optuna TPE."""
@@ -884,9 +1075,10 @@ VARIANCE_GATE_RATIO = 0.1  # H1: 10% of default variance
 def _enrich_match_worker(args: tuple) -> pd.DataFrame:
     """Worker function for ThreadPoolExecutor — module-level for clarity."""
     match, xt, carrier_params, trial_params = args
-    return _enrich_match_with_params(
+    frames = match.load_frames()
+    result = _enrich_match_with_params(
         actions=match.actions.copy(),
-        frames=match.frames.copy(),
+        frames=frames,
         xt=xt,
         home_team_id=match.home_team_id,
         match_id_native=match.match_id,
@@ -898,6 +1090,8 @@ def _enrich_match_worker(args: tuple) -> pd.DataFrame:
         pre_seconds=trial_params["pre_seconds"],
         min_displacement_m=trial_params["min_displacement_m"],
     )
+    del frames
+    return result
 
 
 def _compute_provider_brier(
@@ -1035,7 +1229,7 @@ def run_stage2(
     dataset: CalibrationDataset,
     *,
     n_trials: int = 100,
-    n_workers: int = 8,
+    n_workers: int = 2,
     seed: int = 42,
 ) -> None:
     """Stage 2: Optimize k3 + off-ball-runs via augmented VAEP Brier."""
@@ -1193,7 +1387,7 @@ def run_diagnostics(dataset: CalibrationDataset) -> None:
     logger.info("Running per-provider re-evaluation at global optimum...")
     optimum_worker_args = [(m, dataset.xt, carrier_params, best_params) for m in dataset.matches]
     optimum_enriched: list[pd.DataFrame] = []
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=2) as pool:
         for result in pool.map(_enrich_match_worker, optimum_worker_args):
             optimum_enriched.append(result)
 
@@ -1224,17 +1418,20 @@ def run_diagnostics(dataset: CalibrationDataset) -> None:
     k3_values = np.logspace(np.log10(0.1), np.log10(5.0), 20).tolist()
     k3_sensitivity: dict[str, list[dict]] = {}
 
-    # Pre-resolve identity + links once per match
+    # Pre-resolve identity + links once per match (load frames temporarily)
     match_links: dict[str, tuple[pd.DataFrame, pd.DataFrame]] = {}
+    match_frames_cache: dict[str, pd.DataFrame] = {}
     for m in dataset.matches:
         try:
+            frames = m.load_frames()
             actions_resolved = _resolve_enrichment_identity(
                 m.actions.copy(),
                 provider=m.provider,
                 match_id_native=m.match_id,
             )
-            links, _ = link_actions_to_frames(actions_resolved, m.frames)
+            links, _ = link_actions_to_frames(actions_resolved, frames)
             match_links[m.match_id] = (actions_resolved, links)
+            match_frames_cache[m.match_id] = frames
         except Exception:
             logger.debug(
                 "Pre-resolve failed for %s — skipping in k3 scan",
@@ -1260,7 +1457,7 @@ def run_diagnostics(dataset: CalibrationDataset) -> None:
                     actions_pre, links_pre = match_links[m.match_id]
                     pressure_result = add_pressure_on_actor(
                         actions_pre.copy(),
-                        m.frames,
+                        match_frames_cache[m.match_id],
                         links=links_pre,
                         methods=("link_zones",),
                         params_per_method={"link_zones": lp},
@@ -1329,7 +1526,8 @@ def run_diagnostics(dataset: CalibrationDataset) -> None:
     logger.info("Running geometry sensitivity scan (r_hoz, r_lz, r_hz)...")
     geometry_results: dict[str, list[dict]] = {}
 
-    subset_links = [(m, match_links[m.match_id]) for m in dataset.matches[:10] if m.match_id in match_links]
+    subset_matches = [m for m in dataset.matches[:10] if m.match_id in match_links]
+    subset_links = [(m, match_links[m.match_id]) for m in subset_matches]
 
     for geom_param, _default_val, scan_range in [
         ("r_hoz", 4.0, np.linspace(2.0, 8.0, 10)),
@@ -1347,7 +1545,7 @@ def run_diagnostics(dataset: CalibrationDataset) -> None:
                 try:
                     actions_out = add_pressure_on_actor(
                         actions_pre.copy(),
-                        m.frames,
+                        match_frames_cache[m.match_id],
                         links=links_pre,
                         methods=("link_zones",),
                         params_per_method={"link_zones": lp},
@@ -1378,6 +1576,9 @@ def run_diagnostics(dataset: CalibrationDataset) -> None:
         logger.info("Geometry scan for %s: %d points", geom_param, len(curve))
 
     diagnostics["geometry_sensitivity"] = geometry_results
+
+    # Release frames cache — no longer needed
+    del match_frames_cache
 
     # 5. Feature importance comparison
     diagnostics["feature_importance_comparison"] = {
@@ -1503,8 +1704,8 @@ def main() -> None:
     parser.add_argument(
         "--n-workers",
         type=int,
-        default=8,
-        help="ThreadPoolExecutor workers (default: 8)",
+        default=2,
+        help="ThreadPoolExecutor workers (default: 2; each worker loads ~1 GB frames)",
     )
     parser.add_argument(
         "--seed",

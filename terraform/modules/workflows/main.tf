@@ -1209,7 +1209,7 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path,
-        "silly-kicks>=3.16.1,<4",
+        "silly-kicks>=3.17.0,<4",
         "accessible-space>=2.0,<3",
         "numpy<2.0",
         "xgboost==3.2.0",
