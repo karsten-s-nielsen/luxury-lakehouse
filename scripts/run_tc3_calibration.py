@@ -818,6 +818,241 @@ def _enrich_match_with_params(
     return actions
 
 
+# ── Stage 2: Invariant enrichment cache ──────────────────────────────────
+# Steps 4b (link_zones pressure, depends on k3) and 9 (off-ball context,
+# depends on pre_seconds + min_displacement_m) are the ONLY trial-varying
+# steps.  The other 14 steps are invariant across Stage 2 trials.
+# Computing them once and caching saves ~95% of per-trial wall time.
+
+# Columns written by the two trial-dependent steps:
+_TRIAL_DEPENDENT_COLS = [
+    "pressure_on_actor__link_zones",
+    "n_off_ball_runners_pre_window",
+    "max_off_ball_run_displacement_pre_window",
+    "mean_off_ball_run_speed_pre_window",
+    "n_off_ball_runners_toward_goal_pre_window",
+]
+
+
+def _enrich_match_invariant(
+    *,
+    actions: pd.DataFrame,
+    frames: pd.DataFrame,
+    xt: Any,
+    home_team_id: str,
+    match_id_native: str,
+    data_source: str,
+    carrier_tolerance_m: float,
+    carrier_beta: float,
+    carrier_gamma: float,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Run all enrichment steps EXCEPT the trial-dependent ones (4b, 9).
+
+    Returns (enriched_actions, links) — links are needed by the patch step.
+    Trial-dependent columns are set to NaN as placeholders.
+    """
+    from silly_kicks.spadl.utils import add_pre_shot_gk_context
+    from silly_kicks.tracking import (
+        add_action_context,
+        add_actor_pre_window,
+        add_cover_shadows,
+        add_defensive_line,
+        add_gk_influence,
+        add_line_break,
+        add_pressure_on_actor,
+        add_sync_score,
+        add_team_shape,
+        derive_team_in_possession,
+        infer_ball_carrier,
+        link_actions_to_frames,
+        pitch_control_at_action,
+    )
+
+    from ingestion.tracking_context import _resolve_enrichment_identity
+
+    actions = _resolve_enrichment_identity(
+        actions.copy(),
+        provider=data_source,
+        match_id_native=match_id_native,
+    )
+
+    # Step 0: Link actions to frames
+    links, _report = link_actions_to_frames(actions, frames)
+
+    # Step 1: GK resolution
+    actions = add_pre_shot_gk_context(actions, frames=frames)
+
+    # Step 2: Action context
+    actions = add_action_context(actions, frames, links=links)
+
+    # Step 3: Actor pre-window
+    actions = add_actor_pre_window(actions, frames, links=links)
+
+    # Step 4a: Pressure — andrienko_oval (invariant)
+    actions = add_pressure_on_actor(
+        actions,
+        frames,
+        links=links,
+        methods=("andrienko_oval",),
+    )
+
+    # Step 4b: SKIPPED — link_zones depends on k3 (trial-dependent)
+    actions["pressure_on_actor__link_zones"] = np.nan
+
+    # Step 4c: Pressure — bekkers_pi (invariant)
+    try:
+        actions = add_pressure_on_actor(
+            actions,
+            frames,
+            links=links,
+            methods=("bekkers_pi",),
+        )
+    except ValueError as exc:
+        if "is_ball=True" in str(exc):
+            actions["pressure_on_actor__bekkers_pi"] = np.nan
+        else:
+            raise
+
+    # Steps 5-7: Pitch control (invariant)
+    for method in ("spearman", "fernandez_bornn", "voronoi"):
+        s = pitch_control_at_action(actions, frames, links=links, method=method)
+        actions[s.name] = s.values
+
+    # Step 8: Defensive line (invariant)
+    actions = add_defensive_line(actions, frames, links=links, home_team_id=home_team_id)
+
+    # Step 9: SKIPPED — off-ball context depends on pre_seconds/min_displacement_m
+    for col in _TRIAL_DEPENDENT_COLS[1:]:  # skip pressure col already set above
+        actions[col] = np.nan
+
+    # Step 10: Ward line-breaking (invariant)
+    actions = add_line_break(
+        actions,
+        frames,
+        links=links,
+        method="ward",
+        home_team_id=home_team_id,
+    )
+
+    # Step 11: Team shape (invariant)
+    actions = add_team_shape(actions, frames, links=links, home_team_id=home_team_id)
+
+    # Step 12: DAS (carrier params fixed from Stage 1 — invariant)
+    from silly_kicks.tracking._das import get_individual_das
+
+    try:
+        carrier = infer_ball_carrier(
+            frames,
+            tolerance_m=carrier_tolerance_m,
+            beta=carrier_beta,
+            gamma=carrier_gamma,
+        )
+        frames_with_tip = derive_team_in_possession(frames, carrier)
+        del carrier
+
+        linked = links[["action_id", "frame_id"]].dropna(subset=["frame_id"])
+        linked = linked.merge(actions[["action_id", "period_id"]], on="action_id", how="left")
+        linked_frame_ids = linked[["period_id", "frame_id"]].drop_duplicates()
+        das_frames = frames_with_tip.merge(linked_frame_ids, on=["period_id", "frame_id"], how="inner")
+        del linked, frames_with_tip
+
+        das_result = get_individual_das(das_frames, use_progress_bar=False, chunk_size=10)
+        del das_frames
+
+        player_rows = das_result[das_result["is_ball"] != True]  # noqa: E712
+        valid_rows = player_rows.dropna(subset=["DAS"])
+        das_lookup: dict[tuple, dict] = {}
+        for (pid, fid, tid), grp in valid_rows.groupby(["period_id", "frame_id", "team_id"]):
+            das_lookup.setdefault((pid, fid), {})[tid] = float(grp["DAS"].sum())
+        del das_result, player_rows, valid_rows
+
+        pointer_lookup = links.set_index("action_id")
+        team_vals = np.full(len(actions), np.nan)
+        opp_vals = np.full(len(actions), np.nan)
+
+        for row in actions.itertuples():
+            i = row.Index
+            aid = row.action_id
+            if aid not in pointer_lookup.index:
+                continue
+            fid_raw = pointer_lookup.at[aid, "frame_id"]
+            if pd.isna(fid_raw):
+                continue
+            key = (row.period_id, int(float(fid_raw)))
+            if key not in das_lookup:
+                continue
+            team_id = row.team_id
+            team_vals[i] = das_lookup[key].get(team_id, np.nan)
+            opp = [v for k, v in das_lookup[key].items() if k != team_id]
+            if opp:
+                opp_vals[i] = opp[0]
+
+        actions["das_team"] = team_vals
+        actions["das_opponent"] = opp_vals
+        actions["das_diff"] = team_vals - opp_vals
+
+    except (IndexError, ValueError, RuntimeError, TypeError):
+        logger.exception("DAS degraded to NaN for match %s", match_id_native)
+        actions["das_team"] = np.nan
+        actions["das_opponent"] = np.nan
+        actions["das_diff"] = np.nan
+
+    # Step 13: GK influence (invariant)
+    actions = add_gk_influence(actions, frames, xt, links=links, home_team_id=home_team_id)
+
+    # Step 14: Cover shadows (invariant)
+    actions = add_cover_shadows(actions, frames, xt, links=links, home_team_id=home_team_id)
+
+    # Step 15: Sync score (invariant)
+    actions = add_sync_score(actions, links)
+
+    return actions, links
+
+
+def _patch_trial_columns(
+    *,
+    base_actions: pd.DataFrame,
+    frames: pd.DataFrame,
+    links: pd.DataFrame,
+    home_team_id: str,
+    k3: float,
+    pre_seconds: float,
+    min_displacement_m: float,
+) -> pd.DataFrame:
+    """Overwrite only the trial-dependent columns on a cached base enrichment.
+
+    Runs Steps 4b (link_zones pressure) and 9 (off-ball context) only.
+    """
+    from silly_kicks.tracking import (
+        LinkParams,
+        add_off_ball_context,
+        add_pressure_on_actor,
+    )
+
+    actions = base_actions.copy()
+
+    # Step 4b: link_zones pressure (k3)
+    actions = add_pressure_on_actor(
+        actions,
+        frames,
+        links=links,
+        methods=("link_zones",),
+        params_per_method={"link_zones": LinkParams(k3=k3)},
+    )
+
+    # Step 9: Off-ball context (pre_seconds, min_displacement_m)
+    actions = add_off_ball_context(
+        actions,
+        frames,
+        links=links,
+        home_team_id=home_team_id,
+        pre_seconds=pre_seconds,
+        min_displacement_m=min_displacement_m,
+    )
+
+    return actions
+
+
 # ── Stage 1: Carrier accuracy ────────────────────────────────────────────
 
 
@@ -1094,6 +1329,64 @@ def _enrich_match_worker(args: tuple) -> pd.DataFrame:
     return result
 
 
+def _invariant_worker(args: tuple) -> tuple[str, pd.DataFrame, pd.DataFrame]:
+    """Compute invariant enrichment for a single match and cache to parquet.
+
+    Returns (match_id, base_actions, links).
+    """
+    match, xt, carrier_params = args
+    cache_dir = CACHE_DIR / match.provider / match.match_id
+    base_path = cache_dir / "enriched_base.parquet"
+    links_path = cache_dir / "links.parquet"
+
+    if base_path.exists() and links_path.exists():
+        logger.info("Invariant cache hit: %s/%s", match.provider, match.match_id)
+        return (
+            match.match_id,
+            pd.read_parquet(base_path),
+            pd.read_parquet(links_path),
+        )
+
+    logger.info("Computing invariant enrichment: %s/%s", match.provider, match.match_id)
+    frames = match.load_frames()
+    base_actions, links = _enrich_match_invariant(
+        actions=match.actions.copy(),
+        frames=frames,
+        xt=xt,
+        home_team_id=match.home_team_id,
+        match_id_native=match.match_id,
+        data_source=match.provider,
+        carrier_tolerance_m=carrier_params["tolerance_m"],
+        carrier_beta=carrier_params["beta"],
+        carrier_gamma=carrier_params["gamma"],
+    )
+    del frames
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    base_actions.to_parquet(base_path, index=False)
+    links.to_parquet(links_path, index=False)
+    logger.info("Cached invariant enrichment: %s/%s", match.provider, match.match_id)
+
+    return match.match_id, base_actions, links
+
+
+def _patch_worker(args: tuple) -> pd.DataFrame:
+    """Apply trial-dependent columns to a cached base enrichment."""
+    match, base_actions, links, trial_params = args
+    frames = match.load_frames()
+    result = _patch_trial_columns(
+        base_actions=base_actions,
+        frames=frames,
+        links=links,
+        home_team_id=match.home_team_id,
+        k3=trial_params["k3"],
+        pre_seconds=trial_params["pre_seconds"],
+        min_displacement_m=trial_params["min_displacement_m"],
+    )
+    del frames
+    return result
+
+
 def _compute_provider_brier(
     enriched_actions: list[pd.DataFrame],
     matches: list[MatchData],
@@ -1232,7 +1525,20 @@ def run_stage2(
     n_workers: int = 2,
     seed: int = 42,
 ) -> None:
-    """Stage 2: Optimize k3 + off-ball-runs via augmented VAEP Brier."""
+    """Stage 2: Optimize k3 + off-ball-runs via augmented VAEP Brier.
+
+    Two-phase approach for efficiency:
+      Phase A (once): compute invariant enrichment for all 78 matches and cache
+        to parquet.  Steps 4b (link_zones, k3) and 9 (off-ball, pre_seconds +
+        min_displacement_m) are skipped — their columns set to NaN placeholders.
+      Phase B (per trial): load cached base + links, run ONLY steps 4b and 9
+        with the trial's candidate params, then evaluate VAEP Brier.
+
+    This avoids re-running pitch control (x3), DAS, GK influence, cover
+    shadows, team shape, defensive line, etc. on every trial (~95% of wall
+    time).
+    """
+    import time
     from concurrent.futures import ThreadPoolExecutor
 
     import optuna
@@ -1246,25 +1552,43 @@ def run_stage2(
     carrier_params = stage1["best_params"]
     logger.info("Using Stage 1 carrier params: %s", carrier_params)
 
-    # Compute default feature variances for H1 sanity gate (cached)
+    # ── Phase A: Invariant enrichment (cached) ───────────────────────────
+    logger.info("Phase A: Computing/loading invariant enrichment for %d matches...", len(dataset.matches))
+    t0 = time.monotonic()
+
+    invariant_args = [(m, dataset.xt, carrier_params) for m in dataset.matches]
+    base_cache: dict[str, pd.DataFrame] = {}  # match_id → base_actions
+    links_cache: dict[str, pd.DataFrame] = {}  # match_id → links
+
+    with ThreadPoolExecutor(max_workers=n_workers) as pool:
+        for match_id, base_actions, links in pool.map(_invariant_worker, invariant_args):
+            base_cache[match_id] = base_actions
+            links_cache[match_id] = links
+
+    logger.info(
+        "Phase A complete: %d matches cached in %.1f min",
+        len(base_cache),
+        (time.monotonic() - t0) / 60,
+    )
+
+    # ── Default feature variances for H1 gate ────────────────────────────
     variance_cache_path = OUTPUT_DIR / "default_variances.json"
     if variance_cache_path.exists():
-        logger.info(
-            "Loading cached default feature variances from %s",
-            variance_cache_path,
-        )
+        logger.info("Loading cached default feature variances from %s", variance_cache_path)
         default_variances = json.loads(variance_cache_path.read_text())
     else:
-        logger.info("Computing default feature variances for H1 gate (parallel)...")
+        logger.info("Computing default feature variances for H1 gate...")
         default_trial_params = {
             "k3": 1.0,
             "pre_seconds": 1.5,
             "min_displacement_m": 3.0,
         }
-        default_worker_args = [(m, dataset.xt, carrier_params, default_trial_params) for m in dataset.matches]
+        default_patch_args = [
+            (m, base_cache[m.match_id], links_cache[m.match_id], default_trial_params) for m in dataset.matches
+        ]
         default_enriched: list[pd.DataFrame] = []
         with ThreadPoolExecutor(max_workers=n_workers) as pool:
-            for result in pool.map(_enrich_match_worker, default_worker_args):
+            for result in pool.map(_patch_worker, default_patch_args):
                 default_enriched.append(result)
 
         default_features = pd.concat(
@@ -1275,6 +1599,7 @@ def run_stage2(
         variance_cache_path.write_text(json.dumps(default_variances, indent=2))
         logger.info("Cached default variances to %s", variance_cache_path)
 
+    # ── Phase B: Optuna trial loop (patch only) ──────────────────────────
     storage = f"sqlite:///{OUTPUT_DIR / 'tc3_stage2.db'}"
     study = optuna.create_study(
         study_name="tc3_stage2_vaep_brier",
@@ -1293,6 +1618,7 @@ def run_stage2(
     )
 
     def objective(trial: optuna.Trial) -> float:
+        t_start = time.monotonic()
         k3 = trial.suggest_float("k3", 0.1, 5.0, log=True)
         pre_seconds = trial.suggest_float("pre_seconds", 0.5, 5.0)
         min_displacement_m = trial.suggest_float("min_displacement_m", 1.0, 8.0)
@@ -1303,11 +1629,11 @@ def run_stage2(
             "min_displacement_m": min_displacement_m,
         }
 
-        worker_args = [(m, dataset.xt, carrier_params, trial_params) for m in dataset.matches]
+        patch_args = [(m, base_cache[m.match_id], links_cache[m.match_id], trial_params) for m in dataset.matches]
 
         enriched_actions: list[pd.DataFrame] = []
         with ThreadPoolExecutor(max_workers=n_workers) as pool:
-            for result in pool.map(_enrich_match_worker, worker_args):
+            for result in pool.map(_patch_worker, patch_args):
                 enriched_actions.append(result)
 
         mean_brier, provider_briers, feat_importances = _compute_provider_brier(
@@ -1321,6 +1647,15 @@ def run_stage2(
         trial.set_user_attr("per_provider_brier", provider_briers)
         if feat_importances:
             trial.set_user_attr("feature_importances", feat_importances)
+
+        elapsed_min = (time.monotonic() - t_start) / 60
+        logger.info(
+            "Trial %d: Brier=%.6f, params=%s (%.1f min)",
+            trial.number,
+            mean_brier,
+            trial_params,
+            elapsed_min,
+        )
 
         return mean_brier
 
