@@ -13,6 +13,8 @@ compute_off_ball_xt,wf-off-ball-xt
 compute_pitch_control,wf-pitch-control
 compute_tracking_context,wf-tracking-context
 preflight_tracking_context,wf-tracking-context
+compute_action_context,wf-action-context
+preflight_action_context,wf-action-context
 preflight_spadl_vaep,wf-vaep
 compute_spadl_vaep,wf-vaep
 compute_xg_model_v2,wf-xg-v2

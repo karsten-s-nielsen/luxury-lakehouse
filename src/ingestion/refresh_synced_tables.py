@@ -232,6 +232,7 @@ SYNCED_TABLES: list[SyncedTableConfig] = [
     SyncedTableConfig("fct_funnel_stages_agg_synced", "fct_funnel_stages_agg", ("match_id", "team_id", "game_state")),
     SyncedTableConfig("fct_discipline_events_synced", "fct_discipline_events", ("event_id",)),
     SyncedTableConfig("fct_tracking_context_synced", "fct_tracking_context", ("tracking_context_id",)),
+    SyncedTableConfig("fct_action_context_synced", "fct_action_context", ("action_context_id",), "TRIGGERED"),
     # ── Cost / Observability ─────────────────────────────────────────────────
     SyncedTableConfig("workflow_cost_live_synced", "workflow_cost_live", ("run_id",), schema_override="observability"),
     # ── Dimension tables ─────────────────────────────────────────────────────

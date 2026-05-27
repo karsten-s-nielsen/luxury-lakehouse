@@ -83,7 +83,7 @@ def test_synced_tables_list_has_41_entries() -> None:
     """SYNCED_TABLES drift guard — 41 SyncedTableConfig entries."""
     from ingestion.refresh_synced_tables import SYNCED_TABLES, SyncedTableConfig
 
-    assert len(SYNCED_TABLES) == 41
+    assert len(SYNCED_TABLES) == 42
     assert all(isinstance(c, SyncedTableConfig) for c in SYNCED_TABLES)
 
 
@@ -157,7 +157,7 @@ def test_synced_tables_scheduling_policy_distribution() -> None:
 
     triggered = [c for c in SYNCED_TABLES if c.scheduling_policy == "TRIGGERED"]
     snapshot = [c for c in SYNCED_TABLES if c.scheduling_policy == "SNAPSHOT"]
-    assert len(triggered) == 12, f"Expected 12 TRIGGERED, got {len(triggered)}: {[c.name for c in triggered]}"
+    assert len(triggered) == 13, f"Expected 13 TRIGGERED, got {len(triggered)}: {[c.name for c in triggered]}"
     assert len(snapshot) == 29, f"Expected 29 SNAPSHOT, got {len(snapshot)}: {[c.name for c in snapshot]}"
 
 

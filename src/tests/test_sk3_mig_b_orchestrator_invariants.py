@@ -227,7 +227,7 @@ def _extract_pep723_block(src: str) -> str:
 def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     """No trainer may pin `silly-kicks` in its PEP 723 deps.
 
-    The wheel's ``[spadl]`` extra (silly-kicks>=3.7.0,<4) is the single source
+    The wheel's ``[spadl]`` extra (silly-kicks>=3.22.2,<4) is the single source
     of truth. Trainers install ``luxury-lakehouse[spadl] @ ...wheel`` which
     resolves silly-kicks transitively. uv silently picks a conflicting
     top-level pin over the wheel's transitive pin (verified empirically
@@ -254,11 +254,11 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     )
 
 
-# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (3, 7, 0) ──────────
+# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (3, 23, 0) ─────────
 
 
 def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
-    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (3, 7, 0)`.
+    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (3, 23, 0)`.
 
     Per spec §2.10.5: the runtime check inside `main()` is not directly
     introspectable post-hoc, so we assert the constant. Code review covers
@@ -274,9 +274,11 @@ def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
         if not hasattr(trainer, "_REQUIRED_SK_MIN"):
             missing.append(item)
             continue
-        expected = (3, 7, 0)
+        expected = (3, 23, 0)
         actual = trainer._REQUIRED_SK_MIN
         if actual != expected:
             wrong_value[item] = actual
-    assert not missing, f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (3, 7, 0)`: {missing}"
-    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (3, 7, 0): {wrong_value}"
+    assert not missing, (
+        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (3, 23, 0)`: {missing}"
+    )
+    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (3, 23, 0): {wrong_value}"

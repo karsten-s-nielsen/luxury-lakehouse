@@ -1,0 +1,79 @@
+---
+name: Action Context Enrichment
+id: wf-action-context
+version: "1.0"
+status: production
+type: heuristic
+domain: action-features
+owners:
+  - karsten
+tags:
+  - action-context
+  - game-state
+  - tracking
+  - pitch-control
+  - pressure
+  - team-shape
+  - line-breaking
+  - gk-influence
+  - obso
+  - pausa
+
+inputs:
+  datasets:
+    - id: "{catalog}.bronze.spadl_actions"
+      source: delta-table
+      description: "SPADL actions from all 6 providers"
+    - id: "{catalog}.bronze.idsse_tracking"
+      source: delta-table
+      description: "IDSSE (Sportec) raw tracking data"
+    - id: "{catalog}.bronze.metrica_tracking"
+      source: delta-table
+      description: "Metrica raw tracking data"
+    - id: "{catalog}.bronze.skillcorner_tracking"
+      source: delta-table
+      description: "SkillCorner raw tracking data"
+    - id: "{catalog}.bronze.gradientsports_tracking"
+      source: delta-table
+      description: "GradientSports raw tracking data"
+    - id: "{catalog}.bronze.statsbomb_360"
+      source: delta-table
+      description: "StatsBomb 360 freeze-frame snapshots (SB360 tier)"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.spadl_action_context"
+      destination: delta-table
+      description: "Per-action context features (~102 columns for tracking, ~5 for event-only)"
+
+execution:
+  enrichment:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: compute_action_context
+    module: ingestion.action_context
+    schedule: "daily 06:00 UTC"
+    timeout: "7200s"
+    environment: spadl
+
+dbt_model: fct_action_context
+
+idempotency:
+  strategy: skip-guard
+  key:
+    - match_id
+    - data_source
+  description: "Skip guard checks bronze.spadl_action_context for existing (match_id, data_source) pairs."
+
+performance:
+  memory_ceiling: "800 MB per UDF group (1 GB limit)"
+  compute_estimate: "2-5 min per tracking match, <10s per event-only match"
+---
+
+## Overview
+
+Unified action context pipeline (AC-1). Runs the full silly-kicks enrichment
+chain in a single applyInPandas pass per match. Covers all 6 providers:
+StatsBomb, Wyscout, IDSSE, Metrica, SkillCorner, GradientSports.
+Event-only providers get game_state + GK resolution (~5 columns);
+tracking providers get the full ~102 column feature set.

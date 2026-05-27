@@ -209,6 +209,12 @@ INDEXES: list[tuple[str, str, str]] = [
     ("idx_tracking_context_match_key", "fct_tracking_context_synced", "match_key"),
     ("idx_tracking_context_match_team_key", "fct_tracking_context_synced", "match_key, team_key"),
     ("idx_tracking_context_match_player_key", "fct_tracking_context_synced", "match_key, player_key"),
+    # ── fct_action_context_synced — AC-1 unified action features ────────
+    # Superset of tracking_context; includes event-only providers.
+    # Primary: per-match feature retrieval. Secondary: per-player, per-team.
+    ("idx_action_context_match_key", "fct_action_context_synced", "match_key"),
+    ("idx_action_context_match_team_key", "fct_action_context_synced", "match_key, team_key"),
+    ("idx_action_context_match_player_key", "fct_action_context_synced", "match_key, player_key"),
 ]
 
 # pgvector HNSW index definitions: (index_name, table, using_clause)

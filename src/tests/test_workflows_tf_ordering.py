@@ -264,7 +264,7 @@ def test_data_ingestion_parser_count_anchor() -> None:
     # 35 → 36 in Gradient Sports fan-out (2026-05-20): monolithic task split into
     # `preflight_gradientsports` + `ingest_gradientsports` (for_each_task parent)
     # + `ingest_gradientsports_iteration` (inner). Net +1 top-level block.
-    assert len(task_keys) == 36, f"expected 36 task blocks on data_ingestion, parser found {len(task_keys)}"
+    assert len(task_keys) == 38, f"expected 38 task blocks on data_ingestion, parser found {len(task_keys)}"
 
 
 if __name__ == "__main__":

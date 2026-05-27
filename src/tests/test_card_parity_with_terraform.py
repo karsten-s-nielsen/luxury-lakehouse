@@ -181,6 +181,12 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     "compute_elastic_sync": "wf-elastic-sync",
     "compute_pausa": "wf-obso-pausa",
     "compute_tracking_context": "wf-tracking-context",
+    "compute_action_context": "wf-action-context",
+    # AC-1 fan-out: Runtime chunk-discovery preflight feeding the
+    # `compute_action_context` for_each_task fan-out. Pure orchestration
+    # helper — writes Databricks task values and exits.
+    # Subordinate to wf-action-context; no independent methodology.
+    "preflight_action_context": None,
     # PR-Cycle-B (2026-05-01): split out of wf-hf-sync into its own scheduled
     # Databricks task so wf-obso-pausa can declare an explicit dependency.
     "import_obso_results": "wf-import-obso",
@@ -230,6 +236,7 @@ _HF_JOBS_SCRIPT_TO_CARD: dict[str, str | None] = {
     "publish_line_breaking_passes_hf.py": None,
     "publish_pitch_control_tracking_hf.py": None,
     "publish_tracking_context_hf.py": None,
+    "publish_action_context_hf.py": None,
 }
 
 

@@ -24,6 +24,7 @@
 #   compute_formations_efpi — EFPI template-matching formation detection (depends on pitch control)
 #   compute_formations_shape_graph — Shape graph geometric formation detection (depends on EFPI)
 #   compute_tracking_context — Action-coupled tracking features (depends on SPADL + all tracking providers)
+#   compute_action_context — Unified action context enrichment (depends on SPADL + all providers)
 #   run_model_validation — Model drift detection (depends on compute_pausa)
 #   backfill_statsbomb_360 — Catchup 360 freeze frames for already-ingested matches (depends on statsbomb)
 #   hf_sync — Combined HF Hub imports + exports (depends on gate + compute tasks)
@@ -126,6 +127,49 @@ resource "databricks_job" "data_ingestion" {
     }
 
     environment_key = "statsbomb"
+  }
+
+  # ── Task: Compute unified action context features (AC-1 fan-out) ────────
+  # All silly-kicks enrichments for SPADL actions in a single pass per
+  # match. Event-only providers get game_state + GK resolution (~5 cols);
+  # tracking providers get the full enrichment chain (~102 cols).
+  # Writes bronze.spadl_action_context.
+  #
+  # AC-1 fan-out: for_each_task so each match gets its own 16 GB serverless
+  # driver. Preflight emits chunks as "provider:id1,id2" strings.
+  task {
+    task_key = "compute_action_context"
+
+    depends_on {
+      task_key = "preflight_action_context"
+    }
+
+    for_each_task {
+      inputs      = "{{tasks.preflight_action_context.values.action_context_chunks}}"
+      concurrency = 8
+
+      task {
+        task_key        = "compute_action_context_iteration"
+        timeout_seconds = 1800
+        # Go omitempty zero-value bug: max_retries=0 is silently dropped by
+        # the TF provider. scripts/patch_job_retries.py enforces this
+        # post-apply via the REST API.
+        max_retries = 0
+
+        python_wheel_task {
+          package_name = "luxury_lakehouse"
+          entry_point  = "compute_action_context"
+
+          parameters = [
+            "--catalog", var.catalog_name,
+            "--schema", "bronze",
+            "--match-ids", "{{input}}",
+          ]
+        }
+
+        environment_key = "analytics"
+      }
+    }
   }
 
   # ── Task: Compute DEFCON-lite defensive valuation ──────────────────────
@@ -676,6 +720,7 @@ resource "databricks_job" "data_ingestion" {
     # bronze read by an output_mart. (compute_spadl_vaep is in stage 2;
     # extract_tracking_metadata + backfills + resolve_players are in
     # stage 1.) Order: alphabetical.
+    depends_on { task_key = "compute_action_context" }
     depends_on { task_key = "compute_defcon_lite" }
     depends_on { task_key = "compute_elastic_sync" }
     depends_on { task_key = "compute_embeddings_360" }
@@ -970,6 +1015,43 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
+  # ── Task: Action-context preflight — discover matches + emit chunks ──
+  # AC-1: discovers unprocessed matches across all 6 providers via skip_guard,
+  # partitions into chunks, fits xT once, and writes both as Databricks task
+  # values (`action_context_chunks`, `action_context_xt`).
+  #
+  # The downstream `compute_action_context` for_each_task consumes via
+  # `{{tasks.preflight_action_context.values.action_context_chunks}}`.
+  task {
+    task_key        = "preflight_action_context"
+    timeout_seconds = 300
+    max_retries     = 0
+
+    # Needs SPADL + all provider data ingested before checking freshness.
+    # Order: alphabetical (test_workflows_tf_ordering enforcement).
+    depends_on { task_key = "backfill_statsbomb_360" }
+    depends_on { task_key = "compute_spadl_vaep" }
+    depends_on { task_key = "ingest_gradientsports" }
+    depends_on { task_key = "ingest_idsse" }
+    depends_on { task_key = "ingest_idsse_events" }
+    depends_on { task_key = "ingest_metrica" }
+    depends_on { task_key = "ingest_skillcorner" }
+    depends_on { task_key = "ingest_statsbomb" }
+    depends_on { task_key = "ingest_wyscout" }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "preflight_action_context"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+      ]
+    }
+
+    environment_key = "analytics"
+  }
+
   # ── Task: Gradient Sports preflight (guard + match discovery) ───────────
   # Runs the skip guard, discovers matches via the pining-for-the-data API,
   # and emits each match as a JSON-serialized MatchInfo string in the task
@@ -1209,7 +1291,7 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path,
-        "silly-kicks>=3.19.0,<4",
+        "silly-kicks>=3.23.0,<4",
         "accessible-space>=2.0,<3",
         "numpy<2.0",
         "xgboost==3.2.0",

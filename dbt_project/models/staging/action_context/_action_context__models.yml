@@ -1,0 +1,50 @@
+version: 2
+
+models:
+  - name: stg_action_context__values
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Staging view for AC-1 action context. Deduplicates bronze data
+      by (match_id, action_id), keeping the most recent ingestion.
+      Renames match_id -> native_match_id, player_id -> player_id_native,
+      team_id -> team_id_native for downstream Kimball FK resolution.
+    columns:
+      - name: native_match_id
+        description: Native match identifier (provider-specific string)
+        data_tests:
+          - not_null
+      - name: action_id
+        description: SPADL action index within match
+        data_tests:
+          - not_null
+      - name: data_source
+        description: "Provider: statsbomb, wyscout, idsse, metrica, skillcorner, gradientsports"
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner', 'gradientsports']
+      - name: game_state
+        description: >
+          Score-relative game state at the moment of the action.
+          Derived from cumulative goals for the acting team vs opponent.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['winning', 'losing', 'drawing']
+      - name: line_breaking_type__ward
+        description: >
+          Ward line-breaking categorical. Values are "between_lines"
+          (pass crosses both defensive+midfield lines) or "around_line"
+          (pass crosses exactly one formation line). NULL when no
+          line-breaking detected.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['between_lines', 'around_line']
+              config:
+                where: "line_breaking_type__ward is not null"

@@ -29,17 +29,17 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             dbtBuildAndRefresh = container "dbt_build_and_refresh.py" "Chains dbt build with synced table refresh" "Python, subprocess"
         }
 
-        pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "45 workflow-card-registered workflows. Centralized hooks, lifecycle tracking, three-tier cost tracking." {
+        pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "47 workflow-card-registered workflows. Centralized hooks, lifecycle tracking, three-tier cost tracking." {
             workflowFramework = container "Workflow Framework" "Registry, @workflow decorator, lifecycle runner with hook dispatch" "Python"
-            workflowCards = container "Workflow Cards" "46 YAML manifests: inputs, outputs, deps, cost estimates, provenance" "YAML" "Database"
+            workflowCards = container "Workflow Cards" "47 YAML manifests: inputs, outputs, deps, cost estimates, provenance" "YAML" "Database"
             costEstimateHook = container "CostEstimateHook" "Writes run state, entity_count, row_count, cost to Delta via MERGE" "Python, PySpark"
             hfCostRecorder = container "HFJobsCostRecorder" "Cost recorder for HF Jobs. Writes to HF Hub repos. 90-day pruning." "Python"
             guardRegistry = container "Guard Registry" "SkipGuard protocol, FilterResult, find_new_ids(), timed_check(), watermark guards (ADR-024)" "Python"
             artifactDeploy = container "Artifact Deploy" "Training-to-production contract (ADR-012). MLflow + UC Volume helpers." "Python"
             hfPublish = container "HF Publish Helper" "README delivery (ADR-014). upload_hf_readme + get_hf_card_path." "Python"
             databricksSqlFetch = container "Databricks SQL Fetch" "HTTP helper for HF Jobs trainers querying gold marts (no Spark)" "Python, requests"
-            ingestionPipelines = container "Compute Pipelines" "38 @workflow-decorated Databricks pipelines across 6 providers" "Python, PySpark"
-            refreshSyncedTables = container "Synced Table Refresh" "Triggers SNAPSHOT refresh on 41 Lakebase synced tables via SDK postgres API" "Python, databricks-sdk"
+            ingestionPipelines = container "Compute Pipelines" "39 @workflow-decorated Databricks pipelines across 6 providers" "Python, PySpark"
+            refreshSyncedTables = container "Synced Table Refresh" "Triggers SNAPSHOT refresh on 42 Lakebase synced tables via SDK postgres API" "Python, databricks-sdk"
             migrateSyncedTables = container "Synced Table Migration" "SDK-managed lifecycle: delete, CDF enable, create, wait (ADR-026). Replaces Terraform module." "Python, databricks-sdk"
             dbtRunner = container "dbt Runner" "python_wheel_task entry point. OAuth token exchange, warehouse start." "Python, dbt-core"
             evolveEngine = container "Evolve Engine" "LLM-guided architecture search. AST validation, restricted exec." "Python, OpenEvolve"
@@ -59,24 +59,24 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             telemetryTable = container "Telemetry Table" "Cycle log: items, smoke-gate pass/fail, cost tracking, heartbeat rows." "Delta Lake" "Database"
         }
 
-        dbtProject = softwareSystem "dbt Project" "Medallion transformation: 89 models (38 staging, 11 intermediate, 40 marts). Kimball dimensions, liquid clustering." {
+        dbtProject = softwareSystem "dbt Project" "Medallion transformation: 93 models (41 staging, 11 intermediate, 41 marts). Kimball dimensions, liquid clustering." {
             fctWorkflowCosts = container "fct_workflow_costs" "Gold-layer cost attribution with billing JOIN. 90-day rolling window." "SQL, dbt" "Database"
-            goldModels = container "Gold Models" "36 fact + 4 dim tables. Enforced contracts, liquid clustering." "SQL, dbt" "Database"
+            goldModels = container "Gold Models" "37 fact + 4 dim tables. Enforced contracts, liquid clustering." "SQL, dbt" "Database"
         }
 
         # Data stores
         unityCatalog = softwareSystem "Unity Catalog" "Governed Delta Lake: bronze (raw), gold (analytics), observability (metadata)" "External" {
             bronzeSchema = container "Bronze Schema" "Raw events, tracking, SPADL actions, VAEP scores, compute results" "Delta Lake" "Database"
-            goldSchema = container "Gold Schema" "36 fact + 4 dim tables. Analytics-ready." "Delta Lake" "Database"
+            goldSchema = container "Gold Schema" "37 fact + 4 dim tables. Analytics-ready." "Delta Lake" "Database"
             observabilitySchema = container "Observability Schema" "workflow_cost_live, workflow_import_checksums, workflow_watermarks, definer's-rights views" "Delta Lake" "Database"
         }
 
-        lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL endpoint syncing 41 Delta tables (72 indexes: 66 btree + 6 HNSW). SDK-managed (ADR-026)." "External"
+        lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL endpoint syncing 42 Delta tables (75 indexes: 69 btree + 6 HNSW). SDK-managed (ADR-026)." "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth, synced table metadata, pipeline triggers, state polling" "External"
-        databricksWorkflows = softwareSystem "Databricks Workflows" "40-task daily DAG: 9 ingest, 16 compute, 1 HF sync, 3 dbt_build, 4 preflight, refresh, resolve, validate" "External"
+        databricksWorkflows = softwareSystem "Databricks Workflows" "38-task daily DAG: 7 ingest, 15 compute, 5 preflight, 3 dbt_build, 2 backfill, 6 other (hf_sync, import, extract, refresh, resolve, validate)" "External"
         hfIdentity = softwareSystem "HuggingFace Identity API" "Token validation via /api/whoami-v2. Org membership check." "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds Dockerfile, serves port 7860." "External"
-        hfHub = softwareSystem "HuggingFace Hub" "16 models, 20 datasets, build-artifacts wheel. READMEs via ADR-014." "External"
+        hfHub = softwareSystem "HuggingFace Hub" "16 models, 21 datasets, build-artifacts wheel. READMEs via ADR-014." "External"
         hfJobs = softwareSystem "HuggingFace Jobs" "L40S GPU / cpu-basic compute for training and batch analytics" "External"
         openRouter = softwareSystem "OpenRouter" "LLM API: Claude Sonnet 4 (80%), Haiku 4.5 (20%) for Evolve mutations" "External"
 
@@ -381,11 +381,11 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             databricksWorkflows -> ingestionPipelines "9 leaf computes run"
             databricksWorkflows -> dbtRunner "dbt_build after leaves"
             dbtRunner -> guardRegistry "Watermark check upstream tables"
-            dbtRunner -> dbtProject "Build 40 marts"
+            dbtRunner -> dbtProject "Build 41 marts"
             dbtRunner -> observabilitySchema "Record watermarks"
             databricksWorkflows -> refreshSyncedTables "Final task"
             refreshSyncedTables -> guardRegistry "Watermark check gold tables"
-            refreshSyncedTables -> databricksApi "SNAPSHOT 41 tables via SDK"
+            refreshSyncedTables -> databricksApi "SNAPSHOT 42 tables via SDK"
             refreshSyncedTables -> observabilitySchema "Record watermarks"
             autoLayout
         }
