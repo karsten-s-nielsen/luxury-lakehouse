@@ -1017,8 +1017,9 @@ resource "databricks_job" "data_ingestion" {
 
   # ── Task: Action-context preflight — discover matches + emit chunks ──
   # AC-1: discovers unprocessed matches across all 6 providers via skip_guard,
-  # partitions into chunks, fits xT once, and writes both as Databricks task
-  # values (`action_context_chunks`, `action_context_xt`).
+  # partitions into chunks, and writes the chunk list as a Databricks task
+  # value (`action_context_chunks`). xT grid is NOT loaded here — each
+  # downstream iteration reads it from bronze.expected_threat_grids (~192 rows).
   #
   # The downstream `compute_action_context` for_each_task consumes via
   # `{{tasks.preflight_action_context.values.action_context_chunks}}`.
