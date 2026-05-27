@@ -154,6 +154,9 @@ outputs:
     - id: "{catalog}.dev_gold.fct_workflow_costs"
       destination: delta-table
       dbt_model: fct_workflow_costs
+    - id: "{catalog}.dev_gold.fct_action_context"
+      destination: delta-table
+      dbt_model: fct_action_context
     - id: "{catalog}.dev_gold.fct_tracking_context"
       destination: delta-table
       dbt_model: fct_tracking_context

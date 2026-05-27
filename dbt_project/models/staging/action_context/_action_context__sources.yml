@@ -1,0 +1,23 @@
+version: 2
+
+sources:
+  - name: action_context
+    description: >
+      Unified action-level features produced by the AC-1 pipeline.
+      One row per SPADL action for ALL providers (6). Event-only providers
+      have game_state + GK resolution populated; tracking columns NULL.
+      ~102 columns for tracking providers.
+    database: soccer_analytics
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 24, period: hour}
+        error_after: {count: 72, period: hour}
+
+    tables:
+      - name: spadl_action_context
+        description: >
+          Per-action context features. Grain: one row per SPADL action
+          per match. Provider-agnostic (data_source discriminates).

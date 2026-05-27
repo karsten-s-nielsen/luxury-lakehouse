@@ -48,6 +48,14 @@ _HF_ORG = "luxury-lakehouse"
 # an in-repo card. Currently empty — every dataset has a card after PR 4c.
 _DATASET_CARD_EXEMPT: frozenset[str] = frozenset()
 
+# In-repo dataset cards whose HF dataset is pending first publish.
+# Remove from this set once the publisher runs successfully.
+_DATASET_CARD_ORPHAN_EXEMPT: frozenset[str] = frozenset(
+    {
+        "spadl-action-context",  # AC-1 — created in this PR, publisher not yet run
+    }
+)
+
 # Models that exist on HF Hub but deliberately lack an in-repo card.
 # ``build-artifacts`` hosts the pre-built wheel (no README).
 # ``xg-model-statsbomb-wyscout`` is the retired xG v1 HF repo (XG1-RETIRE,
@@ -129,10 +137,10 @@ class TestDatasetCardParity:
         token = _hf_token_or_skip()
         hf_datasets = _list_hf_datasets(token)
         in_repo = set(_iter_card_basenames(_DATASET_CARDS_DIR))
-        orphan = in_repo - hf_datasets
+        orphan = in_repo - hf_datasets - _DATASET_CARD_ORPHAN_EXEMPT
         assert not orphan, (
             f"In-repo dataset cards without a matching HF dataset: {sorted(orphan)}. "
-            f"Delete the card OR create the HF dataset."
+            f"Delete the card OR create the HF dataset OR add to _DATASET_CARD_ORPHAN_EXEMPT."
         )
 
 
