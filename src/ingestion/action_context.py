@@ -305,9 +305,43 @@ def _get_result_schema() -> StructType:
 # circular imports at module load time.
 
 
-def _serialize_xt_grid(xt_array: np.ndarray, *, grid_l: int, grid_w: int) -> dict[str, object]:
-    """Serialize an ExpectedThreat grid as JSON-safe scalar primitives."""
-    return {"xt_grid": xt_array.tolist(), "l": grid_l, "w": grid_w}
+def _load_xt_grid_from_delta(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    task_logger: logging.Logger,
+) -> tuple[list[list[float]], int, int]:
+    """Load the pre-computed global xT grid from bronze.expected_threat_grids.
+
+    The grid is written by the ``compute_expected_threat`` pipeline (runs daily).
+    It's a tiny table (~192 rows for a 16x12 grid) -- reading it is instant.
+
+    Returns:
+        (xt_grid_data, xt_l, xt_w) -- the 2D grid as nested lists, plus dimensions.
+
+    Raises:
+        RuntimeError: If the global grid does not exist (bootstrap case --
+            ``compute_expected_threat`` must run first).
+    """
+    table = f"{catalog}.{schema}.expected_threat_grids"
+    rows = list(
+        spark.sql(
+            f"SELECT zone_x, zone_y, xt_value FROM {table} "  # noqa: S608
+            f"WHERE competition_id = 'global'"
+        ).collect()
+    )
+    if not rows:
+        msg = f"No global xT grid found in {table}. Run compute_expected_threat before compute_action_context."
+        raise RuntimeError(msg)
+
+    n_x = max(int(r.zone_x) for r in rows) + 1
+    n_y = max(int(r.zone_y) for r in rows) + 1
+    grid = np.zeros((n_y, n_x))
+    for row in rows:
+        grid[int(row.zone_y), int(row.zone_x)] = float(row.xt_value)
+
+    task_logger.info("Loaded global xT grid from Delta (%dx%d, %d cells)", n_x, n_y, len(rows))
+    return grid.tolist(), n_x, n_y
 
 
 # ── Column projection constants ──────────────────────────────────────
@@ -1125,7 +1159,11 @@ def main_preflight() -> None:
     """CLI entry point for action context preflight.
 
     Runs the skip guard, partitions discovered matches into fan-out chunks,
-    fits xT once, writes both as Databricks task values.
+    writes chunk list as a Databricks task value for the downstream for_each_task.
+
+    xT grid loading is NOT done here -- each downstream iteration reads the
+    pre-computed global grid from bronze.expected_threat_grids independently
+    (~192 rows, instant). This keeps the preflight O(1) w.r.t. data volume.
     """
     args = parse_ingestion_args("Preflight: discover unprocessed action context matches and emit chunks")
     task_logger = configure_logging("action_context_preflight")
@@ -1147,47 +1185,6 @@ def main_preflight() -> None:
 
     _write_action_chunks_task_value(chunks_for_inputs, task_logger)
 
-    # Fit xT model once and serialize for all iterations
-    if fr.count > 0:
-        from pyspark.sql import functions as F  # noqa: N812
-        from silly_kicks.xthreat import ExpectedThreat
-
-        spadl_pdf = (
-            spark.table(f"{args.catalog}.bronze.spadl_actions")
-            .filter(F.col("data_source").isin(*_ALL_PROVIDERS))
-            .select(
-                "game_id",
-                "action_id",
-                "period_id",
-                "time_seconds",
-                "team_id",
-                "player_id",
-                "type_id",
-                "result_id",
-                "bodypart_id",
-                "start_x",
-                "start_y",
-                "end_x",
-                "end_y",
-                "original_event_id",
-            )
-            .toPandas()
-        )
-        xt = ExpectedThreat().fit(spadl_pdf)
-        del spadl_pdf
-        task_logger.info("xT model fitted (grid shape %s)", xt.xT.shape)
-
-        xt_data = _serialize_xt_grid(xt.xT, grid_l=xt.l, grid_w=xt.w)
-
-        try:
-            from pyspark.dbutils import DBUtils  # type: ignore[import-not-found]
-
-            dbutils = DBUtils(spark)
-            dbutils.jobs.taskValues.set(key="action_context_xt", value=xt_data)
-            task_logger.info("Wrote task value 'action_context_xt'")
-        except (ImportError, AttributeError, RuntimeError) as exc:
-            task_logger.warning("Task values not available -- %s", exc)
-
 
 def main() -> None:
     """CLI entry point for action context enrichment (for_each_task iteration).
@@ -1198,8 +1195,6 @@ def main() -> None:
     - StatsBomb: SB360 tier (with freeze-frames) or event-only
     - Wyscout: event-only (driver-side, no tracking)
     """
-    import json
-
     args = parse_ingestion_args(
         "Compute action context features",
         extra_args=[("--match-ids", {"type": str, "default": None, "help": "provider:id1,id2"})],
@@ -1218,57 +1213,9 @@ def main() -> None:
     provider, ids, period_filter = match_ids_parsed
     task_logger.info("Iteration: provider=%s, match_ids=%s, period=%s", provider, ids, period_filter)
 
-    # Deserialize preflight xT from task value
-    try:
-        from pyspark.dbutils import DBUtils  # type: ignore[import-not-found]
-
-        dbutils = DBUtils(spark)
-        xt_raw = dbutils.jobs.taskValues.get(
-            taskKey="preflight_action_context",
-            key="action_context_xt",
-        )
-        if isinstance(xt_raw, str):
-            xt_data = json.loads(xt_raw)
-        else:
-            xt_data = xt_raw
-        xt_grid_data: list[list[float]] = xt_data["xt_grid"]
-        xt_l: int = int(xt_data["l"])
-        xt_w: int = int(xt_data["w"])
-        task_logger.info("Deserialized preflight xT grid (%dx%d)", xt_w, xt_l)
-    except (ImportError, AttributeError, RuntimeError):
-        task_logger.warning("Task values not available — fitting xT locally")
-        from pyspark.sql import functions as F  # noqa: N812
-        from silly_kicks.xthreat import ExpectedThreat
-
-        spadl_pdf = (
-            spark.table(f"{args.catalog}.bronze.spadl_actions")
-            .filter(F.col("data_source").isin(*_ALL_PROVIDERS))
-            .select(
-                "game_id",
-                "action_id",
-                "period_id",
-                "time_seconds",
-                "team_id",
-                "player_id",
-                "type_id",
-                "result_id",
-                "bodypart_id",
-                "start_x",
-                "start_y",
-                "end_x",
-                "end_y",
-                "original_event_id",
-            )
-            .toPandas()
-        )
-        xt = ExpectedThreat().fit(spadl_pdf)
-        del spadl_pdf
-        xt_serialized = _serialize_xt_grid(xt.xT, grid_l=xt.l, grid_w=xt.w)
-        xt_grid_data = list(xt_serialized["xt_grid"])  # type: ignore[arg-type]
-        xt_l = int(xt_serialized["l"])  # type: ignore[arg-type]
-        xt_w = int(xt_serialized["w"])  # type: ignore[arg-type]
-
-    from pyspark.sql import functions as F  # noqa: N812
+    # Load xT grid from pre-computed Delta table (written by compute_expected_threat).
+    # Each iteration reads independently -- ~192 rows, instant on serverless.
+    xt_grid_data, xt_l, xt_w = _load_xt_grid_from_delta(spark, args.catalog, args.schema, task_logger)
 
     catalog, schema = args.catalog, args.schema
     total_written = 0

@@ -9,10 +9,13 @@ Mock-patches all silly-kicks add_* calls to verify:
 
 from __future__ import annotations
 
+import logging
+from collections import namedtuple
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from ingestion.action_context import (
     _RESULT_COLUMNS,
@@ -22,6 +25,7 @@ from ingestion.action_context import (
     _enrich_tracking_match,
     _is_event_only_provider,
     _is_tracking_provider,
+    _load_xt_grid_from_delta,
 )
 
 
@@ -320,3 +324,62 @@ def test_provider_tier_classification() -> None:
     for p in ("statsbomb", "wyscout"):
         assert _is_event_only_provider(p), f"{p} should be event-only"
         assert not _is_tracking_provider(p), f"{p} should NOT be tracking"
+
+
+# ── _load_xt_grid_from_delta tests ───────────────────────────────────
+
+
+Row = namedtuple("Row", ["zone_x", "zone_y", "xt_value"])
+
+
+def test_load_xt_grid_from_delta_returns_correct_shape() -> None:
+    """Grid loaded from Delta must have correct dimensions and values."""
+    mock_rows = [Row(x, y, round(0.01 * (x + 1), 5)) for x in range(16) for y in range(12)]
+    mock_spark = MagicMock()
+    mock_spark.sql.return_value.collect.return_value = mock_rows
+    task_logger = logging.getLogger("test")
+
+    grid_data, xt_l, xt_w = _load_xt_grid_from_delta(mock_spark, "soccer_analytics", "bronze", task_logger)
+
+    assert xt_l == 16
+    assert xt_w == 12
+    assert len(grid_data) == 12  # outer dimension is w (rows)
+    assert len(grid_data[0]) == 16  # inner dimension is l (cols)
+    # zone_x=0, zone_y=0 should be 0.01
+    assert grid_data[0][0] == pytest.approx(0.01)
+    # zone_x=15, zone_y=11 should be 0.16
+    assert grid_data[11][15] == pytest.approx(0.16)
+
+
+def test_load_xt_grid_from_delta_queries_global_grid() -> None:
+    """Must query bronze.expected_threat_grids WHERE competition_id = 'global'."""
+    mock_rows = [Row(0, 0, 0.05)]
+    mock_spark = MagicMock()
+    mock_spark.sql.return_value.collect.return_value = mock_rows
+    task_logger = logging.getLogger("test")
+
+    _load_xt_grid_from_delta(mock_spark, "cat", "sch", task_logger)
+
+    sql_arg = mock_spark.sql.call_args[0][0]
+    assert "cat.sch.expected_threat_grids" in sql_arg
+    assert "competition_id = 'global'" in sql_arg
+
+
+def test_load_xt_grid_from_delta_raises_on_empty_result() -> None:
+    """Must raise RuntimeError when no global grid exists (bootstrap case)."""
+    mock_spark = MagicMock()
+    mock_spark.sql.return_value.collect.return_value = []
+    task_logger = logging.getLogger("test")
+
+    with pytest.raises(RuntimeError, match="No global xT grid found"):
+        _load_xt_grid_from_delta(mock_spark, "soccer_analytics", "bronze", task_logger)
+
+
+def test_load_xt_grid_from_delta_raises_on_missing_table() -> None:
+    """Must propagate Spark exception when the table does not exist."""
+    mock_spark = MagicMock()
+    mock_spark.sql.side_effect = Exception("Table or view not found")
+    task_logger = logging.getLogger("test")
+
+    with pytest.raises(Exception, match="Table or view not found"):
+        _load_xt_grid_from_delta(mock_spark, "soccer_analytics", "bronze", task_logger)

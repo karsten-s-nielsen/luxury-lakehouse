@@ -59,16 +59,29 @@
 - **Next review:** 2026-10-01 (single annual review; quarterly review can confirm calendar item still set).
 - **Status:** Active.
 
-### T4 — UnravelSports library (Joris Bekkers)
+### T4 — UnravelSports ecosystem: CDF standard, fast-forward, unravelsports library (Joris Bekkers)
 
-- **What it is:** Python library for soccer analytics (tracking data utilities, EFPI, visualization). Currently Python 3.11+, which does NOT fit the lakehouse's Python 3.10 lock (Databricks serverless constraint, see ADR referenced in `docs/engineering/conventions.md`). The lakehouse reimplemented EFPI in-house specifically to avoid this dependency.
-- **Why the lakehouse cares:** Bekkers presented at LISS 2026-04-23, confirming the library is actively maintained. A Python 3.10-compatible release (or even a compat fork) would change the EFPI reimplementation decision — it could be retired in favor of the upstream. Not urgent, but worth watching to avoid indefinitely maintaining an in-house reimplementation if the upstream moves to broader Python support.
+- **What it is:** Three related projects from Joris Bekkers / UnravelSports:
+  1. **Common Data Format (CDF)** — a JSON/JSONL schema specification for standardizing football match data delivery across providers. Covers 6 data types: match sheet, meta, event, tracking, skeletal (body pose), and video. Coordinate system: origin at pitch center, meters, x ∈ [-pitch_length/2, +pitch_length/2], y ∈ [-pitch_width/2, +pitch_width/2]. Paper: Anzer, Arnsmeyer, Bauer, Bekkers, Brefeld, Davis, Evans, Kempe, Robertson, Smith, Van Haaren (2025) — [arXiv:2505.15820](https://arxiv.org/abs/2505.15820). Pursuing **IEEE Standard 3715**. Validator on PyPI (`common-data-format-validator`, v0.2.3 alpha). Author consortium: RB Leipzig, DFB, FIFA, KU Leuven/DTAI (Jesse Davis, Jan Van Haaren — original VAEP co-authors, see T2), U.S. Soccer, UnravelSports/PySport.
+  2. **fast-forward** — Rust-powered tracking data loader with Python bindings (Polars DataFrames). 11 providers: CDF, GradientSports, HawkEye, OptaVision, RespoVision, SecondSpectrum, Signality, SkillCorner, Sportec, StatsPerform, Tracab. 3 layouts (long/long_ball/wide), 6 orientation modes, 14 named coordinate systems (6 unique, CDF as pivot). Python 3.11+ only, beta, closed-source Rust backend. PyPI: `fast-forward-football`.
+  3. **unravelsports** — Python library for soccer analytics (EFPI, visualization). Python 3.11+, which does NOT fit the lakehouse's Python 3.10 lock (Databricks serverless constraint). The lakehouse reimplemented EFPI in-house to avoid this dependency.
+- **Overlap assessment (2026-05-26):**
+  - **CDF vs lakehouse**: CDF is a data *delivery* specification; the lakehouse is data *analysis* infrastructure. They operate at different layers. CDF events are raw provider events with standardized field names — not SPADL, not action-converted. The CDF paper explicitly acknowledges SPADL (§4) as complementary. CDF's coordinate system (center-origin, meters) differs from silly-kicks' post-SPADL convention (bottom-left origin, meters) but is trivially convertible. CDF's `play_direction` metadata is a cleaner approach than the lakehouse's empirical direction-of-play inference (ADR-022), but depends on providers delivering it.
+  - **fast-forward vs lakehouse ingestion**: Same problem (per-provider tracking parsing), different environment. fast-forward outputs Polars DataFrames locally; the lakehouse ingests to Spark/Delta on Databricks serverless. Neither can replace the other. 3 shared providers (SkillCorner, Sportec, GradientSports); fast-forward covers 8 additional providers the lakehouse doesn't touch.
+  - **No duplication with silly-kicks**: CDF/fast-forward have zero SPADL, VAEP, xT, or action-value computation. silly-kicks owns that entire layer unchallenged.
+  - **Natural integration point (future)**: silly-kicks could accept CDF events as an input format alongside StatsBomb/Wyscout/etc. This is a silly-kicks change, not a lakehouse change. Low priority since no provider currently delivers in CDF format natively.
+- **Why the lakehouse cares:**
+  - If CDF achieves IEEE 3715 ratification AND providers adopt it, the lakehouse would benefit from adding a CDF ingestion path (a new data source, not a retrofit of existing ones). silly-kicks adding a CDF converter would be the most natural first step.
+  - fast-forward's Python 3.11+ requirement and closed-source Rust backend make it unsuitable as a lakehouse dependency. Watching only.
+  - unravelsports Python 3.10 compatibility: if `python_requires` drops to `>=3.10`, trigger a "retire in-house EFPI reimplementation" TODO item.
 - **Mechanism:**
-  - GitHub watch (Releases) on the unravelsports repo.
-  - Check Python version support in quarterly review — if `python_requires` drops to `>=3.10`, trigger a "retire in-house EFPI reimplementation" TODO item.
-- **Last reviewed:** 2026-04-24 (initial).
+  - GitHub watch (Releases) on [UnravelSports/fast-forward](https://github.com/UnravelSports/fast-forward) and [UnravelSports/common-data-format-validator](https://github.com/UnravelSports/common-data-format-validator).
+  - GitHub watch (Releases) on the unravelsports repo for Python version changes.
+  - Google Scholar alert on "Common Data Format football soccer" for IEEE 3715 ratification / provider adoption announcements.
+  - Check CDF validator changelog at quarterly review for schema stability signals (breaking changes = still immature).
+- **Last reviewed:** 2026-05-26 (expanded from EFPI-only to full ecosystem).
 - **Next review:** 2026-07-24.
-- **Status:** Active, passive watch (no expected near-term action).
+- **Status:** Active, passive watch. CDF schema still alpha (v0.2.3, 4 breaking revisions in 14 months). IEEE 3715 not ratified. No provider delivering in CDF format natively. kloppy CDF support mentioned on cdf.football but not landed in kloppy's repo. No near-term action for lakehouse or silly-kicks.
 
 ### T5 — Vidal-Codina et al. (2022): Automatic event detection from tracking data
 
