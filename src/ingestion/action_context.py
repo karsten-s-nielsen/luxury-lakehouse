@@ -907,32 +907,116 @@ def _make_action_context_udf(
 # ── Guard ─────────────────────────────────────────────────────────────
 
 
-def _spadl_match_ids_by_provider(spark: SparkSession, catalog: str) -> dict[str, set[str]]:
-    """Return {provider: {match_id_native, ...}} for all providers with SPADL actions."""
+def _find_tracking_new_ids(
+    spark: SparkSession,
+    tracking_table: str,
+    spadl_table: str,
+    results_table: str,
+    provider: str,
+) -> list[str]:
+    """Find unprocessed tracking matches that also have SPADL actions (Spark-native).
+
+    Three-way query pushed entirely to Spark executors:
+      tracking ∩ spadl (INNER JOIN) \\ results (LEFT ANTI JOIN)
+    """
     from pyspark.sql import functions as F  # noqa: N812
 
-    rows = (
-        spark.table(f"{catalog}.bronze.spadl_actions")
-        .filter(F.col("data_source").isin(*_ALL_PROVIDERS))
+    tracking_df = spark.table(tracking_table).select(F.col("match_id").cast("string").alias("_join_id")).distinct()
+    spadl_df = (
+        spark.table(spadl_table)
+        .filter(F.col("data_source") == provider)
+        .select(F.col("match_id_native").cast("string").alias("_join_id"))
+        .distinct()
+    )
+    results_df = (
+        spark.table(results_table)
+        .filter(F.col("data_source") == provider)
+        .select(F.col("match_id").cast("string").alias("_join_id"))
+        .distinct()
+    )
+    new_df = tracking_df.join(spadl_df, "_join_id", "inner").join(results_df, "_join_id", "left_anti")
+    return [str(row["_join_id"]) for row in new_df.collect()]
+
+
+def _find_event_only_new_ids(
+    spark: SparkSession,
+    spadl_table: str,
+    results_table: str,
+    provider: str,
+) -> list[str]:
+    """Find unprocessed event-only matches (Spark-native LEFT ANTI JOIN).
+
+    spadl_actions(provider) \\ results(provider) — no full-table scan or
+    driver-side set difference.
+    """
+    from pyspark.sql import functions as F  # noqa: N812
+
+    source_df = (
+        spark.table(spadl_table)
+        .filter(F.col("data_source") == provider)
+        .select(F.col("match_id_native").cast("string").alias("_join_id"))
+        .distinct()
+    )
+    results_df = (
+        spark.table(results_table)
+        .filter(F.col("data_source") == provider)
+        .select(F.col("match_id").cast("string").alias("_join_id"))
+        .distinct()
+    )
+    new_df = source_df.join(results_df, "_join_id", "left_anti")
+    return [str(row["_join_id"]) for row in new_df.collect()]
+
+
+def _find_idsse_new_period_pairs(
+    spark: SparkSession,
+    tracking_table: str,
+    spadl_table: str,
+    results_table: str,
+) -> list[tuple[str, int]]:
+    """Find unprocessed IDSSE (match_id, period) pairs (Spark-native).
+
+    Three-way join at period granularity:
+      tracking(mid, period) ∩ spadl(mid) \\ results(mid, period)
+    """
+    from pyspark.sql import functions as F  # noqa: N812
+
+    tracking_df = (
+        spark.table(tracking_table)
         .select(
-            F.col("data_source").alias("provider"),
-            F.col("match_id_native").alias("match_id"),
+            F.col("match_id").cast("string").alias("_mid"),
+            F.col("period").cast("bigint").alias("_period"),
         )
         .distinct()
-        .collect()
     )
-    result: dict[str, set[str]] = {}
-    for row in rows:
-        result.setdefault(row["provider"], set()).add(row["match_id"])
-    return result
+    spadl_df = (
+        spark.table(spadl_table)
+        .filter(F.col("data_source") == "idsse")
+        .select(F.col("match_id_native").cast("string").alias("_mid"))
+        .distinct()
+    )
+    results_df = (
+        spark.table(results_table)
+        .filter(F.col("data_source") == "idsse")
+        .select(
+            F.col("match_id").cast("string").alias("_mid"),
+            F.col("period_id").cast("bigint").alias("_period"),
+        )
+        .distinct()
+    )
+    new_df = tracking_df.join(spadl_df, "_mid", "inner").join(results_df, ["_mid", "_period"], "left_anti")
+    return [(str(row["_mid"]), int(row["_period"])) for row in new_df.collect()]
 
 
 class _ActionContextGuard:
     """SkipGuard adapter for action context pipeline.
 
-    Discovers unprocessed matches across all 6 providers.
+    Discovers unprocessed matches across all 6 providers using Spark-native
+    joins. Each query is pushed entirely to executors — no full-table scans
+    or driver-side set differences.
+
     IDSSE = 1 half per iteration (period-level).
-    Other tracking + event-only = 2-4 matches/iteration.
+    Other tracking = 2 matches/iteration.
+    Event-only = 200 matches/iteration (lightweight enrichment).
     """
 
     workflow_id = "wf-action-context"
@@ -940,94 +1024,41 @@ class _ActionContextGuard:
         "metrica": 2,
         "skillcorner": 2,
         "gradientsports": 2,
-        "statsbomb": 4,
-        "wyscout": 4,
+        "statsbomb": 200,  # event-only is lightweight — matches spadl_vaep proven pattern
+        "wyscout": 200,
     }
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check for unprocessed matches across all 6 providers."""
-        from pyspark.sql import functions as F  # noqa: N812
-
-        from ingestion.guards import ensure_table, find_new_ids
-        from ingestion.utils import tolerate_missing_table
+        from ingestion.guards import ensure_table
 
         results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+        spadl_table = f"{catalog}.bronze.spadl_actions"
         ensure_table(spark, results_table, _ACTION_CONTEXT_DDL)
 
-        spadl_ids_by_provider = _spadl_match_ids_by_provider(spark, catalog)
-
-        # ── IDSSE: period-level discovery (same as tracking_context) ──
-        _raw_pairs = (
-            spark.table(f"{catalog}.bronze.idsse_tracking")
-            .select(
-                F.col("match_id").cast("string").alias("match_id"),
-                F.col("period").cast("bigint").alias("period"),
-            )
-            .distinct()
-            .collect()
+        # ── IDSSE: period-level discovery ──
+        idsse_pairs = _find_idsse_new_period_pairs(
+            spark,
+            f"{catalog}.bronze.idsse_tracking",
+            spadl_table,
+            results_table,
         )
-        idsse_source_pairs = [(str(r["match_id"]), int(r["period"])) for r in _raw_pairs]
-
-        idsse_done_pairs: set[tuple[str, int]] = set()
-        with tolerate_missing_table(logger, "results table empty/missing"):
-            done_rows = (
-                spark.table(results_table)
-                .filter(F.col("data_source") == "idsse")
-                .select(
-                    F.col("match_id").cast("string"),
-                    F.col("period_id").cast("bigint").alias("period"),
-                )
-                .distinct()
-                .collect()
-            )
-            idsse_done_pairs = {(str(r["match_id"]), int(r["period"])) for r in done_rows}
-
-        idsse_spadl = spadl_ids_by_provider.get("idsse", set())
-        idsse_half_chunks: list[str] = [
-            f"idsse:{mid}:{period}"
-            for mid, period in idsse_source_pairs
-            if mid in idsse_spadl and (mid, period) not in idsse_done_pairs
-        ]
+        idsse_half_chunks: list[str] = [f"idsse:{mid}:{period}" for mid, period in idsse_pairs]
 
         # ── Other tracking providers: match-level discovery ──
-        metrica_ids = find_new_ids(
-            spark,
-            f"{catalog}.bronze.metrica_tracking",
-            results_table,
-            results_filter="data_source = 'metrica'",
+        metrica_ids = _find_tracking_new_ids(
+            spark, f"{catalog}.bronze.metrica_tracking", spadl_table, results_table, "metrica"
         )
-        skillcorner_ids = find_new_ids(
-            spark,
-            f"{catalog}.bronze.skillcorner_tracking",
-            results_table,
-            results_filter="data_source = 'skillcorner'",
+        skillcorner_ids = _find_tracking_new_ids(
+            spark, f"{catalog}.bronze.skillcorner_tracking", spadl_table, results_table, "skillcorner"
         )
-        gradientsports_ids = find_new_ids(
-            spark,
-            f"{catalog}.bronze.gradientsports_tracking",
-            results_table,
-            results_filter="data_source = 'gradientsports'",
+        gradientsports_ids = _find_tracking_new_ids(
+            spark, f"{catalog}.bronze.gradientsports_tracking", spadl_table, results_table, "gradientsports"
         )
 
-        metrica_ids = [m for m in metrica_ids if m in spadl_ids_by_provider.get("metrica", set())]
-        skillcorner_ids = [m for m in skillcorner_ids if m in spadl_ids_by_provider.get("skillcorner", set())]
-        gradientsports_ids = [m for m in gradientsports_ids if m in spadl_ids_by_provider.get("gradientsports", set())]
-
-        # ── Event-only providers: match-level from spadl_actions ──
-        statsbomb_ids = self._find_event_only_new_ids(
-            spark,
-            catalog,
-            schema,
-            "statsbomb",
-            spadl_ids_by_provider,
-        )
-        wyscout_ids = self._find_event_only_new_ids(
-            spark,
-            catalog,
-            schema,
-            "wyscout",
-            spadl_ids_by_provider,
-        )
+        # ── Event-only providers: Spark-native anti-join ──
+        statsbomb_ids = _find_event_only_new_ids(spark, spadl_table, results_table, "statsbomb")
+        wyscout_ids = _find_event_only_new_ids(spark, spadl_table, results_table, "wyscout")
 
         total = (
             len(idsse_half_chunks)
@@ -1062,37 +1093,6 @@ class _ActionContextGuard:
             count=total,
             chunks=chunks,
         )
-
-    def _find_event_only_new_ids(
-        self,
-        spark: SparkSession,
-        catalog: str,
-        schema: str,
-        provider: str,
-        spadl_ids_by_provider: dict[str, set[str]],
-    ) -> list[str]:
-        """Find match_ids in spadl_actions not yet in action_context for an event-only provider."""
-        from ingestion.utils import tolerate_missing_table
-
-        spadl_ids = spadl_ids_by_provider.get(provider, set())
-        if not spadl_ids:
-            return []
-
-        done_ids: set[str] = set()
-        from pyspark.sql import functions as F  # noqa: N812
-
-        results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
-        with tolerate_missing_table(logger, f"results table missing for {provider}"):
-            done_rows = (
-                spark.table(results_table)
-                .filter(F.col("data_source") == provider)
-                .select(F.col("match_id").cast("string"))
-                .distinct()
-                .collect()
-            )
-            done_ids = {str(r["match_id"]) for r in done_rows}
-
-        return sorted(spadl_ids - done_ids)
 
 
 skip_guard = _ActionContextGuard()
