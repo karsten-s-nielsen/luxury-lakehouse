@@ -1021,6 +1021,11 @@ resource "databricks_job" "data_ingestion" {
   # value (`action_context_chunks`). xT grid is NOT loaded here — each
   # downstream iteration reads it from bronze.expected_threat_grids (~192 rows).
   #
+  # environment_key = "default": main_preflight only imports numpy + the
+  # wheel; no silly-kicks / xgboost / mlflow / scipy needed. Keeps cold-start
+  # setup under the 300 s task timeout (the analytics env's 11-dep pip
+  # resolution can exceed 300 s on cache-cold builds).
+  #
   # The downstream `compute_action_context` for_each_task consumes via
   # `{{tasks.preflight_action_context.values.action_context_chunks}}`.
   task {
@@ -1050,7 +1055,7 @@ resource "databricks_job" "data_ingestion" {
       ]
     }
 
-    environment_key = "analytics"
+    environment_key = "default"
   }
 
   # ── Task: Gradient Sports preflight (guard + match discovery) ───────────
@@ -1295,11 +1300,18 @@ resource "databricks_job" "data_ingestion" {
         "silly-kicks>=3.23.0,<4",
         "accessible-space>=2.0,<3",
         "numpy<2.0",
-        "xgboost==3.2.0",
+        # xgboost-cpu: same version + API as xgboost, but without the
+        # nvidia-nccl-cu12 core dep (300 MB GPU lib, useless on CPU-only
+        # serverless). Cuts cold-start env build by ~60-90 s.
+        "xgboost-cpu==3.2.0",
         "rapidfuzz>=3.6.0",
         "unidecode>=1.3.0",
         "sparse-dot-topn>=1.1.0",
-        "mlflow>=2.19.0",
+        # mlflow-skinny: client-only mlflow (pyfunc + tracking). The analytics
+        # path only loads models + uses MlflowClient; the server-side bundle
+        # (flask/gunicorn/sqlalchemy/alembic/docker/...) is unused. ~30-50 MB
+        # + ~11 fewer transitives off cold-start.
+        "mlflow-skinny>=2.19.0",
         "mplsoccer>=1.1.3",
         "matplotlib>=3.8.0",
         "scipy>=1.11.0"
