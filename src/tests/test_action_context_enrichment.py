@@ -10,6 +10,7 @@ Mock-patches all silly-kicks add_* calls to verify:
 from __future__ import annotations
 
 import logging
+import sys
 from collections import namedtuple
 from unittest.mock import MagicMock, patch
 
@@ -19,10 +20,14 @@ import pytest
 
 from ingestion.action_context import (
     _RESULT_COLUMNS,
+    _ActionContextGuard,
     _build_output,
     _enrich_event_only_match,
     _enrich_sb360_match,
     _enrich_tracking_match,
+    _find_event_only_new_ids,
+    _find_idsse_new_period_pairs,
+    _find_tracking_new_ids,
     _is_event_only_provider,
     _is_tracking_provider,
     _load_xt_grid_from_delta,
@@ -383,3 +388,268 @@ def test_load_xt_grid_from_delta_raises_on_missing_table() -> None:
 
     with pytest.raises(Exception, match="Table or view not found"):
         _load_xt_grid_from_delta(mock_spark, "soccer_analytics", "bronze", task_logger)
+
+
+# ── Guard query functions tests ───────────────────────────────────────
+# These verify the Spark-native join logic used by the preflight guard.
+# Mock DataFrames simulate the join/filter/collect chain.
+
+
+@pytest.fixture(autouse=False)
+def _mock_pyspark():
+    """Inject mock pyspark.sql.functions so Spark-native helpers can import it."""
+    mock_functions = MagicMock()
+    # F.col(...).cast(...).alias(...) must chain — returns MagicMock (passthrough)
+    mock_functions.col.return_value = MagicMock()
+
+    prev = {
+        "pyspark": sys.modules.get("pyspark"),
+        "pyspark.sql": sys.modules.get("pyspark.sql"),
+        "pyspark.sql.functions": sys.modules.get("pyspark.sql.functions"),
+    }
+    sys.modules["pyspark"] = MagicMock()
+    sys.modules["pyspark.sql"] = MagicMock()
+    sys.modules["pyspark.sql.functions"] = mock_functions
+
+    yield
+
+    for key, val in prev.items():
+        if val is None:
+            sys.modules.pop(key, None)
+        else:
+            sys.modules[key] = val
+
+
+class _MockDF:
+    """Minimal DataFrame mock that supports chained Spark operations."""
+
+    def __init__(self, rows: list[dict]) -> None:
+        self._rows = rows
+
+    def select(self, *args, **kwargs) -> _MockDF:
+        return self
+
+    def filter(self, *args, **kwargs) -> _MockDF:
+        return self
+
+    def distinct(self) -> _MockDF:
+        return self
+
+    def join(self, other: _MockDF, on: object, how: str) -> _MockDF:
+        """Simulate INNER / LEFT ANTI join on _join_id or [_mid, _period]."""
+        if isinstance(on, list):
+            # Multi-key join (IDSSE period pairs)
+            other_keys = {tuple(r[k] for k in on) for r in other._rows}
+        else:
+            other_keys = {r.get(on, r.get("_join_id")) for r in other._rows}
+
+        result = []
+        for row in self._rows:
+            if isinstance(on, list):
+                key = tuple(row[k] for k in on)
+            else:
+                key = row.get(on, row.get("_join_id"))
+
+            if how == "inner":
+                if key in other_keys:
+                    result.append(row)
+            elif how == "left_anti":
+                if key not in other_keys:
+                    result.append(row)
+        return _MockDF(result)
+
+    def collect(self) -> list[dict]:
+        return self._rows
+
+
+class _MockSpark:
+    """Mock SparkSession that returns configured DataFrames per table."""
+
+    def __init__(self, tables: dict[str, _MockDF]) -> None:
+        self._tables = tables
+
+    def table(self, name: str) -> _MockDF:
+        return self._tables.get(name, _MockDF([]))
+
+    def sql(self, *args, **kwargs) -> _MockDF:
+        return _MockDF([])
+
+
+@pytest.mark.usefixtures("_mock_pyspark")
+def test_find_tracking_new_ids_three_way_join() -> None:
+    """Tracking discovery: only matches in tracking ∩ spadl \\ results are returned."""
+    tables = {
+        "cat.bronze.metrica_tracking": _MockDF(
+            [
+                {"_join_id": "m1"},
+                {"_join_id": "m2"},
+                {"_join_id": "m3"},
+            ]
+        ),
+        "cat.bronze.spadl_actions": _MockDF(
+            [
+                {"_join_id": "m1"},
+                {"_join_id": "m2"},  # m3 has no SPADL
+            ]
+        ),
+        "cat.bronze.spadl_action_context": _MockDF(
+            [
+                {"_join_id": "m1"},  # m1 already processed
+            ]
+        ),
+    }
+    spark = _MockSpark(tables)
+
+    result = _find_tracking_new_ids(
+        spark,
+        "cat.bronze.metrica_tracking",
+        "cat.bronze.spadl_actions",
+        "cat.bronze.spadl_action_context",
+        "metrica",
+    )
+    assert sorted(result) == ["m2"]
+
+
+@pytest.mark.usefixtures("_mock_pyspark")
+def test_find_tracking_new_ids_empty_results_cold_start() -> None:
+    """Cold start: empty results table -> all tracking∩spadl matches returned."""
+    tables = {
+        "cat.bronze.skillcorner_tracking": _MockDF(
+            [
+                {"_join_id": "s1"},
+                {"_join_id": "s2"},
+                {"_join_id": "s3"},
+            ]
+        ),
+        "cat.bronze.spadl_actions": _MockDF(
+            [
+                {"_join_id": "s1"},
+                {"_join_id": "s2"},
+                {"_join_id": "s3"},
+            ]
+        ),
+        "cat.bronze.spadl_action_context": _MockDF([]),  # empty
+    }
+    spark = _MockSpark(tables)
+
+    result = _find_tracking_new_ids(
+        spark,
+        "cat.bronze.skillcorner_tracking",
+        "cat.bronze.spadl_actions",
+        "cat.bronze.spadl_action_context",
+        "skillcorner",
+    )
+    assert sorted(result) == ["s1", "s2", "s3"]
+
+
+@pytest.mark.usefixtures("_mock_pyspark")
+def test_find_event_only_new_ids_anti_join() -> None:
+    """Event-only discovery: spadl_actions \\ results for a specific provider."""
+    tables = {
+        "cat.bronze.spadl_actions": _MockDF(
+            [
+                {"_join_id": "sb1"},
+                {"_join_id": "sb2"},
+                {"_join_id": "sb3"},
+            ]
+        ),
+        "cat.bronze.spadl_action_context": _MockDF(
+            [
+                {"_join_id": "sb1"},  # already done
+            ]
+        ),
+    }
+    spark = _MockSpark(tables)
+
+    result = _find_event_only_new_ids(
+        spark,
+        "cat.bronze.spadl_actions",
+        "cat.bronze.spadl_action_context",
+        "statsbomb",
+    )
+    assert sorted(result) == ["sb2", "sb3"]
+
+
+@pytest.mark.usefixtures("_mock_pyspark")
+def test_find_event_only_new_ids_cold_start_5000_matches() -> None:
+    """Cold start: 5000 unprocessed matches returned without driver OOM."""
+    many_ids = [{"_join_id": f"sb{i}"} for i in range(5000)]
+    tables = {
+        "cat.bronze.spadl_actions": _MockDF(many_ids),
+        "cat.bronze.spadl_action_context": _MockDF([]),  # empty
+    }
+    spark = _MockSpark(tables)
+
+    result = _find_event_only_new_ids(
+        spark,
+        "cat.bronze.spadl_actions",
+        "cat.bronze.spadl_action_context",
+        "statsbomb",
+    )
+    assert len(result) == 5000
+
+
+@pytest.mark.usefixtures("_mock_pyspark")
+def test_find_idsse_new_period_pairs_three_way() -> None:
+    """IDSSE period-level: tracking(mid,period) ∩ spadl(mid) \\ results(mid,period)."""
+    tables = {
+        "cat.bronze.idsse_tracking": _MockDF(
+            [
+                {"_mid": "i1", "_period": 1},
+                {"_mid": "i1", "_period": 2},
+                {"_mid": "i2", "_period": 1},
+                {"_mid": "i2", "_period": 2},
+            ]
+        ),
+        "cat.bronze.spadl_actions": _MockDF(
+            [
+                {"_mid": "i1"},
+                {"_mid": "i2"},
+            ]
+        ),
+        "cat.bronze.spadl_action_context": _MockDF(
+            [
+                {"_mid": "i1", "_period": 1},  # half 1 done
+            ]
+        ),
+    }
+    spark = _MockSpark(tables)
+
+    result = _find_idsse_new_period_pairs(
+        spark,
+        "cat.bronze.idsse_tracking",
+        "cat.bronze.spadl_actions",
+        "cat.bronze.spadl_action_context",
+    )
+    assert sorted(result) == [("i1", 2), ("i2", 1), ("i2", 2)]
+
+
+def test_guard_chunk_sizes_keep_task_value_under_limit() -> None:
+    """With 5488 matches (cold start), chunk count must stay under task value size limit.
+
+    Databricks task values are limited to ~48 KB. At chunk_size=200 for
+    event-only providers, 5488 matches produce ~45 chunks — well under limit.
+    This test validates the chunk_sizes produce a manageable number of chunks.
+    """
+    guard = _ActionContextGuard()
+
+    # Simulate: 3463 StatsBomb + 1941 Wyscout + 64 GradientSports +
+    # 10 SkillCorner + 3 Metrica + 14 IDSSE halves = real-world cold start
+    provider_counts = {
+        "statsbomb": 3463,
+        "wyscout": 1941,
+        "gradientsports": 64,
+        "skillcorner": 10,
+        "metrica": 3,
+    }
+    total_chunks = 14  # IDSSE halves (1:1)
+    for prov, count in provider_counts.items():
+        cs = guard.chunk_sizes.get(prov, 2)
+        total_chunks += -(-count // cs)  # ceiling division
+
+    # Each chunk string ~ 50 chars max. Task value overhead ~ 2 bytes/element.
+    # Conservative estimate: 60 bytes per chunk entry in JSON.
+    estimated_bytes = total_chunks * 60
+
+    assert total_chunks < 200, f"Too many chunks ({total_chunks}) — will exceed task value limit"
+    assert estimated_bytes < 48_000, f"Estimated size {estimated_bytes} exceeds 48 KB limit"
