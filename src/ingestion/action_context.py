@@ -1014,18 +1014,52 @@ class _ActionContextGuard:
     joins. Each query is pushed entirely to executors — no full-table scans
     or driver-side set differences.
 
-    IDSSE = 1 half per iteration (period-level).
-    Other tracking = 2 matches/iteration.
-    Event-only = 200 matches/iteration (lightweight enrichment).
+    Chunk sizes are a WALL-CLOCK knob here, not a memory knob — see the
+    memory note below. They are sized against the 1800 s
+    ``compute_action_context_iteration`` timeout and the 48 KB Databricks
+    task-value cap:
+
+      - IDSSE (1 half / iter) — each half is ~1.5 M tracking rows; processed
+        one half per iteration (period-level). Handled outside ``chunk_sizes``
+        via ``_find_idsse_new_period_pairs``.
+      - Tracking providers — full 20-step enrichment chain via applyInPandas.
+        ``tracking_context`` precedent (chunk_size=2 with the same iteration
+        timeout) implies ≤900 s/match; chunk_size=5 gives a 360 s per-match
+        budget (≥2x safety). Gradient Sports holds 4.21 M tracking rows/match
+        avg (4.4x SkillCorner) so it gets a more conservative chunk_size=4.
+      - StatsBomb (event-only mixed with 9.3 % SB360 freeze-frame tier) —
+        chunk_size=100 caps worst-case 360-tier work per iteration at
+        ~9 x 60 s = ~540 s out of the 1800 s budget.
+      - Wyscout (pure event-only, ~5 s/match) — chunk_size=200 matches the
+        ``spadl_vaep`` proven pattern for event-only providers.
+
+    MEMORY NOTE — why these run wider than off_ball_xt / pitch_control's
+    ``_MATCHES_PER_CHUNK = 2``:
+        Those pipelines fold ALL matches in a chunk into a SINGLE
+        ``groupBy(match_id, frame_batch_id).applyInPandas`` pass, so their
+        concurrent executor-group count scales with matches-per-chunk and the
+        ``2`` is derived from the 800 MB UDF executor budget.
+
+        action_context instead loops ``for match_id in ids:`` in ``main()`` and
+        runs a SEPARATE applyInPandas pass per match, freeing memory between
+        matches. At any instant one iteration holds only one match's frame-batch
+        groups. Per-group memory is bounded by ``_FRAME_BATCH_SIZE`` (250 frames,
+        ~200 MB — the executor-OOM mitigation inherited from tracking_context,
+        commits 0542a8b + b12fb60), and concurrent executor pressure is bounded
+        by the for_each ``concurrency`` (8), NOT by chunk_size. Raising
+        ``concurrency`` above 8 is therefore the lever that increases shared
+        executor pressure — chunk_size is not. Keep that invariant if this guard
+        is ever refactored to fold a chunk into one pass: at that point
+        chunk_size WOULD become memory-bound and the ``2`` ceiling applies.
     """
 
     workflow_id = "wf-action-context"
     chunk_sizes: ClassVar[dict[str, int]] = {
-        "metrica": 2,
-        "skillcorner": 2,
-        "gradientsports": 2,
-        "statsbomb": 200,  # event-only is lightweight — matches spadl_vaep proven pattern
-        "wyscout": 200,
+        "metrica": 5,
+        "skillcorner": 5,
+        "gradientsports": 4,  # 4.21 M tracking rows/match avg — more conservative than metrica/skillcorner
+        "statsbomb": 100,  # 9.3 % of SB matches use the heavier SB360 tier; 100 caps 360-tier work
+        "wyscout": 200,  # pure event-only — matches spadl_vaep proven pattern
     }
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:

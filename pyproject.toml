@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.4.0"
+version = "0.4.1"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -34,7 +34,10 @@ analytics = [
     "matplotlib>=3.8.0",
     "scipy>=1.11.0",
     "scikit-learn>=1.3.0",
-    "xgboost==3.2.0",
+    # xgboost-cpu: drop-in for xgboost (same `import xgboost`, same API) without
+    # the 300 MB nvidia-nccl-cu12 GPU dep. Matches the Databricks analytics env
+    # spec so CI exercises the same package prod installs. Serverless is CPU-only.
+    "xgboost-cpu==3.2.0",
     "rapidfuzz>=3.6.0",
     "unidecode>=1.3.0",
     "sparse-dot-topn>=1.1.0",
