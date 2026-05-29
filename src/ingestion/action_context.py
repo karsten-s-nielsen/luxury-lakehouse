@@ -18,6 +18,16 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 
+from analytics.action_context.enrich import (
+    _enrich_event_only_match,
+    _enrich_sb360_match,
+)
+from analytics.action_context.schema import (
+    ACTION_CONTEXT_DDL as _ACTION_CONTEXT_DDL,
+)
+from analytics.action_context.schema import (
+    build_output as _build_output,
+)
 from ingestion.guards import FilterResult, timed_check
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
 
@@ -27,7 +37,6 @@ if TYPE_CHECKING:
     import pandas as pd
     from pyspark.sql import SparkSession
     from pyspark.sql.types import StructType
-    from silly_kicks.xthreat import ExpectedThreat
 
 _TABLE_NAME = "spadl_action_context"
 
@@ -56,191 +65,6 @@ def _is_tracking_provider(provider: str) -> bool:
 
 def _is_event_only_provider(provider: str) -> bool:
     return provider in _EVENT_ONLY_PROVIDERS
-
-
-# ── Schema constants ─────────────────────────────────────────────────
-# Identity (12) + game_state (1) + linkage (4) + GK (10) + features (77) + audit (1) = 105
-
-_RESULT_COLUMNS: list[str] = [
-    # Identity (12)
-    "data_source",
-    "match_id",
-    "action_id",
-    "period_id",
-    "time_seconds",
-    "team_id",
-    "player_id",
-    "type_name",
-    "start_x",
-    "start_y",
-    "end_x",
-    "end_y",
-    # Game state (1)
-    "game_state",
-    # Frame linkage (4)
-    "frame_id",
-    "time_offset_seconds",
-    "link_quality_score",
-    "n_candidate_frames",
-    # GK resolution (4)
-    "defending_gk_player_id_native",
-    "gk_was_distributing",
-    "gk_was_engaged",
-    "gk_actions_in_possession",
-    # GK spatial (6)
-    "pre_shot_gk_x",
-    "pre_shot_gk_y",
-    "pre_shot_gk_distance_to_goal",
-    "pre_shot_gk_distance_to_shot",
-    "pre_shot_gk_angle_to_shot_trajectory",
-    "pre_shot_gk_angle_off_goal_line",
-    # Action context (4)
-    "nearest_defender_distance",
-    "actor_speed",
-    "receiver_zone_density",
-    "defenders_in_triangle_to_goal",
-    # Actor pre-window (2)
-    "actor_arc_length_pre_window",
-    "actor_displacement_pre_window",
-    # Pressure (3)
-    "pressure_on_actor__andrienko_oval",
-    "pressure_on_actor__link_zones",
-    "pressure_on_actor__bekkers_pi",
-    # Pitch control (3)
-    "pitch_control_at_ball__spearman",
-    "pitch_control_at_ball__fernandez_bornn",
-    "pitch_control_at_ball__voronoi",
-    # Defensive line (6)
-    "defensive_line_x",
-    "back_line_high_x",
-    "compactness_x",
-    "lateral_width",
-    "max_lateral_gap",
-    "back_n_count",
-    # Off-ball context (6)
-    "line_break",
-    "n_attackers_behind_line",
-    "n_off_ball_runners_pre_window",
-    "max_off_ball_run_displacement_pre_window",
-    "mean_off_ball_run_speed_pre_window",
-    "n_off_ball_runners_toward_goal_pre_window",
-    # Ward line-breaking (3)
-    "line_break__ward",
-    "lines_broken__ward",
-    "line_breaking_type__ward",
-    # Team shape (14)
-    "team_shape_centroid_x_attacking",
-    "team_shape_centroid_y_attacking",
-    "team_shape_convex_hull_area_attacking",
-    "team_shape_team_length_attacking",
-    "team_shape_team_width_attacking",
-    "team_shape_stretch_index_attacking",
-    "team_shape_n_outfield_players_attacking",
-    "team_shape_centroid_x_defending",
-    "team_shape_centroid_y_defending",
-    "team_shape_convex_hull_area_defending",
-    "team_shape_team_length_defending",
-    "team_shape_team_width_defending",
-    "team_shape_stretch_index_defending",
-    "team_shape_n_outfield_players_defending",
-    # DAS (3)
-    "das_team",
-    "das_opponent",
-    "das_diff",
-    # GK influence (4)
-    "gk_pitch_control_share_weighted",
-    "gk_reachable_area_m2",
-    "gk_closing_time_mean_s__six_yard_box",
-    "gk_closing_time_min_s__six_yard_box",
-    # Cover shadows (5)
-    "n_blocked_receivers",
-    "n_potential_receivers",
-    "blocking_score",
-    "blocked_threat_fraction",
-    "max_single_defender_blocking_score",
-    # Sync score (3)
-    "sync_score_min",
-    "sync_score_mean",
-    "sync_score_high_quality_frac",
-    # OBSO (3)
-    "obso_actual",
-    "obso_peak",
-    "obso_optimal",
-    # PAUSA (3)
-    "pausa_temporal",
-    "pausa_spatial",
-    "pausa_composite",
-    # Space creation (2)
-    "space_created_m2_team",
-    "space_created_m2_opponent",
-    # ELASTIC sync (3)
-    "elastic_frame_id",
-    "elastic_confidence",
-    "elastic_error_seconds",
-    # Shape graph (6)
-    "shape_graph_density_attacking",
-    "shape_graph_n_edges_attacking",
-    "shape_graph_mean_stability_attacking",
-    "shape_graph_density_defending",
-    "shape_graph_n_edges_defending",
-    "shape_graph_mean_stability_defending",
-    # Audit (1)
-    "_ingested_at",
-]
-
-_ACTION_CONTEXT_DDL = (
-    "data_source STRING, match_id STRING, action_id BIGINT, period_id BIGINT, "
-    "time_seconds DOUBLE, team_id STRING, player_id STRING, type_name STRING, "
-    "start_x DOUBLE, start_y DOUBLE, end_x DOUBLE, end_y DOUBLE, "
-    "game_state STRING, "
-    "frame_id BIGINT, time_offset_seconds DOUBLE, link_quality_score DOUBLE, "
-    "n_candidate_frames BIGINT, "
-    "defending_gk_player_id_native STRING, gk_was_distributing BOOLEAN, "
-    "gk_was_engaged BOOLEAN, gk_actions_in_possession BIGINT, "
-    "pre_shot_gk_x DOUBLE, pre_shot_gk_y DOUBLE, "
-    "pre_shot_gk_distance_to_goal DOUBLE, pre_shot_gk_distance_to_shot DOUBLE, "
-    "pre_shot_gk_angle_to_shot_trajectory DOUBLE, pre_shot_gk_angle_off_goal_line DOUBLE, "
-    "nearest_defender_distance DOUBLE, actor_speed DOUBLE, "
-    "receiver_zone_density BIGINT, defenders_in_triangle_to_goal BIGINT, "
-    "actor_arc_length_pre_window DOUBLE, actor_displacement_pre_window DOUBLE, "
-    "pressure_on_actor__andrienko_oval DOUBLE, pressure_on_actor__link_zones DOUBLE, "
-    "pressure_on_actor__bekkers_pi DOUBLE, "
-    "pitch_control_at_ball__spearman DOUBLE, pitch_control_at_ball__fernandez_bornn DOUBLE, "
-    "pitch_control_at_ball__voronoi DOUBLE, "
-    "defensive_line_x DOUBLE, back_line_high_x DOUBLE, compactness_x DOUBLE, "
-    "lateral_width DOUBLE, max_lateral_gap DOUBLE, back_n_count BIGINT, "
-    "line_break BOOLEAN, n_attackers_behind_line BIGINT, "
-    "n_off_ball_runners_pre_window BIGINT, "
-    "max_off_ball_run_displacement_pre_window DOUBLE, "
-    "mean_off_ball_run_speed_pre_window DOUBLE, "
-    "n_off_ball_runners_toward_goal_pre_window BIGINT, "
-    "line_break__ward BOOLEAN, lines_broken__ward BIGINT, "
-    "line_breaking_type__ward STRING, "
-    "team_shape_centroid_x_attacking DOUBLE, team_shape_centroid_y_attacking DOUBLE, "
-    "team_shape_convex_hull_area_attacking DOUBLE, team_shape_team_length_attacking DOUBLE, "
-    "team_shape_team_width_attacking DOUBLE, team_shape_stretch_index_attacking DOUBLE, "
-    "team_shape_n_outfield_players_attacking BIGINT, "
-    "team_shape_centroid_x_defending DOUBLE, team_shape_centroid_y_defending DOUBLE, "
-    "team_shape_convex_hull_area_defending DOUBLE, team_shape_team_length_defending DOUBLE, "
-    "team_shape_team_width_defending DOUBLE, team_shape_stretch_index_defending DOUBLE, "
-    "team_shape_n_outfield_players_defending BIGINT, "
-    "das_team DOUBLE, das_opponent DOUBLE, das_diff DOUBLE, "
-    "gk_pitch_control_share_weighted DOUBLE, gk_reachable_area_m2 DOUBLE, "
-    "gk_closing_time_mean_s__six_yard_box DOUBLE, gk_closing_time_min_s__six_yard_box DOUBLE, "
-    "n_blocked_receivers BIGINT, n_potential_receivers BIGINT, "
-    "blocking_score DOUBLE, blocked_threat_fraction DOUBLE, "
-    "max_single_defender_blocking_score DOUBLE, "
-    "sync_score_min DOUBLE, sync_score_mean DOUBLE, sync_score_high_quality_frac DOUBLE, "
-    "obso_actual DOUBLE, obso_peak DOUBLE, obso_optimal DOUBLE, "
-    "pausa_temporal DOUBLE, pausa_spatial DOUBLE, pausa_composite DOUBLE, "
-    "space_created_m2_team DOUBLE, space_created_m2_opponent DOUBLE, "
-    "elastic_frame_id BIGINT, elastic_confidence DOUBLE, elastic_error_seconds DOUBLE, "
-    "shape_graph_density_attacking DOUBLE, shape_graph_n_edges_attacking BIGINT, "
-    "shape_graph_mean_stability_attacking DOUBLE, "
-    "shape_graph_density_defending DOUBLE, shape_graph_n_edges_defending BIGINT, "
-    "shape_graph_mean_stability_defending DOUBLE, "
-    "_ingested_at TIMESTAMP"
-)
 
 
 # ── DDL parser ────────────────────────────────────────────────────────
@@ -363,287 +187,6 @@ _GRADIENTSPORTS_TRACKING_SELECT_COLS: tuple[str, ...] = (
 )
 
 
-# ── Identity resolution ──────────────────────────────────────────────
-
-
-def _resolve_enrichment_identity(
-    actions: pd.DataFrame,
-    *,
-    provider: str,
-    match_id_native: str,
-) -> pd.DataFrame:
-    """Replace team_id/player_id with silly-kicks-compatible values.
-
-    MUTATE-THEN-RESTORE contract: this overwrites team_id/player_id before
-    enrichment. _restore_native_identity() restores native IDs after enrichment.
-    """
-    non_null_mask = actions["team_id_native"].notna()
-    if not non_null_mask.any():
-        msg = f"team_id_native is entirely null for provider={provider}"
-        raise ValueError(msg)
-
-    actions["team_id"] = actions["team_id"].astype("object")
-    actions["player_id"] = actions["player_id"].astype("object")
-
-    if provider == "idsse":
-        # DFL CLU/OBJ strings match both frames and home_team_id directly.
-        actions.loc[non_null_mask, "team_id"] = actions.loc[non_null_mask, "team_id_native"]
-        actions.loc[non_null_mask, "player_id"] = actions.loc[non_null_mask, "player_id_native"]
-
-    elif provider == "metrica":
-        from shared.identifiers import metrica_native_team_id
-
-        fwd = {
-            metrica_native_team_id(match_id_native, "home"): "Home",
-            metrica_native_team_id(match_id_native, "away"): "Away",
-        }
-        actions.loc[non_null_mask, "team_id"] = actions.loc[non_null_mask, "team_id_native"].map(fwd)
-        actions.loc[non_null_mask, "player_id"] = actions.loc[non_null_mask, "player_id_native"]
-
-    elif provider == "skillcorner":
-        # SkillCorner native IDs are stringified integers.
-        actions.loc[non_null_mask, "team_id"] = actions.loc[non_null_mask, "team_id_native"]
-        actions.loc[non_null_mask, "player_id"] = actions.loc[non_null_mask, "player_id_native"]
-
-    elif provider == "gradientsports":
-        # GradientSports native IDs are stringified integers (same pattern as SkillCorner).
-        # Frames from convert_to_frames use string team_id matching native format.
-        actions.loc[non_null_mask, "team_id"] = actions.loc[non_null_mask, "team_id_native"]
-        actions.loc[non_null_mask, "player_id"] = actions.loc[non_null_mask, "player_id_native"]
-
-    return actions
-
-
-def _restore_native_identity(actions: pd.DataFrame) -> pd.DataFrame:
-    """Restore native IDs for output (dim table joins via staging layer)."""
-    actions["team_id"] = actions["team_id_native"]
-    actions["player_id"] = actions["player_id_native"]
-    return actions
-
-
-# ── Enrichment chains ─────────────────────────────────────────────────
-
-
-def _enrich_tracking_match(
-    actions_df: pd.DataFrame,
-    tracking_df: pd.DataFrame,
-    xt: ExpectedThreat,
-    home_team_id: str,
-) -> pd.DataFrame:
-    """Full enrichment chain for tracking providers.
-
-    See spec section 4.2 for the complete call graph and ordering rationale.
-    """
-    from silly_kicks.spadl import add_game_state
-    from silly_kicks.spadl.utils import add_pre_shot_gk_context
-    from silly_kicks.tracking import (
-        add_action_context,
-        add_actor_pre_window,
-        add_cover_shadows,
-        add_das,
-        add_defensive_line,
-        add_elastic_sync,
-        add_gk_influence,
-        add_line_break,
-        add_obso,
-        add_off_ball_context,
-        add_pausa,
-        add_pre_shot_gk_angle,
-        add_pre_shot_gk_position,
-        add_pressure_on_actor,
-        add_shape_graph,
-        add_space_creation,
-        add_sync_score,
-        add_team_shape,
-        link_actions_to_frames,
-        pitch_control_at_action,
-    )
-
-    # Step 0: Actions-only enrichments (no tracking needed)
-    out = add_game_state(actions_df)
-
-    # Step 1: Frame linkage — computed ONCE; links passed to every add_* call.
-    links, _report = link_actions_to_frames(out, tracking_df)
-
-    # Step 2: GK resolution (pure SPADL + tracking; no links kwarg).
-    out = add_pre_shot_gk_context(out, frames=tracking_df)
-
-    # Step 3: Action context
-    out = add_action_context(out, tracking_df, links=links)
-
-    # Step 4: Actor pre-window
-    out = add_actor_pre_window(out, tracking_df, links=links)
-
-    # Step 5a: Pressure — andrienko_oval + link_zones
-    out = add_pressure_on_actor(
-        out,
-        tracking_df,
-        links=links,
-        methods=("andrienko_oval", "link_zones"),
-    )
-
-    # Step 5b: Pressure — bekkers_pi (needs is_ball=True rows)
-    try:
-        out = add_pressure_on_actor(
-            out,
-            tracking_df,
-            links=links,
-            methods=("bekkers_pi",),
-        )
-    except ValueError as exc:
-        if "is_ball=True" in str(exc):
-            logger.error("bekkers_pi degraded to NaN: %s", exc)
-            out["pressure_on_actor__bekkers_pi"] = np.nan
-        else:
-            raise
-
-    # Step 6: Pitch control — 3 methods via Series API
-    for method in ("spearman", "fernandez_bornn", "voronoi"):
-        s = pitch_control_at_action(out, tracking_df, links=links, method=method)
-        out[s.name] = s.values
-
-    # Step 7: Defensive line
-    out = add_defensive_line(out, tracking_df, links=links, home_team_id=home_team_id)
-
-    # Step 8: Off-ball context (umbrella — includes off-ball-run columns)
-    out = add_off_ball_context(out, tracking_df, links=links, home_team_id=home_team_id)
-
-    # Step 9: Ward line-breaking
-    out = add_line_break(out, tracking_df, links=links, method="ward", home_team_id=home_team_id)
-
-    # Step 10: Team shape
-    out = add_team_shape(out, tracking_df, links=links, home_team_id=home_team_id)
-
-    # Step 11: DAS (chunk_size=10 prevents OOM under 1 GB group cap)
-    out = add_das(out, tracking_df, links=links, chunk_size=10)
-
-    # Step 12: GK spatial (requires defending_gk_player_id from Step 2)
-    out = add_pre_shot_gk_position(out, tracking_df, links=links)
-    out = add_pre_shot_gk_angle(out, frames=tracking_df, links=links)
-
-    # Step 13: GK influence (xt positional)
-    out = add_gk_influence(out, tracking_df, xt, links=links, home_team_id=home_team_id)
-
-    # Step 14: Cover shadows (xt positional)
-    out = add_cover_shadows(out, tracking_df, xt, links=links, home_team_id=home_team_id)
-
-    # Step 15: Shape graph
-    out = add_shape_graph(out, tracking_df, links=links, home_team_id=home_team_id)
-
-    # Step 16: OBSO — MUST precede add_pausa
-    out = add_obso(out, tracking_df, links=links, home_team_id=home_team_id)
-
-    # Step 17: PAUSA (depends on OBSO columns from Step 16)
-    out = add_pausa(out, tracking_df, links=links, home_team_id=home_team_id)
-
-    # Step 18: Space creation
-    out = add_space_creation(out, tracking_df, links=links, home_team_id=home_team_id)
-
-    # Step 19: ELASTIC sync
-    out = add_elastic_sync(out, tracking_df)
-
-    # Step 20: Sync score
-    out = add_sync_score(out, links)
-
-    return out
-
-
-def _enrich_sb360_match(
-    actions_df: pd.DataFrame,
-    freeze_frames: pd.DataFrame,
-    home_team_id: str,
-) -> pd.DataFrame:
-    """Enrichment chain for StatsBomb 360 matches.
-
-    Uses snapshot_to_tracking_frames to convert per-event freeze-frame
-    snapshots into synthetic tracking frames, then runs single-frame
-    add_* features. Velocity/temporal features remain NULL.
-    """
-    from silly_kicks.spadl import add_game_state
-    from silly_kicks.spadl.utils import add_pre_shot_gk_context
-    from silly_kicks.tracking import (
-        add_action_context,
-        add_defensive_line,
-        add_line_break,
-        add_team_shape,
-        snapshot_to_tracking_frames,
-    )
-
-    # Step 0: Actions-only enrichments
-    out = add_game_state(actions_df)
-    # GK resolution — SPADL-only (no frames=). Snapshot frames lack temporal
-    # continuity for GK tracking fallback; positional features run post-conversion.
-    out = add_pre_shot_gk_context(out)
-
-    # Step 1: Convert freeze-frames to synthetic tracking frames + links.
-    frames, links = snapshot_to_tracking_frames(freeze_frames, out)
-
-    if len(frames) == 0:
-        return out  # No freeze-frame data — event-only fallback
-
-    # Step 2: Single-frame positional features
-    out = add_action_context(out, frames, links=links)
-
-    # Step 3: Defensive line
-    out = add_defensive_line(out, frames, links=links, home_team_id=home_team_id)
-
-    # Step 4: Ward line-breaking — primary SB360 value-add
-    out = add_line_break(out, frames, links=links, method="ward", home_team_id=home_team_id)
-
-    # Step 5: Team shape
-    out = add_team_shape(out, frames, links=links, home_team_id=home_team_id)
-
-    return out
-
-
-def _enrich_event_only_match(actions_df: pd.DataFrame) -> pd.DataFrame:
-    """Minimal enrichment for event-only providers (StatsBomb, Wyscout)."""
-    from silly_kicks.spadl import add_game_state
-    from silly_kicks.spadl.utils import add_pre_shot_gk_context
-
-    out = add_game_state(actions_df)
-    out = add_pre_shot_gk_context(out)
-    return out
-
-
-# ── Post-enrichment output handler ────────────────────────────────────
-
-
-def _build_output(
-    actions: pd.DataFrame,
-    match_id_native: str,
-    data_source: str,
-) -> pd.DataFrame:
-    """Post-enrichment: renames + column selection for bronze write.
-
-    1. game_id -> match_id (silly-kicks uses game_id, we use match_id)
-    2. defending_gk_player_id -> defending_gk_player_id_native (ADR-018)
-    3. type_id -> type_name via silly-kicks add_names
-    4. Column selection to _RESULT_COLUMNS with NaN fill for missing cols.
-    """
-    out = actions.copy()
-    out["match_id"] = match_id_native
-    out["data_source"] = data_source
-
-    if "type_name" not in out.columns and "type_id" in out.columns:
-        from silly_kicks.spadl.utils import add_names
-
-        out = add_names(out)
-
-    # Restore native IDs for dim table joins via staging layer.
-    if "team_id_native" in out.columns:
-        out = _restore_native_identity(out)
-
-    if "defending_gk_player_id" in out.columns:
-        out = out.rename(columns={"defending_gk_player_id": "defending_gk_player_id_native"})
-
-    output_cols = [c for c in _RESULT_COLUMNS if c != "_ingested_at"]
-    for col in output_cols:
-        if col not in out.columns:
-            out[col] = np.nan
-    return out[output_cols].copy()
-
-
 # ── GradientSports bronze -> converter input mapper ───────────────────
 
 _GS_FRAME_RATE = 30  # GradientSports default frame rate
@@ -722,25 +265,19 @@ def _make_action_context_udf(
     """
 
     def _udf(pdf: pd.DataFrame) -> pd.DataFrame:
-        import gc as _gc
         import logging as _logging
+        import traceback as _tb
 
-        import numpy as _np
         import pandas as _pd
-        from silly_kicks.xthreat import ExpectedThreat as _ExpectedThreat
 
-        from ingestion.action_context import (
-            _ACTION_TIME_BUFFER_SECONDS,
-            _RESULT_COLUMNS,
-            _build_output,
-            _enrich_tracking_match,
-            _resolve_enrichment_identity,
-        )
+        from analytics.action_context.pipeline import enrich_batch as _enrich_batch
+        from analytics.action_context.schema import RESULT_COLUMNS as _RC
+        from analytics.action_context.work_unit import MatchMeta as _MatchMeta
 
         _logger = _logging.getLogger("action_context_udf")
 
         if pdf.empty:
-            output_cols = [c for c in _RESULT_COLUMNS if c != "_ingested_at"]
+            output_cols = [c for c in _RC if c != "_ingested_at"]
             return _pd.DataFrame(columns=_pd.Index(output_cols))
 
         match_id_val = pdf["match_id"].iloc[0]
@@ -755,139 +292,30 @@ def _make_action_context_udf(
                 len(pdf),
             )
 
+        _meta = _MatchMeta(
+            home_team_id=home_team_id,
+            home_start_left=home_start_left,
+            gs_team_side_to_id=gs_team_side_to_id,
+            gs_jersey_to_player_id=gs_jersey_to_player_id,
+            gs_gk_player_ids=gs_gk_player_ids,
+        )
+
         try:
-            # Reconstruct xT from scalar primitives
-            xt = _ExpectedThreat(l=xt_l, w=xt_w)
-            xt.xT = _np.array(xt_grid_data, dtype=_np.float64)
-
-            # Reconstruct actions, filter to this period
-            all_actions = _pd.DataFrame(actions_records)
-            actions = all_actions[all_actions["period_id"] == int(period_val)].copy()
-            del all_actions
-
-            # Further filter actions to this batch's time window
-            if "time_seconds" in actions.columns and "timestamp" in pdf.columns:
-                t_min = float(pdf["timestamp"].min()) - _ACTION_TIME_BUFFER_SECONDS
-                t_max = float(pdf["timestamp"].max()) + _ACTION_TIME_BUFFER_SECONDS
-                actions = actions[(actions["time_seconds"] >= t_min) & (actions["time_seconds"] <= t_max)].copy()
-
-            if actions.empty:
-                output_cols = [c for c in _RESULT_COLUMNS if c != "_ingested_at"]
-                return _pd.DataFrame(columns=_pd.Index(output_cols))
-
-            # Drop synthetic frame_batch_id before passing to converters
-            if "frame_batch_id" in pdf.columns:
-                pdf = pdf.drop(columns=["frame_batch_id"])
-
-            # ── Provider-specific conversion ──
-            if provider == "idsse":
-                from silly_kicks.tracking import PreprocessConfig as _PreprocessConfig
-                from silly_kicks.tracking.sportec import convert_to_frames as _convert_to_frames
-
-                from ingestion.tracking_context import _bronze_idsse_to_sportec_input
-
-                sportec_input = _bronze_idsse_to_sportec_input(pdf)
-                del pdf
-                _gc.collect()
-
-                frames, _report = _convert_to_frames(
-                    sportec_input,
-                    home_team_id=home_team_id,
-                    home_team_start_left=home_start_left,
-                    output_convention="ltr",
-                    preprocess=_PreprocessConfig(derive_velocity=True),
-                )
-                del sportec_input
-                _gc.collect()
-
-            elif provider == "metrica":
-                from ingestion.tracking_context import _bronze_metrica_to_frames
-
-                game_id = int(actions["game_id"].iloc[0])
-                _pid_col = "player_id_native"
-                _unique_pids = actions[_pid_col].dropna().unique()
-                _has_space = any(" " in str(p) for p in _unique_pids)
-                _fallback_fmt = "Player {}" if _has_space else "Player{}"
-                _jersey_to_pid: dict[str, str] = {}
-                for _p in _unique_pids:
-                    _m = _JERSEY_RE.match(str(_p))
-                    if _m:
-                        _jersey_to_pid[_m.group(1)] = str(_p)
-                frames = _bronze_metrica_to_frames(
-                    pdf,
-                    game_id=game_id,
-                    jersey_to_pid=_jersey_to_pid,
-                    fallback_fmt=_fallback_fmt,
-                )
-                del pdf
-                _gc.collect()
-
-            elif provider == "skillcorner":
-                from ingestion.tracking_context import _bronze_skillcorner_to_frames
-
-                game_id = int(actions["game_id"].iloc[0])
-                frames = _bronze_skillcorner_to_frames(pdf, game_id=game_id)
-                del pdf
-                _gc.collect()
-
-            elif provider == "gradientsports":
-                from silly_kicks.tracking import PreprocessConfig as _PreprocessConfig
-                from silly_kicks.tracking.gradientsports import (
-                    convert_to_frames as _gs_convert_to_frames,
-                )
-
-                from ingestion.action_context import _bronze_gradientsports_to_converter_input
-
-                _gs_j2p: dict[tuple[str, str], str] = {
-                    (str(k[0]), str(k[1])): v for k, v in (gs_jersey_to_player_id or {}).items()
-                }
-                converter_input = _bronze_gradientsports_to_converter_input(
-                    pdf,
-                    team_side_to_id=gs_team_side_to_id or {},
-                    jersey_to_player_id=_gs_j2p,
-                    gk_player_ids=frozenset(gs_gk_player_ids or []),
-                )
-                del pdf
-                _gc.collect()
-
-                frames, _report = _gs_convert_to_frames(
-                    converter_input,
-                    home_team_id=int(home_team_id),
-                    home_team_start_left=home_start_left,
-                    output_convention="ltr",
-                    preprocess=_PreprocessConfig(derive_velocity=True),
-                )
-                del converter_input
-                _gc.collect()
-
-            else:
-                raise ValueError(f"Unknown provider: {provider}")
-
-            # Align game_id
-            frames["game_id"] = int(actions["game_id"].iloc[0])
-
-            # Resolve enrichment identity
-            actions = _resolve_enrichment_identity(
-                actions,
+            # One Spark frame_batch_id group == one enrich_batch call (== one
+            # iteration of run_work_unit's loop). prod and local run identical code (H3).
+            return _enrich_batch(
                 provider=provider,
-                match_id_native=native_match_id,
+                tier="tracking",
+                frames_pdf=pdf,
+                actions_records=actions_records,
+                period=int(period_val),
+                xt_grid_data=xt_grid_data,
+                xt_l=xt_l,
+                xt_w=xt_w,
+                meta=_meta,
+                native_match_id=native_match_id,
             )
-
-            # Run full enrichment chain
-            result = _enrich_tracking_match(
-                actions_df=actions,
-                tracking_df=frames,
-                xt=xt,
-                home_team_id=home_team_id,
-            )
-            del frames, actions
-            _gc.collect()
-
-            return _build_output(result, native_match_id, provider)
-
         except Exception as exc:  # ADR-002 §5 hard-fail-first UDF: re-raise with group key context
-            import traceback as _tb
-
             inner_tb = _tb.format_exc()
             _logger.error(
                 "UDF failed for match_id=%s, period=%s, batch=%s:\n%s",

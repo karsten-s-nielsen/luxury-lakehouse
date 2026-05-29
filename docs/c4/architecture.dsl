@@ -45,6 +45,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             evolveEngine = container "Evolve Engine" "LLM-guided architecture search. AST validation, restricted exec." "Python, OpenEvolve"
             calibrationRunner = container "TC-3 Calibration Runner" "Optuna TPE sweep for silly-kicks defaults: carrier params, k3, off-ball runs. Databricks SQL + ThreadPool." "Python, Optuna, XGBoost"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models: xG, xT, VAEP, OBSO, pitch control, embeddings" "Python, PyTorch"
+            actionContextHexagon = container "Action Context Hexagon" "Pure-domain enrichment for bronze.spadl_action_context (ADR-028). 5 Protocol ports + enrich_batch contract. Same code runs in the Spark applyInPandas UDF (per 250-frame batch) and in local run_work_unit on Parquet -- prod/local parity is structural. Includes ghost_gk and cover_shadows detailed=True." "Python, pandas, silly-kicks 3.27"
             sharedLibrary = container "Shared Library" "Cross-package constants. Zero external deps." "Python"
         }
 
@@ -130,6 +131,9 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         workflowFramework -> costEstimateHook "Dispatches lifecycle hooks" ""
         ingestionPipelines -> analyticsLibrary "Imports domain logic" ""
         ingestionPipelines -> sharedLibrary "Imports constants" ""
+        ingestionPipelines -> actionContextHexagon "compute_action_context UDF delegates to enrich_batch (ADR-028)" ""
+        actionContextHexagon -> sharedLibrary "Imports identifiers" ""
+        actionContextHexagon -> bronzeSchema "Reads tracking+SPADL+xT grid, writes spadl_action_context" "PySpark/Delta"
         analyticsLibrary -> sharedLibrary "Imports IDENTIFIER_RE" ""
         costEstimateHook -> sharedLibrary "Imports schema constants" ""
         ingestionPipelines -> bronzeSchema "Writes compute results" "PySpark/Delta"
@@ -320,6 +324,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         container unityCatalog "DataStores" {
             include *
             include ingestionPipelines
+            include actionContextHexagon
             include costEstimateHook
             include fctWorkflowCosts
             include dbtProject

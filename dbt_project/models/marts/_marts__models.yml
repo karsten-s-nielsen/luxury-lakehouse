@@ -5101,3 +5101,9 @@ models:
         data_type: bigint
       - name: shape_graph_mean_stability_defending
         data_type: double
+      - name: ghost_gk_x
+        data_type: double
+      - name: ghost_gk_y
+        data_type: double
+      - name: ghost_gk_spread
+        data_type: double

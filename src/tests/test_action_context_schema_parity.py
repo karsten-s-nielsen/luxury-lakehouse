@@ -9,7 +9,12 @@ from __future__ import annotations
 
 import re
 
-from ingestion.action_context import _ACTION_CONTEXT_DDL, _RESULT_COLUMNS
+from analytics.action_context.schema import (
+    ACTION_CONTEXT_DDL as _ACTION_CONTEXT_DDL,
+)
+from analytics.action_context.schema import (
+    RESULT_COLUMNS as _RESULT_COLUMNS,
+)
 
 _DDL_COL_RE = re.compile(r"(\w+)\s+\w+")
 

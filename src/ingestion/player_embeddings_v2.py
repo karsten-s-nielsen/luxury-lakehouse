@@ -207,7 +207,7 @@ def _import_v2_embeddings(
 
     # Attach stat vectors via vectorized key lookup
     # (OPT-AUDIT: replaced .iterrows() on ~87K rows with tuple-keyed map)
-    v2_pdf["stat_vector"] = [
+    v2_pdf["stat_vector"] = [  # type: ignore[call-overload]  # assigning a list of optional vectors to an object column is valid at runtime
         merged_stats.get(k)
         for k in zip(v2_pdf["canonical_player_id"].astype(str), v2_pdf["match_id"].astype(str), strict=True)
     ]
@@ -414,7 +414,7 @@ def _import_embeddings_360(
     behavioral_keys = list(zip(pdf["canonical_player_id"].astype(str), pdf["match_id"].astype(str), strict=True))
     merged_stats = _merge_vectors(behavioral_keys, stat_df, match_competition_map)
 
-    pdf["stat_vector"] = [
+    pdf["stat_vector"] = [  # type: ignore[call-overload]  # assigning a list of optional vectors to an object column is valid at runtime
         merged_stats.get(k)
         for k in zip(pdf["canonical_player_id"].astype(str), pdf["match_id"].astype(str), strict=True)
     ]

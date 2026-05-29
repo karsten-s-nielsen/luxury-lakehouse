@@ -133,7 +133,7 @@ def _transform_360_to_training_data(raw: pd.DataFrame) -> pd.DataFrame:
             "result_binary",
         ]
     ].copy()
-    players_series = per_action.apply(
+    players_series = per_action.apply(  # type: ignore[call-overload]  # pandas-stubs lacks include_groups overload
         lambda grp: [
             {
                 "x": float(r["ff_x_norm"]),
@@ -143,7 +143,7 @@ def _transform_360_to_training_data(raw: pd.DataFrame) -> pd.DataFrame:
             }
             for _, r in grp[["ff_x_norm", "ff_y_norm", "ff_is_keeper", "ff_is_teammate"]].iterrows()
         ],
-        include_groups=False,
+        include_groups=False,  # type: ignore[call-arg]  # runtime pandas 2.2+ has include_groups
     )
     first_fields["players"] = players_series
     first_fields = first_fields.reset_index()
@@ -154,13 +154,13 @@ def _transform_360_to_training_data(raw: pd.DataFrame) -> pd.DataFrame:
 
     action_cols = ["action_type_id", "x", "y", "result_binary"]
     rename_map = {"action_type_id": "action_type", "result_binary": "result"}
-    actions_series = grouped.apply(
-        lambda grp: grp[action_cols].rename(columns=rename_map).to_dict("records"),
-        include_groups=False,
+    actions_series = grouped.apply(  # type: ignore[call-overload]  # pandas-stubs lacks include_groups overload
+        lambda grp: grp[action_cols].rename(columns=rename_map).to_dict("records"),  # type: ignore[index]  # grp is a DataFrame at runtime
+        include_groups=False,  # type: ignore[call-arg]  # runtime pandas 2.2+ has include_groups
     )
-    ff_series = grouped.apply(
+    ff_series = grouped.apply(  # type: ignore[call-overload]  # pandas-stubs lacks include_groups overload
         lambda grp: [{"players": p} for p in grp["players"]],
-        include_groups=False,
+        include_groups=False,  # type: ignore[call-arg]  # runtime pandas 2.2+ has include_groups
     )
     meta = grouped.first()[["competition_id", "season_id", "position_group"]].copy()
     meta["competition_id"] = meta["competition_id"].fillna(0).astype(int)

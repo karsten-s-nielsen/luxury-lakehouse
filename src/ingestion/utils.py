@@ -380,10 +380,11 @@ def _get_session() -> requests.Session:
     if _session is None:
         import os
 
+        new_session: requests.Session
         if os.environ.get("LUXURY_LAKEHOUSE_HTTP_CACHE", "1") == "0":
-            _session = requests.Session()
+            new_session = requests.Session()
         else:
-            _session = requests_cache.CachedSession(
+            new_session = requests_cache.CachedSession(
                 _CACHE_DB_NAME,
                 backend="sqlite",
                 expire_after=86400,  # 24h default TTL
@@ -392,7 +393,8 @@ def _get_session() -> requests.Session:
                 },
                 stale_if_error=True,
             )
-        _session.verify = True
+        new_session.verify = True
+        _session = new_session
     return _session
 
 
@@ -553,7 +555,7 @@ def finalize_bronze_df(
     for col in expected_cols:
         if col not in df.columns:
             target = overrides.get(col, "string")
-            df[col] = pd.array([None] * n_rows, dtype=target)
+            df[col] = pd.array([None] * n_rows, dtype=target)  # type: ignore[call-overload]  # target is a valid dtype string at runtime; pandas-stubs over-narrows `dtype`
 
     for col in list(df.columns):
         if df[col].dtype == object and df[col].isna().all():

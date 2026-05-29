@@ -1,0 +1,136 @@
+# AC-1 profiling results + optimization decision gate (Phase D)
+
+**Method:** `analytics.action_context.profiling.profile_callable` (cProfile, cumulative time) over
+the real `run_work_unit` on the committed IDSSE J03WMX p1 anchor fixture — **30 batches, run
+fully locally** (no Spark/Databricks). silly-kicks 3.23.0.
+
+## Measured (per-function, cumulative)
+
+| Function | cum_s | % of total | calls |
+|---|---|---|---|
+| **TOTAL (profiled wall)** | **348.0** | 100% | — |
+| `enrich_batch` | 347.8 | ~100% | 30 |
+| `_enrich_tracking_match` | 341.9 | 98% | 29 |
+| **`add_das` → `simulate_passes_chunked`** | **213.5** | **61%** | 29 |
+| `gc.collect` (built-in) | 103.8 | 30% | 2174 |
+| `add_shape_graph` | 38.6 | 11% | 29 |
+| `add_elastic_sync` | 24.1 | 7% | 29 |
+| `add_cover_shadows` | 23.7 | 7% | 29 |
+
+(Unprofiled wall is ~305 s for the same 30 batches; cProfile adds ~14% overhead. The 30%
+attributed to `gc.collect` is partly cProfile-inflated but is real — see lever 2.)
+
+## Extrapolation to the timeout
+
+A full IDSSE half is ~283 batches (1.5 M tracking rows / 250 / ~22 objects). At ~10 s/batch
+unprofiled that is **~50–55 min/half**, which is exactly why `compute_action_context_iteration`
+(1800 s = 30 min) timed out writing zero rows. The timeout is **compute-bound**, not infra.
+
+## §3 cause attribution
+
+- **(a) per-group compute — DOMINANT.** DAS (`get_dangerous_accessible_space` →
+  `simulate_passes_chunked`, 429 `simulate_passes` calls) is 61% of wall. shape_graph + elastic +
+  cover_shadows add another ~25%.
+- **(b) executor starvation — RULED OUT** as the primary cause: this is a single-process local
+  run, yet it already takes ~55 min/half. Adding executors cannot fix a per-group cost this large.
+- **(c) per-group overhead — minor.** The per-group `pd.DataFrame(actions_records)` rebuild (L1)
+  did not surface in the top callees; it is negligible next to DAS.
+
+## §8 decision gate
+
+The binding constraint is **per-group compute, dominated by DAS pass-simulation**. Therefore the
+recommended lever is to **reduce DAS cost**, NOT to change cluster size / `concurrency` / chunk
+sizing (those address starvation/overhead, which are not the bottleneck).
+
+Concrete levers, in priority order (each warrants its own spec/PR — out of scope for this
+foundation PR, which only makes AC-1 runnable + verifiable):
+
+1. **DAS (61%) — the headline.** Options: (a) coarsen the accessible-space simulation grid /
+   `simulate_passes` resolution; (b) share the pitch-control/accessible-space surface across the
+   DAS + pitch_control + gk_influence + cover_shadows steps (they each re-simulate); (c) compute
+   DAS on a downsampled frame subset. This is the silly-kicks "surface-sharing" optimization the
+   spec flagged — it lives in silly-kicks, so it is a silly-kicks change.
+2. **`gc.collect` (30%).** `_convert_tracking_batch` calls `gc.collect()` per batch (×30) and the
+   chain triggers many more (2174 total). These explicit collects were added for the 1 GB UDF cap
+   but are costly; profile whether they are still needed at `_FRAME_BATCH_SIZE=250` and drop the
+   redundant ones.
+3. **elastic (7%) computes 24 s/half and returns all-NaN** (window-dependent; can't align on a
+   250-frame batch). Either skip `add_elastic_sync` in the batched path (reclaim the 24 s) or
+   source elastic from the dedicated whole-half `elastic_sync_results` pipeline via a join.
+
+## Optimizations applied (quality-preserving — golden byte-identical at every step)
+
+Root cause of the dominant costs: several per-frame **snapshot** enrichments compute their metric
+on EVERY frame of the 250-frame batch, then map only the ~3 action-linked frames to actions —
+discarding ~98% of the per-frame work. Restricting their input to the action-linked frames (via
+`enrich._restrict_to_linked_frames`, mirroring the legacy `tracking_context` DAS bypass) yields
+**identical per-action values** (verified: the frozen `golden.parquet` is unchanged) for a large
+reduction in work. This is valid only for true per-frame snapshots, NOT window features
+(actor-pre-window, off-ball runs, elastic), which still receive full frames.
+
+| Stage | Wall (30 batches) | Extrapolated IDSSE half (~283 batches) | vs 1800 s timeout |
+|---|---|---|---|
+| Baseline | 366 s | ~58 min | OVER |
+| + DAS restricted to linked frames | 92 s | ~14.5 min | under |
+| + shape_graph restricted to linked frames | **70 s** | **~11 min** | comfortably under |
+
+Net **~5.2x speedup, zero quality loss.** The 30-min timeout is resolved by these two changes
+alone. The `gc.collect` lever (30% in the baseline) was largely **subsumed**: those 2174 collects
+were mostly inside the DAS accessible-space simulation, which now runs ~80x less.
+
+## Remaining levers (after the two applied — measured post-optimization breakdown)
+
+`_enrich_tracking_match` is now ~70 s wall (118.7 s profiled). Top residual costs:
+
+| Step | ~cum_s (profiled) | Same all-frames-then-map pattern? |
+|---|---|---|
+| `add_cover_shadows` | 28.5 | **No** — `_compute_cover_shadow_dict` is ~3.5 calls/batch (already linked-scoped); the cost is `lane_control` (5299 calls), genuinely per-action per passer-receiver pair. Linked-frame filter would NOT help. |
+| `add_elastic_sync` | 26.4 | N/A — **100% wasted** (the frame-origin bug below) |
+| `add_obso` | 19.3 | **No** (verified) — `_precompute_obso_lookup` iterates per-pass-action and builds a ±window (pre 3 s / post 1 s) around each pass, so it needs contiguous frames. The linked-frame filter would BREAK it. Genuinely per-pass with windowing. |
+
+The pipeline is already comfortably under the 30-min budget, so these are optional. None of the
+three residuals is an all-frames-then-map snapshot like DAS/shape_graph were, so the linked-frame
+trick does NOT apply to them. Further gains would need different work (e.g. silly-kicks
+`lane_control` vectorization for cover_shadows), and the elastic 26 s is the frame-origin bug
+(reclaimed once silly-kicks is fixed). DAS + shape_graph were the only all-frames-waste cases.
+
+### elastic — a silly-kicks bug, not a cost to optimize
+
+`add_elastic_sync` spends ~26 s/half and returns **all-NaN** for IDSSE. Root cause (verified on
+real data): `align_events_to_frames` computes `nominal_frame = round(time_seconds * frame_rate)`,
+assuming 0-based frame numbering, but IDSSE `frame_id` starts at 10000 (period 1) / 100000
+(period 2) while `time_seconds` is period-elapsed. The candidate-frame window therefore never
+overlaps the real frames -> zero alignments -> all-NaN. Fix belongs in silly-kicks
+`_elastic_sync.py` (derive the frame from the frames' own time<->frame_id line). Handoff:
+`docs/superpowers/plans/notes/silly-kicks-handoff-elastic-frame-origin-bug.md`.
+
+## Status
+
+AC-1 is **runnable, verifiable, profiled, AND optimized under the timeout** — all quality-preserving.
+Deeper levers (silly-kicks surface-sharing / accessible-space re-implementation) are no longer
+required to meet the 30-min budget, but remain available if further headroom is wanted.
+
+## Update (2026-05-29 — post silly-kicks 3.27.0 adoption)
+
+The Phase-D profiling above is on silly-kicks 3.23.0 with the lakehouse-side `_restrict_to_linked_frames`
+workaround. Since then the optimizations moved **into silly-kicks** and the workaround was removed:
+
+- **DAS + shape_graph linked-frame restriction** → native in 3.25.0 (`add_das`/`add_shape_graph`
+  restrict the per-frame precompute when `links` is supplied; bit-identical). Lakehouse workaround deleted.
+- **Shared `PitchControlCache`** (3.25.0, TF-7) wired across obso/cover_shadows/gk_influence/
+  space_creation/pitch_control_at_action.
+- **ghost_gk** added to the chain (Step 12b). 3.24.0 introduced it; 3.26.0's `link_frame_ids`
+  restriction made it viable (~47.5 min → ~27 s per 250-batch, ~100×). Without 3.26.0 it was
+  ~225 hr/half — the prior "ghost_gk BLOCKER".
+- **cover_shadows `detailed=True`** is now the wired default (all 4 call sites). Measured A/B: only
+  `max_single_defender_blocking_score` changes (0→1.32 vs the 0→0.19 fixed-cast approximation); the
+  other 4 cover columns are byte-identical; ~1.5× cover_shadows cost (uncached per-defender
+  counterfactual; not on the critical path).
+- **elastic is FIXED, not "all-NaN / 100% wasted"** as the §"Remaining levers" / "elastic — a
+  silly-kicks bug" sections above state. silly-kicks 3.25.0 corrected the frame-origin; AC-1 elastic
+  now populates (78/97 on the anchor) with correct 10000-based frames. The frame-origin bug that
+  remains is in the **legacy** `analytics.elastic_sync` (the `elastic_sync_results` oracle), NOT
+  silly-kicks — so elastic is range-checked, not oracle-validated. See
+  `memory/project_legacy_elastic_sync_frame_origin_bug.md`.
+
+Golden regenerated on 3.27.0: rows=97, cols=103 (+3 ghost_gk), 0 boundary dups, differential 2/2 green.

@@ -759,7 +759,7 @@ def _enrich_match(
             fid_raw = pointer_lookup.at[aid, "frame_id"]
             if pd.isna(fid_raw):
                 continue
-            key = (row["period_id"], int(float(fid_raw)))
+            key = (row["period_id"], int(float(fid_raw)))  # type: ignore[arg-type]  # fid_raw is a non-NA numeric Scalar (guarded above); pandas types `.at[]` as Scalar
             if key not in das_lookup:
                 continue
             team_id = row["team_id"]
@@ -784,8 +784,9 @@ def _enrich_match(
     # Step 13: GK influence
     actions = add_gk_influence(actions, frames, xt, links=links, home_team_id=home_team_id)
 
-    # Step 14: Cover shadows
-    actions = add_cover_shadows(actions, frames, xt, links=links, home_team_id=home_team_id)
+    # Step 14: Cover shadows. detailed=True for the accurate per-defender
+    # max_single_defender_blocking_score (the cheap default approximates only that column).
+    actions = add_cover_shadows(actions, frames, xt, links=links, home_team_id=home_team_id, detailed=True)
 
     # Step 15: Sync score
     actions = add_sync_score(actions, links)
@@ -876,8 +877,8 @@ def _derive_velocities_savgol(
     # Ball rows ARE processed (pid=None, is_ball=True).
     for _key, idx in frames.groupby(["period_id", "is_ball", "player_id"]).groups.items():
         group = frames.loc[idx]
-        x_raw = group["x"].values.astype(float)
-        y_raw = group["y"].values.astype(float)
+        x_raw = group["x"].to_numpy(dtype=float)
+        y_raw = group["y"].to_numpy(dtype=float)
         nan_mask = np.isnan(x_raw) | np.isnan(y_raw)
 
         if nan_mask.all():
@@ -902,8 +903,8 @@ def _derive_velocities_savgol(
         x_filled = np.interp(np.arange(len(group)), valid_idx, x_raw[~nan_mask])
         y_filled = np.interp(np.arange(len(group)), valid_idx, y_raw[~nan_mask])
 
-        vx_g = savgol_filter(x_filled, window, polyorder, deriv=1, delta=dt)
-        vy_g = savgol_filter(y_filled, window, polyorder, deriv=1, delta=dt)
+        vx_g = np.asarray(savgol_filter(x_filled, window, polyorder, deriv=1, delta=dt), dtype=float)
+        vy_g = np.asarray(savgol_filter(y_filled, window, polyorder, deriv=1, delta=dt), dtype=float)
         vx_g[nan_mask] = np.nan
         vy_g[nan_mask] = np.nan
 
@@ -997,7 +998,7 @@ def _bronze_idsse_to_sportec_input(trk_pdf: pd.DataFrame) -> pd.DataFrame:
     # both legacy "Alive"/"Dead" and IDSSE "0"/"1" resolve correctly.
     _ball_status_map = {"0": "dead", "1": "alive"}
     bs = players["ball_state"]
-    players["ball_state"] = bs.map(_ball_status_map).fillna(bs.str.lower()).where(bs.notna(), other=None)
+    players["ball_state"] = bs.map(_ball_status_map).fillna(bs.str.lower()).where(bs.notna(), other=None)  # type: ignore[arg-type]  # None→NA fill is valid at runtime; pandas-stubs over-narrows `other`
 
     # ── Synthetic ball rows (one per frame) ──────────────────────
     ball_src = trk_pdf[
@@ -1031,7 +1032,7 @@ def _bronze_idsse_to_sportec_input(trk_pdf: pd.DataFrame) -> pd.DataFrame:
     )
     bs_ball = ball_src["ball_state"]
     ball_src["ball_state"] = (
-        bs_ball.map(_ball_status_map).fillna(bs_ball.str.lower()).where(bs_ball.notna(), other=None)
+        bs_ball.map(_ball_status_map).fillna(bs_ball.str.lower()).where(bs_ball.notna(), other=None)  # type: ignore[arg-type]  # None→NA fill is valid at runtime; pandas-stubs over-narrows `other`
     )
     ball_src["player_id"] = None
     ball_src["team_id"] = None
