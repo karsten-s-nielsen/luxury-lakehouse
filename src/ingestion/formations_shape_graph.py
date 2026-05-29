@@ -150,7 +150,7 @@ def _make_shape_graph_udf(
         if pdf.empty:
             return _empty
 
-        ts = pdf["timestamp_seconds"].values.astype(np.float64)
+        ts = pdf["timestamp_seconds"].to_numpy(dtype=np.float64)
         ts_min = float(ts.min())
         ts_max = float(ts.max())
 
@@ -218,7 +218,7 @@ def _make_shape_graph_udf(
             mid_ts = window_start + _window_seconds / 2.0
             if has_frame:
                 frame_col = window_df["frame"].values
-                ts_col = window_df["timestamp_seconds"].values.astype(np.float64)
+                ts_col = window_df["timestamp_seconds"].to_numpy(dtype=np.float64)
                 mid_idx = int(np.argmin(np.abs(ts_col - mid_ts)))
                 mid_frame = int(frame_col[mid_idx])
             else:

@@ -18,13 +18,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from analytics.action_context.enrich import _enrich_tracking_match
+from analytics.action_context.schema import RESULT_COLUMNS as _RESULT_COLUMNS
 from ingestion.action_context import (
-    _RESULT_COLUMNS,
     _ActionContextGuard,
     _build_output,
     _enrich_event_only_match,
     _enrich_sb360_match,
-    _enrich_tracking_match,
     _find_event_only_new_ids,
     _find_idsse_new_period_pairs,
     _find_tracking_new_ids,
@@ -148,9 +148,15 @@ def test_enrich_tracking_calls_all_steps_with_links() -> None:
         patch("silly_kicks.tracking.add_off_ball_context", _PASSTHROUGH),
         patch("silly_kicks.tracking.add_line_break", _PASSTHROUGH),
         patch("silly_kicks.tracking.add_team_shape", _PASSTHROUGH),
+        # DAS setup (added with the team_in_possession fix): stubbed so the synthetic
+        # frames (no is_ball) don't reach the real ball-carrier inference.
+        patch("silly_kicks.tracking.infer_ball_carrier", MagicMock(return_value=tracking)),
+        patch("silly_kicks.tracking.derive_team_in_possession", MagicMock(return_value=tracking)),
         patch("silly_kicks.tracking.add_das", mock_das),
         patch("silly_kicks.tracking.add_pre_shot_gk_position", _PASSTHROUGH),
         patch("silly_kicks.tracking.add_pre_shot_gk_angle", _PASSTHROUGH),
+        # Ghost-GK (silly-kicks 3.24.0+) — patched so the real bundled model isn't loaded here.
+        patch("silly_kicks.tracking.features.add_ghost_gk", _PASSTHROUGH),
         patch("silly_kicks.tracking.add_gk_influence", _PASSTHROUGH),
         patch("silly_kicks.tracking.add_cover_shadows", _PASSTHROUGH),
         patch("silly_kicks.tracking.add_shape_graph", _PASSTHROUGH),
@@ -287,7 +293,7 @@ def test_build_output_column_selection() -> None:
             "defending_gk_player_id": ["gk1"],
         }
     )
-    with patch("ingestion.action_context._restore_native_identity", side_effect=lambda df: df):
+    with patch("analytics.action_context.schema._restore_native_identity", side_effect=lambda df: df):
         result = _build_output(actions, match_id_native="native_m1", data_source="statsbomb")
     expected_cols = [c for c in _RESULT_COLUMNS if c != "_ingested_at"]
     assert list(result.columns) == expected_cols
@@ -316,7 +322,7 @@ def test_build_output_type_id_to_type_name() -> None:
             "end_y": [34.0],
         }
     )
-    with patch("ingestion.action_context._restore_native_identity", side_effect=lambda df: df):
+    with patch("analytics.action_context.schema._restore_native_identity", side_effect=lambda df: df):
         result = _build_output(actions, match_id_native="native_m1", data_source="idsse")
     assert result["type_name"].iloc[0] == "pass"
 

@@ -37,7 +37,7 @@ def apply_player_id_native(
         actions["player_id_native"] = actions["player_id"].astype("Int64").astype("string")
     else:
         col = actions["player_id"].astype("string")
-        col = col.where(col != "", other=_pd.NA)
+        col = col.where(col != "", other=_pd.NA)  # type: ignore[arg-type]  # pd.NA is a valid `other` at runtime; pandas-stubs over-narrows it
         actions["player_id_native"] = col
     return actions
 

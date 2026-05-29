@@ -59,8 +59,8 @@ def smooth_positions(
         sorted_group = group.sort_values(sort_col)
         idx = sorted_group.index
 
-        result.loc[idx, x_col] = savgol_filter(sorted_group[x_col].to_numpy(), window_length, polyorder)
-        result.loc[idx, y_col] = savgol_filter(sorted_group[y_col].to_numpy(), window_length, polyorder)
+        result.loc[idx, x_col] = savgol_filter(sorted_group[x_col].to_numpy(), window_length, polyorder)  # type: ignore[call-overload]  # savgol returns ndarray; pandas .loc setitem stub over-narrows the value type
+        result.loc[idx, y_col] = savgol_filter(sorted_group[y_col].to_numpy(), window_length, polyorder)  # type: ignore[call-overload]  # savgol returns ndarray; pandas .loc setitem stub over-narrows the value type
 
     result = result.sort_values("_orig_idx").drop(columns="_orig_idx").reset_index(drop=True)
     return result

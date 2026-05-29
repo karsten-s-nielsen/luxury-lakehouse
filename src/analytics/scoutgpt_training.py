@@ -218,9 +218,9 @@ def load_training_data_sql(
         "vaep_val": "vaep_value",
     }
     grouped = seg.groupby("episode_id", sort=False)
-    actions_series = grouped.apply(
-        lambda grp: grp[action_fields].rename(columns=rename).to_dict("records"),
-        include_groups=False,
+    actions_series = grouped.apply(  # type: ignore[call-overload]  # pandas-stubs lacks the include_groups overload (runtime pandas 2.2+ supports it)
+        lambda grp: grp[action_fields].rename(columns=rename).to_dict("records"),  # type: ignore[index]  # grp is a DataFrame at runtime; apply stub widens it to Iterable
+        include_groups=False,  # type: ignore[call-arg]  # runtime pandas 2.2+ has include_groups; stub lags
     )
     meta = grouped.first()[
         [

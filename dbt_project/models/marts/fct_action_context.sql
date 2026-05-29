@@ -113,7 +113,10 @@ with action_raw as (
         shape_graph_mean_stability_attacking,
         shape_graph_density_defending,
         shape_graph_n_edges_defending,
-        shape_graph_mean_stability_defending
+        shape_graph_mean_stability_defending,
+        ghost_gk_x,
+        ghost_gk_y,
+        ghost_gk_spread
     from {{ ref('stg_action_context__values') }}
 
 ),
@@ -246,7 +249,10 @@ final as (
         shape_graph_mean_stability_attacking,
         shape_graph_density_defending,
         shape_graph_n_edges_defending,
-        shape_graph_mean_stability_defending
+        shape_graph_mean_stability_defending,
+        ghost_gk_x,
+        ghost_gk_y,
+        ghost_gk_spread
 
     from keyed
     -- No QUALIFY needed: staging dedup + single Kimball join = guaranteed unique grain.

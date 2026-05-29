@@ -12,7 +12,9 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from tests.conftest import _make_gs_bronze_row
+from tests.conftest import (
+    _make_gs_bronze_row,  # type: ignore[attr-defined]  # defined in tests/conftest.py; pyright doesn't resolve conftest module paths
+)
 
 
 def _make_gs_bronze_df(n: int = 5, **kwargs: object) -> pd.DataFrame:

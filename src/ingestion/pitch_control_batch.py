@@ -144,7 +144,7 @@ def _make_batch_udf(
 
             # Target points are the player positions themselves
             target_points = _np.column_stack(
-                [frame_clean["x"].values.astype(_np.float64), frame_clean["y"].values.astype(_np.float64)]
+                [frame_clean["x"].to_numpy(dtype=_np.float64), frame_clean["y"].to_numpy(dtype=_np.float64)]
             )
 
             # Compute pitch control at each player's position

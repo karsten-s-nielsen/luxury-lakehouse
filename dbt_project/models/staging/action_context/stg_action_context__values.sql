@@ -161,7 +161,11 @@ cleaned as (
         cast(shape_graph_mean_stability_attacking as double) as shape_graph_mean_stability_attacking,
         cast(shape_graph_density_defending as double) as shape_graph_density_defending,
         cast(shape_graph_n_edges_defending as bigint) as shape_graph_n_edges_defending,
-        cast(shape_graph_mean_stability_defending as double) as shape_graph_mean_stability_defending
+        cast(shape_graph_mean_stability_defending as double) as shape_graph_mean_stability_defending,
+        -- Ghost GK
+        cast(ghost_gk_x as double) as ghost_gk_x,
+        cast(ghost_gk_y as double) as ghost_gk_y,
+        cast(ghost_gk_spread as double) as ghost_gk_spread
 
     from deduplicated
     where _row_num = 1

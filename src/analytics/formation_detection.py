@@ -373,7 +373,7 @@ def process_group_formations(
 
     results: list[dict[str, object]] = []
 
-    ts = tracking_df["timestamp_seconds"].values.astype(np.float64)
+    ts = tracking_df["timestamp_seconds"].to_numpy(dtype=np.float64)
     ts_min = float(ts.min())
     ts_max = float(ts.max())
 

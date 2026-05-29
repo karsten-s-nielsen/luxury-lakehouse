@@ -94,8 +94,9 @@ class RotaryMultiheadAttention(nn.Module):
         attn_mask: torch.Tensor | None = None
         if key_padding_mask is not None:
             # Convert (batch, seq_len) bool → (batch, 1, 1, seq_len) float with -inf at padded positions.
-            attn_mask = torch.zeros(batch, 1, 1, seq_len, dtype=x.dtype, device=x.device)
-            attn_mask = attn_mask.masked_fill(key_padding_mask.view(batch, 1, 1, seq_len), float("-inf"))
+            attn_mask = torch.zeros(batch, 1, 1, seq_len, dtype=x.dtype, device=x.device).masked_fill(
+                key_padding_mask.view(batch, 1, 1, seq_len), float("-inf")
+            )
 
         attn_out = F.scaled_dot_product_attention(
             q,

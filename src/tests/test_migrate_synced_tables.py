@@ -38,12 +38,13 @@ def test_get_warehouse_id_raises_on_malformed_path(monkeypatch: pytest.MonkeyPat
 
 def test_create_synced_table_uses_typed_sdk_objects() -> None:
     """_create_synced_table must pass typed SyncedTable + SyncedTableSyncedTableSpec."""
+    # Symbols exist at runtime; SDK module lazy-loads, defeating pyright static resolution.
     from databricks.sdk.service.postgres import (
-        SyncedTable,
-        SyncedTableSyncedTableSpec,
+        SyncedTable,  # type: ignore[attr-defined]
+        SyncedTableSyncedTableSpec,  # type: ignore[attr-defined]
     )
     from databricks.sdk.service.postgres import (
-        SyncedTableSyncedTableSpecSyncedTableSchedulingPolicy as SchedulingPolicy,
+        SyncedTableSyncedTableSpecSyncedTableSchedulingPolicy as SchedulingPolicy,  # type: ignore[attr-defined]
     )
 
     import scripts.migrate_synced_tables as mod

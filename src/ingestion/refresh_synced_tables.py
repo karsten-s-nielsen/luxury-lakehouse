@@ -280,7 +280,7 @@ def _get_pipeline_id(
     """
     full_name = f"{catalog}.{schema}.{table}"
     ws = _get_workspace_client()
-    meta = ws.postgres.get_synced_table(name=f"synced_tables/{full_name}")
+    meta = ws.postgres.get_synced_table(name=f"synced_tables/{full_name}")  # type: ignore[attr-defined]  # PostgresAPI.get_synced_table exists at runtime (verified); SDK type-resolution quirk
     status = getattr(meta, "status", None)
     pid = getattr(status, "pipeline_id", None) if status else None
     if not pid:
@@ -555,7 +555,7 @@ def wait_until_online(
     start = time.monotonic()
     last_state: str | None = None
     while True:
-        meta = ws.postgres.get_synced_table(name=f"synced_tables/{table_fqn}")
+        meta = ws.postgres.get_synced_table(name=f"synced_tables/{table_fqn}")  # type: ignore[attr-defined]  # PostgresAPI.get_synced_table exists at runtime (verified); SDK type-resolution quirk
         status = getattr(meta, "status", None)
         raw_state = getattr(status, "detailed_state", None) if status else None
         # SDK returns SyncedTableState enum; extract .value for string comparison

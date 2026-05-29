@@ -809,8 +809,9 @@ def _enrich_match_with_params(
     # Step 13: GK influence
     actions = add_gk_influence(actions, frames, xt, links=links, home_team_id=home_team_id)
 
-    # Step 14: Cover shadows
-    actions = add_cover_shadows(actions, frames, xt, links=links, home_team_id=home_team_id)
+    # Step 14: Cover shadows (detailed=True — match production accuracy on
+    # max_single_defender_blocking_score so calibration runs on prod values)
+    actions = add_cover_shadows(actions, frames, xt, links=links, home_team_id=home_team_id, detailed=True)
 
     # Step 15: Sync score
     actions = add_sync_score(actions, links)
@@ -1000,8 +1001,9 @@ def _enrich_match_invariant(
     # Step 13: GK influence (invariant)
     actions = add_gk_influence(actions, frames, xt, links=links, home_team_id=home_team_id)
 
-    # Step 14: Cover shadows (invariant)
-    actions = add_cover_shadows(actions, frames, xt, links=links, home_team_id=home_team_id)
+    # Step 14: Cover shadows (invariant; detailed=True — match production accuracy on
+    # max_single_defender_blocking_score so calibration runs on prod values)
+    actions = add_cover_shadows(actions, frames, xt, links=links, home_team_id=home_team_id, detailed=True)
 
     # Step 15: Sync score (invariant)
     actions = add_sync_score(actions, links)

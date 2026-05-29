@@ -1854,7 +1854,7 @@ wheels = [
 
 [[package]]
 name = "luxury-lakehouse"
-version = "0.4.1"
+version = "0.4.2"
 source = { editable = "." }
 dependencies = [
     { name = "gitpython" },
@@ -1877,7 +1877,7 @@ analytics = [
     { name = "rapidfuzz" },
     { name = "scikit-learn" },
     { name = "scipy" },
-    { name = "silly-kicks", extra = ["das"] },
+    { name = "silly-kicks", extra = ["das", "ghost-gk"] },
     { name = "sparse-dot-topn" },
     { name = "unidecode" },
     { name = "xgboost-cpu" },
@@ -1904,7 +1904,7 @@ sdk = [
     { name = "psycopg2-binary" },
 ]
 spadl = [
-    { name = "silly-kicks", extra = ["das"] },
+    { name = "silly-kicks", extra = ["das", "ghost-gk"] },
 ]
 taipy-app = [
     { name = "cachetools" },
@@ -1992,7 +1992,7 @@ requires-dist = [
     { name = "scikit-learn", marker = "extra == 'analytics'", specifier = ">=1.3.0" },
     { name = "scipy", marker = "extra == 'analytics'", specifier = ">=1.11.0" },
     { name = "scipy", marker = "extra == 'taipy-app'", specifier = ">=1.15.0" },
-    { name = "silly-kicks", extras = ["das"], marker = "extra == 'spadl'", specifier = ">=3.23.0,<4" },
+    { name = "silly-kicks", extras = ["das", "ghost-gk"], marker = "extra == 'spadl'", specifier = ">=3.27.0,<4" },
     { name = "sparse-dot-topn", marker = "extra == 'analytics'", specifier = ">=1.1.0" },
     { name = "taipy", marker = "extra == 'taipy-app'", specifier = "==4.1.1" },
     { name = "torch", marker = "extra == 'training'", specifier = ">=2.0", index = "https://download.pytorch.org/whl/cu128" },
@@ -3726,7 +3726,7 @@ wheels = [
 
 [[package]]
 name = "silly-kicks"
-version = "3.23.0"
+version = "3.27.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
@@ -3734,14 +3734,17 @@ dependencies = [
     { name = "scikit-learn" },
     { name = "scipy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a2/3f/72a95b55dca49bec37fdc5bb5f1d613abf1efdde60e3dd399aeaa0f52af8/silly_kicks-3.23.0.tar.gz", hash = "sha256:30076efa2e24b59faa59d7c5ebeb099518530aebd6fa58cf2ebeed3cfab7ce0a", size = 13265165, upload-time = "2026-05-27T15:48:19.158Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d5/9c/6240bf17442bfd4cc4d62c21a33e9df01a74e7a50083c19ac92ea36af230/silly_kicks-3.27.0.tar.gz", hash = "sha256:915e239552001492b8c4ceaf0d5629c37e9958240d75ad0c769a2a0b21489d2b", size = 102587652, upload-time = "2026-05-29T14:37:32.529Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/dc/1b/a81ad723dab950944679e1f41d49de2bfdad12c74ded1cdc8892acc3f6cf/silly_kicks-3.23.0-py3-none-any.whl", hash = "sha256:8320fa08017d41a8cf2a9179d1cf50e35733c29218690a5bc7471f6aec86c487", size = 346539, upload-time = "2026-05-27T15:48:16.446Z" },
+    { url = "https://files.pythonhosted.org/packages/8d/80/e921a1c1e7bbf2b7c571715948c19a9335410de5f98258b95fab40796f29/silly_kicks-3.27.0-py3-none-any.whl", hash = "sha256:35af7c34a4354e07b0131f94776b7de923d78399b6f078d1c289b62afa75efa3", size = 8359338, upload-time = "2026-05-29T14:37:29.618Z" },
 ]
 
 [package.optional-dependencies]
 das = [
     { name = "accessible-space" },
+]
+ghost-gk = [
+    { name = "huggingface-hub" },
 ]
 
 [[package]]

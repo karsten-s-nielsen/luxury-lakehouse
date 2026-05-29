@@ -118,9 +118,9 @@ def _transform_to_training_data(raw: pd.DataFrame) -> pd.DataFrame:
     rename_map = {"action_type_id": "action_type", "x_norm": "x", "y_norm": "y", "result_binary": "result"}
 
     grouped = raw.groupby(["canonical_player_id", "match_id"], sort=False)
-    actions_series = grouped.apply(
-        lambda grp: grp[action_cols].rename(columns=rename_map).to_dict("records"),
-        include_groups=False,
+    actions_series = grouped.apply(  # type: ignore[call-overload]  # pandas-stubs lacks include_groups overload
+        lambda grp: grp[action_cols].rename(columns=rename_map).to_dict("records"),  # type: ignore[index]  # grp is a DataFrame at runtime
+        include_groups=False,  # type: ignore[call-arg]  # runtime pandas 2.2+ has include_groups
     )
     meta = grouped.first()[["competition_id", "season_id", "position_group"]].copy()
     meta["competition_id"] = meta["competition_id"].fillna(0).astype(int)
