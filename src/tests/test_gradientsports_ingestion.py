@@ -312,6 +312,113 @@ class TestParseTracking:
         assert df["period"].dtype.name == "float64"
 
 
+class TestFrameDedup:
+    """Dedup keep-first on (period, frameNum) — silly-kicks PR-S72 heads-up + ADR-004 contract.
+
+    GS provider ships duplicate (period, frameNum) records (up to 16 copies of
+    one frame observed in match 10502). Without dedup at the bronze-writer
+    boundary, every entity at the affected frame fans out N times, crashing
+    silly-kicks _pressure_bekkers AND silently inflating ~15 other downstream
+    features (pitch-control, DAS, team-shape, GK-influence, ...).
+    """
+
+    @staticmethod
+    def _make_frame(*, frame_num: int = 5366, period: int = 1, x: float = -7.1) -> dict:
+        """Frame builder parametrized for dedup tests. x lets us prove keep-first kept the FIRST copy."""
+        return {
+            "gameRefId": 10502.0,
+            "frameNum": frame_num,
+            "period": period,
+            "periodElapsedTime": 100.0,
+            "periodGameClockTime": 100.0,
+            "videoTimeMs": 100000,
+            "version": "1.0",
+            "generatedTime": "2026-01-01T00:00:00",
+            "smoothedTime": "2026-01-01T00:00:00",
+            "game_event_id": None,
+            "possession_event_id": None,
+            "game_event": None,
+            "possession_event": None,
+            "homePlayers": [{"jerseyNum": "10", "confidence": "HIGH", "visibility": "VISIBLE", "x": x, "y": -0.3}],
+            "homePlayersSmoothed": None,
+            "awayPlayers": [{"jerseyNum": "10", "confidence": "HIGH", "visibility": "VISIBLE", "x": 0.5, "y": -0.3}],
+            "awayPlayersSmoothed": None,
+            "balls": [{"visibility": "VISIBLE", "x": -1.4, "y": -0.3, "z": 0.0}],
+            "ballsSmoothed": None,
+        }
+
+    def test_parse_tracking_dedupes_repeated_frame_keys(self) -> None:
+        """16 content-divergent copies of one frame (the worst observed case in match 10502)
+        must produce only ONE frame's worth of rows (1 home + 1 away + 1 ball = 3)."""
+        from ingestion.gradientsports_tracking import parse_tracking
+
+        # 16 copies of (period=1, frame_num=5366), each with a different x to prove
+        # they're content-divergent. Plus one unique (period=1, frame_num=5367) sentinel.
+        copies = [self._make_frame(frame_num=5366, x=-7.1 + i * 0.01) for i in range(16)]
+        unique_sentinel = self._make_frame(frame_num=5367, x=99.0)
+        df = parse_tracking([*copies, unique_sentinel], match_id="10502")
+
+        # 2 unique frames x (1 home + 1 away + 1 ball) = 6 rows total
+        assert len(df) == 6, f"expected 6 rows post-dedup; got {len(df)}: {df}"
+        # Keep-first invariant: the first copy's x value (-7.1) survived for frame 5366
+        home_5366 = df[(df["frame_num"] == 5366.0) & (df["team_side"] == "home")]
+        assert len(home_5366) == 1
+        assert home_5366.iloc[0]["x"] == pytest.approx(-7.1)
+        # Sentinel survived untouched
+        home_5367 = df[(df["frame_num"] == 5367.0) & (df["team_side"] == "home")]
+        assert len(home_5367) == 1
+        assert home_5367.iloc[0]["x"] == pytest.approx(99.0)
+
+    def test_parse_tracking_dedupes_across_periods_independently(self) -> None:
+        """Same frame_num in different periods are DIFFERENT keys — must NOT be deduped together."""
+        from ingestion.gradientsports_tracking import parse_tracking
+
+        p1 = self._make_frame(frame_num=5366, period=1, x=-7.1)
+        p2 = self._make_frame(frame_num=5366, period=2, x=11.0)
+        df = parse_tracking([p1, p2], match_id="10502")
+
+        # Both kept: 2 frames x 3 rows = 6
+        assert len(df) == 6
+        assert set(df["period"].unique()) == {1.0, 2.0}
+
+    def test_parse_tracking_passes_through_frames_with_missing_keys(self) -> None:
+        """Frames missing period/frameNum are caller's schema issue, not a dedup concern — pass through."""
+        from ingestion.gradientsports_tracking import parse_tracking
+
+        normal = self._make_frame(frame_num=5366)
+        no_period = self._make_frame(frame_num=5366)
+        no_period["period"] = None
+        no_frame_num = self._make_frame(frame_num=5366)
+        no_frame_num["frameNum"] = None
+        df = parse_tracking([normal, no_period, no_frame_num], match_id="10502")
+
+        # 3 frames x 3 rows (none deduped - only the first has a valid key, the other two
+        # bypass dedup because their keys are incomplete).
+        assert len(df) == 9
+
+    def test_iter_unique_frames_logs_drop_count(self) -> None:
+        """The dedup helper must log dropped duplicates so silent inflation is observable."""
+        import logging
+
+        from ingestion.gradientsports_tracking import _iter_unique_frames
+
+        captured: list[str] = []
+
+        class _Capture(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                captured.append(record.getMessage())
+
+        log = logging.getLogger("test_iter_unique_frames")
+        log.handlers = [_Capture()]
+        log.setLevel(logging.WARNING)
+
+        copies = [self._make_frame(frame_num=5366, x=float(i)) for i in range(5)]
+        list(_iter_unique_frames(iter(copies), log=log))
+
+        warnings = [m for m in captured if "dedup" in m and "dropped 4" in m]
+        assert warnings, f"expected a 'dropped 4' warning; got: {captured}"
+
+
 class TestStreamTrackingToParquet:
     """Tests for the streaming bz2→Parquet path (production OOM fix)."""
 

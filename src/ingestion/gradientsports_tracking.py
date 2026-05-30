@@ -76,6 +76,57 @@ _ARROW_SCHEMA = pa.schema(
 )
 
 
+def _iter_unique_frames(
+    frames_iter: Iterator[dict],
+    *,
+    log: logging.Logger | None = None,
+) -> Iterator[dict]:
+    """Keep-first dedup wrapper for the GS frame stream.
+
+    The GS provider ships content-divergent duplicate ``(period, frameNum)``
+    records — observed up to 16 copies of a single frame in match 10502
+    (silly-kicks PR-S72 heads-up, 2026-05-30). Each duplicated frame fans
+    out to 23 duplicate narrow-format rows (22 players + 1 ball), which:
+
+    1. crashes silly-kicks ``_pressure_bekkers`` on a 3-D ball_pos broadcast,
+    2. silently inflates ~15 other downstream features (pitch-control, DAS,
+       team-shape, GK-influence, ...) on the affected frames — wrong values,
+       no error.
+
+    Dedup at the bronze-writer boundary is the long-term home (every
+    downstream consumer benefits without per-feature defense-in-depth).
+    silly-kicks 4.0.1 ships defense-in-depth for the bekkers crash; this
+    helper closes the silent-inflation gap.
+
+    Frames missing ``period`` or ``frameNum`` are yielded as-is (caller's
+    schema problem, not a dedup concern).
+    """
+    seen: set[tuple[float, float]] = set()
+    dup_count = 0
+    for frame in frames_iter:
+        period = frame.get("period")
+        frame_num = frame.get("frameNum")
+        if period is None or frame_num is None:
+            yield frame
+            continue
+        try:
+            key = (float(period), float(frame_num))
+        except (TypeError, ValueError):
+            yield frame
+            continue
+        if key in seen:
+            dup_count += 1
+            continue
+        seen.add(key)
+        yield frame
+    if dup_count > 0 and log is not None:
+        log.warning(
+            "GS bronze dedup: dropped %d duplicate (period, frameNum) record(s) out of %d unique frame(s) kept",
+            dup_count,
+            len(seen),
+        )
+
+
 def _flatten_frame(frame: dict, match_id: str, ingested_at: datetime) -> list[dict]:
     """Flatten one tracking frame into narrow-format row dicts.
 
@@ -238,7 +289,9 @@ def stream_tracking_to_parquet(
 
     writer = pq.ParquetWriter(parquet_path, _ARROW_SCHEMA)
     try:
-        for frame in _iter_frames_from_bz2_stream(response):
+        # Dedup keep-first on (period, frameNum) — GS provider ships duplicates;
+        # see _iter_unique_frames docstring.
+        for frame in _iter_unique_frames(_iter_frames_from_bz2_stream(response), log=log):
             batch_rows.extend(_flatten_frame(frame, match_id, ingested_at))
             frame_count += 1
 
@@ -293,7 +346,9 @@ def parse_tracking(source: bytes | str | list, *, match_id: str) -> pd.DataFrame
 
     ingested_at = datetime.now(timezone.utc)
     rows: list[dict] = []
-    for frame in frames_list:
+    # Dedup keep-first on (period, frameNum) — symmetry with stream_tracking_to_parquet.
+    # In-memory path: no logger; dups silently dropped (tests assert the count).
+    for frame in _iter_unique_frames(iter(frames_list)):
         rows.extend(_flatten_frame(frame, match_id, ingested_at))
 
     df = pd.DataFrame(rows)

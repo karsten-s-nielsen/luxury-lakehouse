@@ -32,10 +32,20 @@ class WorkUnit:
 
 @dataclass(frozen=True)
 class MatchMeta:
-    """Driver-resolved match-level metadata passed into enrichment."""
+    """Driver-resolved match-level metadata passed into enrichment.
+
+    ``home_team_start_left_extratime`` is required by silly-kicks 4.0+'s
+    symmetric ET guard (``require_et_direction``) on every per-period-absolute
+    converter (Sportec/Metrica/GradientSports, tracking + events). ``None`` is
+    safe when the match has no ET periods (silly-kicks 4.0 guard only raises
+    when ET periods AND flag-is-None coincide). Resolved by the per-provider
+    derivers in ``src/ingestion/spadl_adapter.py`` (authoritative for
+    IDSSE/GS; empirical for Metrica).
+    """
 
     home_team_id: str
     home_start_left: bool
+    home_team_start_left_extratime: bool | None = None
     gs_team_side_to_id: dict[str, str] | None = None
     gs_jersey_to_player_id: dict[tuple[str, str], str] | None = None
     gs_gk_player_ids: list[str] | None = None
