@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import logging
 import re
-import threading
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -245,78 +244,6 @@ def _bronze_gradientsports_to_converter_input(
 # ── UDF factory ───────────────────────────────────────────────────────
 
 
-class _BatchHeartbeat:
-    """Driver-side thread that periodically logs Spark applyInPandas progress.
-
-    Tracking-heavy AC-1 batches take 10+ minutes total to enrich + write, and
-    Spark's default logging is silent for the duration of an applyInPandas
-    action. Without a heartbeat, the operator sees no signal between
-    "Processing match X" and "wrote N rows" — making it impossible to
-    distinguish slow-but-progressing from stuck.
-
-    Spark-agnostic by design: takes a ``read_progress: Callable[[], int]``
-    closure (typically ``lambda: accumulator.value``) so unit tests can verify
-    lifecycle without a SparkSession. Use as a context manager so the polling
-    thread is guaranteed to stop even if the Spark action raises.
-
-    Daemon thread + ``threading.Event``-driven sleep ensures script exit is
-    instant if the heartbeat survives past main().
-    """
-
-    def __init__(
-        self,
-        *,
-        read_progress: Callable[[], int],
-        interval_s: float,
-        logger: logging.Logger,
-        label: str = "batches_completed",
-    ) -> None:
-        if interval_s <= 0:
-            msg = f"_BatchHeartbeat: interval_s must be > 0 (got {interval_s})"
-            raise ValueError(msg)
-        self._read_progress = read_progress
-        self._interval_s = float(interval_s)
-        self._logger = logger
-        self._label = label
-        self._stop_event = threading.Event()
-        self._thread: threading.Thread | None = None
-        self._started_at: float | None = None
-
-    def __enter__(self) -> _BatchHeartbeat:
-        import time as _time
-
-        self._started_at = _time.monotonic()
-        self._thread = threading.Thread(target=self._loop, name="ac1-heartbeat", daemon=True)
-        self._thread.start()
-        return self
-
-    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
-        self._stop_event.set()
-        if self._thread is not None:
-            # Wait briefly for the thread to acknowledge stop. Daemon ensures
-            # process exit isn't blocked even if join times out.
-            self._thread.join(timeout=max(self._interval_s, 5.0))
-            self._thread = None
-
-    def _loop(self) -> None:
-        import time as _time
-
-        # First wait BEFORE first log so we don't log "0 batches" immediately on start.
-        while not self._stop_event.wait(self._interval_s):
-            try:
-                count = self._read_progress()
-            except Exception as exc:  # noqa: BLE001 — heartbeat must never crash the worker
-                self._logger.warning("heartbeat read_progress failed: %s", exc)
-                continue
-            elapsed = _time.monotonic() - (self._started_at or _time.monotonic())
-            self._logger.info(
-                "HEARTBEAT %s=%d elapsed_s=%.1f",
-                self._label,
-                count,
-                elapsed,
-            )
-
-
 def _make_action_context_udf(
     provider: str,
     home_team_id: str,
@@ -331,7 +258,6 @@ def _make_action_context_udf(
     gs_team_side_to_id: dict[str, str] | None = None,
     gs_jersey_to_player_id: dict[tuple[str, str], str] | None = None,
     gs_gk_player_ids: list[str] | None = None,
-    batches_counter: Any = None,
 ) -> Callable[[pd.DataFrame], pd.DataFrame]:
     """Build the applyInPandas UDF closure for action context enrichment.
 
@@ -341,6 +267,7 @@ def _make_action_context_udf(
 
     def _udf(pdf: pd.DataFrame) -> pd.DataFrame:
         import logging as _logging
+        import time as _time
         import traceback as _tb
 
         import pandas as _pd
@@ -376,6 +303,7 @@ def _make_action_context_udf(
             gs_gk_player_ids=gs_gk_player_ids,
         )
 
+        _batch_start = _time.monotonic()
         try:
             # One Spark frame_batch_id group == one enrich_batch call (== one
             # iteration of run_work_unit's loop). prod and local run identical code (H3).
@@ -391,10 +319,20 @@ def _make_action_context_udf(
                 meta=_meta,
                 native_match_id=native_match_id,
             )
-            # Increment ONLY on success — failed batches must not look "completed"
-            # in the heartbeat. Closed over from the driver-side LongAccumulator.
-            if batches_counter is not None:
-                batches_counter.add(1)
+            # Executor-side per-batch progress log: serverless / Spark Connect
+            # forbids driver-side accumulators (PySparkAttributeError on
+            # spark.sparkContext), so we emit one terse line per successful
+            # batch from inside the UDF closure. Operator reads these in the
+            # Databricks driver log stream — same per-batch visibility as the
+            # original driver-side heartbeat design without the Connect violation.
+            # See ADR-031.
+            _logger.info(
+                "AC1_BATCH provider=%s match_id=%s batch_id=%s elapsed_s=%.1f",
+                provider,
+                match_id_val,
+                batch_id_val,
+                _time.monotonic() - _batch_start,
+            )
             return _result
         except Exception as exc:  # ADR-002 §5 hard-fail-first UDF: re-raise with group key context
             inner_tb = _tb.format_exc()
@@ -1063,10 +1001,11 @@ def _process_tracking_match(
     if provider == "gradientsports":
         trk_sdf = trk_sdf.withColumnRenamed("period_elapsed_time", "timestamp")
 
-    # Spark LongAccumulator: each UDF call increments by 1 on success. Driver
-    # reads `.value` from the heartbeat thread to surface progress mid-action.
-    batches_counter = spark.sparkContext.accumulator(0)
-
+    # Progress visibility comes from the UDF closure itself: each successful
+    # batch emits one AC1_BATCH log line (see _make_action_context_udf). The
+    # earlier driver-aggregated design (LongAccumulator + heartbeat thread)
+    # crashed on Databricks serverless because Spark Connect forbids
+    # spark.sparkContext access. See ADR-031.
     udf_fn = _make_action_context_udf(
         provider=provider,
         home_team_id=home_team_id,
@@ -1080,7 +1019,6 @@ def _process_tracking_match(
         gs_team_side_to_id=gs_team_side_to_id,
         gs_jersey_to_player_id=gs_jersey_to_player_id,
         gs_gk_player_ids=gs_gk_player_ids,
-        batches_counter=batches_counter,
     )
 
     # GradientSports uses "period" (not "period_id") in bronze
@@ -1094,22 +1032,14 @@ def _process_tracking_match(
     else:
         rw = f"match_id = '{match_id}'"
 
-    # Heartbeat: log batches_completed every 30s during the long write_delta_table
-    # action so the operator sees progress (otherwise silent for the 10+ min duration).
-    with _BatchHeartbeat(
-        read_progress=lambda: batches_counter.value,
-        interval_s=30.0,
+    written = write_delta_table(
+        result_sdf,
+        catalog,
+        schema,
+        _TABLE_NAME,
+        replace_where=rw,
         logger=task_logger,
-        label="ac1_batches_completed",
-    ):
-        written = write_delta_table(
-            result_sdf,
-            catalog,
-            schema,
-            _TABLE_NAME,
-            replace_where=rw,
-            logger=task_logger,
-        )
+    )
     del actions_pdf, actions_records
     return written
 
