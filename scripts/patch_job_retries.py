@@ -175,6 +175,53 @@ def _reset_job(base_url: str, headers: dict[str, str], job_id: int, new_settings
     logger.info("Job %d updated successfully", job_id)
 
 
+def _verify_post_apply(base_url: str, headers: dict[str, str], job_id: int) -> None:
+    """GET /api/2.1/jobs/get + assert every task's max_retries matches classifier intent.
+
+    Without this verifier the patch is fire-and-forget — if Databricks ever
+    silently rewrites max_retries on its side (e.g. policy mutation, future
+    SDK regression, or the same Go omitempty issue resurfacing in a different
+    code path), the next prod failure would be the first signal.
+
+    Raises SystemExit on mismatch so the CI step (terraform-apply.yml) fails
+    loud and the PR cannot ship a partially-patched job.
+    """
+    job = _get_job(base_url, headers, job_id)
+    settings = job.get("settings", {})
+    tasks = settings.get("tasks", [])
+
+    mismatches: list[str] = []
+    for task in tasks:
+        task_key = task.get("task_key", "")
+        actual = task.get("max_retries", 0)
+        intended = _classify_task(task_key)
+        if actual != intended:
+            mismatches.append(f"  {task_key}: actual={actual} intended={intended}")
+
+        for_each = task.get("for_each_task", {})
+        inner_task = for_each.get("task", {})
+        if inner_task:
+            inner_key = inner_task.get("task_key", "")
+            inner_actual = inner_task.get("max_retries", 0)
+            inner_intended = _classify_task(inner_key)
+            if inner_actual != inner_intended:
+                mismatches.append(f"  {task_key}/{inner_key}: actual={inner_actual} intended={inner_intended}")
+
+    if mismatches:
+        logger.error("Post-apply verification FAILED — job %d has tasks with wrong max_retries:", job_id)
+        for m in mismatches:
+            logger.error(m)
+        logger.error(
+            "The reset POST succeeded but the verification GET shows drift. "
+            "Either a) Databricks rewrote max_retries server-side, b) the Go omitempty "
+            "regression has resurfaced in another code path, or c) the classifier disagrees "
+            "with the platform's saved state. Investigate before re-running."
+        )
+        sys.exit(1)
+
+    logger.info("Post-apply verification OK — %d task(s) match classifier intent", len(tasks))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Patch Databricks job task retry settings")
     parser.add_argument(
@@ -212,7 +259,8 @@ def main() -> None:
         return
 
     _reset_job(base_url, headers, job_id, settings)
-    logger.info("Done — %d task(s) patched", len(changes))
+    _verify_post_apply(base_url, headers, job_id)
+    logger.info("Done — %d task(s) patched + verified", len(changes))
 
 
 if __name__ == "__main__":

@@ -99,9 +99,15 @@ class ParquetMatchMetadataSource:
         gs_j2p_raw = _json_or_none("gs_jersey_to_player_id_json")
         gs_j2p = {tuple(k.split("\t")): v for k, v in gs_j2p_raw.items()} if gs_j2p_raw else None
 
+        # silly-kicks 4.0+ ET flag — tolerate missing column (older fixtures predate it).
+        et_flag: bool | None = None
+        if "home_team_start_left_extratime" in row.index and pd.notna(row["home_team_start_left_extratime"]):
+            et_flag = bool(row["home_team_start_left_extratime"])
+
         return MatchMeta(
             home_team_id=str(row["home_team_id"]),
             home_start_left=bool(row["home_start_left"]),
+            home_team_start_left_extratime=et_flag,
             gs_team_side_to_id=_json_or_none("gs_team_side_to_id_json"),
             gs_jersey_to_player_id=gs_j2p,
             gs_gk_player_ids=_json_or_none("gs_gk_player_ids_json"),

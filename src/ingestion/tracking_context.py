@@ -672,24 +672,17 @@ def _enrich_match(
         methods=("andrienko_oval", "link_zones"),
     )
 
-    # Step 4b: Pressure — bekkers_pi (needs ball rows; degrade if absent)
-    try:
-        actions = add_pressure_on_actor(
-            actions,
-            frames,
-            links=links,
-            methods=("bekkers_pi",),
-        )
-    except ValueError as exc:
-        if "is_ball=True" in str(exc):
-            logger.error(
-                "bekkers_pi degraded to NaN for match_id=%s: %s",
-                match_id_native,
-                exc,
-            )
-            actions["pressure_on_actor__bekkers_pi"] = np.nan
-        else:
-            raise
+    # Step 4b: Pressure — bekkers_pi
+    # silly-kicks 4.0+ falls back per-action to the base TTI model (no
+    # ball-carrier-max term) when an action's linked frame has no ball row, so
+    # we no longer need a whole-batch try/except wrapper. Loud failure on
+    # missing vx/vy is preserved (that's a real data shape error).
+    actions = add_pressure_on_actor(
+        actions,
+        frames,
+        links=links,
+        methods=("bekkers_pi",),
+    )
 
     # Steps 5-7: Pitch control (3 methods, using Series API to avoid 3x copies)
     for method in ("spearman", "fernandez_bornn", "voronoi"):

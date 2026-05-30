@@ -893,13 +893,21 @@ def _make_idsse_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
             # bronze as kickoff_team_left). home_team_id="home" is the LABEL
             # used in spadl_actions output; home_team_id_native is the DFL CLU
             # id used for the kickoff comparison.
-            from ingestion.spadl_adapter import derive_idsse_home_team_start_left
+            # silly-kicks 4.0.0 (PR-S70): symmetric ET guard requires the ET-direction
+            # flag too. Derive from the extraTimeFirstHalf KickOff event when ET periods
+            # exist; otherwise None (silly-kicks 4.0 accepts None when no ET present).
+            from ingestion.spadl_adapter import (
+                derive_idsse_home_team_start_left,
+                derive_idsse_home_team_start_left_extratime,
+            )
 
             home_start_left = derive_idsse_home_team_start_left(adapted, home_team_id_native)
+            home_start_left_et = derive_idsse_home_team_start_left_extratime(adapted, home_team_id_native)
             actions, _report = _spadl_sportec.convert_to_actions(
                 adapted,
                 home_team_id="home",
                 home_team_start_left=home_start_left,
+                home_team_start_left_extratime=home_start_left_et,
             )
         except Exception as exc:
             msg = f"IDSSE SPADL conversion failed for match_id={match_id_str}"
@@ -1277,13 +1285,20 @@ def _make_metrica_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
             # for Metrica. Bronze does not capture a kickoff-side flag, so
             # infer from period-1 SHOT positions (sparse but unambiguous —
             # teams shoot toward the opponent goal).
-            from ingestion.spadl_adapter import derive_metrica_home_team_start_left
+            # silly-kicks 4.0.0 (PR-S70): symmetric ET guard requires the ET-direction
+            # flag too. Empirical from period-3 SHOT positions; None when no ET.
+            from ingestion.spadl_adapter import (
+                derive_metrica_home_team_start_left,
+                derive_metrica_home_team_start_left_extratime,
+            )
 
             home_start_left = derive_metrica_home_team_start_left(adapted, home_team_value="Home")
+            home_start_left_et = derive_metrica_home_team_start_left_extratime(adapted, home_team_value="Home")
             actions, _report = _spadl_metrica.convert_to_actions(
                 adapted,
                 home_team_id="Home",
                 home_team_start_left=home_start_left,
+                home_team_start_left_extratime=home_start_left_et,
             )
         except Exception as exc:
             msg = f"Metrica SPADL conversion failed for match_id={match_id_str}"

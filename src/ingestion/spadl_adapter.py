@@ -536,6 +536,157 @@ def derive_metrica_home_team_start_left(
 
 
 # ---------------------------------------------------------------------------
+# silly-kicks 4.0.0 (PR-S70): ET start-direction derivation per provider
+# ---------------------------------------------------------------------------
+#
+# silly-kicks 4.0.0's symmetric ET guard (`require_et_direction`) raises if any
+# per-period-absolute converter (Sportec/Metrica tracking+events,
+# GradientSports tracking+events) is called with frames containing period_id in
+# {3, 4} but no ``home_team_start_left_extratime``. To stay correct under 4.0.0
+# the lakehouse must derive that flag per provider:
+#
+#   IDSSE / Sportec — AUTHORITATIVE: DFL XML's ``<KickOff GameSection=...>``
+#     ships ``TeamLeft`` for extraTimeFirstHalf (period 3) and
+#     extraTimeSecondHalf (period 4). Mirrors the period-1 derivation; the
+#     bronze parser (src/ingestion/idsse.py:_SECTION_TO_PERIOD) already maps
+#     these section names to periods 3/4.
+#
+#   Metrica — EMPIRICAL: bronze has no per-period direction flag. Mirror the
+#     period-1 inference using period-3 SHOT positions.
+#
+# Returns ``None`` when the match has no ET periods — that's the correct value
+# to pass through; silly-kicks 4.0 accepts ``None`` if no ET data is present
+# and only raises when both signals are missing simultaneously.
+
+
+def derive_idsse_home_team_start_left_extratime(events: pd.DataFrame, home_team_id_native: str) -> bool | None:
+    """Derive ``home_team_start_left_extratime`` for an IDSSE / Sportec match.
+
+    Reads the ``extraTimeFirstHalf`` (or fallback ``extraTimeSecondHalf``)
+    KickOff event's ``kickoff_team_left`` attribute. AUTHORITATIVE — ground
+    truth from DFL XML, not derived from positions.
+
+    Returns ``None`` when the match has no ET periods (none of the ET
+    KickOff sections present); a ``None`` value is safe to pass to silly-kicks
+    4.0+ because its guard only raises when ET periods AND flag-is-None
+    coincide. Raises if ET periods are recorded but the KickOff metadata is
+    missing — that's an ingestion-data-integrity error, not a no-op.
+
+    Parameters
+    ----------
+    events : pd.DataFrame
+        IDSSE adapted DataFrame (post ``adapt_idsse_events_for_silly_kicks``).
+        Must contain ``event_type``, ``kickoff_game_section``,
+        ``kickoff_team_left``; should contain ``period_id`` for the strict
+        check (treated as no-ET when missing).
+    home_team_id_native : str
+        Home team's DFL native id.
+
+    Returns
+    -------
+    bool | None
+        True iff the home team is on the LEFT side at the start of ET.
+        None when this match has no ET periods.
+
+    Raises
+    ------
+    RuntimeError
+        ET periods recorded in ``events["period_id"]`` but no ET KickOff row
+        with non-null ``kickoff_team_left`` found in ``events``.
+    """
+    # No-op: match has no ET periods (zero IDSSE matches in lakehouse bronze
+    # have ET as of 2026-05-30; this branch is the steady-state today).
+    has_et_periods = "period_id" in events.columns and events["period_id"].isin([3, 4]).any()
+
+    et_kickoffs = events[
+        (events["event_type"] == "KickOff")
+        & (events["kickoff_game_section"].isin(("extraTimeFirstHalf", "extraTimeSecondHalf")))
+        & events["kickoff_team_left"].notna()
+    ]
+    if et_kickoffs.empty:
+        if has_et_periods:
+            msg = (
+                "IDSSE: events contain ET periods (period_id in {3, 4}) but no "
+                "ET KickOff event (GameSection in {extraTimeFirstHalf, extraTimeSecondHalf}) "
+                "with non-null kickoff_team_left found. Cannot derive "
+                "home_team_start_left_extratime — ingestion-data-integrity error."
+            )
+            raise RuntimeError(msg)
+        return None
+
+    # Prefer period-3 (extraTimeFirstHalf) KickOff; fall back to period-4.
+    p3_kickoffs = et_kickoffs[et_kickoffs["kickoff_game_section"] == "extraTimeFirstHalf"]
+    chosen = p3_kickoffs.iloc[0] if not p3_kickoffs.empty else et_kickoffs.iloc[0]
+    team_left = str(chosen["kickoff_team_left"])
+    return team_left == home_team_id_native
+
+
+def derive_metrica_home_team_start_left_extratime(
+    events: pd.DataFrame,
+    home_team_value: str = "Home",
+    *,
+    pitch_length_m: float = 105.0,
+) -> bool | None:
+    """Derive ``home_team_start_left_extratime`` for a Metrica match.
+
+    Metrica bronze has no per-period direction flag. Mirrors the period-1
+    inference using period-3 SHOT positions: if home-team avg ET shot
+    ``start_x > pitch_mid``, home shot toward the right goal in period 3
+    (home defends LEFT, so ``home_team_start_left_extratime=True``). Falls
+    back to all period-3 home events when shots are sparse; raises if no
+    usable signal exists despite ET periods being present.
+
+    Returns ``None`` when the match has no period-3 home-team data at all
+    (no ET in this match) — that's the correct value to pass to silly-kicks
+    4.0+ (its guard accepts None when no ET periods present).
+
+    Parameters
+    ----------
+    events : pd.DataFrame
+        Metrica adapted DataFrame. Must contain ``team``, ``period``,
+        ``start_x``, ``type``.
+    home_team_value : str
+        Value in ``team`` representing the home team. Default ``"Home"``.
+    pitch_length_m : float
+        Full pitch length in meters. Default 105.0 (canonical SPADL).
+
+    Returns
+    -------
+    bool | None
+
+    Raises
+    ------
+    RuntimeError
+        ET periods recorded but insufficient home-team period-3 data to
+        determine direction.
+    """
+    has_et_periods = "period" in events.columns and events["period"].isin([3, 4]).any()
+    if not has_et_periods:
+        return None
+
+    pitch_mid = pitch_length_m / 2.0
+    period_3_home = events[(events["period"] == 3) & (events["team"] == home_team_value)]
+
+    home_p3_shots = period_3_home[period_3_home["type"] == "SHOT"]
+    if len(home_p3_shots) >= 2:
+        avg_x = float(home_p3_shots["start_x"].mean())
+        return avg_x > pitch_mid
+
+    home_p3_with_x = period_3_home[period_3_home["start_x"].notna()]
+    if len(home_p3_with_x) >= 5:
+        avg_x = float(home_p3_with_x["start_x"].mean())
+        return avg_x > pitch_mid
+
+    msg = (
+        f"Metrica: ET periods present but insufficient period-3 home-team data "
+        f"to derive home_team_start_left_extratime (home shots={len(home_p3_shots)}, "
+        f"home events with x={len(home_p3_with_x)}). Need ≥2 shots OR ≥5 events "
+        f"with non-null start_x."
+    )
+    raise RuntimeError(msg)
+
+
+# ---------------------------------------------------------------------------
 # Gradient Sports adapter (WC2022 PFF open dataset)
 # ---------------------------------------------------------------------------
 

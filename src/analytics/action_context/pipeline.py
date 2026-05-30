@@ -87,6 +87,7 @@ def _convert_tracking_batch(
             sportec_input,
             home_team_id=meta.home_team_id,
             home_team_start_left=meta.home_start_left,
+            home_team_start_left_extratime=meta.home_team_start_left_extratime,
             output_convention="ltr",
             preprocess=_PreprocessConfig(derive_velocity=True),
         )
@@ -128,6 +129,7 @@ def _convert_tracking_batch(
             converter_input,
             home_team_id=int(meta.home_team_id),
             home_team_start_left=meta.home_start_left,
+            home_team_start_left_extratime=meta.home_team_start_left_extratime,
             output_convention="ltr",
             preprocess=_PreprocessConfig(derive_velocity=True),
         )
@@ -228,6 +230,15 @@ def enrich_batch(
     # action's frame — via the global linear frame↔timestamp map (constant fps), computed
     # from this batch's frames. Identical in Spark + local since both call enrich_batch.
     owned_action_ids = _owned_action_ids(provider, frames_pdf, actions)
+
+    # M13 EARLY-RETURN: if this batch owns zero actions (all buffer-windowed actions belong
+    # to adjacent batches), short-circuit before the expensive 20-step enrich chain.
+    # Bit-identical to running enrich + filtering at the end — the filter would drop
+    # everything anyway. Eliminates ~10s of wasted compute per zero-owned batch.
+    # ``owned_action_ids is None`` means classification was skipped (no frame_batch_id /
+    # timestamp), in which case we proceed unchanged (no filter applied).
+    if owned_action_ids is not None and not owned_action_ids:
+        return _empty_result()
 
     pdf = frames_pdf.drop(columns=["frame_batch_id"]) if "frame_batch_id" in frames_pdf.columns else frames_pdf
     frames = _convert_tracking_batch(provider, pdf, actions, meta)

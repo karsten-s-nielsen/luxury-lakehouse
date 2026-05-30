@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -244,6 +245,78 @@ def _bronze_gradientsports_to_converter_input(
 # ── UDF factory ───────────────────────────────────────────────────────
 
 
+class _BatchHeartbeat:
+    """Driver-side thread that periodically logs Spark applyInPandas progress.
+
+    Tracking-heavy AC-1 batches take 10+ minutes total to enrich + write, and
+    Spark's default logging is silent for the duration of an applyInPandas
+    action. Without a heartbeat, the operator sees no signal between
+    "Processing match X" and "wrote N rows" — making it impossible to
+    distinguish slow-but-progressing from stuck.
+
+    Spark-agnostic by design: takes a ``read_progress: Callable[[], int]``
+    closure (typically ``lambda: accumulator.value``) so unit tests can verify
+    lifecycle without a SparkSession. Use as a context manager so the polling
+    thread is guaranteed to stop even if the Spark action raises.
+
+    Daemon thread + ``threading.Event``-driven sleep ensures script exit is
+    instant if the heartbeat survives past main().
+    """
+
+    def __init__(
+        self,
+        *,
+        read_progress: Callable[[], int],
+        interval_s: float,
+        logger: logging.Logger,
+        label: str = "batches_completed",
+    ) -> None:
+        if interval_s <= 0:
+            msg = f"_BatchHeartbeat: interval_s must be > 0 (got {interval_s})"
+            raise ValueError(msg)
+        self._read_progress = read_progress
+        self._interval_s = float(interval_s)
+        self._logger = logger
+        self._label = label
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._started_at: float | None = None
+
+    def __enter__(self) -> _BatchHeartbeat:
+        import time as _time
+
+        self._started_at = _time.monotonic()
+        self._thread = threading.Thread(target=self._loop, name="ac1-heartbeat", daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
+        self._stop_event.set()
+        if self._thread is not None:
+            # Wait briefly for the thread to acknowledge stop. Daemon ensures
+            # process exit isn't blocked even if join times out.
+            self._thread.join(timeout=max(self._interval_s, 5.0))
+            self._thread = None
+
+    def _loop(self) -> None:
+        import time as _time
+
+        # First wait BEFORE first log so we don't log "0 batches" immediately on start.
+        while not self._stop_event.wait(self._interval_s):
+            try:
+                count = self._read_progress()
+            except Exception as exc:  # noqa: BLE001 — heartbeat must never crash the worker
+                self._logger.warning("heartbeat read_progress failed: %s", exc)
+                continue
+            elapsed = _time.monotonic() - (self._started_at or _time.monotonic())
+            self._logger.info(
+                "HEARTBEAT %s=%d elapsed_s=%.1f",
+                self._label,
+                count,
+                elapsed,
+            )
+
+
 def _make_action_context_udf(
     provider: str,
     home_team_id: str,
@@ -254,9 +327,11 @@ def _make_action_context_udf(
     actions_records: list[dict[str, Any]],
     native_match_id: str,
     *,
+    home_team_start_left_extratime: bool | None = None,
     gs_team_side_to_id: dict[str, str] | None = None,
     gs_jersey_to_player_id: dict[tuple[str, str], str] | None = None,
     gs_gk_player_ids: list[str] | None = None,
+    batches_counter: Any = None,
 ) -> Callable[[pd.DataFrame], pd.DataFrame]:
     """Build the applyInPandas UDF closure for action context enrichment.
 
@@ -295,6 +370,7 @@ def _make_action_context_udf(
         _meta = _MatchMeta(
             home_team_id=home_team_id,
             home_start_left=home_start_left,
+            home_team_start_left_extratime=home_team_start_left_extratime,
             gs_team_side_to_id=gs_team_side_to_id,
             gs_jersey_to_player_id=gs_jersey_to_player_id,
             gs_gk_player_ids=gs_gk_player_ids,
@@ -303,7 +379,7 @@ def _make_action_context_udf(
         try:
             # One Spark frame_batch_id group == one enrich_batch call (== one
             # iteration of run_work_unit's loop). prod and local run identical code (H3).
-            return _enrich_batch(
+            _result = _enrich_batch(
                 provider=provider,
                 tier="tracking",
                 frames_pdf=pdf,
@@ -315,6 +391,11 @@ def _make_action_context_udf(
                 meta=_meta,
                 native_match_id=native_match_id,
             )
+            # Increment ONLY on success — failed batches must not look "completed"
+            # in the heartbeat. Closed over from the driver-side LongAccumulator.
+            if batches_counter is not None:
+                batches_counter.add(1)
+            return _result
         except Exception as exc:  # ADR-002 §5 hard-fail-first UDF: re-raise with group key context
             inner_tb = _tb.format_exc()
             _logger.error(
@@ -648,6 +729,82 @@ def main_preflight() -> None:
     _write_action_chunks_task_value(chunks_for_inputs, task_logger)
 
 
+def _iteration_fingerprint(
+    *,
+    provider: str,
+    ids: list[str],
+    period_filter: int | None,
+    catalog: str,
+    schema: str,
+) -> dict[str, object]:
+    """Build a single-line structured fingerprint of this for-each iteration.
+
+    Emitted at iteration start so ops can grep central log aggregation for
+    "what was this iteration doing" without opening the Databricks UI. Captures
+    the load-bearing inputs (provider, match-ids count, period filter) plus the
+    environment fingerprint (silly-kicks version, wheel version, Databricks run
+    context). The hash is deterministic over the inputs so two reruns with
+    identical inputs share the same fingerprint_hash (useful for diffing).
+    """
+    import hashlib
+    import json as _json
+    import os as _os
+
+    import silly_kicks
+
+    sk_version = getattr(silly_kicks, "__version__", "unknown")
+    try:
+        from shared.wheel import WHEEL_VERSION
+    except (ImportError, AttributeError):
+        WHEEL_VERSION = "unknown"  # noqa: N806
+
+    input_blob = _json.dumps({"provider": provider, "ids": sorted(ids), "period": period_filter}, sort_keys=True)
+    fp_hash = hashlib.sha256(input_blob.encode("utf-8")).hexdigest()[:12]
+
+    return {
+        "event": "ac1_iteration_start",
+        "fingerprint_hash": fp_hash,
+        "provider": provider,
+        "n_match_ids": len(ids),
+        "match_ids_sample": ids[:3] if len(ids) > 3 else ids,
+        "period_filter": period_filter,
+        "catalog": catalog,
+        "schema": schema,
+        "silly_kicks_version": sk_version,
+        "wheel_version": WHEEL_VERSION,
+        "databricks_run_id": _os.environ.get("DATABRICKS_RUN_ID", "unknown"),
+        "databricks_task_run_id": _os.environ.get("DATABRICKS_TASK_RUN_ID", "unknown"),
+    }
+
+
+def _iteration_summary(
+    *,
+    provider: str,
+    fingerprint_hash: str,
+    per_match_written: dict[str, int],
+    elapsed_seconds: float,
+) -> dict[str, object]:
+    """Build a single-line structured summary of this for-each iteration.
+
+    Emitted at iteration end with per-match row counts + duration. Pairs with
+    ``_iteration_fingerprint`` via the same ``fingerprint_hash`` so ops can
+    JOIN start + end in log aggregation. Surfaces silent-drop cases (matches
+    that wrote 0 rows) at a glance.
+    """
+    total_written = sum(per_match_written.values())
+    zero_row_matches = sorted(m for m, n in per_match_written.items() if n == 0)
+    return {
+        "event": "ac1_iteration_end",
+        "fingerprint_hash": fingerprint_hash,
+        "provider": provider,
+        "n_matches_processed": len(per_match_written),
+        "n_matches_zero_rows": len(zero_row_matches),
+        "zero_row_match_sample": zero_row_matches[:3] if zero_row_matches else [],
+        "total_rows_written": total_written,
+        "elapsed_seconds": round(elapsed_seconds, 2),
+    }
+
+
 def main() -> None:
     """CLI entry point for action context enrichment (for_each_task iteration).
 
@@ -657,6 +814,9 @@ def main() -> None:
     - StatsBomb: SB360 tier (with freeze-frames) or event-only
     - Wyscout: event-only (driver-side, no tracking)
     """
+    import json as _json
+    import time as _time
+
     args = parse_ingestion_args(
         "Compute action context features",
         extra_args=[("--match-ids", {"type": str, "default": None, "help": "provider:id1,id2"})],
@@ -673,21 +833,27 @@ def main() -> None:
         raise SystemExit("--match-ids is required")
 
     provider, ids, period_filter = match_ids_parsed
-    task_logger.info("Iteration: provider=%s, match_ids=%s, period=%s", provider, ids, period_filter)
+
+    # Pre-dispatch fingerprint — structured single-line JSON for log aggregation.
+    fp = _iteration_fingerprint(
+        provider=provider, ids=ids, period_filter=period_filter, catalog=args.catalog, schema=args.schema
+    )
+    task_logger.info("AC1_FINGERPRINT %s", _json.dumps(fp, sort_keys=True))
+    iteration_start = _time.monotonic()
 
     # Load xT grid from pre-computed Delta table (written by compute_expected_threat).
     # Each iteration reads independently -- ~192 rows, instant on serverless.
     xt_grid_data, xt_l, xt_w = _load_xt_grid_from_delta(spark, args.catalog, args.schema, task_logger)
 
     catalog, schema = args.catalog, args.schema
-    total_written = 0
+    per_match_written: dict[str, int] = {}
 
     for match_id in ids:
         period_str = f" period {period_filter}" if period_filter else ""
         task_logger.info("Processing %s match %s%s", provider, match_id, period_str)
 
         if _is_tracking_provider(provider):
-            total_written += _process_tracking_match(
+            written = _process_tracking_match(
                 spark,
                 catalog,
                 schema,
@@ -700,26 +866,28 @@ def main() -> None:
                 task_logger,
             )
         elif provider == "statsbomb":
-            total_written += _process_statsbomb_match(
-                spark,
-                catalog,
-                schema,
-                match_id,
-                task_logger,
-            )
+            written = _process_statsbomb_match(spark, catalog, schema, match_id, task_logger)
         elif provider == "wyscout":
-            total_written += _process_event_only_match(
-                spark,
-                catalog,
-                schema,
-                "wyscout",
-                match_id,
-                task_logger,
-            )
+            written = _process_event_only_match(spark, catalog, schema, "wyscout", match_id, task_logger)
         else:
             raise SystemExit(f"Unknown provider: {provider}")
+        per_match_written[match_id] = written
 
-    task_logger.info("Iteration complete -- %d rows written for %s", total_written, provider)
+    # Post-write summary — same fingerprint_hash for log-aggregation join.
+    summary = _iteration_summary(
+        provider=provider,
+        fingerprint_hash=str(fp["fingerprint_hash"]),
+        per_match_written=per_match_written,
+        elapsed_seconds=_time.monotonic() - iteration_start,
+    )
+    task_logger.info("AC1_SUMMARY %s", _json.dumps(summary, sort_keys=True))
+    task_logger.info(
+        "Iteration complete -- %d rows written for %s (%d/%d matches with zero rows)",
+        summary["total_rows_written"],
+        provider,
+        summary["n_matches_zero_rows"],
+        summary["n_matches_processed"],
+    )
 
 
 # ── Provider-specific processing ──────────────────────────────────────
@@ -805,6 +973,7 @@ def _process_tracking_match(
 
     # ── Resolve match-level metadata (driver scalars) ──
     home_start_left = True
+    home_team_start_left_extratime: bool | None = None  # silly-kicks 4.0+ ET guard input
     gs_team_side_to_id: dict[str, str] | None = None
     gs_jersey_to_player_id: dict[tuple[str, str], str] | None = None
     gs_gk_player_ids: list[str] | None = None
@@ -813,15 +982,23 @@ def _process_tracking_match(
         from ingestion.spadl_adapter import (
             adapt_idsse_events_for_silly_kicks,
             derive_idsse_home_team_start_left,
+            derive_idsse_home_team_start_left_extratime,
         )
 
         events_pdf = spark.table(f"{catalog}.bronze.idsse_events").filter(F.col("match_id") == match_id).toPandas()
         home_team_id = str(events_pdf["home_team_id_native"].dropna().iloc[0])
         adapted_events = adapt_idsse_events_for_silly_kicks(events_pdf)
         home_start_left = derive_idsse_home_team_start_left(adapted_events, home_team_id)
+        home_team_start_left_extratime = derive_idsse_home_team_start_left_extratime(adapted_events, home_team_id)
         del events_pdf, adapted_events
     elif provider == "metrica":
         home_team_id = "Home"
+        # ET-flag derivation deferred: Metrica events would require a separate
+        # bronze read here; zero Metrica ET matches in bronze today (§8 audit
+        # 2026-05-30), so None is correct under silly-kicks 4.0's guard.
+        # When IDSSE-style Metrica ET data lands, plumb
+        # derive_metrica_home_team_start_left_extratime() in via a bronze
+        # events read mirroring the IDSSE branch above.
     elif provider == "skillcorner":
         row = (
             spark.table(f"{catalog}.bronze.skillcorner_matches")
@@ -839,6 +1016,8 @@ def _process_tracking_match(
         gs_meta = extract_gradientsports_match_metadata(events_pdf)
         home_team_id = str(gs_meta["home_team_id"])
         home_start_left = gs_meta["home_team_start_left"]
+        # GS bronze carries stadiumMetadata.homeTeamStartLeftExtraTime already.
+        home_team_start_left_extratime = gs_meta["home_team_start_left_extratime"]
         del events_pdf
 
         # Build team_side -> team_id mapping and jersey -> player_id from roster
@@ -884,6 +1063,10 @@ def _process_tracking_match(
     if provider == "gradientsports":
         trk_sdf = trk_sdf.withColumnRenamed("period_elapsed_time", "timestamp")
 
+    # Spark LongAccumulator: each UDF call increments by 1 on success. Driver
+    # reads `.value` from the heartbeat thread to surface progress mid-action.
+    batches_counter = spark.sparkContext.accumulator(0)
+
     udf_fn = _make_action_context_udf(
         provider=provider,
         home_team_id=home_team_id,
@@ -893,9 +1076,11 @@ def _process_tracking_match(
         xt_w=xt_w,
         actions_records=actions_records,
         native_match_id=match_id,
+        home_team_start_left_extratime=home_team_start_left_extratime,
         gs_team_side_to_id=gs_team_side_to_id,
         gs_jersey_to_player_id=gs_jersey_to_player_id,
         gs_gk_player_ids=gs_gk_player_ids,
+        batches_counter=batches_counter,
     )
 
     # GradientSports uses "period" (not "period_id") in bronze
@@ -909,14 +1094,22 @@ def _process_tracking_match(
     else:
         rw = f"match_id = '{match_id}'"
 
-    written = write_delta_table(
-        result_sdf,
-        catalog,
-        schema,
-        _TABLE_NAME,
-        replace_where=rw,
+    # Heartbeat: log batches_completed every 30s during the long write_delta_table
+    # action so the operator sees progress (otherwise silent for the 10+ min duration).
+    with _BatchHeartbeat(
+        read_progress=lambda: batches_counter.value,
+        interval_s=30.0,
         logger=task_logger,
-    )
+        label="ac1_batches_completed",
+    ):
+        written = write_delta_table(
+            result_sdf,
+            catalog,
+            schema,
+            _TABLE_NAME,
+            replace_where=rw,
+            logger=task_logger,
+        )
     del actions_pdf, actions_records
     return written
 

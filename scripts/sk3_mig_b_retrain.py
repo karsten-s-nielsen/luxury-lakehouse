@@ -4,7 +4,7 @@
 #     "databricks-sdk>=0.20",
 #     "huggingface_hub>=0.20",
 #     "mlflow>=2.19",
-#     "silly-kicks>=3.27.0,<4",
+#     "silly-kicks>=4.0.0,<5",
 # ]
 # ///
 # ruff: noqa: RUF001, RUF002 — text contains "PR-alpha" (Greek alpha) per project convention
@@ -460,8 +460,8 @@ def _step_0_preflight(state: CycleState) -> None:
 
     sk_version = getattr(silly_kicks, "__version__", "unknown")
     sk_tuple = tuple(int(x) for x in sk_version.split(".")[:3])
-    if sk_tuple < (3, 27, 0):
-        raise RuntimeError(f"silly-kicks {sk_version} < 3.27.0")
+    if sk_tuple < (4, 0, 0):
+        raise RuntimeError(f"silly-kicks {sk_version} < 4.0.0")
     _emit_status(state, step="0", phase="running", msg=f"silly-kicks {sk_version} OK")
 
     pyproject = (_REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")

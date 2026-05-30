@@ -662,91 +662,16 @@ def test_udf_empty_batch_returns_empty() -> None:
     assert len(result) == 0
 
 
-def test_bekkers_pi_degrades_on_missing_ball_rows(caplog) -> None:
-    """bekkers_pi degrades to NaN when frames lack ball rows; other methods compute."""
-    import logging
-    from unittest.mock import patch
+def test_bekkers_pi_valueerror_propagates_unconditionally() -> None:
+    """silly-kicks 4.0+ falls back per-action on missing ball rows (no raise), so
+    the legacy ``is_ball=True``-message try/except was deleted. Any ValueError
+    from add_pressure_on_actor now propagates unconditionally — this guard
+    catches a future regression that re-introduces silent swallowing.
 
-    import numpy as np
-    import pandas as pd
-
-    from ingestion.tracking_context import _enrich_match
-
-    actions = _make_minimal_actions()
-    frames = _make_minimal_frames()  # all is_ball=False, no ball rows
-
-    # Mock all enrichment steps EXCEPT pressure — let pressure run with real logic
-    passthrough = lambda actions, *args, **kwargs: actions  # noqa: E731
-
-    def pc_passthrough(actions, frames, method="spearman", **kwargs):
-        return pd.Series(float("nan"), index=actions.index, name=f"pc_{method}")
-
-    def mock_link(actions, frames, **kwargs):
-        links = pd.DataFrame(
-            {
-                "action_id": actions["action_id"].values,
-                "frame_id": pd.array([frames["frame_id"].iloc[0]] * len(actions), dtype="Int64"),
-                "time_offset_seconds": [0.0] * len(actions),
-                "n_candidate_frames": [1] * len(actions),
-                "link_quality_score": [1.0] * len(actions),
-            }
-        )
-        return links, None
-
-    def mock_infer_ball_carrier(frames, **kwargs):
-        return pd.DataFrame(columns=["game_id", "frame_id", "period_id", "carrier_player_id", "carrier_team_id"])
-
-    def mock_derive_tip(frames, carrier, **kwargs):
-        f = frames.copy()
-        f["team_in_possession"] = pd.NA
-        return f
-
-    patches = [
-        patch("silly_kicks.tracking.link_actions_to_frames", mock_link),
-        patch("silly_kicks.spadl.utils.add_pre_shot_gk_context", passthrough),
-        patch("silly_kicks.tracking.add_action_context", passthrough),
-        patch("silly_kicks.tracking.add_actor_pre_window", passthrough),
-        # add_pressure_on_actor is NOT mocked — it runs for real
-        patch("silly_kicks.tracking.pitch_control_at_action", pc_passthrough),
-        patch("silly_kicks.tracking.add_defensive_line", passthrough),
-        patch("silly_kicks.tracking.add_off_ball_context", passthrough),
-        patch("silly_kicks.tracking.add_line_break", passthrough),
-        patch("silly_kicks.tracking.add_team_shape", passthrough),
-        patch("silly_kicks.tracking.infer_ball_carrier", mock_infer_ball_carrier),
-        patch("silly_kicks.tracking.derive_team_in_possession", mock_derive_tip),
-        patch("silly_kicks.tracking._das.get_individual_das", side_effect=ValueError("no TIP")),
-        patch("silly_kicks.tracking.add_gk_influence", passthrough),
-        patch("silly_kicks.tracking.add_cover_shadows", passthrough),
-        patch("silly_kicks.tracking.add_sync_score", passthrough),
-    ]
-    for p in patches:
-        p.start()
-    try:
-        with caplog.at_level(logging.ERROR, logger="ingestion.tracking_context"):
-            result = _enrich_match(
-                actions=actions,
-                frames=frames,
-                xt=_make_dummy_xt(),  # type: ignore[arg-type]
-                home_team_id="DFL-CLU-000005",
-                match_id_native="test",
-                data_source="idsse",
-            )
-    finally:
-        for p in patches:
-            p.stop()
-
-    # andrienko_oval and link_zones should have computed (even if NaN due to minimal data)
-    assert "pressure_on_actor__andrienko_oval" in result.columns
-    assert "pressure_on_actor__link_zones" in result.columns
-    # bekkers_pi should be NaN (degraded)
-    assert "pressure_on_actor__bekkers_pi" in result.columns
-    assert np.isnan(result["pressure_on_actor__bekkers_pi"].iloc[0])
-    # Should log the degradation
-    assert "bekkers_pi degraded" in caplog.text
-
-
-def test_bekkers_pi_unrelated_valueerror_propagates() -> None:
-    """ValueError NOT about is_ball=True must propagate (not silently caught)."""
+    Replaces the pre-4.0 ``test_bekkers_pi_degrades_on_missing_ball_rows`` +
+    ``test_bekkers_pi_unrelated_valueerror_propagates`` pair, both of which
+    asserted the now-deleted wrapper's behavior.
+    """
     from unittest.mock import patch
 
     import pandas as pd
@@ -774,10 +699,11 @@ def test_bekkers_pi_unrelated_valueerror_propagates() -> None:
         )
         return links, None
 
-    # Step 4a passes, step 4b raises unrelated ValueError
     def mock_pressure(actions, frames, *, links=None, methods=("andrienko_oval",), **kwargs):
         if "bekkers_pi" in methods:
-            raise ValueError("completely unrelated error")
+            # 4.0 doesn't normally raise on missing ball rows (per-action fallback),
+            # but if it does (genuine data shape error), we want propagation.
+            raise ValueError("simulated bekkers ValueError")
         return actions
 
     def mock_infer(frames, **kwargs):
@@ -809,7 +735,7 @@ def test_bekkers_pi_unrelated_valueerror_propagates() -> None:
     for p in patches:
         p.start()
     try:
-        with pytest.raises(ValueError, match="completely unrelated error"):
+        with pytest.raises(ValueError, match="simulated bekkers ValueError"):
             _enrich_match(
                 actions=actions,
                 frames=frames,
