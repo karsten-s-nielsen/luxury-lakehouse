@@ -15,14 +15,13 @@ Critical invariants tested:
 
 from __future__ import annotations
 
-import logging
 from typing import cast
 
 import pytest
 
 pytest.importorskip("databricks.sdk")  # action_context module-level imports it
 
-from ingestion.action_context import _BatchHeartbeat, _iteration_fingerprint, _iteration_summary
+from ingestion.action_context import _iteration_fingerprint, _iteration_summary
 
 
 def test_fingerprint_has_all_required_fields() -> None:
@@ -198,109 +197,10 @@ def test_summary_empty_zero_row_sample_when_all_succeed() -> None:
     assert summary["zero_row_match_sample"] == []
 
 
-# ── _BatchHeartbeat lifecycle tests (Spark-agnostic) ─────────────────────
-
-
-def _capture_logger() -> tuple[logging.Logger, list[str]]:
-    """Return (logger, captured_messages_list). Logger appends formatted msgs to list."""
-    captured: list[str] = []
-
-    class _Capture(logging.Handler):
-        def emit(self, record: logging.LogRecord) -> None:
-            captured.append(record.getMessage())
-
-    log = logging.getLogger("test_batch_heartbeat")
-    log.handlers = [_Capture()]
-    log.setLevel(logging.INFO)
-    return log, captured
-
-
-def test_heartbeat_logs_at_interval_then_stops_on_exit() -> None:
-    """Standard lifecycle: enter → tick(s) → exit → thread joins cleanly."""
-    import time
-
-    counter = [0]
-    log, captured = _capture_logger()
-
-    with _BatchHeartbeat(
-        read_progress=lambda: counter[0],
-        interval_s=0.05,
-        logger=log,
-        label="test_batches",
-    ):
-        time.sleep(0.07)  # one tick
-        counter[0] = 5
-        time.sleep(0.06)  # second tick
-    # After __exit__, the thread should be stopped.
-    assert any("HEARTBEAT test_batches=" in m for m in captured), captured
-    # At least one tick saw counter == 5.
-    assert any("test_batches=5" in m for m in captured), captured
-
-
-def test_heartbeat_does_not_log_immediately_on_start() -> None:
-    """First wait is BEFORE the first log so we don't emit '0 batches' on start."""
-    log, captured = _capture_logger()
-    with _BatchHeartbeat(
-        read_progress=lambda: 0,
-        interval_s=10.0,
-        logger=log,
-        label="x",
-    ):
-        # Immediate exit — no tick should fire because interval is 10s.
-        pass
-    assert all("HEARTBEAT" not in m for m in captured), captured
-
-
-def test_heartbeat_thread_cleanup_on_exception_in_with_block() -> None:
-    """If the with-block raises, the heartbeat thread must still stop."""
-    log, _captured = _capture_logger()
-    hb = _BatchHeartbeat(read_progress=lambda: 0, interval_s=0.05, logger=log)
-    with pytest.raises(RuntimeError, match="boom"), hb:
-        raise RuntimeError("boom")
-    # Thread reference cleared after exit.
-    assert hb._thread is None
-
-
-def test_heartbeat_swallows_read_progress_exceptions() -> None:
-    """A flaky read_progress must NOT crash the heartbeat thread or the worker."""
-    import time
-
-    call_count = [0]
-
-    def _flaky_read() -> int:
-        call_count[0] += 1
-        if call_count[0] == 1:
-            raise ValueError("simulated transient")
-        return 7
-
-    log, captured = _capture_logger()
-    with _BatchHeartbeat(
-        read_progress=_flaky_read,
-        interval_s=0.03,
-        logger=log,
-        label="flaky",
-    ):
-        time.sleep(0.10)  # multiple ticks: first raises, subsequent succeed
-    warnings = [m for m in captured if "heartbeat read_progress failed" in m]
-    assert warnings, f"expected at least one warning about the flaky read; got: {captured}"
-    successes = [m for m in captured if "flaky=7" in m]
-    assert successes, f"expected at least one successful tick after recovery; got: {captured}"
-
-
-def test_heartbeat_rejects_nonpositive_interval() -> None:
-    log, _ = _capture_logger()
-    with pytest.raises(ValueError, match="interval_s must be > 0"):
-        _BatchHeartbeat(read_progress=lambda: 0, interval_s=0.0, logger=log)
-    with pytest.raises(ValueError, match="interval_s must be > 0"):
-        _BatchHeartbeat(read_progress=lambda: 0, interval_s=-1.0, logger=log)
-
-
-def test_heartbeat_thread_is_daemon() -> None:
-    """Daemon thread ensures process exit isn't blocked by a stuck heartbeat."""
-    import time
-
-    log, _ = _capture_logger()
-    with _BatchHeartbeat(read_progress=lambda: 0, interval_s=1.0, logger=log) as hb:
-        time.sleep(0.01)
-        assert hb._thread is not None
-        assert hb._thread.daemon, "heartbeat thread MUST be daemon to allow clean process exit"
+# The _BatchHeartbeat class (PR #320) was removed in favour of executor-side
+# per-batch logging from inside the UDF closure. See ADR-031 for the rationale:
+# Databricks serverless / Spark Connect forbids spark.sparkContext access, so
+# the driver-aggregated LongAccumulator design was structurally incompatible
+# with the only environment AC-1 actually runs in. The executor-side log
+# (AC1_BATCH provider=... match_id=... batch_id=... elapsed_s=...) provides
+# equivalent per-batch operator visibility without the Connect violation.
