@@ -43,6 +43,20 @@ ENDPOINT_NAME = os.environ.get(
 PG_DATABASE = "databricks_postgres"
 SCHEMA = "dev_gold"
 
+# PostgreSQL SQLSTATE 42P01 = undefined_table — raised when a configured synced
+# table has not been created on this workspace yet (fresh install, or a mart
+# whose first sync hasn't run, e.g. fct_action_context_synced before AC-1's
+# gold mart is populated). Skip that table's indexes with a warning rather than
+# counting it a hard error. SDK-side equivalent:
+# ingestion.refresh_synced_tables.is_synced_table_not_found.
+_PG_UNDEFINED_TABLE = "42P01"
+
+
+def _is_missing_relation(exc: BaseException) -> bool:
+    """True if a psycopg2 error indicates the target relation does not exist yet."""
+    return getattr(exc, "pgcode", None) == _PG_UNDEFINED_TABLE
+
+
 # Index definitions: (index_name, table, columns)
 # Indexes are created with IF NOT EXISTS for idempotency.
 INDEXES: list[tuple[str, str, str]] = [
@@ -399,6 +413,7 @@ def _create_indexes(conn: psycopg2.extensions.connection) -> int:
     """Create all indexes idempotently. Returns number of errors."""
     created = 0
     errors = 0
+    skipped = 0  # indexes skipped because their synced table doesn't exist yet
 
     with conn.cursor() as cur:
         # Enable pgvector extension for HNSW similarity indexes
@@ -426,6 +441,10 @@ def _create_indexes(conn: psycopg2.extensions.connection) -> int:
                 # Connection-level error — no point continuing
                 raise
             except Exception as exc:
+                if _is_missing_relation(exc):
+                    print(f"SKIP — {table} not created yet")
+                    skipped += 1
+                    continue
                 print(f"ERROR: {exc}")
                 errors += 1
 
@@ -445,6 +464,10 @@ def _create_indexes(conn: psycopg2.extensions.connection) -> int:
                 # Connection-level error — no point continuing
                 raise
             except Exception as exc:
+                if _is_missing_relation(exc):
+                    print(f"SKIP — {table} not created yet")
+                    skipped += 1
+                    continue
                 print(f"ERROR: {exc}")
                 errors += 1
 
@@ -460,6 +483,10 @@ def _create_indexes(conn: psycopg2.extensions.connection) -> int:
                 elapsed = time.time() - t0
                 print(f"OK ({elapsed:.1f}s)")
             except Exception as exc:
+                if _is_missing_relation(exc):
+                    print(f"SKIP — {table} not created yet")
+                    skipped += 1
+                    continue
                 print(f"ERROR: {exc}")
                 errors += 1
 
@@ -489,7 +516,7 @@ def _create_indexes(conn: psycopg2.extensions.connection) -> int:
         else:
             print("  WARNING: No child partition indexes found!")
 
-    print(f"\nSummary: {created} processed (IF NOT EXISTS), {errors} errors")
+    print(f"\nSummary: {created} processed (IF NOT EXISTS), {skipped} skipped (table not created yet), {errors} errors")
     return errors
 
 
@@ -535,6 +562,9 @@ def _verify_indexes(conn: psycopg2.extensions.connection) -> int:
                     print(f"    | ... ({len(plan_lines) - 5} more lines)")
 
             except Exception as exc:
+                if _is_missing_relation(exc):
+                    print("    SKIP — relation not created yet")
+                    continue
                 print(f"    ERROR: {exc}")
                 error_count += 1
 

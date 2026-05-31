@@ -14,7 +14,7 @@ import numpy as np
 if TYPE_CHECKING:
     import pandas as pd
 
-# Identity (12) + game_state (1) + linkage (4) + GK (10) + features (80) + audit (1) = 108
+# Identity (12) + game_state (1) + linkage (4) + GK (10) + features (76) + audit (1) = 104
 RESULT_COLUMNS: list[str] = [
     # Identity (12)
     "data_source",
