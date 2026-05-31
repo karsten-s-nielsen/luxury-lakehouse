@@ -258,11 +258,14 @@ def _make_action_context_udf(
     gs_team_side_to_id: dict[str, str] | None = None,
     gs_jersey_to_player_id: dict[tuple[str, str], str] | None = None,
     gs_gk_player_ids: list[str] | None = None,
+    exec_rendezvous_dir: str | None = None,
 ) -> Callable[[pd.DataFrame], pd.DataFrame]:
     """Build the applyInPandas UDF closure for action context enrichment.
 
     All arguments are Python scalar primitives or small serializable structures.
     GradientSports-specific args (gs_*) are only needed for that provider.
+    ``exec_rendezvous_dir`` is a pre-created UC Volume dir for executor progress
+    markers (see ingestion.exec_visibility); ``None`` disables markers.
     """
 
     def _udf(pdf: pd.DataFrame) -> pd.DataFrame:
@@ -275,6 +278,12 @@ def _make_action_context_udf(
         from analytics.action_context.pipeline import enrich_batch as _enrich_batch
         from analytics.action_context.schema import RESULT_COLUMNS as _RC
         from analytics.action_context.work_unit import MatchMeta as _MatchMeta
+        from ingestion.exec_visibility import (
+            disarm_executor_faulthandler,
+            executor_env_fingerprint,
+            executor_marker,
+            install_executor_faulthandler,
+        )
 
         _logger = _logging.getLogger("action_context_udf")
 
@@ -285,6 +294,26 @@ def _make_action_context_udf(
         match_id_val = pdf["match_id"].iloc[0]
         period_val = pdf["period"].iloc[0]
         batch_id_val = pdf["frame_batch_id"].iloc[0] if "frame_batch_id" in pdf.columns else None
+
+        # Executor visibility: if THIS group hangs >120s, faulthandler dumps all
+        # thread stacks to executor stderr (the only place to see a silent UDF
+        # hang's stuck frame on serverless). See ingestion.exec_visibility.
+        _batch_key = f"{match_id_val}_p{period_val}_b{batch_id_val}"
+        # If THIS group hangs >90s, faulthandler dumps every thread's stack to
+        # executor stderr (read via Spark UI thread dump) — the only way to see
+        # WHERE a silent serverless applyInPandas hang is stuck.
+        install_executor_faulthandler(timeout_s=90.0, repeat=True)
+        # One-shot executor-environment fingerprint (numba threading layer + fork
+        # mode + versions + internet reachability) — tests the leading hang
+        # hypotheses the instant the worker starts; echoed to the task log by the
+        # driver heartbeat. See ingestion.exec_visibility.executor_env_fingerprint.
+        executor_env_fingerprint(exec_rendezvous_dir, seq=f"{_batch_key}_envfp")
+        # Per-batch start marker (cheap progress signal + executor-write probe).
+        executor_marker(
+            exec_rendezvous_dir,
+            seq=f"{_batch_key}_start",
+            payload=f"start match={match_id_val} period={period_val} batch={batch_id_val} t={_time.time():.3f}",
+        )
 
         if len(pdf) > 2_000_000:
             _logger.warning(
@@ -333,6 +362,15 @@ def _make_action_context_udf(
                 batch_id_val,
                 _time.monotonic() - _batch_start,
             )
+            disarm_executor_faulthandler()
+            executor_marker(
+                exec_rendezvous_dir,
+                seq=f"{match_id_val}_p{period_val}_b{batch_id_val}_done",
+                payload=(
+                    f"done match={match_id_val} period={period_val} batch={batch_id_val} "
+                    f"rows={len(_result)} elapsed_s={_time.monotonic() - _batch_start:.1f}"
+                ),
+            )
             return _result
         except Exception as exc:  # ADR-002 §5 hard-fail-first UDF: re-raise with group key context
             inner_tb = _tb.format_exc()
@@ -342,6 +380,14 @@ def _make_action_context_udf(
                 period_val,
                 batch_id_val,
                 inner_tb,
+            )
+            # Surface the executor exception to the DRIVER task log via a marker
+            # (executor stderr / _logger.error never reach it on Spark Connect).
+            disarm_executor_faulthandler()
+            executor_marker(
+                exec_rendezvous_dir,
+                seq=f"{_batch_key}_ERROR",
+                payload=f"ERROR match={match_id_val} period={period_val} batch={batch_id_val}\n{inner_tb}",
             )
             raise RuntimeError(
                 f"action_context UDF failed for match_id={match_id_val}, "
@@ -846,12 +892,42 @@ def _process_tracking_match(
     """Process a single tracking-provider match via applyInPandas."""
     from pyspark.sql import functions as F  # noqa: N812
 
+    from ingestion.exec_visibility import PhaseHeartbeat
     from ingestion.tracking_context import (
         _IDSSE_TRACKING_SELECT_COLS,
         _METRICA_TRACKING_SELECT_COLS,
         _SKILLCORNER_TRACKING_SELECT_COLS,
     )
-    from ingestion.utils import write_delta_table
+    from ingestion.utils import ensure_volume_directory, write_delta_table
+
+    # ── Executor→driver visibility: rendezvous dir + driver heartbeat ──
+    # The driver creates the rendezvous dir (Files API needs the driver token);
+    # executors write markers into it via raw open(). The heartbeat thread prints
+    # elapsed + current driver phase + target row count + marker count to the
+    # task log every 15s, so a hang is localized to a specific phase in real time
+    # instead of the bare 3-line silence. See ingestion.exec_visibility + ADR-031.
+    results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+    exec_rendezvous_dir: str | None = (
+        f"/Volumes/{catalog}/{schema}/_staging/ac1_progress/{provider}_{match_id}_p{period_filter}"
+    )
+    try:
+        ensure_volume_directory(exec_rendezvous_dir)
+    except Exception as exc:  # noqa: BLE001 — visibility is best-effort; never block compute
+        task_logger.warning("Could not create rendezvous dir %s: %s", exec_rendezvous_dir, exc)
+        exec_rendezvous_dir = None
+
+    _count_where = (
+        f"match_id = '{match_id}' AND period_id = {period_filter}" if period_filter else f"match_id = '{match_id}'"
+    )
+    hb = PhaseHeartbeat(
+        tag="AC1_HEARTBEAT",
+        interval_s=15.0,
+        spark=spark,
+        count_table=results_table,
+        count_where=_count_where,
+        rendezvous_dir=exec_rendezvous_dir,
+    )
+    hb.start("read_tracking")
 
     # ── Read tracking (Spark DataFrame — no .toPandas()) ──
     if provider == "idsse":
@@ -894,11 +970,14 @@ def _process_tracking_match(
     if period_filter is not None:
         trk_sdf = trk_sdf.filter(F.col("period") == period_filter)
 
+    hb.set_phase("tracking_limit1_count")
     if trk_sdf.limit(1).count() == 0:
         task_logger.warning("No tracking data for %s match %s", provider, match_id)
+        hb.stop()
         return 0
 
     # ── Read SPADL actions ──
+    hb.set_phase("toPandas_actions")
     actions_pdf = (
         spark.table(f"{catalog}.bronze.spadl_actions")
         .filter((F.col("match_id_native") == match_id) & (F.col("data_source") == provider))
@@ -906,6 +985,7 @@ def _process_tracking_match(
     )
     if actions_pdf.empty:
         task_logger.warning("No SPADL actions for %s match %s", provider, match_id)
+        hb.stop()
         return 0
     actions_records: list[dict[str, Any]] = actions_pdf.to_dict("records")  # type: ignore[assignment]
 
@@ -923,6 +1003,7 @@ def _process_tracking_match(
             derive_idsse_home_team_start_left_extratime,
         )
 
+        hb.set_phase("toPandas_idsse_events")
         events_pdf = spark.table(f"{catalog}.bronze.idsse_events").filter(F.col("match_id") == match_id).toPandas()
         home_team_id = str(events_pdf["home_team_id_native"].dropna().iloc[0])
         adapted_events = adapt_idsse_events_for_silly_kicks(events_pdf)
@@ -1019,9 +1100,11 @@ def _process_tracking_match(
         gs_team_side_to_id=gs_team_side_to_id,
         gs_jersey_to_player_id=gs_jersey_to_player_id,
         gs_gk_player_ids=gs_gk_player_ids,
+        exec_rendezvous_dir=exec_rendezvous_dir,
     )
 
     # GradientSports uses "period" (not "period_id") in bronze
+    hb.set_phase("applyInPandas_build_dag")
     result_sdf = trk_sdf.groupBy("match_id", "period", "frame_batch_id").applyInPandas(
         udf_fn,
         schema=_get_result_schema(),
@@ -1032,14 +1115,22 @@ def _process_tracking_match(
     else:
         rw = f"match_id = '{match_id}'"
 
-    written = write_delta_table(
-        result_sdf,
-        catalog,
-        schema,
-        _TABLE_NAME,
-        replace_where=rw,
-        logger=task_logger,
-    )
+    # This is the action that materializes the applyInPandas DAG. If the hang is
+    # in the UDF, the heartbeat keeps printing "phase=write_delta_applyInPandas"
+    # with rows=0 and (if executor writes work) markers>0; if the hang is a
+    # driver-side action above, we never reach this phase.
+    hb.set_phase("write_delta_applyInPandas")
+    try:
+        written = write_delta_table(
+            result_sdf,
+            catalog,
+            schema,
+            _TABLE_NAME,
+            replace_where=rw,
+            logger=task_logger,
+        )
+    finally:
+        hb.stop()
     del actions_pdf, actions_records
     return written
 
