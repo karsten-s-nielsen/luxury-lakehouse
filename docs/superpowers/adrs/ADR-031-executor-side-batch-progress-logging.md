@@ -3,8 +3,20 @@
 | Field | Value |
 |---|---|
 | **Date** | 2026-05-30 |
-| **Status** | Accepted |
+| **Status** | Superseded by ADR-032 (2026-05-31) |
 | **Deciders** | Karsten Nielsen |
+
+> **Superseded.** The Decision below — emit `AC1_BATCH` log lines from inside the
+> UDF closure and read them from the driver log stream — does **not** work on
+> Databricks serverless. Spark Connect routes executor stdout/stderr to the
+> *executor* log, which never reaches the parent task log (`jobs.get_run_output`
+> / Jobs UI "Task logs"); only *driver*-process stdout lands there. Verified
+> empirically 2026-05-31 (iteration `961253300571334`): the `AC1_BATCH` lines
+> were invisible. The working design — a driver-side poller plus executor-written
+> UC-Volume rendezvous markers — is in
+> [ADR-032](ADR-032-spark-connect-safe-executor-visibility.md). This ADR is
+> retained for the record: it correctly killed the `sparkContext` accumulator
+> design (PR #320), but was wrong about where executor logs surface.
 
 ## Context
 

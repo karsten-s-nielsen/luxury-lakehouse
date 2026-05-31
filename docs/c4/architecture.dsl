@@ -45,7 +45,8 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             evolveEngine = container "Evolve Engine" "LLM-guided architecture search. AST validation, restricted exec." "Python, OpenEvolve"
             calibrationRunner = container "TC-3 Calibration Runner" "Optuna TPE sweep for silly-kicks defaults: carrier params, k3, off-ball runs. Databricks SQL + ThreadPool." "Python, Optuna, XGBoost"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models: xG, xT, VAEP, OBSO, pitch control, embeddings" "Python, PyTorch"
-            actionContextHexagon = container "Action Context Hexagon" "Pure-domain enrichment for bronze.spadl_action_context (ADR-028). 5 Protocol ports + enrich_batch contract. Same code runs in the Spark applyInPandas UDF (per 250-frame batch) and in local run_work_unit on Parquet -- prod/local parity is structural. silly-kicks 4.0 with ET symmetric guard (ADR-029): MatchMeta.home_team_start_left_extratime plumbs through every convert_to_frames / convert_to_actions; lakehouse-domain _fill_possession_from_set_piece_actions synthesizes possession for SPADL set-piece restarts. Includes ghost_gk and cover_shadows detailed=True. M13 early-return short-circuits zero-owned batches before enrichment. _BatchHeartbeat thread + Spark LongAccumulator for per-batch progress visibility." "Python, pandas, silly-kicks 4.0"
+            execVisibility = container "Executor Visibility (exec_visibility)" "Driver PhaseHeartbeat + executor env-fingerprint / faulthandler / UC-Volume rendezvous markers. Spark-Connect-safe applyInPandas progress + hang diagnostics (ADR-031)." "Python"
+            actionContextHexagon = container "Action Context Hexagon" "Pure-domain enrichment for bronze.spadl_action_context (ADR-028). 5 Protocol ports + enrich_batch contract. Same code runs in the Spark applyInPandas UDF (per 250-frame batch) and in local run_work_unit on Parquet -- prod/local parity is structural. silly-kicks 4.0 with ET symmetric guard (ADR-029): MatchMeta.home_team_start_left_extratime plumbs through every convert_to_frames / convert_to_actions; lakehouse-domain _fill_possession_from_set_piece_actions synthesizes possession for SPADL set-piece restarts. Includes ghost_gk and cover_shadows detailed=True. M13 early-return short-circuits zero-owned batches before enrichment. 104-col schema incl. ghost_gk. Progress/hang visibility via exec_visibility (ADR-031). Serverless applyInPandas hang OPEN; populated via local run_action_context_local.py fallback." "Python, pandas, silly-kicks 4.0"
             sharedLibrary = container "Shared Library" "Cross-package constants. Zero external deps." "Python"
         }
 
@@ -132,6 +133,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         ingestionPipelines -> analyticsLibrary "Imports domain logic" ""
         ingestionPipelines -> sharedLibrary "Imports constants" ""
         ingestionPipelines -> actionContextHexagon "compute_action_context UDF delegates to enrich_batch (ADR-028)" ""
+        ingestionPipelines -> execVisibility "UDF + driver emit progress/diagnostics (ADR-031)" ""
         actionContextHexagon -> sharedLibrary "Imports identifiers" ""
         actionContextHexagon -> bronzeSchema "Reads tracking+SPADL+xT grid, writes spadl_action_context" "PySpark/Delta"
         analyticsLibrary -> sharedLibrary "Imports IDENTIFIER_RE" ""

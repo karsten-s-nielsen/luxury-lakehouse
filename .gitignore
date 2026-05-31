@@ -45,6 +45,11 @@ artifacts/
 # Contents are intentionally untracked — nothing here ships.
 tmp/
 
+# AC-1 local runner caches (scripts/run_action_context_local.py): pulled bronze
+# inputs + enriched result parquets. Untracked — regenerated on demand.
+_ac1_cache/
+_ac1_local_out/
+
 # OS
 .DS_Store
 Thumbs.db
