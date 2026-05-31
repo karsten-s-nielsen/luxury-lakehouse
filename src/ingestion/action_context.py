@@ -1182,8 +1182,15 @@ def _process_statsbomb_match(
 
     out_pdf = _build_output(result_pdf, match_id_native=match_id, data_source="statsbomb")
 
-    # Convert to Spark DataFrame and write
-    out_sdf = spark.createDataFrame(out_pdf)
+    # Convert to Spark DataFrame and write. An EXPLICIT schema is mandatory:
+    # event-only / sb360 output leaves the ~80 tracking columns entirely absent,
+    # so _build_output fills them via ``out[col] = np.nan`` → an all-NULL float64
+    # pandas column. Spark would infer those as DoubleType, which then collides
+    # with the table's BIGINT columns (e.g. frame_id) under write_delta_table's
+    # mergeSchema, raising DELTA_FAILED_TO_MERGE_FIELDS. The tracking path avoids
+    # this by passing schema=_get_result_schema() to applyInPandas; the
+    # driver-side writers must do the same. See ADR-033.
+    out_sdf = spark.createDataFrame(out_pdf, schema=_get_result_schema())
     written = write_delta_table(
         out_sdf,
         catalog,
@@ -1309,7 +1316,10 @@ def _process_event_only_match(
     result_pdf = _enrich_event_only_match(actions_pdf)
     out_pdf = _build_output(result_pdf, match_id_native=match_id, data_source=provider)
 
-    out_sdf = spark.createDataFrame(out_pdf)
+    # Explicit schema is mandatory — see _process_statsbomb_match + ADR-033.
+    # Event-only output leaves all tracking columns NULL; without the schema
+    # Spark infers them as DoubleType and the BIGINT columns fail to merge.
+    out_sdf = spark.createDataFrame(out_pdf, schema=_get_result_schema())
     written = write_delta_table(
         out_sdf,
         catalog,
