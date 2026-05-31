@@ -79,6 +79,7 @@ from ingestion.refresh_synced_tables import (
     DEFAULT_SCHEMA,
     SYNCED_TABLES,
     _classify_pipeline_poll_response,
+    is_synced_table_not_found,
 )
 from shared.constants import IDENTIFIER_RE
 
@@ -792,6 +793,7 @@ def main(argv: list[str] | None = None) -> int:
     schema_to_tables: dict[str, list[str]] = {}  # schema -> [event_log_table_name, ...]
     event_log_fqns: dict[str, str] = {}  # synced_table_name -> event_log fqn
     discovery_errors = 0
+    skipped_not_created = 0  # configured tables that don't exist yet (fresh install)
 
     for table_name, schema in selected.items():
         try:
@@ -802,6 +804,19 @@ def main(argv: list[str] | None = None) -> int:
                 table=table_name,
             )
         except Exception as exc:
+            # A configured synced table that has not been created yet (fresh
+            # install, or a mart whose first sync hasn't run) is expected —
+            # skip it without counting a discovery error, so the maintenance
+            # run still succeeds. Genuine lookup failures still hard-fail.
+            if is_synced_table_not_found(exc):
+                _log(
+                    "pipeline_id_lookup_skipped",
+                    table=table_name,
+                    reason="table_not_yet_created",
+                    detail=str(exc)[:200],
+                )
+                skipped_not_created += 1
+                continue
             _log("pipeline_id_lookup_failed", table=table_name, error=str(exc)[:200])
             discovery_errors += 1
             continue
@@ -811,6 +826,17 @@ def main(argv: list[str] | None = None) -> int:
         schema_to_tables.setdefault(schema, []).append(event_log_name)
 
     if not pipeline_ids:
+        # Nothing to process. If every selected table was simply not-yet-created
+        # (no genuine errors), that's a clean no-op — the expected state on a
+        # fresh install — so exit 0. Only abort with 1 on real discovery errors.
+        if discovery_errors == 0:
+            _log(
+                "complete",
+                outcome="no_tables_to_process",
+                reason="all_selected_tables_not_yet_created",
+                skipped=skipped_not_created,
+            )
+            return 0
         _log("abort", reason="no_pipeline_ids_resolved", errors=discovery_errors)
         return 1
 
@@ -922,6 +948,7 @@ def main(argv: list[str] | None = None) -> int:
         selected=len(selected),
         pipeline_ids_resolved=len(pipeline_ids),
         pipeline_id_lookup_errors=discovery_errors,
+        pipeline_id_lookup_skipped=skipped_not_created,
         already_correct=len(already_correct),
         needs_fix=len(needs_fix),
         fixable_by_self=len(fixable_by_self),

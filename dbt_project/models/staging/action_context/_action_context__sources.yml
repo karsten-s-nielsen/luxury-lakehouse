@@ -6,7 +6,7 @@ sources:
       Unified action-level features produced by the AC-1 pipeline.
       One row per SPADL action for ALL providers (6). Event-only providers
       have game_state + GK resolution populated; tracking columns NULL.
-      ~102 columns for tracking providers.
+      104 columns for tracking providers.
     database: soccer_analytics
     schema: bronze
     loader: python_wheel

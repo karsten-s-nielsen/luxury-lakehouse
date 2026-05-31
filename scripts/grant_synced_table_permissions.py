@@ -63,7 +63,12 @@ import time
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
-from ingestion.refresh_synced_tables import DEFAULT_CATALOG, DEFAULT_SCHEMA, SYNCED_TABLES
+from ingestion.refresh_synced_tables import (
+    DEFAULT_CATALOG,
+    DEFAULT_SCHEMA,
+    SYNCED_TABLES,
+    is_synced_table_not_found,
+)
 
 # PR-Cycle-B (2026-05-01): databricks-sdk is in the [sdk] optional extra.
 # Lazy-import keeps this script importable for pytest collection of
@@ -186,7 +191,17 @@ def _enumerate_pipelines(ws: WorkspaceClient) -> list[tuple[str, str, str]]:
     for config in SYNCED_TABLES:
         schema = config.schema_override or DEFAULT_SCHEMA
         full = f"{DEFAULT_CATALOG}.{schema}.{config.name}"
-        meta = ws.postgres.get_synced_table(name=f"synced_tables/{full}")
+        try:
+            meta = ws.postgres.get_synced_table(name=f"synced_tables/{full}")
+        except Exception as exc:
+            # A configured synced table that has not been created yet (fresh
+            # install, or a mart whose first sync hasn't run) is expected —
+            # skip its grants with a warning rather than aborting the whole
+            # run. Genuine SDK errors still propagate.
+            if is_synced_table_not_found(exc):
+                _log("synced_table_skipped", table=config.name, reason="table_not_yet_created", detail=str(exc)[:200])
+                continue
+            raise
         status = getattr(meta, "status", None)
         pid = getattr(status, "pipeline_id", None) if status else None
         if not pid:

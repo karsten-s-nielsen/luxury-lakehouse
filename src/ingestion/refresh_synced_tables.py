@@ -247,6 +247,44 @@ MAX_POLL_ATTEMPTS = 60  # 30 min max wait
 
 SYNCED_TABLE_ONLINE_STATE = "SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE"
 
+
+# ---------------------------------------------------------------------------
+# Missing-synced-table tolerance (fresh-install robustness)
+# ---------------------------------------------------------------------------
+# A SYNCED_TABLES entry whose Databricks synced table has not been created yet
+# is the EXPECTED state on a fresh lakehouse install -- and for any table whose
+# source mart has not been built (e.g. fct_action_context_synced before AC-1's
+# gold mart is populated). The Lakebase maintenance steps (event-log ownership
+# backfill, permission grants, index creation, online-state checks) must treat
+# that as skip-with-warning, NOT a hard failure -- while still failing loudly
+# on genuine errors (table exists but pipeline / event_log resolution truly
+# fails).
+#
+# Single source of truth for the marker check, mirroring the existing pattern
+# in scripts/migrate_synced_tables.py:_delete_synced_table. String-based (not
+# SDK-exception-type-based) so it stays importable without the [sdk] extra, and
+# so it also matches the equivalent PostgreSQL message text.
+_SYNCED_TABLE_NOT_FOUND_MARKERS: tuple[str, ...] = (
+    "not found",
+    "does not exist",
+    "resource_does_not_exist",
+    "no synced table",
+)
+
+
+def is_synced_table_not_found(exc: BaseException) -> bool:
+    """Return ``True`` if ``exc`` indicates a synced table that does not exist yet.
+
+    Used by the Lakebase maintenance scripts to degrade gracefully when a
+    configured synced table has not been created on this workspace -- the normal
+    state immediately after a fresh install, or before a new mart's first sync.
+    Every other exception class still propagates so real failures are never
+    masked.
+    """
+    text = str(exc).lower()
+    return any(marker in text for marker in _SYNCED_TABLE_NOT_FOUND_MARKERS)
+
+
 # detailed_state values that mean the synced table has failed permanently;
 # distinguished from in-flight states by the fact that further polling is pointless.
 _SYNCED_TABLE_TERMINAL_FAILURE_STATES: frozenset[str] = frozenset(
