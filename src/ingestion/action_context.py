@@ -1364,6 +1364,28 @@ def _run_profile_on_driver(
 
     ensure_numba_cache_dir()  # match the UDF's serverless numba-cache setup
 
+    # Self-certify the analytics libs the executor env actually resolved. The
+    # serverless env can silently resolve a stale silly-kicks (PyPI/index lag or
+    # a cached env) despite an explicit ``>=`` pin — a profile attributed to the
+    # wrong version is worse than no profile. Printed BEFORE the heavy compute so
+    # the driver log reveals the version within seconds (kill early if wrong).
+    import importlib.metadata as _md
+
+    _versions = {}
+    for _pkg in ("silly-kicks", "accessible-space", "numba", "numpy", "scipy"):
+        try:
+            _versions[_pkg] = _md.version(_pkg)
+        except _md.PackageNotFoundError:
+            _versions[_pkg] = "<absent>"
+    task_logger.info(
+        "AC1_PROFILE env_versions silly-kicks=%s accessible-space=%s numba=%s numpy=%s scipy=%s",
+        _versions["silly-kicks"],
+        _versions["accessible-space"],
+        _versions["numba"],
+        _versions["numpy"],
+        _versions["scipy"],
+    )
+
     frames_all = trk_sdf.toPandas()  # one match fits the 16 GB driver
     task_logger.info("AC1_PROFILE pulled %d tracking rows for %s/%s", len(frames_all), provider, native_match_id)
     if frames_all.empty:
