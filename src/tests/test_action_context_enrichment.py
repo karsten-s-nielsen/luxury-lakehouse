@@ -31,6 +31,7 @@ from ingestion.action_context import (
     _is_event_only_provider,
     _is_tracking_provider,
     _load_xt_grid_from_delta,
+    _parse_preflight_filters,
 )
 
 
@@ -659,3 +660,156 @@ def test_guard_chunk_sizes_keep_task_value_under_limit() -> None:
 
     assert total_chunks < 200, f"Too many chunks ({total_chunks}) — will exceed task value limit"
     assert estimated_bytes < 48_000, f"Estimated size {estimated_bytes} exceeds 48 KB limit"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Preflight ad-hoc scoping: --provider / --max-units (provider_filter/max_units)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _chunk_provider(chunk_str: str) -> str:
+    return chunk_str.split(":", 1)[0]
+
+
+def _chunk_units(chunk_str: str) -> list[str]:
+    """Units packed into one chunk string. IDSSE 'idsse:mid:period' is one half-unit."""
+    prov, rest = chunk_str.split(":", 1)
+    return [rest] if prov == "idsse" else rest.split(",")
+
+
+def _flat_chunks(fr: object) -> list[str]:
+    return [c[0] for c in (fr.chunks or [])]  # type: ignore[attr-defined]
+
+
+# ---- _parse_preflight_filters (pure validation/coercion) ----
+
+
+def test_parse_preflight_filters_defaults_and_empty_are_none() -> None:
+    """Daily job passes empty job-parameter strings -> coerce to None (all / no cap)."""
+    assert _parse_preflight_filters(None, None) == (None, None)
+    assert _parse_preflight_filters("", "") == (None, None)
+    assert _parse_preflight_filters("   ", "  ") == (None, None)
+
+
+def test_parse_preflight_filters_valid() -> None:
+    assert _parse_preflight_filters("wyscout", "5") == ("wyscout", 5)
+    assert _parse_preflight_filters(" idsse ", " 3 ") == ("idsse", 3)
+    assert _parse_preflight_filters(None, "1") == (None, 1)
+    assert _parse_preflight_filters("metrica", None) == ("metrica", None)
+
+
+def test_parse_preflight_filters_unknown_provider_raises() -> None:
+    with pytest.raises(SystemExit, match="Unknown --provider"):
+        _parse_preflight_filters("bogus", None)
+
+
+def test_parse_preflight_filters_bad_max_units_raises() -> None:
+    with pytest.raises(SystemExit, match="must be > 0"):
+        _parse_preflight_filters(None, "0")
+    with pytest.raises(SystemExit, match="must be > 0"):
+        _parse_preflight_filters(None, "-3")
+    with pytest.raises(SystemExit, match="positive integer"):
+        _parse_preflight_filters(None, "abc")
+
+
+# ---- guard.check() honors provider_filter + max_units ----
+
+
+@pytest.mark.usefixtures("_mock_pyspark")
+def test_guard_provider_filter_restricts_to_one_provider() -> None:
+    """provider_filter='wyscout' -> ONLY wyscout chunks; other providers' discovery skipped
+    even though their tables hold unprocessed units."""
+    tables = {
+        "cat.bronze.spadl_actions": _MockDF([{"_join_id": "w1"}, {"_join_id": "w2"}, {"_join_id": "w3"}]),
+        # populated but must be ignored (statsbomb/metrica/idsse skipped):
+        "cat.bronze.metrica_tracking": _MockDF([{"_join_id": "w1"}]),
+        "cat.bronze.idsse_tracking": _MockDF([{"_mid": "i1", "_period": 1}]),
+    }
+    fr = _ActionContextGuard(provider_filter="wyscout").check(_MockSpark(tables), "cat", "bronze")
+
+    flat = _flat_chunks(fr)
+    assert flat, "expected wyscout chunks"
+    assert all(_chunk_provider(c) == "wyscout" for c in flat), flat
+    assert sorted(u for c in flat for u in _chunk_units(c)) == ["w1", "w2", "w3"]
+
+
+@pytest.mark.usefixtures("_mock_pyspark")
+def test_guard_max_units_caps_deterministically() -> None:
+    """provider_filter + max_units -> the FIRST N units in sorted order (stable 'next N')."""
+    tables = {
+        "cat.bronze.spadl_actions": _MockDF(
+            [{"_join_id": "w3"}, {"_join_id": "w1"}, {"_join_id": "w5"}, {"_join_id": "w2"}, {"_join_id": "w4"}]
+        ),
+    }
+    fr = _ActionContextGuard(provider_filter="wyscout", max_units=2).check(_MockSpark(tables), "cat", "bronze")
+
+    flat = _flat_chunks(fr)
+    units = sorted(u for c in flat for u in _chunk_units(c))
+    assert units == ["w1", "w2"], f"max_units=2 must pick the sorted-first 2, got {units}"
+    assert fr.count == 2
+
+
+@pytest.mark.usefixtures("_mock_pyspark")
+def test_guard_max_units_one_per_provider() -> None:
+    """max_units=1 with no provider_filter -> every chunk holds exactly one unit
+    (cap applied per provider, across all of them)."""
+    # Real spadl rows carry match_id_native (aliased to _join_id by event/tracking
+    # discovery and to _mid by IDSSE discovery); the mock's passthrough select means
+    # each row must carry BOTH keys.
+    tables = {
+        "cat.bronze.spadl_actions": _MockDF(
+            [
+                {"_join_id": "a1", "_mid": "a1"},
+                {"_join_id": "a2", "_mid": "a2"},
+                {"_join_id": "i1", "_mid": "i1"},
+                {"_join_id": "i2", "_mid": "i2"},
+            ]
+        ),
+        "cat.bronze.metrica_tracking": _MockDF([{"_join_id": "a1"}, {"_join_id": "a2"}]),
+        "cat.bronze.idsse_tracking": _MockDF(
+            [{"_mid": "i1", "_period": 1}, {"_mid": "i1", "_period": 2}, {"_mid": "i2", "_period": 1}]
+        ),
+    }
+    fr = _ActionContextGuard(max_units=1).check(_MockSpark(tables), "cat", "bronze")
+
+    flat = _flat_chunks(fr)
+    assert flat, "expected some chunks"
+    for c in flat:
+        assert len(_chunk_units(c)) == 1, f"max_units=1 must yield 1 unit/chunk, got {c}"
+    # each provider contributes at most one chunk (1 unit < every chunk_size)
+    provs = [_chunk_provider(c) for c in flat]
+    assert len(provs) == len(set(provs)), f"a provider produced >1 chunk under max_units=1: {provs}"
+
+
+@pytest.mark.usefixtures("_mock_pyspark")
+def test_guard_defaults_unchanged_no_filter_no_cap() -> None:
+    """No provider_filter + no max_units (the daily path) -> all providers, no truncation."""
+    tables = {
+        "cat.bronze.spadl_actions": _MockDF([{"_join_id": "w1"}, {"_join_id": "w2"}, {"_join_id": "w3"}]),
+        "cat.bronze.metrica_tracking": _MockDF([{"_join_id": "w1"}, {"_join_id": "w2"}]),
+    }
+    fr = _ActionContextGuard().check(_MockSpark(tables), "cat", "bronze")
+
+    flat = _flat_chunks(fr)
+    provs = {_chunk_provider(c) for c in flat}
+    assert "wyscout" in provs and "metrica" in provs, provs
+    # wyscout event-only chunk_size=200 -> all 3 ids in one uncapped chunk
+    wy_units = sorted(u for c in flat if _chunk_provider(c) == "wyscout" for u in _chunk_units(c))
+    assert wy_units == ["w1", "w2", "w3"], f"default path must not cap: {wy_units}"
+
+
+@pytest.mark.usefixtures("_mock_pyspark")
+def test_guard_provider_filter_idsse_half_units() -> None:
+    """provider_filter='idsse' + max_units caps (match, period) HALVES (idsse's unit)."""
+    tables = {
+        "cat.bronze.spadl_actions": _MockDF([{"_mid": "i1"}, {"_mid": "i2"}]),
+        "cat.bronze.idsse_tracking": _MockDF(
+            [{"_mid": "i1", "_period": 1}, {"_mid": "i1", "_period": 2}, {"_mid": "i2", "_period": 1}]
+        ),
+    }
+    fr = _ActionContextGuard(provider_filter="idsse", max_units=2).check(_MockSpark(tables), "cat", "bronze")
+
+    flat = _flat_chunks(fr)
+    assert all(_chunk_provider(c) == "idsse" for c in flat), flat
+    assert len(flat) == 2, f"max_units=2 must cap to 2 idsse halves, got {flat}"
+    assert flat == ["idsse:i1:1", "idsse:i1:2"], f"sorted-first 2 halves expected, got {flat}"
