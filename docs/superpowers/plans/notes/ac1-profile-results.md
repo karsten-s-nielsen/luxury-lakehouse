@@ -164,6 +164,33 @@ spec) caps at ~1 % AC-1 whole-chain speedup (Amdahl) — the real lever is ghost
 (vectorize/numba/FFT-KDE/GPU). NOTE the silly-kicks DAS Step-0 ("DAS = 70 % of `get_das`") is
 *also* correct — different denominator (the DAS function vs the full 20-stage chain). Sample
 over-weights one-time costs, but ghost-GK's cost is per-call (recurring) so the 74 % headline
-is robust. Single match/provider so far (skillcorner); IDSSE (25 fps) profile in flight. Re-run
-any provider via `scripts/submit_ac1_oneshot.py --profile --match-ids <provider>:<id>[:period]`;
-`.pstats` lands in the UC Volume rendezvous dir for offline deep-dive.
+is robust. Re-run any provider via `scripts/submit_ac1_oneshot.py --profile --match-ids
+<provider>:<id>[:period]`; the summary is logged to the driver task log (retrievable via
+`jobs.get_run_output`, no UC Volume READ needed) and also dropped as a `.pstats` in the
+rendezvous dir for offline deep-dive.
+
+**Generalization — IDSSE J03WMX p1 (25 fps, 60/283-batch sample, wall 1206 s, run 875061375644050):**
+ghost-GK dominance holds across providers:
+
+| Stage | skillcorner (10 fps) | IDSSE (25 fps) | GradientSports (30 fps) |
+|---|---|---|---|
+| `add_ghost_gk` | 74.4% | **68.5%** | **62.2%** |
+| `add_elastic_sync` | 6.1% | 8.4% | 10.8% |
+| `add_obso` | 3.8% | 6.6% | 8.0% |
+| `add_cover_shadows` | 4.7% | 3.9% | 3.0% |
+| DAS (`add_das`+sim) | ~1.2% | ~0.9% | ~0.9% |
+
+ghost-GK is the clear #1 on all three; the denser providers shift a little weight into
+elastic/obso (more window work) but the headline holds. IDSSE NaN-degrades DAS on ~8% of
+batches — benign: IDSSE honestly marks ~33% of p1 frames `ball_status=0` (dead-ball) →
+`infer_ball_carrier` correctly yields no carrier → DAS undefined (ADR-003). skillcorner has no
+per-frame ball_state so never gates. NOT a bug; see `memory/project_ac1_numba_das_cost.md`.
+
+**GradientSports — match 3840 p1 (40/377-batch sample, wall 467 s, run `1039554735504537`).**
+This was the conclusive end-to-end GS validation: AC-1 had **never run** for GS before (four
+latent adapter bugs — see ADR-034). With the fixes it SUCCEEDS, and result-health proves
+RESOLUTION works (not just no-crash): `das_team`/`das_opponent`/`das_diff` ≈ **48% non-null**
+(carriers/possession resolve — pre-fix this was 0%: empty roster dicts + Int64-vs-string id
+mismatch), `ghost_gk_x`/`ghost_gk_spread` = **100%**. The ~52% NaN DAS is the normal
+possession-undefined-at-action-frame degradation. The full `add_gradientsports_player_ids`
+adoption (queued robustness) may raise the carrier-match rate further.

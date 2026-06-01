@@ -508,3 +508,26 @@ def _bronze_gradientsports_to_converter_input(
     result.loc[result["is_ball"] == True, "is_goalkeeper"] = False  # noqa: E712
 
     return result.sort_values(["frame_id", "is_ball"]).reset_index(drop=True)
+
+
+def _coerce_gradientsports_frame_ids_to_native_str(frames: pd.DataFrame) -> pd.DataFrame:
+    """Coerce GS frame ``player_id``/``team_id`` from Int64 back to native string in place.
+
+    silly-kicks' ``GRADIENTSPORTS_TRACKING_FRAMES_COLUMNS`` schema forces
+    ``player_id``/``team_id`` to ``Int64`` inside ``convert_to_frames``. But every
+    downstream consumer compares frame ids to the NATIVE-STRING action ids —
+    ``_resolve_action_frame_context`` does ``player_id_frame == player_id_action`` /
+    ``team_id_frame != team_id_action`` (actions carry ``player_id_native`` /
+    ``team_id_native`` after ``_resolve_enrichment_identity``), and the silly-kicks
+    kernels compare ``frames["team_id"] == home_team_id`` where ``home_team_id`` is a
+    ``str``. ``Int64(366) == "366"`` is ``False`` → GS carrier/possession/actor/opponent/
+    defensive-line resolution silently breaks. SkillCorner (``.astype(str)``) and IDSSE
+    (sportec ``object`` schema) already emit native-string frame ids; GS is the schema
+    outlier, so we realign it here. NA (ball rows) → ``None``. See project memory
+    ``project_gradientsports_player_id_space_bug``.
+    """
+    for col in ("player_id", "team_id"):
+        if col in frames.columns:
+            # Int64 -> StringDtype ("366"/<NA>, no ".0") -> object (native str + NA for ball).
+            frames[col] = frames[col].astype("string").astype(object)
+    return frames

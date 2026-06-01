@@ -887,6 +887,69 @@ def main() -> None:
 # ── Provider-specific processing ──────────────────────────────────────
 
 
+# GS bronze (events/roster) use pd.json_normalize dot-named columns and are very wide
+# (events ~264 cols). Collecting the full width via `toPandas()` on the Spark Connect
+# serverless driver trips a Catalyst attribute-resolution bug ("Cannot find column index for
+# attribute possessionEvents.carrySuccessful#..."). We project to only the needed columns
+# (backtick-quoted for the dots) before toPandas. `_GS_EVENTS_META_COLS` MUST cover everything
+# `extract_gradientsports_match_metadata` reads — guarded by
+# `test_narrow_events_cols_sufficient_for_extractor`. The other tracking providers don't hit
+# this (their bronze reads are narrow / not json_normalize-wide). See project memory
+# project_gradientsports_player_id_space_bug + the events-read blocker note.
+_GS_EVENTS_META_COLS: tuple[str, ...] = (
+    "gameEvents.homeTeam",
+    "gameEvents.teamId",
+    "stadiumMetadata.homeTeamStartLeft",
+    "stadiumMetadata.homeTeamStartLeftExtraTime",
+)
+_GS_ROSTER_COLS: tuple[str, ...] = ("team.id", "shirtNumber", "player.id", "positionGroupType")
+
+
+def _build_gradientsports_roster_dicts(
+    roster_pdf: pd.DataFrame, home_team_id: str
+) -> tuple[dict[str, str], dict[tuple[str, str], str], list[str]]:
+    """Build the GS ``MatchMeta`` dicts from a non-empty ``bronze.gradientsports_roster`` frame.
+
+    Returns ``(team_side_to_id, jersey_to_player_id, gk_player_ids)``.
+
+    ``bronze.gradientsports_roster`` columns are dot-notation from ``pd.json_normalize``
+    of the GS API payload: ``team.id``, ``shirtNumber``, ``player.id``,
+    ``positionGroupType`` (NOT snake_case). The resolved ``player.id`` is the native
+    GS id (string), which matches actions' ``player_id_native`` — the identity-resolution
+    join key (GS SPADL stores ``player_id`` as NA + the native string in
+    ``player_id_native``). Reading snake_case names KeyErrors / silently empties these
+    dicts → GS carrier + possession resolution breaks. Verified against the live bronze
+    schema 2026-06-01.
+
+    FOLLOW-UP (tracked): replace this hand-rolled ``(side, jersey) -> player_id``
+    resolution with silly-kicks 4.x ``add_gradientsports_player_ids`` (cross-layer:
+    ``MatchMeta`` roster-records + ``convert.py``; breaks the ``test_convert_drift`` AST
+    guard; int-space reconciliation vs hash-bigint events ``team_id``). See ROADMAP /
+    project memory.
+    """
+    all_team_ids = roster_pdf["team.id"].dropna().unique()
+    away_tids = [str(t) for t in all_team_ids if str(t) != home_team_id]
+    away_team_id = away_tids[0] if away_tids else home_team_id
+    team_side_to_id = {"home": home_team_id, "away": away_team_id}
+
+    jersey_to_player_id: dict[tuple[str, str], str] = {}
+    for _, row in roster_pdf.iterrows():
+        tid = str(row.get("team.id", ""))
+        side = "home" if tid == home_team_id else "away"
+        jersey = str(row.get("shirtNumber", ""))
+        pid = str(row.get("player.id", ""))
+        if jersey and pid:
+            jersey_to_player_id[(side, jersey)] = pid
+
+    if "positionGroupType" in roster_pdf.columns:
+        gk_rows = roster_pdf[roster_pdf["positionGroupType"].str.upper() == "GK"]
+    else:
+        gk_rows = roster_pdf.iloc[0:0]
+    gk_player_ids = [str(r["player.id"]) for _, r in gk_rows.iterrows()]
+
+    return team_side_to_id, jersey_to_player_id, gk_player_ids
+
+
 def _process_tracking_match(
     spark: SparkSession,
     catalog: str,
@@ -1053,7 +1116,15 @@ def _process_tracking_match(
         from ingestion.spadl_adapter import extract_gradientsports_match_metadata
 
         gs_events_tbl = f"{catalog}.bronze.gradientsports_events"
-        events_pdf = spark.table(gs_events_tbl).filter(F.col("match_id") == match_id).toPandas()
+        # Narrow projection (NOT the full 264-col wide table) — see _GS_EVENTS_META_COLS:
+        # the wide toPandas trips a Spark Connect Catalyst bug on serverless. Backtick-quote
+        # the dot-named columns so they resolve as flat columns, not nested-field accesses.
+        events_pdf = (
+            spark.table(gs_events_tbl)
+            .filter(F.col("match_id") == match_id)
+            .select(*[f"`{c}`" for c in _GS_EVENTS_META_COLS])
+            .toPandas()
+        )
         gs_meta = extract_gradientsports_match_metadata(events_pdf)
         home_team_id = str(gs_meta["home_team_id"])
         home_start_left = gs_meta["home_team_start_left"]
@@ -1061,34 +1132,21 @@ def _process_tracking_match(
         home_team_start_left_extratime = gs_meta["home_team_start_left_extratime"]
         del events_pdf
 
-        # Build team_side -> team_id mapping and jersey -> player_id from roster
+        # Build team_side->team_id + (side,jersey)->player_id + GK dicts from the
+        # roster (see _build_gradientsports_roster_dicts for the bronze dot-notation
+        # column contract + the silly-kicks add_gradientsports_player_ids follow-up).
         gs_roster_tbl = f"{catalog}.bronze.gradientsports_roster"
-        roster_pdf = spark.table(gs_roster_tbl).filter(F.col("match_id") == match_id).toPandas()
+        # Narrow projection (same dot-named / wide-toPandas guard as the events read above).
+        roster_pdf = (
+            spark.table(gs_roster_tbl)
+            .filter(F.col("match_id") == match_id)
+            .select(*[f"`{c}`" for c in _GS_ROSTER_COLS])
+            .toPandas()
+        )
         if not roster_pdf.empty:
-            # Derive away_team_id from roster (the team that is not home)
-            all_team_ids = roster_pdf["team_id"].dropna().unique()
-            home_tid = str(gs_meta["home_team_id"])
-            away_tids = [str(t) for t in all_team_ids if str(t) != home_tid]
-            away_team_id = away_tids[0] if away_tids else home_tid
-
-            gs_team_side_to_id = {"home": home_tid, "away": away_team_id}
-
-            # Build (team_side, jersey_num) -> player_id mapping
-            gs_jersey_to_player_id = {}
-            for _, row in roster_pdf.iterrows():
-                tid = str(row.get("team_id", ""))
-                side = "home" if tid == home_tid else "away"
-                jersey = str(row.get("jersey_number", ""))
-                pid = str(row.get("player_id", ""))
-                if jersey and pid:
-                    gs_jersey_to_player_id[(side, jersey)] = pid
-
-            # GK player IDs
-            if "position" in roster_pdf.columns:
-                gk_rows = roster_pdf[roster_pdf["position"].str.upper() == "GK"]
-            else:
-                gk_rows = roster_pdf.iloc[0:0]
-            gs_gk_player_ids = [str(r["player_id"]) for _, r in gk_rows.iterrows()]
+            gs_team_side_to_id, gs_jersey_to_player_id, gs_gk_player_ids = _build_gradientsports_roster_dicts(
+                roster_pdf, home_team_id
+            )
 
         del roster_pdf
 
@@ -1100,9 +1158,12 @@ def _process_tracking_match(
         F.floor(F.col(frame_col) / F.lit(_FRAME_BATCH_SIZE)),
     )
 
-    # GradientSports uses "period_elapsed_time" as timestamp, rename for consistency
+    # GradientSports: the frame-batch / link / owned-action logic needs a "timestamp" column,
+    # but the GS converter (_bronze_gradientsports_to_converter_input) reads "period_elapsed_time".
+    # ADD an alias rather than rename — a destructive rename drops period_elapsed_time and the
+    # converter then KeyErrors (latent until the upstream GS blockers were cleared).
     if provider == "gradientsports":
-        trk_sdf = trk_sdf.withColumnRenamed("period_elapsed_time", "timestamp")
+        trk_sdf = trk_sdf.withColumn("timestamp", F.col("period_elapsed_time"))
 
     # Observability branch: single-process cProfile on the driver instead of the
     # distributed applyInPandas write. trk_sdf is already shaped exactly like the
@@ -1329,6 +1390,11 @@ def _run_profile_on_driver(
             n_total_batches,
         )
     n_rows = 0
+    # Result-health: non-null counts for carrier/possession-dependent columns. Proves the
+    # enrichment RESOLVES (not just "no crash") — e.g. catches GS possession breaking when
+    # frame ids don't match the action id space. All-zero here == broken resolution.
+    _health_cols = ("das_team", "das_opponent", "das_diff", "ghost_gk_x", "ghost_gk_spread")
+    health_nonnull: dict[str, int] = dict.fromkeys(_health_cols, 0)
     profiler = cProfile.Profile()
     t0 = _time.monotonic()
     profiler.enable()
@@ -1346,26 +1412,40 @@ def _run_profile_on_driver(
             native_match_id=native_match_id,
         )
         n_rows += len(result)
+        for _c in _health_cols:
+            if _c in result.columns:
+                health_nonnull[_c] += int(result[_c].notna().sum())
     profiler.disable()
     total_s = _time.monotonic() - t0
+    health_str = " ".join(
+        f"{c}={100.0 * health_nonnull[c] / n_rows:.0f}%" if n_rows else f"{c}=n/a" for c in _health_cols
+    )
+    task_logger.info("AC1_PROFILE result-health (non-null rate over %d rows): %s", n_rows, health_str)
 
     summary = _format_profile_summary(
         profiler, total_s=total_s, n_rows=n_rows, n_batches=len(groups), n_total_batches=n_total_batches
     )
+    # ALWAYS log the full summary to the driver task log. This is the reliable
+    # retrieval channel: the job runs as the ingestion SP (for UC Volume marker
+    # writes) but the operator submits under their own identity, which may lack
+    # READ VOLUME on _staging — so the cprofile_summary marker can be unreadable
+    # by the submitter. jobs.get_run_output returns the task log regardless. The
+    # marker + .pstats below are a convenience (submit_ac1_oneshot._dump_markers /
+    # offline deep-dive), not the source of truth.
     task_logger.info(
-        "AC1_PROFILE done: wall_s=%.1f rows=%d batches=%d/%d", total_s, n_rows, len(groups), n_total_batches
+        "AC1_PROFILE done: wall_s=%.1f rows=%d batches=%d/%d\n%s",
+        total_s,
+        n_rows,
+        len(groups),
+        n_total_batches,
+        summary,
     )
-    # Surface the summary via the rendezvous dir (submit_ac1_oneshot._dump_markers
-    # prints every marker). Also dump the raw .pstats for offline deep-dive.
     if exec_rendezvous_dir:
         executor_marker(exec_rendezvous_dir, seq="cprofile_summary", payload=summary)
         try:
             profiler.dump_stats(f"{exec_rendezvous_dir}/cprofile.pstats")
         except OSError as exc:
             task_logger.warning("AC1_PROFILE could not dump .pstats: %s", exc)
-    else:
-        # No UC Volume dir (e.g. local run) — log the summary directly.
-        task_logger.info("AC1_PROFILE SUMMARY:\n%s", summary)
     return n_rows
 
 

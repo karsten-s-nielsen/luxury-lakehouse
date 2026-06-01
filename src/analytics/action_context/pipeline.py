@@ -133,7 +133,9 @@ def _convert_tracking_batch(
             output_convention="ltr",
             preprocess=_PreprocessConfig(derive_velocity=True),
         )
-        return frames
+        # convert_to_frames forces GS player_id/team_id to Int64; downstream compares
+        # against native-STRING action ids, so realign (Int64(366) == "366" is False).
+        return _cv._coerce_gradientsports_frame_ids_to_native_str(frames)
 
     msg = f"Unknown tracking provider: {provider}"
     raise ValueError(msg)
@@ -292,8 +294,11 @@ def run_work_unit(
     # tracking tier: batch by floor(frame/250) and concat — identical to Spark dispatch.
     f = bundle.frames.copy()
     frame_col = "frame_num" if wu.provider == "gradientsports" else "frame"
+    # ADD a "timestamp" alias (batch/link/owned-action logic needs it) but KEEP
+    # "period_elapsed_time" — the GS converter reads the latter; a destructive rename drops it
+    # and the converter KeyErrors. Mirrors the driver (action_context._process_tracking_match).
     if wu.provider == "gradientsports" and "period_elapsed_time" in f.columns:
-        f = f.rename(columns={"period_elapsed_time": "timestamp"})
+        f["timestamp"] = f["period_elapsed_time"]
     f["frame_batch_id"] = (f[frame_col] // _FRAME_BATCH_SIZE).astype("int64")
 
     parts: list[pd.DataFrame] = []

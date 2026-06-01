@@ -26,7 +26,7 @@ _FLOAT_ATOL = 1e-6
 _EXACT_COLS = {"data_source", "match_id", "action_id", "period_id", "type_name"}
 
 
-def _run() -> pd.DataFrame:
+def _run(provider: str, match_id: str, period: int) -> pd.DataFrame:
     from analytics.action_context.local.parquet_sources import (
         ParquetActionsSource,
         ParquetFrameSource,
@@ -46,7 +46,7 @@ def _run() -> pd.DataFrame:
     root = "src/tests/fixtures/action_context"
     sink = _Collect()
     run_work_unit(
-        WorkUnit(provider="idsse", match_id="J03WMX", period=1),
+        WorkUnit(provider=provider, match_id=match_id, period=period),
         frames=ParquetFrameSource(root),
         actions=ParquetActionsSource(root),
         xt=ParquetXtSource(root),
@@ -57,8 +57,34 @@ def _run() -> pd.DataFrame:
     return sink.df
 
 
+def test_gs_e2e_convert_and_enrich_does_not_crash() -> None:
+    """GradientSports adapter+convert+enrich CRASH-guard on the committed fixture — the coverage
+    GS lacked (test_e2e only ran IDSSE), which is why GS's convert-path bugs stayed latent: the
+    hexagon fixtures feed pre-built frames/meta, bypassing the bronze→frames driver layer.
+
+    This drives the GS convert path (`period_elapsed_time`→`timestamp` aliasing — a destructive
+    rename used to make the converter KeyError; the Int64→native-string id coercion) end-to-end
+    and asserts it COMPLETES and returns the result schema. Bug #4 raised here before returning,
+    so this catches that crash class.
+
+    SCOPE: the committed `10517_p3` fixture is a ~15s period-3 FRAME slice paired with full-match
+    actions (and its meta has no roster dicts), so it produces 0 enriched rows by construction —
+    it cannot validate row counts or player RESOLUTION. Resolution is validated by the serverless
+    run (real bronze roster). A matched GS fixture (aligned frames+actions+roster-derived meta)
+    for a full resolution e2e is a tracked follow-up. See feedback_test_production_driver_entry_point
+    + project_gradientsports_player_id_space_bug.
+    """
+    from analytics.action_context.schema import RESULT_COLUMNS
+
+    result = _run("gradientsports", "10517", 3)  # must not raise (the bug-#4 crash class)
+    assert isinstance(result, pd.DataFrame)
+    # Completed enrichment returns the full result schema (a crash would not reach this).
+    expected = {c for c in RESULT_COLUMNS if c != "_ingested_at"}
+    assert set(result.columns) == expected, "result schema drifted from RESULT_COLUMNS"
+
+
 def test_e2e_reproduces_golden_and_is_dup_free(golden_df: pd.DataFrame) -> None:
-    result = _run()
+    result = _run("idsse", "J03WMX", 1)
 
     # M13: boundary-dup-free.
     dupes = result.groupby(["match_id", "action_id", "period_id"]).size()
