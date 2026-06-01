@@ -68,6 +68,20 @@ resource "databricks_job" "data_ingestion" {
     default = "false"
   }
 
+  # AC-1 ad-hoc scoping for preflight_action_context. Empty defaults => the daily
+  # scheduled run discovers ALL providers with NO cap (unchanged). Override at
+  # run-now via job_parameters, e.g. {"provider":"wyscout","max_units":"5"} picks
+  # the next 5 unprocessed wyscout units only; {"max_units":"1"} picks <=1 unit
+  # per provider. A "unit" is a match (most providers) or a (match,period) half (IDSSE).
+  parameter {
+    name    = "provider"
+    default = ""
+  }
+  parameter {
+    name    = "max_units"
+    default = ""
+  }
+
   # ── Schedule: Daily at 6am UTC ───────────────────────────────────────────
   schedule {
     quartz_cron_expression = "0 0 6 * * ?"
@@ -1049,9 +1063,14 @@ resource "databricks_job" "data_ingestion" {
       package_name = "luxury_lakehouse"
       entry_point  = "preflight_action_context"
 
+      # provider/max_units pass through from job parameters (empty => all/no-cap;
+      # main_preflight coerces "" -> None). Lets a run-now scope the fan-out to
+      # e.g. the next 5 wyscout units without touching the daily schedule.
       parameters = [
         "--catalog", var.catalog_name,
         "--schema", "bronze",
+        "--provider", "{{job.parameters.provider}}",
+        "--max-units", "{{job.parameters.max_units}}",
       ]
     }
 

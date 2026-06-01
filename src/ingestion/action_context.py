@@ -565,8 +565,42 @@ class _ActionContextGuard:
         "wyscout": 200,  # pure event-only — matches spadl_vaep proven pattern
     }
 
+    def __init__(self, *, provider_filter: str | None = None, max_units: int | None = None) -> None:
+        """Optional ad-hoc scoping for a one-off preflight run.
+
+        ``provider_filter`` — restrict discovery to a single provider (``None`` =
+        all). ``max_units`` — cap each provider's discovered units to ``<=N``
+        (``None`` = no cap). A "unit" is whatever the anti-join emits: a match for
+        the event-only / non-IDSSE tracking providers, a ``(match, period)`` half
+        for IDSSE. Both default to ``None`` so the daily scheduled preflight (and
+        the module-level ``skip_guard`` singleton) behave exactly as before.
+        """
+        self.provider_filter = provider_filter
+        self.max_units = max_units
+
+    def _selected(self, provider: str) -> bool:
+        """Whether this provider's discovery query should run at all."""
+        return self.provider_filter is None or provider == self.provider_filter
+
+    def _cap(self, units: list[Any]) -> list[Any]:
+        """Deterministically cap a provider's discovered units to ``max_units``.
+
+        Sorted before truncation so "next N" is stable and walks forward across
+        triggers — the anti-join already excludes processed units, so a re-run
+        picks up where the last left off. No-op AND order-preserving when
+        ``max_units is None`` (the daily path is byte-for-byte unchanged).
+        """
+        if self.max_units is None:
+            return units
+        return sorted(units)[: self.max_units]
+
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
-        """Check for unprocessed matches across all 6 providers."""
+        """Check for unprocessed matches across all 6 providers.
+
+        Honors ``provider_filter`` (skip non-matching providers' discovery
+        entirely) and ``max_units`` (cap each provider's discovered units),
+        both set via the constructor for ad-hoc one-off runs.
+        """
         from ingestion.guards import ensure_table
 
         results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
@@ -574,28 +608,60 @@ class _ActionContextGuard:
         ensure_table(spark, results_table, _ACTION_CONTEXT_DDL)
 
         # ── IDSSE: period-level discovery ──
-        idsse_pairs = _find_idsse_new_period_pairs(
-            spark,
-            f"{catalog}.bronze.idsse_tracking",
-            spadl_table,
-            results_table,
+        idsse_pairs = (
+            self._cap(
+                _find_idsse_new_period_pairs(
+                    spark,
+                    f"{catalog}.bronze.idsse_tracking",
+                    spadl_table,
+                    results_table,
+                )
+            )
+            if self._selected("idsse")
+            else []
         )
         idsse_half_chunks: list[str] = [f"idsse:{mid}:{period}" for mid, period in idsse_pairs]
 
         # ── Other tracking providers: match-level discovery ──
-        metrica_ids = _find_tracking_new_ids(
-            spark, f"{catalog}.bronze.metrica_tracking", spadl_table, results_table, "metrica"
+        metrica_ids = (
+            self._cap(
+                _find_tracking_new_ids(
+                    spark, f"{catalog}.bronze.metrica_tracking", spadl_table, results_table, "metrica"
+                )
+            )
+            if self._selected("metrica")
+            else []
         )
-        skillcorner_ids = _find_tracking_new_ids(
-            spark, f"{catalog}.bronze.skillcorner_tracking", spadl_table, results_table, "skillcorner"
+        skillcorner_ids = (
+            self._cap(
+                _find_tracking_new_ids(
+                    spark, f"{catalog}.bronze.skillcorner_tracking", spadl_table, results_table, "skillcorner"
+                )
+            )
+            if self._selected("skillcorner")
+            else []
         )
-        gradientsports_ids = _find_tracking_new_ids(
-            spark, f"{catalog}.bronze.gradientsports_tracking", spadl_table, results_table, "gradientsports"
+        gradientsports_ids = (
+            self._cap(
+                _find_tracking_new_ids(
+                    spark, f"{catalog}.bronze.gradientsports_tracking", spadl_table, results_table, "gradientsports"
+                )
+            )
+            if self._selected("gradientsports")
+            else []
         )
 
         # ── Event-only providers: Spark-native anti-join ──
-        statsbomb_ids = _find_event_only_new_ids(spark, spadl_table, results_table, "statsbomb")
-        wyscout_ids = _find_event_only_new_ids(spark, spadl_table, results_table, "wyscout")
+        statsbomb_ids = (
+            self._cap(_find_event_only_new_ids(spark, spadl_table, results_table, "statsbomb"))
+            if self._selected("statsbomb")
+            else []
+        )
+        wyscout_ids = (
+            self._cap(_find_event_only_new_ids(spark, spadl_table, results_table, "wyscout"))
+            if self._selected("wyscout")
+            else []
+        )
 
         total = (
             len(idsse_half_chunks)
@@ -673,6 +739,31 @@ def _parse_action_match_ids_arg(raw: str | None) -> tuple[str, list[str], int | 
     return (provider, ids, None)
 
 
+def _parse_preflight_filters(provider: str | None, max_units: str | None) -> tuple[str | None, int | None]:
+    """Validate + coerce the optional ``--provider`` / ``--max-units`` preflight args.
+
+    Both arrive as strings: the daily job passes empty job-parameter values, so
+    ``""`` (and whitespace) must coerce to ``None`` = no filter / no cap, leaving
+    the scheduled run unchanged. Returns ``(provider_filter, max_units)`` with
+    ``None`` for "unset". Raises ``SystemExit`` on an unknown provider or a
+    non-positive / non-integer cap.
+    """
+    provider_filter = provider.strip() if provider and provider.strip() else None
+    if provider_filter is not None and provider_filter not in _ALL_PROVIDERS:
+        raise SystemExit(f"Unknown --provider {provider_filter!r}. Valid: {sorted(_ALL_PROVIDERS)}")
+
+    raw = max_units.strip() if max_units and max_units.strip() else None
+    if raw is None:
+        return provider_filter, None
+    try:
+        capped = int(raw)
+    except ValueError:
+        raise SystemExit(f"--max-units must be a positive integer, got {max_units!r}") from None
+    if capped <= 0:
+        raise SystemExit(f"--max-units must be > 0, got {capped}")
+    return provider_filter, capped
+
+
 def _write_action_chunks_task_value(
     chunks_for_inputs: list[str],
     task_logger: logging.Logger,
@@ -702,7 +793,29 @@ def main_preflight() -> None:
     pre-computed global grid from bronze.expected_threat_grids independently
     (~192 rows, instant). This keeps the preflight O(1) w.r.t. data volume.
     """
-    args = parse_ingestion_args("Preflight: discover unprocessed action context matches and emit chunks")
+    args = parse_ingestion_args(
+        "Preflight: discover unprocessed action context matches and emit chunks",
+        extra_args=[
+            (
+                "--provider",
+                {
+                    "type": str,
+                    "default": None,
+                    "help": "Restrict discovery to one provider (default/empty: all). "
+                    f"One of {sorted(_ALL_PROVIDERS)}.",
+                },
+            ),
+            (
+                "--max-units",
+                {
+                    "type": str,
+                    "default": None,
+                    "help": "Cap discovered units to <=N per provider (default/empty: no cap). "
+                    "A unit is a match (most providers) or a (match, period) half (IDSSE).",
+                },
+            ),
+        ],
+    )
     task_logger = configure_logging("action_context_preflight")
     spark = get_spark_session()
 
@@ -710,7 +823,17 @@ def main_preflight() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    fr = timed_check(skip_guard, spark, args.catalog, args.schema)
+    provider_filter, max_units = _parse_preflight_filters(
+        getattr(args, "provider", None), getattr(args, "max_units", None)
+    )
+    if provider_filter is not None or max_units is not None:
+        task_logger.info(
+            "Action context preflight SCOPED: provider_filter=%s max_units=%s",
+            provider_filter,
+            max_units,
+        )
+    guard = _ActionContextGuard(provider_filter=provider_filter, max_units=max_units)
+    fr = timed_check(guard, spark, args.catalog, args.schema)
 
     chunks_for_inputs: list[str] = [",".join(chunk) for chunk in (fr.chunks or [])]
 
