@@ -5,7 +5,8 @@ enrichment chain in a single applyInPandas pass per match, writes results to
 bronze.spadl_action_context.
 
 Providers: ALL (StatsBomb, Wyscout, IDSSE, Metrica, SkillCorner, GradientSports).
-Event-only providers get game_state + GK resolution; tracking providers get ~102 cols.
+Event-only providers get game_state + GK resolution; tracking providers get the full
+104-col schema (``analytics.action_context.schema.RESULT_COLUMNS``).
 Architecture: "Read from bronze, compute, write to bronze."
 """
 
@@ -35,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     import pandas as pd
-    from pyspark.sql import SparkSession
+    from pyspark.sql import DataFrame, SparkSession
     from pyspark.sql.types import StructType
 
 _TABLE_NAME = "spadl_action_context"
@@ -886,6 +887,69 @@ def main() -> None:
 # ── Provider-specific processing ──────────────────────────────────────
 
 
+# GS bronze (events/roster) use pd.json_normalize dot-named columns and are very wide
+# (events ~264 cols). Collecting the full width via `toPandas()` on the Spark Connect
+# serverless driver trips a Catalyst attribute-resolution bug ("Cannot find column index for
+# attribute possessionEvents.carrySuccessful#..."). We project to only the needed columns
+# (backtick-quoted for the dots) before toPandas. `_GS_EVENTS_META_COLS` MUST cover everything
+# `extract_gradientsports_match_metadata` reads — guarded by
+# `test_narrow_events_cols_sufficient_for_extractor`. The other tracking providers don't hit
+# this (their bronze reads are narrow / not json_normalize-wide). See project memory
+# project_gradientsports_player_id_space_bug + the events-read blocker note.
+_GS_EVENTS_META_COLS: tuple[str, ...] = (
+    "gameEvents.homeTeam",
+    "gameEvents.teamId",
+    "stadiumMetadata.homeTeamStartLeft",
+    "stadiumMetadata.homeTeamStartLeftExtraTime",
+)
+_GS_ROSTER_COLS: tuple[str, ...] = ("team.id", "shirtNumber", "player.id", "positionGroupType")
+
+
+def _build_gradientsports_roster_dicts(
+    roster_pdf: pd.DataFrame, home_team_id: str
+) -> tuple[dict[str, str], dict[tuple[str, str], str], list[str]]:
+    """Build the GS ``MatchMeta`` dicts from a non-empty ``bronze.gradientsports_roster`` frame.
+
+    Returns ``(team_side_to_id, jersey_to_player_id, gk_player_ids)``.
+
+    ``bronze.gradientsports_roster`` columns are dot-notation from ``pd.json_normalize``
+    of the GS API payload: ``team.id``, ``shirtNumber``, ``player.id``,
+    ``positionGroupType`` (NOT snake_case). The resolved ``player.id`` is the native
+    GS id (string), which matches actions' ``player_id_native`` — the identity-resolution
+    join key (GS SPADL stores ``player_id`` as NA + the native string in
+    ``player_id_native``). Reading snake_case names KeyErrors / silently empties these
+    dicts → GS carrier + possession resolution breaks. Verified against the live bronze
+    schema 2026-06-01.
+
+    FOLLOW-UP (tracked): replace this hand-rolled ``(side, jersey) -> player_id``
+    resolution with silly-kicks 4.x ``add_gradientsports_player_ids`` (cross-layer:
+    ``MatchMeta`` roster-records + ``convert.py``; breaks the ``test_convert_drift`` AST
+    guard; int-space reconciliation vs hash-bigint events ``team_id``). See ROADMAP /
+    project memory.
+    """
+    all_team_ids = roster_pdf["team.id"].dropna().unique()
+    away_tids = [str(t) for t in all_team_ids if str(t) != home_team_id]
+    away_team_id = away_tids[0] if away_tids else home_team_id
+    team_side_to_id = {"home": home_team_id, "away": away_team_id}
+
+    jersey_to_player_id: dict[tuple[str, str], str] = {}
+    for _, row in roster_pdf.iterrows():
+        tid = str(row.get("team.id", ""))
+        side = "home" if tid == home_team_id else "away"
+        jersey = str(row.get("shirtNumber", ""))
+        pid = str(row.get("player.id", ""))
+        if jersey and pid:
+            jersey_to_player_id[(side, jersey)] = pid
+
+    if "positionGroupType" in roster_pdf.columns:
+        gk_rows = roster_pdf[roster_pdf["positionGroupType"].str.upper() == "GK"]
+    else:
+        gk_rows = roster_pdf.iloc[0:0]
+    gk_player_ids = [str(r["player.id"]) for _, r in gk_rows.iterrows()]
+
+    return team_side_to_id, jersey_to_player_id, gk_player_ids
+
+
 def _process_tracking_match(
     spark: SparkSession,
     catalog: str,
@@ -897,8 +961,20 @@ def _process_tracking_match(
     xt_l: int,
     xt_w: int,
     task_logger: logging.Logger,
+    profile: bool = False,
+    profile_max_batches: int = 0,
 ) -> int:
-    """Process a single tracking-provider match via applyInPandas."""
+    """Process a single tracking-provider match via applyInPandas.
+
+    When ``profile=True`` (the ``profile_action_context`` observability entry
+    point), the IDENTICAL input prep runs, but instead of the distributed
+    ``applyInPandas`` write the per-batch ``enrich_batch`` chain runs single-
+    process on the driver under ``cProfile`` and a cumulative-time breakdown is
+    written to the UC Volume rendezvous dir (no bronze write). Single-process is
+    the right shape for a "where does the time go" stage breakdown and mirrors
+    what a single-node GPU / HF Jobs venue would look like. The ``profile`` flag
+    defaults False so the production path is behaviour-identical.
+    """
     from pyspark.sql import functions as F  # noqa: N812
 
     from ingestion.exec_visibility import PhaseHeartbeat
@@ -1040,7 +1116,15 @@ def _process_tracking_match(
         from ingestion.spadl_adapter import extract_gradientsports_match_metadata
 
         gs_events_tbl = f"{catalog}.bronze.gradientsports_events"
-        events_pdf = spark.table(gs_events_tbl).filter(F.col("match_id") == match_id).toPandas()
+        # Narrow projection (NOT the full 264-col wide table) — see _GS_EVENTS_META_COLS:
+        # the wide toPandas trips a Spark Connect Catalyst bug on serverless. Backtick-quote
+        # the dot-named columns so they resolve as flat columns, not nested-field accesses.
+        events_pdf = (
+            spark.table(gs_events_tbl)
+            .filter(F.col("match_id") == match_id)
+            .select(*[f"`{c}`" for c in _GS_EVENTS_META_COLS])
+            .toPandas()
+        )
         gs_meta = extract_gradientsports_match_metadata(events_pdf)
         home_team_id = str(gs_meta["home_team_id"])
         home_start_left = gs_meta["home_team_start_left"]
@@ -1048,34 +1132,21 @@ def _process_tracking_match(
         home_team_start_left_extratime = gs_meta["home_team_start_left_extratime"]
         del events_pdf
 
-        # Build team_side -> team_id mapping and jersey -> player_id from roster
+        # Build team_side->team_id + (side,jersey)->player_id + GK dicts from the
+        # roster (see _build_gradientsports_roster_dicts for the bronze dot-notation
+        # column contract + the silly-kicks add_gradientsports_player_ids follow-up).
         gs_roster_tbl = f"{catalog}.bronze.gradientsports_roster"
-        roster_pdf = spark.table(gs_roster_tbl).filter(F.col("match_id") == match_id).toPandas()
+        # Narrow projection (same dot-named / wide-toPandas guard as the events read above).
+        roster_pdf = (
+            spark.table(gs_roster_tbl)
+            .filter(F.col("match_id") == match_id)
+            .select(*[f"`{c}`" for c in _GS_ROSTER_COLS])
+            .toPandas()
+        )
         if not roster_pdf.empty:
-            # Derive away_team_id from roster (the team that is not home)
-            all_team_ids = roster_pdf["team_id"].dropna().unique()
-            home_tid = str(gs_meta["home_team_id"])
-            away_tids = [str(t) for t in all_team_ids if str(t) != home_tid]
-            away_team_id = away_tids[0] if away_tids else home_tid
-
-            gs_team_side_to_id = {"home": home_tid, "away": away_team_id}
-
-            # Build (team_side, jersey_num) -> player_id mapping
-            gs_jersey_to_player_id = {}
-            for _, row in roster_pdf.iterrows():
-                tid = str(row.get("team_id", ""))
-                side = "home" if tid == home_tid else "away"
-                jersey = str(row.get("jersey_number", ""))
-                pid = str(row.get("player_id", ""))
-                if jersey and pid:
-                    gs_jersey_to_player_id[(side, jersey)] = pid
-
-            # GK player IDs
-            if "position" in roster_pdf.columns:
-                gk_rows = roster_pdf[roster_pdf["position"].str.upper() == "GK"]
-            else:
-                gk_rows = roster_pdf.iloc[0:0]
-            gs_gk_player_ids = [str(r["player_id"]) for _, r in gk_rows.iterrows()]
+            gs_team_side_to_id, gs_jersey_to_player_id, gs_gk_player_ids = _build_gradientsports_roster_dicts(
+                roster_pdf, home_team_id
+            )
 
         del roster_pdf
 
@@ -1087,9 +1158,40 @@ def _process_tracking_match(
         F.floor(F.col(frame_col) / F.lit(_FRAME_BATCH_SIZE)),
     )
 
-    # GradientSports uses "period_elapsed_time" as timestamp, rename for consistency
+    # GradientSports: the frame-batch / link / owned-action logic needs a "timestamp" column,
+    # but the GS converter (_bronze_gradientsports_to_converter_input) reads "period_elapsed_time".
+    # ADD an alias rather than rename — a destructive rename drops period_elapsed_time and the
+    # converter then KeyErrors (latent until the upstream GS blockers were cleared).
     if provider == "gradientsports":
-        trk_sdf = trk_sdf.withColumnRenamed("period_elapsed_time", "timestamp")
+        trk_sdf = trk_sdf.withColumn("timestamp", F.col("period_elapsed_time"))
+
+    # Observability branch: single-process cProfile on the driver instead of the
+    # distributed applyInPandas write. trk_sdf is already shaped exactly like the
+    # UDF's groups (frame_batch_id present), so the per-batch enrich_batch calls
+    # are identical to production — only serial + profiled. No bronze write.
+    if profile:
+        hb.set_phase("profile_driver_cprofile")
+        try:
+            return _run_profile_on_driver(
+                trk_sdf=trk_sdf,
+                provider=provider,
+                native_match_id=match_id,
+                actions_records=actions_records,
+                xt_grid_data=xt_grid_data,
+                xt_l=xt_l,
+                xt_w=xt_w,
+                home_team_id=home_team_id,
+                home_start_left=home_start_left,
+                home_team_start_left_extratime=home_team_start_left_extratime,
+                gs_team_side_to_id=gs_team_side_to_id,
+                gs_jersey_to_player_id=gs_jersey_to_player_id,
+                gs_gk_player_ids=gs_gk_player_ids,
+                exec_rendezvous_dir=exec_rendezvous_dir,
+                task_logger=task_logger,
+                max_batches=profile_max_batches,
+            )
+        finally:
+            hb.stop()
 
     # Progress visibility comes from the UDF closure itself: each successful
     # batch emits one AC1_BATCH log line (see _make_action_context_udf). The
@@ -1142,6 +1244,272 @@ def _process_tracking_match(
         hb.stop()
     del actions_pdf, actions_records
     return written
+
+
+# Stage-entry function names whose cumulative time we roll up explicitly in the
+# profile summary (substring match against pstats funcnames). These are the
+# expensive tracking-frame-level silly-kicks / accessible-space stages from
+# analytics.action_context.enrich._enrich_tracking_match. The top-N-by-cumtime
+# table catches anything not listed here; this rollup gives the headline
+# "DAS = X%, pitch control = Y%" answer directly.
+_PROFILE_STAGE_FUNCS: tuple[str, ...] = (
+    "get_dangerous_accessible_space",  # DAS (accessible-space entry)
+    "add_das",
+    "get_das",
+    "simulate_passes",  # accessible-space inner sim (F x PHI x T)
+    "pitch_control_at_action",
+    "add_obso",
+    "add_ghost_gk",
+    "add_space_creation",
+    "add_cover_shadows",
+    "add_gk_influence",
+    "add_shape_graph",
+    "add_defensive_line",
+    "add_line_break",
+    "add_team_shape",
+    "add_pressure_on_actor",
+    "add_action_context",
+    "add_actor_pre_window",
+    "add_off_ball_context",
+    "infer_ball_carrier",
+    "derive_team_in_possession",
+    "link_actions_to_frames",
+    "add_pre_shot_gk_context",
+    "add_pausa",
+    "add_elastic_sync",
+)
+
+
+def _format_profile_summary(
+    profiler: object, *, total_s: float, n_rows: int, n_batches: int, n_total_batches: int
+) -> str:
+    """Render a cProfile result into a human-readable cumulative-time breakdown.
+
+    Two sections: (1) a curated rollup of the known expensive enrichment stages
+    (``_PROFILE_STAGE_FUNCS``) with cumtime + % of wall, and (2) the top 40
+    functions by cumulative time (catches anything the rollup misses).
+    """
+    import io as _io
+    import pstats as _pstats
+
+    stream = _io.StringIO()
+    stats = _pstats.Stats(profiler, stream=stream)  # type: ignore[arg-type]
+
+    # stats.stats maps (file, lineno, func) -> (cc, nc, tt, ct, callers).
+    by_func = stats.stats  # type: ignore[attr-defined]
+    stage_rows: list[tuple[float, int, str]] = []
+    for (_fname, _lineno, func), (_cc, nc, _tt, ct, _callers) in by_func.items():
+        for marker in _PROFILE_STAGE_FUNCS:
+            if marker in func:
+                stage_rows.append((ct, nc, func))
+                break
+    stage_rows.sort(reverse=True)
+
+    lines: list[str] = []
+    lines.append("AC1_CPROFILE — single-process driver profile of the tracking enrichment")
+    sampled = " (SAMPLE)" if n_batches < n_total_batches else " (FULL MATCH)"
+    lines.append(f"wall_s={total_s:.1f} rows_enriched={n_rows} batches_profiled={n_batches}/{n_total_batches}{sampled}")
+    lines.append("")
+    lines.append("=== STAGE ROLLUP (cumtime, % of wall, ncalls) ===")
+    if not stage_rows:
+        lines.append("  <no known stage functions matched — see top-by-cumtime below>")
+    for ct, nc, func in stage_rows:
+        pct = 100.0 * ct / total_s if total_s > 0 else 0.0
+        lines.append(f"  {ct:8.1f}s  {pct:5.1f}%  n={nc:<7d}  {func}")
+    lines.append("")
+    lines.append("=== TOP 40 BY CUMULATIVE TIME ===")
+    stats.sort_stats("cumulative")
+    stats.print_stats(40)
+    lines.append(stream.getvalue())
+    return "\n".join(lines)
+
+
+def _run_profile_on_driver(
+    *,
+    trk_sdf: DataFrame,
+    provider: str,
+    native_match_id: str,
+    actions_records: list[dict[str, Any]],
+    xt_grid_data: list[list[float]],
+    xt_l: int,
+    xt_w: int,
+    home_team_id: str,
+    home_start_left: bool,
+    home_team_start_left_extratime: bool | None,
+    gs_team_side_to_id: dict[str, str] | None,
+    gs_jersey_to_player_id: dict[tuple[str, str], str] | None,
+    gs_gk_player_ids: list[str] | None,
+    exec_rendezvous_dir: str | None,
+    task_logger: logging.Logger,
+    max_batches: int = 0,
+) -> int:
+    """Pull the whole match to the driver, run ``enrich_batch`` per 250-frame
+    batch under ``cProfile`` (single-process), and write the breakdown to the
+    UC Volume rendezvous dir. Returns the number of enriched rows (NOT written
+    to bronze — this is a measurement path).
+
+    ``max_batches`` > 0 profiles only the first N (period, frame_batch_id) groups
+    — a representative sample for the relative stage breakdown at a fraction of
+    the serial wall-clock. ``0`` profiles the whole match (high fidelity, but
+    serial: can be much slower than the distributed production run). NOTE: a
+    sample over-weights one-time costs (model load, numba JIT warmup) relative
+    to a full-match run — read the rollup as relative stage shares, not absolutes.
+    """
+    import cProfile
+    import time as _time
+
+    from analytics.action_context.pipeline import enrich_batch
+    from analytics.action_context.work_unit import MatchMeta
+    from ingestion.exec_visibility import ensure_numba_cache_dir, executor_marker
+
+    ensure_numba_cache_dir()  # match the UDF's serverless numba-cache setup
+
+    frames_all = trk_sdf.toPandas()  # one match fits the 16 GB driver
+    task_logger.info("AC1_PROFILE pulled %d tracking rows for %s/%s", len(frames_all), provider, native_match_id)
+    if frames_all.empty:
+        task_logger.warning("AC1_PROFILE no tracking rows for %s/%s — nothing to profile", provider, native_match_id)
+        return 0
+
+    meta = MatchMeta(
+        home_team_id=home_team_id,
+        home_start_left=home_start_left,
+        home_team_start_left_extratime=home_team_start_left_extratime,
+        gs_team_side_to_id=gs_team_side_to_id,
+        gs_jersey_to_player_id=gs_jersey_to_player_id,
+        gs_gk_player_ids=gs_gk_player_ids,
+    )
+
+    # One groupby group == one applyInPandas group == one enrich_batch call.
+    groups = list(frames_all.groupby(["period", "frame_batch_id"], sort=True))
+    n_total_batches = len(groups)
+    if max_batches and max_batches > 0 and n_total_batches > max_batches:
+        groups = groups[:max_batches]
+        task_logger.info(
+            "AC1_PROFILE sampling first %d of %d batches (relative stage shares; one-time costs over-weighted)",
+            max_batches,
+            n_total_batches,
+        )
+    n_rows = 0
+    # Result-health: non-null counts for carrier/possession-dependent columns. Proves the
+    # enrichment RESOLVES (not just "no crash") — e.g. catches GS possession breaking when
+    # frame ids don't match the action id space. All-zero here == broken resolution.
+    _health_cols = ("das_team", "das_opponent", "das_diff", "ghost_gk_x", "ghost_gk_spread")
+    health_nonnull: dict[str, int] = dict.fromkeys(_health_cols, 0)
+    profiler = cProfile.Profile()
+    t0 = _time.monotonic()
+    profiler.enable()
+    for (period_val, _batch_id), group_pdf in groups:
+        result = enrich_batch(
+            provider=provider,
+            tier="tracking",
+            frames_pdf=group_pdf,
+            actions_records=actions_records,
+            period=int(period_val),
+            xt_grid_data=xt_grid_data,
+            xt_l=xt_l,
+            xt_w=xt_w,
+            meta=meta,
+            native_match_id=native_match_id,
+        )
+        n_rows += len(result)
+        for _c in _health_cols:
+            if _c in result.columns:
+                health_nonnull[_c] += int(result[_c].notna().sum())
+    profiler.disable()
+    total_s = _time.monotonic() - t0
+    health_str = " ".join(
+        f"{c}={100.0 * health_nonnull[c] / n_rows:.0f}%" if n_rows else f"{c}=n/a" for c in _health_cols
+    )
+    task_logger.info("AC1_PROFILE result-health (non-null rate over %d rows): %s", n_rows, health_str)
+
+    summary = _format_profile_summary(
+        profiler, total_s=total_s, n_rows=n_rows, n_batches=len(groups), n_total_batches=n_total_batches
+    )
+    # ALWAYS log the full summary to the driver task log. This is the reliable
+    # retrieval channel: the job runs as the ingestion SP (for UC Volume marker
+    # writes) but the operator submits under their own identity, which may lack
+    # READ VOLUME on _staging — so the cprofile_summary marker can be unreadable
+    # by the submitter. jobs.get_run_output returns the task log regardless. The
+    # marker + .pstats below are a convenience (submit_ac1_oneshot._dump_markers /
+    # offline deep-dive), not the source of truth.
+    task_logger.info(
+        "AC1_PROFILE done: wall_s=%.1f rows=%d batches=%d/%d\n%s",
+        total_s,
+        n_rows,
+        len(groups),
+        n_total_batches,
+        summary,
+    )
+    if exec_rendezvous_dir:
+        executor_marker(exec_rendezvous_dir, seq="cprofile_summary", payload=summary)
+        try:
+            profiler.dump_stats(f"{exec_rendezvous_dir}/cprofile.pstats")
+        except OSError as exc:
+            task_logger.warning("AC1_PROFILE could not dump .pstats: %s", exc)
+    return n_rows
+
+
+def profile_action_context() -> None:
+    """Observability entry point — cProfile ONE tracking match's enrichment.
+
+    Runs the identical production input prep, then profiles the per-batch
+    ``enrich_batch`` chain single-process on the driver (no bronze write). The
+    cumulative-time breakdown is written to the UC Volume rendezvous dir, which
+    ``scripts/submit_ac1_oneshot.py --profile`` prints back. Use to quantify each
+    enrichment stage's share of per-match wall-clock (e.g. DAS vs pitch control)
+    in the real serverless environment.
+
+    Usage (via the one-shot submitter, on serverless)::
+
+        uv run python scripts/submit_ac1_oneshot.py --profile --match-ids skillcorner:2011166
+    """
+    args = parse_ingestion_args(
+        "Profile action context enrichment for one tracking match",
+        extra_args=[
+            ("--match-ids", {"type": str, "default": None, "help": "provider:id (tracking providers only)"}),
+            (
+                "--max-batches",
+                {
+                    "type": int,
+                    "default": 0,
+                    "help": "Profile only the first N 250-frame batches (representative sample; "
+                    "0 = whole match, high fidelity but serial-slow).",
+                },
+            ),
+        ],
+    )
+    task_logger = configure_logging("action_context_profile")
+    spark = get_spark_session()
+
+    from ingestion.bootstrap import bootstrap_hooks
+
+    bootstrap_hooks(spark, args.catalog, args.schema)
+
+    match_ids_parsed = _parse_action_match_ids_arg(getattr(args, "match_ids", None))
+    if match_ids_parsed is None:
+        raise SystemExit("--match-ids is required")
+    provider, ids, period_filter = match_ids_parsed
+    if not _is_tracking_provider(provider):
+        raise SystemExit(f"--profile only supports tracking providers, got {provider!r}")
+    if len(ids) != 1:
+        raise SystemExit(f"--profile takes exactly one match, got {len(ids)}: {ids}")
+
+    xt_grid_data, xt_l, xt_w = _load_xt_grid_from_delta(spark, args.catalog, args.schema, task_logger)
+    n_rows = _process_tracking_match(
+        spark,
+        args.catalog,
+        args.schema,
+        provider,
+        ids[0],
+        period_filter,
+        xt_grid_data,
+        xt_l,
+        xt_w,
+        task_logger,
+        profile=True,
+        profile_max_batches=int(getattr(args, "max_batches", 0)),
+    )
+    task_logger.info("AC1_PROFILE complete for %s/%s — %d rows enriched (not written)", provider, ids[0], n_rows)
 
 
 def _process_statsbomb_match(
