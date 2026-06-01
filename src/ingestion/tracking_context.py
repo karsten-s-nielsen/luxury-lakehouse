@@ -358,6 +358,13 @@ def _make_tracking_context_udf(
     """
 
     def _udf(pdf: pd.DataFrame) -> pd.DataFrame:
+        # FIRST: writable NUMBA_CACHE_DIR before any silly_kicks import — see
+        # ingestion.exec_visibility.ensure_numba_cache_dir (serverless read-only
+        # ephemeral wheel path breaks @njit(cache=True) at import otherwise).
+        from ingestion.exec_visibility import ensure_numba_cache_dir as _ensure_numba_cache_dir
+
+        _ensure_numba_cache_dir()
+
         # Lazy imports — executors have the wheel installed but no internet
         import gc as _gc
         import logging as _logging

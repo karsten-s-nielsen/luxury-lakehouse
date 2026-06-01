@@ -51,6 +51,8 @@ token); executors only ``open()`` files *inside* the pre-created directory.
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 import threading
 import time
 from typing import TYPE_CHECKING
@@ -61,6 +63,34 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 logger = logging.getLogger(__name__)
+
+
+def ensure_numba_cache_dir() -> str:
+    """Point ``NUMBA_CACHE_DIR`` at a writable temp dir, idempotently.
+
+    silly-kicks decorates its pitch-control + ball-carrier kernels with
+    ``@njit(cache=True)``, which makes numba try to persist compiled code to
+    disk **at import time** (the decoration runs on module import). numba tries
+    three cache locators in order — UserProvided (needs ``NUMBA_CACHE_DIR``) →
+    InTree (needs a writable ``__pycache__`` beside the source) → UserWide
+    (needs a writable user cache dir). On Databricks serverless the wheel is
+    installed to a read-only ephemeral NFS path, so InTree + UserWide both fail
+    and numba raises ``RuntimeError: cannot cache function ... no locator
+    available`` — taking down *all* of ``silly_kicks.tracking`` on import.
+
+    Setting ``NUMBA_CACHE_DIR`` activates the UserProvided locator (tried
+    first), which only needs the *target* dir writable — it does not care that
+    the source is on read-only NFS. ``tempfile.gettempdir()`` resolves to a
+    writable path on serverless executors, the driver, local dev, and CI alike.
+
+    MUST be called BEFORE the first ``silly_kicks.tracking`` import — i.e. at
+    process bootstrap on the driver, and as the FIRST statement inside an
+    ``applyInPandas`` UDF closure on executors (which never run bootstrap).
+    ``setdefault`` preserves a deliberate operator override.
+
+    Returns the resolved cache dir (the active value, override-respecting).
+    """
+    return os.environ.setdefault("NUMBA_CACHE_DIR", os.path.join(tempfile.gettempdir(), "numba_cache"))
 
 
 # ── Driver-side phase heartbeat ───────────────────────────────────────────
