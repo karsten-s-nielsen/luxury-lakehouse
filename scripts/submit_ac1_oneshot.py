@@ -46,7 +46,7 @@ logger = logging.getLogger("ac1_oneshot")
 # Mirror terraform/modules/workflows/main.tf "analytics" environment spec exactly
 # so the one-shot executor env matches the daily job's. Keep in sync.
 _ANALYTICS_DEPENDENCIES: tuple[str, ...] = (
-    "silly-kicks>=4.0.0,<5",
+    "silly-kicks>=4.1.1,<5",
     "accessible-space>=2.0,<3",
     # numba: JITs silly-kicks pitch-control + ball-carrier kernels (else silent
     # numpy fallback). Added to the TF analytics env in PR #325; mirrored here.
@@ -146,6 +146,23 @@ def main() -> int:
     p.add_argument("--timeout-min", type=int, default=40, help="Max minutes to poll before giving up")
     p.add_argument("--wheel-path", default=None, help="Override deployed wheel UC Volume path")
     p.add_argument(
+        "--profile",
+        action="store_true",
+        help=(
+            "Run the profile_action_context entry point instead of compute_action_context: "
+            "single-process cProfile of the enrichment on the driver (no bronze write). The "
+            "cumulative-time breakdown is written as a 'cprofile_summary' marker and printed "
+            "below with the other rendezvous markers. Tracking providers only, one match."
+        ),
+    )
+    p.add_argument(
+        "--max-batches",
+        type=int,
+        default=60,
+        help="With --profile: profile only the first N 250-frame batches (representative "
+        "sample; 0 = whole match, high fidelity but serial-slow). Ignored without --profile.",
+    )
+    p.add_argument(
         "--run-as-user",
         action="store_true",
         help=(
@@ -177,16 +194,20 @@ def main() -> int:
         identity,
         wheel_path,
     )
+    entry_point = "profile_action_context" if args.profile else "compute_action_context"
+    wheel_params = ["--catalog", args.catalog, "--schema", args.schema, "--match-ids", args.match_ids]
+    if args.profile:
+        wheel_params += ["--max-batches", str(args.max_batches)]
     waiter = w.jobs.submit(
-        run_name=f"ac1-oneshot-{provider}-{match_id}",
+        run_name=f"ac1-{'profile' if args.profile else 'oneshot'}-{provider}-{match_id}",
         run_as=run_as,
         tasks=[
             jobs.SubmitTask(
                 task_key="ac1_oneshot",
                 python_wheel_task=jobs.PythonWheelTask(
                     package_name="luxury_lakehouse",
-                    entry_point="compute_action_context",
-                    parameters=["--catalog", args.catalog, "--schema", args.schema, "--match-ids", args.match_ids],
+                    entry_point=entry_point,
+                    parameters=wheel_params,
                 ),
                 environment_key="analytics",
             )

@@ -134,3 +134,36 @@ workaround. Since then the optimizations moved **into silly-kicks** and the work
   `memory/project_legacy_elastic_sync_frame_origin_bug.md`.
 
 Golden regenerated on 3.27.0: rows=97, cols=103 (+3 ghost_gk), 0 boundary dups, differential 2/2 green.
+
+## Update (2026-06-01 — real-serverless full-chain profile via `profile_action_context`)
+
+The Phase-D numbers above are **superseded**. They were measured on silly-kicks 3.23.0 *before*
+the DAS/shape_graph linked-frame restrictions landed natively (3.25.0) and *before* ghost_gk
+was added to the chain (3.24.0). A fresh full-chain profile on the REAL serverless env (new
+`profile_action_context` wheel entry point — single-process cProfile of `enrich_batch` on the
+driver, no bronze write; silly-kicks 4.1.1, wheel 0.5.6) inverts the picture:
+
+**skillcorner 2011166, 60/210-batch sample, wall 1405 s** (run `106326284274473`):
+
+| Stage | % of chain wall | Hotspot |
+|---|---|---|
+| **`add_ghost_gk`** | **74.4 %** (1045 s) | `_ghost_gk.predict_density` → `scipy.stats.gaussian_kde.evaluate` (534 calls, 931 s self-time, ~1.74 s/call) |
+| `add_elastic_sync` | 6.1 % | `_build_player_ball_distance_lookup` (82 s — looks O(n×m)) |
+| `add_cover_shadows` | 4.7 % | |
+| `add_obso` | 3.8 % | |
+| **DAS** (`add_das`+`get_dangerous_accessible_space`+`simulate_passes`) | **~1.2 %** | — |
+| pitch_control | 0.7 % | |
+
+Plus ~14 % in pandas scalar access (`frame.__getitem__` 108 s + `_ixs` 93 s, ~2.1 M calls —
+per-row `.iloc`/iterrows, likely inside ghost-GK / elastic-sync).
+
+**The bottleneck is now ghost-GK's `scipy.gaussian_kde`, not DAS.** The 3.25.0 linked-frame
+restriction (recorded above) cut DAS from 61 % to ~1 %; ghost_gk's KDE is the new dominant
+cost. Implication: a DAS GPU/native rewrite (silly-kicks `2026-06-01-das-native-multibackend`
+spec) caps at ~1 % AC-1 whole-chain speedup (Amdahl) — the real lever is ghost-GK's KDE
+(vectorize/numba/FFT-KDE/GPU). NOTE the silly-kicks DAS Step-0 ("DAS = 70 % of `get_das`") is
+*also* correct — different denominator (the DAS function vs the full 20-stage chain). Sample
+over-weights one-time costs, but ghost-GK's cost is per-call (recurring) so the 74 % headline
+is robust. Single match/provider so far (skillcorner); IDSSE (25 fps) profile in flight. Re-run
+any provider via `scripts/submit_ac1_oneshot.py --profile --match-ids <provider>:<id>[:period]`;
+`.pstats` lands in the UC Volume rendezvous dir for offline deep-dive.

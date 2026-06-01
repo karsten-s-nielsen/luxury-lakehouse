@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.5.5"
+version = "0.5.6"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -24,7 +24,7 @@ dependencies = [
 
 [project.optional-dependencies]
 spadl = [
-    "silly-kicks[das,ghost-gk]>=4.0.0,<5",
+    "silly-kicks[das,ghost-gk]>=4.1.1,<5",
 ]
 analytics = [
     "luxury-lakehouse[spadl]",
@@ -134,6 +134,7 @@ compute_tracking_context = "ingestion.tracking_context:main"
 preflight_tracking_context = "ingestion.tracking_context:main_preflight"
 compute_action_context = "ingestion.action_context:main"
 preflight_action_context = "ingestion.action_context:main_preflight"
+profile_action_context = "ingestion.action_context:profile_action_context"
 ingest_idsse_events = "ingestion.idsse_events:main"
 compute_elastic_sync = "ingestion.elastic_sync:main"
 compute_pausa = "ingestion.pausa:main"
