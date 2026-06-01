@@ -8,6 +8,7 @@ changing only this module — no per-pipeline edits.
 from __future__ import annotations
 
 import os
+import tempfile
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -21,6 +22,14 @@ if TYPE_CHECKING:
 # block in .github/workflows/python-ci.yml + dbt-live-ci.yml. setdefault
 # preserves a deliberate operator override (e.g., `--no-strict` debugging).
 os.environ.setdefault("SILLY_KICKS_ASSERT_INVARIANTS", "1")
+
+# numba on-disk cache (silly-kicks `@njit(cache=True)`) needs a writable cache
+# dir AT IMPORT or it raises "no locator available" on serverless' read-only
+# ephemeral wheel path. Set NUMBA_CACHE_DIR before any silly_kicks import on the
+# DRIVER (event-only / sb360 writers + local hexagon runner). Executors don't
+# run bootstrap — their UDF closures call ingestion.exec_visibility
+# .ensure_numba_cache_dir() as their first statement. Same helper, same default.
+os.environ.setdefault("NUMBA_CACHE_DIR", os.path.join(tempfile.gettempdir(), "numba_cache"))
 
 
 def bootstrap_hooks(spark: SparkSession, catalog: str, schema: str) -> None:

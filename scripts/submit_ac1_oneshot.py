@@ -48,6 +48,9 @@ logger = logging.getLogger("ac1_oneshot")
 _ANALYTICS_DEPENDENCIES: tuple[str, ...] = (
     "silly-kicks>=4.0.0,<5",
     "accessible-space>=2.0,<3",
+    # numba: JITs silly-kicks pitch-control + ball-carrier kernels (else silent
+    # numpy fallback). Added to the TF analytics env in PR #325; mirrored here.
+    "numba>=0.59.0",
     "numpy<2.0",
     "xgboost-cpu==3.2.0",
     "rapidfuzz>=3.6.0",

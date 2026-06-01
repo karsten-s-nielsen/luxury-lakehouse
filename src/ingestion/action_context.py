@@ -269,6 +269,15 @@ def _make_action_context_udf(
     """
 
     def _udf(pdf: pd.DataFrame) -> pd.DataFrame:
+        # FIRST: point NUMBA_CACHE_DIR at a writable temp dir BEFORE any
+        # silly_kicks import below. silly-kicks' @njit(cache=True) kernels raise
+        # "no locator available" at import on serverless' read-only ephemeral
+        # wheel path unless numba has a writable cache dir. Executors never run
+        # bootstrap_hooks, so the UDF must set it itself. See ensure_numba_cache_dir.
+        from ingestion.exec_visibility import ensure_numba_cache_dir as _ensure_numba_cache_dir
+
+        _ensure_numba_cache_dir()
+
         import logging as _logging
         import time as _time
         import traceback as _tb
