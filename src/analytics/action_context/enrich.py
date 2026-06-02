@@ -281,8 +281,22 @@ def _enrich_tracking_match(
     # position + spread at the linked frame. Uses the bundled "default" model (~9 MB, ships
     # in the wheel → no network, safe in the no-internet Databricks UDF). actions_for_context
     # supplies score_diff / phase context.
+    #
+    # kde_backend="cpu-numba": ghost-GK is the AC-1 bottleneck (~74% of the tracking chain on
+    # serverless — the weighted KDE over the full ~36k-point training cloud per action). The
+    # cpu-numba @njit kernel is 9.6x the "vectorized" numpy default and MACHINE-PRECISION
+    # identical to the scipy oracle (mode/mean/spread exact, grid rel-err ~1e-14) — so this is
+    # value-equivalent within golden tolerance, NO golden re-baseline (the mini-golden gate stays
+    # green). numba is present + validated on serverless (NUMBA_CACHE_DIR fix, ADR/PR #326). See
+    # project memory ac1-numba-das-cost. (FFT-KDE — ~2000x — is the eventual silly-kicks lever.)
     out = add_ghost_gk(
-        out, tracking_df, model="default", links=links, home_team_id=home_team_id, actions_for_context=actions_df
+        out,
+        tracking_df,
+        model="default",
+        links=links,
+        home_team_id=home_team_id,
+        actions_for_context=actions_df,
+        kde_backend="cpu-numba",
     )
 
     # Step 13: GK influence (xt positional)
