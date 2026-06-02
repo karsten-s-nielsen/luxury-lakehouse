@@ -227,7 +227,7 @@ def _extract_pep723_block(src: str) -> str:
 def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     """No trainer may pin `silly-kicks` in its PEP 723 deps.
 
-    The wheel's ``[spadl]`` extra (silly-kicks>=4.2.0,<5) is the single source
+    The wheel's ``[spadl]`` extra (silly-kicks>=4.4.0,<5) is the single source
     of truth. Trainers install ``luxury-lakehouse[spadl] @ ...wheel`` which
     resolves silly-kicks transitively. uv silently picks a conflicting
     top-level pin over the wheel's transitive pin (verified empirically
@@ -254,7 +254,7 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     )
 
 
-# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 2, 0) ──────────
+# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 4, 0) ──────────
 # Floor advanced 3.30.0 -> 4.0.0 (2026-05-30) to force silly-kicks 4.0.0 everywhere
 # (ET-direction symmetric guard via require_et_direction across all 5
 # per-period-absolute converters; breaking only for ET matches without the flag).
@@ -267,11 +267,17 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
 # on CPU, value-equivalent to rtol<=1e-7) + the DAS offside carrier-forwarding fix
 # (kills the per-call player_in_possession_col warning flood) + the de-iloc'd
 # elastic-sync (~23x faster). Validated locally via scripts/profile_ac1_local.py
-# (see ADR-035). Matches the pyproject [spadl] pin `silly-kicks>=4.2.0,<5`.
+# (see ADR-035).
+# Floor advanced 4.2.0 -> 4.4.0 (2026-06-02) to adopt silly-kicks 4.4.0 (skips 4.3.0):
+# cpu-numba ghost-GK KDE backend + closed-form vectorized whitening (4.3.0) plus the
+# 4.4.0 changes. NOTE: the DAS offside carrier-forwarding (shipped 4.2.0) is a confirmed
+# correctness fix — the 4.0 golden encoded the pre-fix bug (on-ball carrier mis-flagged
+# offside); golden re-baselined to 4.4.0. Matches the pyproject [spadl] pin
+# `silly-kicks>=4.4.0,<5`.
 
 
 def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
-    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 2, 0)`.
+    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 4, 0)`.
 
     Per spec §2.10.5: the runtime check inside `main()` is not directly
     introspectable post-hoc, so we assert the constant. Code review covers
@@ -289,9 +295,9 @@ def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
         if not hasattr(trainer, "_REQUIRED_SK_MIN"):
             missing.append(item)
             continue
-        expected = (4, 2, 0)
+        expected = (4, 4, 0)
         actual = trainer._REQUIRED_SK_MIN
         if actual != expected:
             wrong_value[item] = actual
-    assert not missing, f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 2, 0)`: {missing}"
-    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 2, 0): {wrong_value}"
+    assert not missing, f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 4, 0)`: {missing}"
+    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 4, 0): {wrong_value}"
