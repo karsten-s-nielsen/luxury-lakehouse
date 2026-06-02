@@ -1854,7 +1854,7 @@ wheels = [
 
 [[package]]
 name = "luxury-lakehouse"
-version = "0.5.10"
+version = "0.5.11"
 source = { editable = "." }
 dependencies = [
     { name = "gitpython" },
@@ -1994,7 +1994,7 @@ requires-dist = [
     { name = "scikit-learn", marker = "extra == 'analytics'", specifier = ">=1.3.0" },
     { name = "scipy", marker = "extra == 'analytics'", specifier = ">=1.11.0" },
     { name = "scipy", marker = "extra == 'taipy-app'", specifier = ">=1.15.0" },
-    { name = "silly-kicks", extras = ["das", "ghost-gk"], marker = "extra == 'spadl'", specifier = ">=4.4.0,<5" },
+    { name = "silly-kicks", extras = ["das", "ghost-gk"], marker = "extra == 'spadl'", specifier = ">=4.6.0,<5" },
     { name = "sparse-dot-topn", marker = "extra == 'analytics'", specifier = ">=1.1.0" },
     { name = "taipy", marker = "extra == 'taipy-app'", specifier = "==4.1.1" },
     { name = "torch", marker = "extra == 'training'", specifier = ">=2.0", index = "https://download.pytorch.org/whl/cu128" },
@@ -3728,7 +3728,7 @@ wheels = [
 
 [[package]]
 name = "silly-kicks"
-version = "4.4.0"
+version = "4.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
@@ -3736,9 +3736,9 @@ dependencies = [
     { name = "scikit-learn" },
     { name = "scipy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e5/0a/838b8c8c13788cef9f080131597883c5efc6291a0f924f18f5e70c012b28/silly_kicks-4.4.0.tar.gz", hash = "sha256:88f45b4d78621a3ef3b75651c2a3a7c1982490707950ad5a8cdadae4270dd2ba", size = 103853555, upload-time = "2026-06-02T03:39:35.38Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6f/ff/b8fa94d798911688ac7700634ad3331ae46bbeb34bc2b62196306a75958e/silly_kicks-4.6.0.tar.gz", hash = "sha256:47d1eb0e780752efb2893c2eda3f4854ac3049737f81b09eb9c4d29312839beb", size = 103864606, upload-time = "2026-06-02T13:42:59.847Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/53/de/a5f616752ea3eb4c1e05c24c6a2c16ccb112a9db3d69e7e7c7a7a7ddb63e/silly_kicks-4.4.0-py3-none-any.whl", hash = "sha256:222314332f3b18308035c98acdb0c60949d63b793b6a7ce25e8ac90b350f6d1e", size = 8404193, upload-time = "2026-06-02T03:39:28.512Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/cb/a86516a1fcdcdc1a50f6d942aaac8f81e6b9425410367b7e6f3035b68cb2/silly_kicks-4.6.0-py3-none-any.whl", hash = "sha256:8c4e2d8a4214dcd7d9119e6d77cea34a908d2a02b58e697e630ffa3fd0609c09", size = 8407195, upload-time = "2026-06-02T13:42:56.335Z" },
 ]
 
 [package.optional-dependencies]

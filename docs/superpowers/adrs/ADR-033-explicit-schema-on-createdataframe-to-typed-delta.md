@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | **Date** | 2026-05-31 |
-| **Status** | Accepted |
+| **Status** | Accepted (amended 2026-06-02 — string all-NULL columns need object/None; see Amendment) |
 | **Deciders** | Karsten Nielsen |
 
 ## Context
@@ -96,3 +96,47 @@ mechanism for the typed-mart case (complements `finalize_bronze_df` for bronze).
 - **Tests:** `src/tests/test_action_context_createdataframe_schema.py`
 - **External references:** Delta Lake schema enforcement / `mergeSchema` —
   https://docs.databricks.com/delta/update-schema.html
+
+## Amendment (2026-06-02): explicit schema is necessary but NOT sufficient for STRING all-NULL columns
+
+### What broke (after this ADR shipped)
+
+The first serverless runs of the event-only path *with* the explicit schema in place
+(statsbomb match `15978`, then wyscout match `1694390`) failed with:
+
+```
+PySparkTypeError: Exception thrown when converting pandas.Series (float64) with name
+'defending_gk_player_id_native' to Arrow Array (string).
+  ... ArrowTypeError: Expected a string or bytes dtype, got float64
+```
+
+at `spark.createDataFrame(out_pdf, schema=_get_result_schema())` (`_process_event_only_match`
+/ `_process_statsbomb_match`).
+
+### Why the original decision was insufficient
+
+The explicit `schema=` fixes the **numeric** all-NULL case: a float64-NaN column declared
+`DOUBLE`/`BIGINT` converts to a typed-null Arrow array fine (no more `DoubleType`-vs-`BIGINT`
+merge failure). But for a column declared **`STRING`**, `build_output`'s `out[col] = np.nan`
+still produces a **float64** pandas column, and Spark Connect's Arrow serializer **cannot cast
+float64 → StringType** — it raises rather than silently mis-infers. So the explicit schema turned
+a silent-wrong-type into a hard `ArrowTypeError`, but did not make the *string* all-NULL case
+work. Intermittent by nature: it only triggers when a match resolves **no** defending GK (all-NULL
+`defending_gk_player_id_native`) — statsbomb hit it on its 4th match, wyscout on its 1st. Both
+event-only providers, via the shared `build_output`.
+
+### Decision (amendment)
+
+`build_output` (the shared driver+executor formatter) now fills/coerces **STRING** output
+columns to **object/`None`**, never `np.nan` (float64), so the explicit-schema Arrow write maps
+them to `StringType` null columns. The STRING column set is derived from `ACTION_CONTEXT_DDL`
+(the single source of truth → `_STRING_OUTPUT_COLUMNS`), so it is **drift-safe** — any STRING
+column added to the DDL is covered automatically, with no second list to maintain. This mirrors
+the GradientSports single-source-of-truth id-coercion discipline (ADR-034). Guarded by three
+regression tests in `src/tests/action_context/test_schema.py` (absent-string-column,
+present-but-all-NULL-string-column, real-string-values-preserved).
+
+Net rule: a typed Delta write from pandas needs **both** (a) an explicit `schema=` (numeric
+inference/merge — original decision) **and** (b) dtype-correct fill for non-numeric columns
+(string → object/None — this amendment). `_get_result_schema()` + `build_output` together now
+satisfy both.
