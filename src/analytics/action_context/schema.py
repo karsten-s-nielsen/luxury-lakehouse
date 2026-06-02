@@ -209,13 +209,46 @@ def _restore_native_identity(actions: pd.DataFrame) -> pd.DataFrame:
     return actions
 
 
+def _null_to_none(v: object) -> object:
+    """Map a null cell (``None`` or float ``NaN``) to ``None``, pass real values through.
+
+    Used to keep STRING output columns object-dtype with ``None`` nulls (Arrow StringType-safe);
+    the ``isinstance(v, float)`` guard avoids pd.NA boolean-ambiguity on nullable dtypes.
+    """
+    return None if v is None or (isinstance(v, float) and v != v) else v
+
+
+def _ddl_string_columns(ddl: str) -> frozenset[str]:
+    """Column names declared ``STRING`` in ``ACTION_CONTEXT_DDL`` (the single source of truth).
+
+    Drift-safe: any STRING column added to the DDL is automatically covered by build_output's
+    object/None coercion below — no second list to keep in sync.
+    """
+    cols: set[str] = set()
+    for field in ddl.split(","):
+        parts = field.split()
+        if len(parts) >= 2 and parts[1].upper() == "STRING":
+            cols.add(parts[0])
+    return frozenset(cols)
+
+
+# STRING-typed output columns. Spark Connect's Arrow serializer cannot convert an all-NULL
+# ``float64`` pandas column (what ``out[col] = np.nan`` produces) to ``StringType`` even WITH an
+# explicit ``schema=`` (ADR-033) — it raises ``ArrowTypeError: Expected a string ... got float64``.
+# This bit a statsbomb event-only match whose ``defending_gk_player_id_native`` resolved to no GK
+# on any action (all-NULL). build_output therefore fills/coerces STRING columns to object/None,
+# the same single-source-of-truth-driven coercion discipline as the GradientSports id fix (ADR-034).
+_STRING_OUTPUT_COLUMNS = _ddl_string_columns(ACTION_CONTEXT_DDL)
+
+
 def build_output(actions: pd.DataFrame, match_id_native: str, data_source: str) -> pd.DataFrame:
     """Post-enrichment: renames + column selection for bronze write.
 
     1. game_id -> match_id (silly-kicks uses game_id, we use match_id)
     2. defending_gk_player_id -> defending_gk_player_id_native (ADR-018)
     3. type_id -> type_name via silly-kicks add_names
-    4. Column selection to RESULT_COLUMNS with NaN fill for missing cols.
+    4. Column selection to RESULT_COLUMNS, dtype-correct fill for missing cols (numeric -> NaN,
+       STRING -> object/None so the explicit-schema Arrow write never sees float64-vs-StringType).
     """
     out = actions.copy()
     out["match_id"] = match_id_native
@@ -236,5 +269,17 @@ def build_output(actions: pd.DataFrame, match_id_native: str, data_source: str) 
     output_cols = [c for c in RESULT_COLUMNS if c != "_ingested_at"]
     for col in output_cols:
         if col not in out.columns:
-            out[col] = np.nan
+            # STRING columns get object/None (NOT np.nan -> float64, which Arrow cannot cast to
+            # StringType under an explicit schema — see _STRING_OUTPUT_COLUMNS note + ADR-033 §amend).
+            out[col] = None if col in _STRING_OUTPUT_COLUMNS else np.nan
+
+    # Coerce any STRING column that IS present but entirely NULL (silly-kicks may emit it as
+    # float64 when no value resolved) back to object/None, so the Arrow serializer maps it to a
+    # StringType null column rather than raising on a float64 series. (NaN -> None element-wise;
+    # an explicit list keeps the result object-dtype and avoids the float64 retention that
+    # ``Series.where(..., None)`` / ``astype`` leave behind.)
+    for col in _STRING_OUTPUT_COLUMNS:
+        if col in out.columns:
+            out[col] = np.array([_null_to_none(v) for v in out[col].tolist()], dtype=object)
+
     return out[output_cols].copy()
