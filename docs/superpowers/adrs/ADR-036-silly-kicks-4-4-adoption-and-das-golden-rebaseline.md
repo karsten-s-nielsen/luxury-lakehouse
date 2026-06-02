@@ -40,7 +40,7 @@ Adopt silly-kicks **4.4.0** (floor `silly-kicks[das,ghost-gk]>=4.4.0,<5`) across
 - ADR-035's "value-equivalent" framing applied to ghost-GK only; DAS was not value-equivalent across 4.1.1→4.2.0. This ADR is the correction.
 
 ### Neutral / follow-up
-- **CI gap:** the `AC1_E2E` golden e2e is gated out of CI, which is why this rode `main` uncaught. Follow-up: a lighter golden gate that runs in CI so a value shift on a tracking-enrichment column cannot hide again.
+- **CI gap (CLOSED):** the `AC1_E2E` golden e2e is gated out of CI, which is why this rode `main` uncaught. Closed by `src/tests/action_context/test_mini_golden.py` — a non-gated test that **recomputes** the real `run_work_unit`→`enrich_batch` on a 3-action / 2-batch slice (`idsse/J03WMXmini_p1/`, every action carries non-NaN DAS + ghost-GK) and asserts all 103 columns reproduce a frozen mini-golden (~30s, runs every PR; regen via `scripts/build_ac1_mini_golden.py`). Verified non-vacuous (catches a +1.0 DAS shift and a 2e-4 relative `das_team` shift) and deterministic. The full `AC1_E2E` e2e remains the broader (97-action) gate for coverage outside the slice.
 - **Process rule:** regenerate the golden whenever a silly-kicks bump touches a tracking enrichment, and run `AC1_E2E=1` before merging such a bump (the #328 miss).
 - The ghost-GK perf wall (a full metrica game can't fit the 1800s serverless iteration budget) is unrelated to this ADR — tracked separately (FFT-KDE algorithmic lever).
 
