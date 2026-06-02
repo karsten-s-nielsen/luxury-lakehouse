@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | **Date** | 2026-06-01 |
-| **Status** | Accepted |
+| **Status** | Accepted (amended 2026-06-02 — cpu-numba default backend; see Amendment) |
 | **Deciders** | Karsten Nielsen |
 
 ## Context
@@ -65,3 +65,36 @@ The adoption is justified on three validated facts (local, version-certified, re
 ## Notes
 
 A/B measured on the Win11 dev box (RTX 5070 Ti / 96 GB), silly-kicks 4.1.1 vs 4.2.0, accessible-space 2.0.15, numba 0.64.0, numpy 1.26.4, scipy 1.15.3, IDSSE J03WMX p1 fixture. The KDE leaf confirms the backend swap is real: 4.1.1 → `evaluate (_kde.py)` (scipy); 4.2.0 → `_kde_density_vectorized (_ghost_gk.py)`. The earlier serverless "appears slower" reading was retracted as contaminated (stale cross-run `wall_s` log-bleed + a run that loaded a pre-4.2.0 silly-kicks); no serverless 4.2.0 timing was ever validly captured.
+
+## Amendment (2026-06-02): adopt `cpu-numba` as the AC-1 default ghost-GK backend
+
+### Context
+
+silly-kicks 4.3.0 added a third KDE backend, `kde_backend="cpu-numba"` (an `@njit` fused loop over the closed-form 2×2 whitened Gaussian, sharing `_kde_setup` with `vectorized`), alongside `scipy` and `vectorized`. The original decision above adopted **vectorized** as the default and concluded (Decision §3) that "the CPU vectorization lever is now spent (~1.24×) … → GPU is justified." A clean local bench of all backends on the real 4.4.0 internals (real bundled "default" model, k = 35 816 = the production regime, accuracy vs the scipy oracle, numba JIT warmed before timing — `tmp/numba_kde_bench.py`) shows that conclusion was **premature**: there is a large *exact* CPU lever (numba) and a larger *approximate* one (FFT) still on the table.
+
+| backend | warm ms/sample | vs vectorized | grid rel-err vs scipy | mode / mean / spread |
+|---|---|---|---|---|
+| scipy (oracle) | 4949 | 0.88× | — | reference |
+| vectorized (prior default) | 4369 | 1.00× | 4e-14 | exact |
+| **cpu-numba** | **456** | **9.58×** | **3e-14** | **exact (10/10)** |
+| fft-ngp (not yet in silly-kicks) | 2.2 | 1988× | 1.4e-2 | mode 9/10, mean ≤2.5 mm, spread ≤1.1e-3 |
+
+JIT compile is 1.7 s one-time (cached). cpu-numba is **machine-precision identical** to the scipy oracle (mode/mean/spread exact) — strictly more accurate than the approximate FFT and tied with vectorized.
+
+### Decision
+
+Flip the AC-1 production path to `add_ghost_gk(..., kde_backend="cpu-numba")` in `src/analytics/action_context/enrich.py`. This is **value-equivalent within golden tolerance** (the `test_mini_golden` CI gate, ADR-036, stays green — **no golden re-baseline**). No new dependency or floor change: numba is already pinned in `pyproject` and the Terraform serverless analytics env, and 4.4.0 already ships the backend. Wheel 0.5.9 → 0.5.10.
+
+### Correction to the original Decision §3 / GPU gate
+
+The "CPU lever spent → GPU justified" framing is **superseded**: on the dominant ghost-GK stage, cpu-numba delivers **9.6× exact** in-venue (serverless CPU), and FFT/binned-convolution KDE — the eventual silly-kicks lever — is ~2000×. Both are CPU/algorithmic. So **GPU is NOT justified at current scale** (84 tracking matches); the levers are numba now and FFT next. See memory `project_ac1_ghost_gk_gpu_venue_roi` and `project_ac1_numba_das_cost`.
+
+### Reconciliation of the prior "~nil serverless numba" reading
+
+A prior serverless run measured numba at ~nil (1656 s vs 1671 s, PR #325/#326 era). That was **silly-kicks 4.1.1**, where ghost-GK had *only* the scipy backend (vectorized shipped 4.2.0; cpu-numba KDE shipped 4.3.0) — the serverless profile shows ghost-GK = **74 %** running `scipy.gaussian_kde`, and the numba in that run only touched the ~1–2 % pitch-control / ball-carrier kernels → Amdahl ~nil, exactly as expected. It is **not** evidence against the ghost-GK cpu-numba backend, which had never been wired into `enrich.py` (it used the `vectorized` default). cpu-numba attacks the 74 %-dominant stage directly.
+
+### Status of this amendment — serverless speedup PENDING verification
+
+The 9.58× is local CPU. It is **projected** (not yet measured) on serverless: 74 % stage × 9.6× ⇒ skillcorner ~1405 s → ~470 s, a metrica game from timeout (1800 s+) to under budget. Risk is low — value-equivalent + the serverless numba `@njit` infra is already validated working (numba 0.65.1 imports clean, kernels compile, no locator error; ADR/PR #326). A scoped serverless A/B (one metrica game via `preflight_action_context --provider metrica --max-units 1`, or a `submit_ac1_oneshot --wheel-path` dev-wheel run) is the confirming step before this is relied upon as the production speedup. The correctness/value-equivalence half is already proven (mini-golden green); only the magnitude of the serverless speedup is open.
+
+Wheel 0.5.10. Related: ADR-036 (the CI golden gate that makes this backend swap safe to ship), memory `project_ac1_numba_das_cost` / `project_ac1_ghost_gk_gpu_venue_roi`.
