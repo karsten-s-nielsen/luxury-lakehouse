@@ -731,16 +731,16 @@ wheels = [
 
 [[package]]
 name = "databricks-sdk"
-version = "0.110.0"
+version = "0.113.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-auth" },
     { name = "protobuf" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/07/0f/488d61ece084f70a6d4d0ab8b5e38b0902e0b9029d0b72cde99e3f2c6b4a/databricks_sdk-0.110.0.tar.gz", hash = "sha256:b62d806982b37f8160f700d657c37b3bd586c649eb5c8c4c1216090d888c5820", size = 945261, upload-time = "2026-05-19T09:18:46.23Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f2/f7/d8c664dd344497817e03ce573205ef15c80d89c8805d9b05b7a18bf57a69/databricks_sdk-0.113.0.tar.gz", hash = "sha256:00daf5256ed055d9e17a31125dfdf626c78e8e227d48346c6a2fa999b453d0c9", size = 961043, upload-time = "2026-06-01T09:58:03.574Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9d/23/7c2a827890ab120ac349847ec17ab5a37eb4e3bf8f1d0989fd9eec0c1e6a/databricks_sdk-0.110.0-py3-none-any.whl", hash = "sha256:8a23db05be7a304bea43b4fa78b437051ed0f3755b19594429c649ee4159b546", size = 892096, upload-time = "2026-05-19T09:18:44.313Z" },
+    { url = "https://files.pythonhosted.org/packages/28/a9/ffa03ef10fa3c7daf27590557dea3717a42eaf7b928a17224f5fd50f2000/databricks_sdk-0.113.0-py3-none-any.whl", hash = "sha256:c8bf97833868ab406db867822e6c0bea6c5524dfad14b1e280a616147905c68b", size = 906975, upload-time = "2026-06-01T09:58:01.854Z" },
 ]
 
 [[package]]
@@ -1854,7 +1854,7 @@ wheels = [
 
 [[package]]
 name = "luxury-lakehouse"
-version = "0.5.8"
+version = "0.5.9"
 source = { editable = "." }
 dependencies = [
     { name = "gitpython" },
@@ -1900,7 +1900,7 @@ mlflow = [
     { name = "optuna-integration", extra = ["mlflow"] },
 ]
 sdk = [
-    { name = "databricks-sdk", version = "0.110.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "databricks-sdk", version = "0.113.0", source = { registry = "https://pypi.org/simple" } },
     { name = "psycopg2-binary" },
 ]
 spadl = [
@@ -1908,7 +1908,7 @@ spadl = [
 ]
 taipy-app = [
     { name = "cachetools" },
-    { name = "databricks-sdk", version = "0.110.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "databricks-sdk", version = "0.113.0", source = { registry = "https://pypi.org/simple" } },
     { name = "huggingface-hub" },
     { name = "mplsoccer" },
     { name = "numpy" },
@@ -1952,8 +1952,8 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cachetools", marker = "extra == 'taipy-app'", specifier = ">=6.0.0" },
-    { name = "databricks-sdk", marker = "extra == 'sdk'", specifier = "==0.110.0" },
-    { name = "databricks-sdk", marker = "extra == 'taipy-app'", specifier = "==0.110.0" },
+    { name = "databricks-sdk", marker = "extra == 'sdk'", specifier = "==0.113.0" },
+    { name = "databricks-sdk", marker = "extra == 'taipy-app'", specifier = "==0.113.0" },
     { name = "databricks-sql-connector", marker = "extra == 'analytics'", specifier = ">=4.0.0" },
     { name = "datasets", marker = "extra == 'training'", specifier = ">=3.0" },
     { name = "dbt-core", marker = "extra == 'dbt'", specifier = ">=1.10.0" },
@@ -1992,7 +1992,7 @@ requires-dist = [
     { name = "scikit-learn", marker = "extra == 'analytics'", specifier = ">=1.3.0" },
     { name = "scipy", marker = "extra == 'analytics'", specifier = ">=1.11.0" },
     { name = "scipy", marker = "extra == 'taipy-app'", specifier = ">=1.15.0" },
-    { name = "silly-kicks", extras = ["das", "ghost-gk"], marker = "extra == 'spadl'", specifier = ">=4.2.0,<5" },
+    { name = "silly-kicks", extras = ["das", "ghost-gk"], marker = "extra == 'spadl'", specifier = ">=4.4.0,<5" },
     { name = "sparse-dot-topn", marker = "extra == 'analytics'", specifier = ">=1.1.0" },
     { name = "taipy", marker = "extra == 'taipy-app'", specifier = "==4.1.1" },
     { name = "torch", marker = "extra == 'training'", specifier = ">=2.0", index = "https://download.pytorch.org/whl/cu128" },
@@ -2213,7 +2213,7 @@ dependencies = [
     { name = "click" },
     { name = "cloudpickle" },
     { name = "databricks-sdk", version = "0.77.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-dbt'" },
-    { name = "databricks-sdk", version = "0.110.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-sdk' or extra == 'extra-16-luxury-lakehouse-taipy-app' or extra != 'extra-16-luxury-lakehouse-dbt'" },
+    { name = "databricks-sdk", version = "0.113.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-sdk' or extra == 'extra-16-luxury-lakehouse-taipy-app' or extra != 'extra-16-luxury-lakehouse-dbt'" },
     { name = "fastapi" },
     { name = "gitpython" },
     { name = "importlib-metadata" },
@@ -2243,7 +2243,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cachetools" },
     { name = "databricks-sdk", version = "0.77.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-dbt'" },
-    { name = "databricks-sdk", version = "0.110.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-sdk' or extra == 'extra-16-luxury-lakehouse-taipy-app' or extra != 'extra-16-luxury-lakehouse-dbt'" },
+    { name = "databricks-sdk", version = "0.113.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-sdk' or extra == 'extra-16-luxury-lakehouse-taipy-app' or extra != 'extra-16-luxury-lakehouse-dbt'" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-proto" },
     { name = "opentelemetry-sdk" },
@@ -3726,7 +3726,7 @@ wheels = [
 
 [[package]]
 name = "silly-kicks"
-version = "4.2.0"
+version = "4.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
@@ -3734,9 +3734,9 @@ dependencies = [
     { name = "scikit-learn" },
     { name = "scipy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9c/dd/637d9b85c6f4f4130f38bee22ba8df3493bb0ddf9db6c1409f1e813bad45/silly_kicks-4.2.0.tar.gz", hash = "sha256:ba480c7e97225556bc7988e22bb426aaccecb550324acd28286b8eec40141a5d", size = 103819323, upload-time = "2026-06-01T17:56:13.225Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e5/0a/838b8c8c13788cef9f080131597883c5efc6291a0f924f18f5e70c012b28/silly_kicks-4.4.0.tar.gz", hash = "sha256:88f45b4d78621a3ef3b75651c2a3a7c1982490707950ad5a8cdadae4270dd2ba", size = 103853555, upload-time = "2026-06-02T03:39:35.38Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e4/11/21578391edc605155f278bca573bc862ee6d5141982224bc8f27c1ff8cc4/silly_kicks-4.2.0-py3-none-any.whl", hash = "sha256:8d41e834ef7e3e6af8a096630fc76a7fe947bf1e7e2d27ac0b4f3a1ce9fc5272", size = 8400302, upload-time = "2026-06-01T17:56:09.749Z" },
+    { url = "https://files.pythonhosted.org/packages/53/de/a5f616752ea3eb4c1e05c24c6a2c16ccb112a9db3d69e7e7c7a7a7ddb63e/silly_kicks-4.4.0-py3-none-any.whl", hash = "sha256:222314332f3b18308035c98acdb0c60949d63b793b6a7ce25e8ac90b350f6d1e", size = 8404193, upload-time = "2026-06-02T03:39:28.512Z" },
 ]
 
 [package.optional-dependencies]
