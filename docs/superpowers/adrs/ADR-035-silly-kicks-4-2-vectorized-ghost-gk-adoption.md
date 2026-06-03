@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | **Date** | 2026-06-01 |
-| **Status** | Accepted (amended 2026-06-02 — cpu-numba default backend; see Amendment) |
+| **Status** | Accepted (amended 2026-06-02 — cpu-numba default; amended 2026-06-03 — fft-cic default; see Amendments) |
 | **Deciders** | Karsten Nielsen |
 
 ## Context
@@ -98,3 +98,37 @@ A prior serverless run measured numba at ~nil (1656 s vs 1671 s, PR #325/#326 er
 The 9.58× is local CPU. It is **projected** (not yet measured) on serverless: 74 % stage × 9.6× ⇒ skillcorner ~1405 s → ~470 s, a metrica game from timeout (1800 s+) to under budget. Risk is low — value-equivalent + the serverless numba `@njit` infra is already validated working (numba 0.65.1 imports clean, kernels compile, no locator error; ADR/PR #326). A scoped serverless A/B (one metrica game via `preflight_action_context --provider metrica --max-units 1`, or a `submit_ac1_oneshot --wheel-path` dev-wheel run) is the confirming step before this is relied upon as the production speedup. The correctness/value-equivalence half is already proven (mini-golden green); only the magnitude of the serverless speedup is open.
 
 Wheel 0.5.10. Related: ADR-036 (the CI golden gate that makes this backend swap safe to ship), memory `project_ac1_numba_das_cost` / `project_ac1_ghost_gk_gpu_venue_roi`.
+
+## Amendment (2026-06-03): adopt `fft-cic` (CIC bilinear binning) as the AC-1 default ghost-GK backend
+
+### Context
+
+silly-kicks 4.8.0/4.9.0 shipped the FFT/binned-convolution ghost-GK KDE backend in two binning flavours: `fft` (NGP — nearest-grid-point) and `fft-cic` (CIC — cloud-in-cell / bilinear binning). The first amendment's table already anticipated this lever ("fft-ngp (not yet in silly-kicks) … 1988×"). cpu-numba is exact but **cannot finish a full metrica tracking game (141k frames) inside the per-game watchdog** — this is the blocker for the 84 tracking-match backfill on the worker-drain (ADR-037). The FFT backend is the only lever that makes a large tracking game finishable.
+
+### Decision
+
+Flip the AC-1 production path to `add_ghost_gk(..., kde_backend="fft-cic")` in `src/analytics/action_context/enrich.py`. **CIC over NGP** on the data: a local A/B of all three backends on the real fixture (`tmp/ghost_gk_backend_ab.py`, full `run_work_unit` → `enrich_batch` on IDSSE J03WMX p1, all 97 ghost-bearing actions, cpu-numba = scipy-oracle reference):
+
+| backend | mode-exact | flips > 0.5 m | mean Δ | p95 Δ | spread err (mean/max) | ghost-GK stage wall |
+|---|---|---|---|---|---|---|
+| cpu-numba (ref) | 97/97 | 0 | — | — | — | 106.99 s (1.0×) |
+| fft (NGP) | 76/97 (78%) | 12 | 343 mm | 2648 mm | 0.10% / 0.24% | 17.84 s (6.0×) |
+| **fft-cic (CIC)** | **92/97 (95%)** | **4** | **97 mm** | **100 mm** | 0.24% / 0.27% | 18.04 s (5.9×) |
+
+CIC is **95% mode-exact vs NGP's 78%** at the **same cost** (the earlier "CIC ~2× slower" concern did NOT reproduce). The two multi-metre fft-cic flips (actions 29, 36: `x≈11.25 → ≈15` at fixed `y`) are genuinely bimodal near-tie grids where the argmax is inherently unstable; entropy/spread is solid (<0.3%) for both.
+
+Unlike the cpu-numba amendment, `fft-cic` is **NOT value-equivalent within bit tolerance** to the scipy oracle — so **BOTH AC-1 goldens were re-baselined to fft-cic** (full `J03WMX_p1/golden.parquet` via the real pipeline; mini `J03WMXmini_p1/golden.parquet` via `scripts/build_ac1_mini_golden.py`). The `test_differential.py` range-checks (`ghost_gk_*` is INVARIANT_ONLY, not oracle-compared) stay green by construction — fft-cic values stay within `x∈[0,105]`, `y∈[0,68]`, `spread≥0`. A nice live signal that fft is active: the always-on `test_mini_golden` recompute dropped from ~30 s to ~9 s.
+
+Floor advanced `silly-kicks[das,ghost-gk]>=4.6.0,<5` → `>=4.9.0,<5` (fft-cic exists only on 4.8.0+; on 4.6.0 `kde_backend="fft-cic"` would error — NGP-only). All floor consumers advanced together per this ADR's original Decision pattern: pyproject `[spadl]`, the Terraform analytics env spec (`terraform/modules/workflows/main.tf`), the 6 trainer `_REQUIRED_SK_MIN` constants → `(4, 9, 0)`, the enforcing sentinel in `test_sk3_mig_b_orchestrator_invariants.py`, and `scripts/submit_ac1_oneshot.py`'s analytics-env mirror. Wheel 0.5.13 → 0.5.14 via `bump_wheel.py`.
+
+### Correction to the first amendment
+
+The first amendment adopted cpu-numba as "machine-precision identical … strictly more accurate than the approximate FFT." That accuracy ranking still holds, but it is **superseded as the production choice**: exact-but-cannot-finish loses to 95%-mode-exact-and-finishes when the alternative is a metrica game that never completes. cpu-numba remains available (`kde_backend="cpu-numba"`) for any exact-required offline use. GPU remains unjustified (the FFT CPU lever closes the gap).
+
+### Consequences
+
+- **Positive:** large tracking games (metrica) finish inside the per-game watchdog; the 84-match tracking backfill is unblocked; no watchdog band-aid extension needed. ~6× ghost-GK speedup on the small fixture (larger on production clouds).
+- **Negative:** ghost-GK `x/y` is now a ~95%-exact approximation, not exact — 2/97 fixture actions flip the mode multiple metres on bimodal grids (within the model's own argmax instability). Both goldens re-baselined, so the frozen reference now encodes fft-cic, not the scipy oracle.
+- **Neutral:** `tmp/ghost_gk_backend_ab.py` is a throwaway harness (gitignored); the reproducible A/B method is the same local-fixture `run_work_unit` path this ADR established.
+
+Wheel 0.5.14. Related: ADR-036 (the CI golden gate), ADR-037 (the worker-drain this unblocks), memory `project_next_session_cic_ghost_gk_testing` / `project_ac1_ghost_gk_gpu_venue_roi`.
