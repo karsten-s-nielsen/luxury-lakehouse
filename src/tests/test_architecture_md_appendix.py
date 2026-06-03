@@ -38,6 +38,7 @@ def test_architecture_md_has_appendix_d_academic_references() -> None:
         "Kim",  # Kim et al. 2025 for ELASTIC and DEFCON
         "Tancik",  # Fourier Features (scoutgpt fourier_cross_attention)
         "Shazeer",  # SwiGLU variants (scoutgpt swiglu)
+        "Pipping-Gamón",  # xShotOccurrence (xS) in fct_action_context (ADR-039)
     ]
     appendix_idx = text.find("D. Academic References")
     appendix = text[appendix_idx:]

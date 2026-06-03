@@ -914,6 +914,7 @@ Consolidated list of academic citations referenced across UI pages and analytics
 | Lamberts (2025) | Goalkeeper Distribution Value Model. DOI: 10.1007/978-3-031-31772-9_19 | Goalkeeper Analytics |
 | Lee, Jo, Hong, Bauer & Ko (2026) | "Valuing La Pausa" (PAUSA). *MIT Sloan Sports Analytics Conference 2026* | Pass Timing page, `wf-obso-pausa` |
 | Pena & Touchette (2012) | "A network theory analysis of football strategies." *arXiv:1206.6904* | Pass Network page |
+| Pipping-Gamón, Feng & Sabin (2026) | "Beyond Expected Goals: A Probabilistic Framework for Shot Occurrences in Soccer." *arXiv:2512.00203* | xShotOccurrence (xS) in `fct_action_context`, `wf-action-context` |
 | Robberechts & Davis (2020) | "How Data Availability Affects the Ability to Learn Good xG Models." | Match Summary, Shot Map, `wf-xg-v2` (replaced Rathke per D56 Option A, 2026-04-13; v1 retired SK3-MIG-B 2026-05-03 per ADR-023) |
 | Shazeer, N. (2020) | "GLU Variants Improve Transformer." *arXiv:2002.05202* | `src/analytics/scoutgpt_decoder.py` (swiglu branch), `wf-scoutgpt` |
 | Singh, Karun (2018) | "Introducing Expected Threat (xT)." (blog: karun.in/blog/expected-threat.html) | Movement & Pressing, `wf-xt-grids`, `wf-off-ball-xt` |

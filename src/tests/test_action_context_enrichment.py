@@ -127,7 +127,7 @@ def test_enrich_event_only_game_state_values() -> None:
 
 
 def test_enrich_tracking_calls_all_steps_with_links() -> None:
-    """Tracking chain must call all 20 add_* steps and propagate links."""
+    """Tracking chain must call all 21 add_* steps and propagate links."""
     actions = _make_actions()
     tracking = _make_tracking()
     mock_links = _make_mock_links(actions)
@@ -168,6 +168,9 @@ def test_enrich_tracking_calls_all_steps_with_links() -> None:
         patch("silly_kicks.tracking.add_space_creation", _PASSTHROUGH),
         patch("silly_kicks.tracking.add_elastic_sync", _PASSTHROUGH),
         patch("silly_kicks.tracking.add_sync_score", _PASSTHROUGH),
+        # xShotOccurrence (silly-kicks 4.9.0+, Step 21) — patched so the real bundled XGBoost
+        # model isn't loaded and infer_ball_carrier doesn't run on the synthetic frames.
+        patch("silly_kicks.tracking.add_xshot_occurrence", _PASSTHROUGH),
     ]
     for p in patches:
         p.start()
@@ -208,6 +211,7 @@ def test_enrich_sb360_calls_snapshot_converter_and_positional_features() -> None
 
     mock_frames = pd.DataFrame({"frame_id": [0], "is_ball": [False]})
     mock_links = _make_mock_links(actions.iloc[:2])
+    mock_xt = MagicMock()
 
     mock_converter = MagicMock(return_value=(mock_frames, mock_links))
     mock_line_break = MagicMock(side_effect=_PASSTHROUGH)
@@ -221,11 +225,21 @@ def test_enrich_sb360_calls_snapshot_converter_and_positional_features() -> None
         patch("silly_kicks.tracking.add_defensive_line", _PASSTHROUGH),
         patch("silly_kicks.tracking.add_line_break", mock_line_break),
         patch("silly_kicks.tracking.add_team_shape", mock_team_shape),
+        # SB360 coverage steps (ADR-039) — patched so the real silly-kicks funcs don't
+        # run on the minimal mock frame. add_ghost_gk / add_gk_influence resolve from
+        # silly_kicks.tracking.features in _enrich_sb360_match.
+        patch("silly_kicks.tracking.add_pressure_on_actor", _PASSTHROUGH),
+        patch("silly_kicks.tracking.add_shape_graph", _PASSTHROUGH),
+        patch("silly_kicks.tracking.features.add_ghost_gk", _PASSTHROUGH),
+        patch("silly_kicks.tracking.features.add_gk_influence", _PASSTHROUGH),
+        patch("silly_kicks.tracking.add_obso", _PASSTHROUGH),
+        patch("silly_kicks.tracking.add_pausa", _PASSTHROUGH),
+        patch("silly_kicks.tracking.add_xshot_occurrence", _PASSTHROUGH),
     ]
     for p in patches:
         p.start()
     try:
-        result = _enrich_sb360_match(actions, freeze_frames, "t1")
+        result = _enrich_sb360_match(actions, freeze_frames, "t1", mock_xt)
     finally:
         for p in patches:
             p.stop()
@@ -255,6 +269,7 @@ def test_enrich_sb360_empty_freeze_frames_fallback() -> None:
     mock_empty_links = pd.DataFrame()
     mock_converter = MagicMock(return_value=(mock_empty_frames, mock_empty_links))
     mock_line_break = MagicMock(side_effect=_PASSTHROUGH)
+    mock_xt = MagicMock()
 
     patches = [
         patch("silly_kicks.spadl.add_game_state", _PASSTHROUGH),
@@ -265,7 +280,7 @@ def test_enrich_sb360_empty_freeze_frames_fallback() -> None:
     for p in patches:
         p.start()
     try:
-        result = _enrich_sb360_match(actions, empty_ff, "t1")
+        result = _enrich_sb360_match(actions, empty_ff, "t1", mock_xt)
     finally:
         for p in patches:
             p.stop()
@@ -962,3 +977,53 @@ def test_main_drain_worker_empty_slice_short_circuits(monkeypatch: pytest.Monkey
     monkeypatch.setattr(ac, "drain_worker", _boom)
 
     ac.main_drain_worker()  # returns cleanly, no processor built
+
+
+def test_tracking_mini_gains_gk_zones_xshot_and_provenance() -> None:
+    """Real (unpatched) tracking enrichment on the fast J03WMXmini fixture: the 4 gk near/far
+    closing-time zones + xshot_occurrence + pitch_control_method appear; xS finite in [0,1] from
+    the bundled XGBoost model (exercises the 2.1.4-trained -> 3.2.0-runtime load path); provenance
+    is 'spearman' on the tracking path."""
+    from analytics.action_context.local.parquet_sources import (
+        ParquetActionsSource,
+        ParquetFrameSource,
+        ParquetMatchMetadataSource,
+        ParquetXtSource,
+    )
+    from analytics.action_context.pipeline import run_work_unit
+
+    class _Collect:
+        df: pd.DataFrame | None = None
+
+        def write(self, wu: WorkUnit, result_df: pd.DataFrame) -> int:
+            self.df = result_df
+            return len(result_df)
+
+    root = "src/tests/fixtures/action_context"
+    sink = _Collect()
+    run_work_unit(
+        WorkUnit(provider="idsse", match_id="J03WMXmini", period=1),
+        frames=ParquetFrameSource(root),
+        actions=ParquetActionsSource(root),
+        xt=ParquetXtSource(root),
+        meta=ParquetMatchMetadataSource(root),
+        sink=sink,
+    )
+    df = sink.df
+    assert df is not None
+    for c in (
+        "gk_closing_time_mean_s__near_post",
+        "gk_closing_time_min_s__near_post",
+        "gk_closing_time_mean_s__far_post",
+        "gk_closing_time_min_s__far_post",
+        "xshot_occurrence",
+        "pitch_control_method",
+    ):
+        assert c in df.columns, f"{c} missing"
+    xs = pd.to_numeric(df["xshot_occurrence"], errors="coerce").dropna()
+    if len(xs):
+        assert bool(((xs >= 0) & (xs <= 1)).all()), "xshot_occurrence out of [0,1]"
+    # Provenance must be set on EVERY tracking row (RED until enrich sets it; build_output
+    # only backfills NaN). This is the reliable green-signal that the enrich step ran.
+    assert df["pitch_control_method"].notna().all(), "pitch_control_method unset on tracking rows"
+    assert set(df["pitch_control_method"].unique()) == {"spearman"}

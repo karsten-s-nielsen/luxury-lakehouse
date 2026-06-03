@@ -15,7 +15,7 @@ size_categories:
 
 # SPADL Action Context Features
 
-Unified per-action context features for football matches from the [luxury-lakehouse](https://github.com/karsten-s-nielsen/luxury-lakehouse) analytics platform. One row per SPADL action, with ~102 columns for tracking providers and ~5 for event-only providers. Covers all 6 data sources.
+Unified per-action context features for football matches from the [luxury-lakehouse](https://github.com/karsten-s-nielsen/luxury-lakehouse) analytics platform. One row per SPADL action, with ~110 columns for tracking providers and ~5 for event-only providers. Covers all 6 data sources.
 
 ## Provider Tiers
 
@@ -23,9 +23,23 @@ Unified per-action context features for football matches from the [luxury-lakeho
 |------|-----------|-----------------|
 | Event-only | StatsBomb, Wyscout | Identity + game state (~5 columns) |
 | SB360 | StatsBomb (with 360 freeze-frames) | Event-only + freeze-frame-derived context |
-| Tracking | IDSSE, Metrica, SkillCorner | Full ~102 columns including pitch control, team shape, line-breaking, OBSO, PAUSA |
+| Tracking | IDSSE, Metrica, SkillCorner | Full ~110 columns including pitch control, team shape, line-breaking, OBSO, PAUSA, gk_influence zones, xShotOccurrence |
 
 GradientSports data is computed but excluded from HF publication per licensing restrictions.
+
+## Pitch-control method provenance & SB360 coverage
+
+The `pitch_control_method` column records which pitch-control model produced each row's
+pitch-control-derived metrics (OBSO, PAUSA, `gk_influence`/`gk_closing_time_*`): **`spearman`**
+(velocity-aware) on the tracking providers, **`voronoi`** (position-only) on SB360 freeze-frames
+(which carry no velocity), and `null` on event-only rows. SB360 and tracking values for these
+columns are therefore produced by different estimators and are **not directly comparable** —
+segment on `pitch_control_method`.
+
+SB360 freeze-frame coverage is **partial and sparse**: each metric only populates the subset of
+actions whose freeze-frame contains the needed players, and `xshot_occurrence` in particular is
+non-null for only ~4% of SB360 actions (a non-random subsample). **Do not compute naive
+provider-level averages over SB360 metrics** — filter on non-null and account for the sampling.
 
 ## Quick Start
 
@@ -63,6 +77,8 @@ print(df.columns.tolist())
 | Space Creation | space_created_m2, space_exploited |
 | ELASTIC Sync | elastic_sync_score, elastic_compactness |
 | Shape Graph | shape_graph_centrality, shape_graph_clustering |
+| xShotOccurrence | xshot_occurrence (P(shot attempted); Pipping-Gamón, Feng & Sabin 2026, arXiv:2512.00203) |
+| Pitch-Control Provenance | pitch_control_method (spearman=tracking / voronoi=SB360 / null=event-only) |
 
 ## Data Fields
 

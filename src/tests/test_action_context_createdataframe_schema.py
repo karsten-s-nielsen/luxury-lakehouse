@@ -68,3 +68,23 @@ def test_every_createdataframe_passes_explicit_schema() -> None:
         "(all-NULL tracking columns infer as DoubleType and fail to merge into "
         "the BIGINT table columns, raising DELTA_FAILED_TO_MERGE_FIELDS)."
     )
+
+
+def test_new_gk_and_xshot_columns_present() -> None:
+    """xShotOccurrence + gk_influence near/far zones + pitch_control_method are in the
+    DDL single source (and thus the derived StructType) and RESULT_COLUMNS."""
+    from analytics.action_context.schema import ACTION_CONTEXT_DDL, RESULT_COLUMNS
+
+    new_cols = [
+        "gk_closing_time_mean_s__near_post",
+        "gk_closing_time_min_s__near_post",
+        "gk_closing_time_mean_s__far_post",
+        "gk_closing_time_min_s__far_post",
+        "xshot_occurrence",
+        "pitch_control_method",
+    ]
+    for c in new_cols:
+        assert c in RESULT_COLUMNS, f"{c} missing from RESULT_COLUMNS"
+        assert c in ACTION_CONTEXT_DDL, f"{c} missing from ACTION_CONTEXT_DDL"
+    assert "pitch_control_method STRING" in ACTION_CONTEXT_DDL
+    assert "xshot_occurrence DOUBLE" in ACTION_CONTEXT_DDL

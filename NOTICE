@@ -64,6 +64,14 @@ SPADL representation and VAEP framework described in: Decroos, T. et al.
 Soccer." Proceedings of the 25th ACM SIGKDD. Implementation via the
 silly-kicks library (see Third-Party Libraries above).
 
+The xShotOccurrence (xS) shot-occurrence probability (persisted as
+fct_action_context.xshot_occurrence) implements the xS sub-model of:
+Pipping-Gamón, J., Feng, T. & Sabin, R.P. (2026). "Beyond Expected Goals:
+A Probabilistic Framework for Shot Occurrences in Soccer." arXiv:2512.00203.
+The trained model ships bundled in the silly-kicks library
+(silly-kicks/xshot-occurrence-v1); the lakehouse consumes it via
+silly_kicks.tracking.add_xshot_occurrence (no in-repo training).
+
 The line-breaking pass detection algorithm (src/analytics/line_breaking.py)
 is adapted from: parmacalcio1913/line-breaking-passes, licensed under the
 Apache License, Version 2.0. The implementation is rewritten from PyTorch

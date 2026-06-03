@@ -90,6 +90,16 @@ INVARIANT_ONLY: dict[str, tuple[str, float | None, float | None]] = {
     "elastic_frame_id": ("int", 0.0, None),
     "elastic_confidence": ("float", 0.0, 1.0),
     "elastic_error_seconds": ("float", 0.0, None),
+    # GK-influence near/far-post closing-time zones (silly-kicks gk_influence zone_names; ADR-039):
+    # non-negative time-to-reach magnitudes, no legacy oracle. Range-check only.
+    "gk_closing_time_mean_s__near_post": ("float", 0.0, None),
+    "gk_closing_time_min_s__near_post": ("float", 0.0, None),
+    "gk_closing_time_mean_s__far_post": ("float", 0.0, None),
+    "gk_closing_time_min_s__far_post": ("float", 0.0, None),
+    # xShotOccurrence (Pipping-Gamón, Feng & Sabin 2026): a probability in [0,1]. Range-check only.
+    "xshot_occurrence": ("float", 0.0, 1.0),
+    # Pitch-control provenance (ADR-039): categorical {spearman, voronoi}; NULL on event-only rows.
+    "pitch_control_method": ("categorical", None, None),
 }
 
 # Identity + linkage passthrough columns — not differential features (skip).
