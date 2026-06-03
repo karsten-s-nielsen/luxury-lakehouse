@@ -149,8 +149,11 @@ resource "databricks_job" "data_ingestion" {
   # tracking providers get the full enrichment chain (~102 cols).
   # Writes bronze.spadl_action_context.
   #
-  # AC-1 fan-out: for_each_task so each match gets its own 16 GB serverless
-  # driver. Preflight emits chunks as "provider:id1,id2" strings.
+  # AC-1 fan-out (ADR-037, worker-drain): N persistent drain workers, each draining
+  # its slice of observability.action_context_work_queue (filled by preflight). The
+  # for-each input is the CONSTANT worker-id list (not per-game), so the task value
+  # never approaches the 48 KB cap regardless of game count. concurrency MUST equal
+  # _ActionContextGuard._N_DRAIN_WORKERS (pinned by test_terraform_concurrency_matches_n_workers).
   task {
     task_key = "compute_action_context"
 
@@ -159,12 +162,16 @@ resource "databricks_job" "data_ingestion" {
     }
 
     for_each_task {
-      inputs      = "{{tasks.preflight_action_context.values.action_context_chunks}}"
-      concurrency = 8
+      inputs      = "{{tasks.preflight_action_context.values.action_context_worker_ids}}"
+      concurrency = 8 # == _N_DRAIN_WORKERS
 
       task {
-        task_key        = "compute_action_context_iteration"
-        timeout_seconds = 1800
+        task_key = "compute_action_context_iteration"
+        # 8 h: a worker drains its slice to COMPLETION. The 1800 s per-game budget is now
+        # a watchdog INSIDE the worker (ADR-037), not the iteration timeout. One-time cold
+        # start ~5.5 h on the slowest worker; daily runs are tiny. Documented exception to
+        # the "compute task <= 2 hr" budget.
+        timeout_seconds = 28800
         # Go omitempty zero-value bug: max_retries=0 is silently dropped by
         # the TF provider. scripts/patch_job_retries.py enforces this
         # post-apply via the REST API.
@@ -172,12 +179,13 @@ resource "databricks_job" "data_ingestion" {
 
         python_wheel_task {
           package_name = "luxury_lakehouse"
-          entry_point  = "compute_action_context"
+          entry_point  = "compute_action_context_drain_worker"
 
           parameters = [
             "--catalog", var.catalog_name,
             "--schema", "bronze",
-            "--match-ids", "{{input}}",
+            "--worker-id", "{{input}}",
+            "--run-id", "{{tasks.preflight_action_context.values.action_context_run_id}}",
           ]
         }
 
@@ -1029,19 +1037,19 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
-  # ── Task: Action-context preflight — discover matches + emit chunks ──
-  # AC-1: discovers unprocessed matches across all 6 providers via skip_guard,
-  # partitions into chunks, and writes the chunk list as a Databricks task
-  # value (`action_context_chunks`). xT grid is NOT loaded here — each
-  # downstream iteration reads it from bronze.expected_threat_grids (~192 rows).
+  # ── Task: Action-context preflight — discover units + fill work-queue ──
+  # AC-1 (ADR-037): discovers unprocessed units across all 6 providers via skip_guard,
+  # LPT-bin-packs them into observability.action_context_work_queue, and writes the
+  # constant worker-id list + run_id as task values. xT grid is NOT loaded here — each
+  # drain worker reads it from bronze.expected_threat_grids (~192 rows) at startup.
   #
   # environment_key = "default": main_preflight only imports numpy + the
   # wheel; no silly-kicks / xgboost / mlflow / scipy needed. Keeps cold-start
   # setup under the 300 s task timeout (the analytics env's 11-dep pip
   # resolution can exceed 300 s on cache-cold builds).
   #
-  # The downstream `compute_action_context` for_each_task consumes via
-  # `{{tasks.preflight_action_context.values.action_context_chunks}}`.
+  # The downstream `compute_action_context` for_each_task consumes the constant
+  # worker-id list + run_id task values this preflight writes (ADR-037 worker-drain).
   task {
     task_key        = "preflight_action_context"
     timeout_seconds = 300
@@ -1071,6 +1079,9 @@ resource "databricks_job" "data_ingestion" {
         "--schema", "bronze",
         "--provider", "{{job.parameters.provider}}",
         "--max-units", "{{job.parameters.max_units}}",
+        # Job-level run id (identical across all tasks in the run) -> written to the
+        # action_context_run_id task value -> read by each drain worker (ADR-037 B1).
+        "--run-id", "{{job.run_id}}",
       ]
     }
 

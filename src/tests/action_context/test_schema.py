@@ -60,6 +60,24 @@ def test_string_column_values_preserved() -> None:
     assert col.iloc[1] is None
 
 
+def test_string_columns_stringify_numeric_ids() -> None:
+    """Regression (ADR-033 §amend, v2): a STRING column holding NUMERIC ids — statsbomb's integer
+    player ids, stored as float64 once NaN-mixed — must be STRINGIFIED (5522.0 -> '5522'), not left
+    as floats. The first build_output fix only mapped NaN->None, so floats survived in the object
+    column and `createDataFrame(schema=STRING)` still raised 'Expected bytes, got a float object'
+    (statsbomb match 15978 / wyscout, wheel 0.5.11). No float may survive in a STRING column."""
+    raw = pd.DataFrame(
+        {"action_id": [1, 2, 3], "start_x": [1.0, 2.0, 3.0], "defending_gk_player_id": [5522.0, float("nan"), 6011.0]}
+    )
+    out = build_output(raw, match_id_native="15978", data_source="statsbomb")
+    col = out["defending_gk_player_id_native"]
+    assert col.dtype == object
+    assert not any(isinstance(v, float) for v in col.tolist()), "no float may survive in a STRING column"
+    assert col.iloc[0] == "5522"
+    assert col.iloc[1] is None
+    assert col.iloc[2] == "6011"
+
+
 def test_ingestion_reexports_match_domain() -> None:
     # The ingestion adapter still imports DDL + build_output from the domain (used
     # locally by the guard / _process_* paths), so they remain importable there.

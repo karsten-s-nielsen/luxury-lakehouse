@@ -12,13 +12,15 @@ Architecture: "Read from bronze, compute, write to bronze."
 
 from __future__ import annotations
 
+import argparse
 import logging
 import re
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from analytics.action_context.drain import assign_workers, drain_worker
 from analytics.action_context.enrich import (
     _enrich_event_only_match,
     _enrich_sb360_match,
@@ -29,6 +31,7 @@ from analytics.action_context.schema import (
 from analytics.action_context.schema import (
     build_output as _build_output,
 )
+from analytics.action_context.work_unit import WorkUnit
 from ingestion.guards import FilterResult, timed_check
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
 
@@ -517,53 +520,25 @@ class _ActionContextGuard:
     joins. Each query is pushed entirely to executors — no full-table scans
     or driver-side set differences.
 
-    Chunk sizes are a WALL-CLOCK knob here, not a memory knob — see the
-    memory note below. They are sized against the 1800 s
-    ``compute_action_context_iteration`` timeout and the 48 KB Databricks
-    task-value cap:
+    Fan-out (ADR-037, worker-drain): preflight discovers UNITS (a match, or a
+    ``(match, period)`` half for IDSSE — the 1 GB applyInPandas memory cap), LPT-
+    bin-packs them across ``_N_DRAIN_WORKERS`` persistent for-each workers into the
+    ``observability.action_context_work_queue``, and emits a constant worker-id task
+    value. There is no per-iteration ``chunk_size`` any more — the per-game watchdog
+    + persistent worker removed the per-iteration budget chunk_size packed against.
 
-      - IDSSE (1 half / iter) — each half is ~1.5 M tracking rows; processed
-        one half per iteration (period-level). Handled outside ``chunk_sizes``
-        via ``_find_idsse_new_period_pairs``.
-      - Tracking providers — full 20-step enrichment chain via applyInPandas.
-        ``tracking_context`` precedent (chunk_size=2 with the same iteration
-        timeout) implies ≤900 s/match; chunk_size=5 gives a 360 s per-match
-        budget (≥2x safety). Gradient Sports holds 4.21 M tracking rows/match
-        avg (4.4x SkillCorner) so it gets a more conservative chunk_size=4.
-      - StatsBomb (event-only mixed with 9.3 % SB360 freeze-frame tier) —
-        chunk_size=100 caps worst-case 360-tier work per iteration at
-        ~9 x 60 s = ~540 s out of the 1800 s budget.
-      - Wyscout (pure event-only, ~5 s/match) — chunk_size=200 matches the
-        ``spadl_vaep`` proven pattern for event-only providers.
-
-    MEMORY NOTE — why these run wider than off_ball_xt / pitch_control's
-    ``_MATCHES_PER_CHUNK = 2``:
-        Those pipelines fold ALL matches in a chunk into a SINGLE
-        ``groupBy(match_id, frame_batch_id).applyInPandas`` pass, so their
-        concurrent executor-group count scales with matches-per-chunk and the
-        ``2`` is derived from the 800 MB UDF executor budget.
-
-        action_context instead loops ``for match_id in ids:`` in ``main()`` and
-        runs a SEPARATE applyInPandas pass per match, freeing memory between
-        matches. At any instant one iteration holds only one match's frame-batch
-        groups. Per-group memory is bounded by ``_FRAME_BATCH_SIZE`` (250 frames,
-        ~200 MB — the executor-OOM mitigation inherited from tracking_context,
-        commits 0542a8b + b12fb60), and concurrent executor pressure is bounded
-        by the for_each ``concurrency`` (8), NOT by chunk_size. Raising
-        ``concurrency`` above 8 is therefore the lever that increases shared
-        executor pressure — chunk_size is not. Keep that invariant if this guard
-        is ever refactored to fold a chunk into one pass: at that point
-        chunk_size WOULD become memory-bound and the ``2`` ceiling applies.
+    MEMORY NOTE — per-unit isolation (why a worker can drain many units in one
+    persistent driver): each unit runs a SEPARATE ``applyInPandas`` pass and frees
+    memory between units (``_process_*`` loops one match at a time). Per-group memory
+    is bounded by ``_FRAME_BATCH_SIZE`` (250 frames, ~200 MB); concurrent executor
+    pressure is bounded by the for_each ``concurrency`` == ``_N_DRAIN_WORKERS``.
     """
 
     workflow_id = "wf-action-context"
-    chunk_sizes: ClassVar[dict[str, int]] = {
-        "metrica": 5,
-        "skillcorner": 5,
-        "gradientsports": 4,  # 4.21 M tracking rows/match avg — more conservative than metrica/skillcorner
-        "statsbomb": 100,  # 9.3 % of SB matches use the heavier SB360 tier; 100 caps 360-tier work
-        "wyscout": 200,  # pure event-only — matches spadl_vaep proven pattern
-    }
+    # Persistent drain workers = the for-each width (ADR-037). Single source of truth:
+    # preflight emits this many worker-id task-value entries and the Terraform for-each
+    # concurrency is pinned to it (test_terraform_concurrency_matches_n_workers).
+    _N_DRAIN_WORKERS = 8
 
     def __init__(self, *, provider_filter: str | None = None, max_units: int | None = None) -> None:
         """Optional ad-hoc scoping for a one-off preflight run.
@@ -577,6 +552,8 @@ class _ActionContextGuard:
         """
         self.provider_filter = provider_filter
         self.max_units = max_units
+        self._units_cache: list[WorkUnit] | None = None  # set by discover_units()
+        self._units_cache_key: tuple[str, str] | None = None  # (catalog, schema) of the cache (R1)
 
     def _selected(self, provider: str) -> bool:
         """Whether this provider's discovery query should run at all."""
@@ -594,108 +571,63 @@ class _ActionContextGuard:
             return units
         return sorted(units)[: self.max_units]
 
-    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
-        """Check for unprocessed matches across all 6 providers.
+    def discover_units(self, spark: SparkSession, catalog: str, schema: str) -> list[WorkUnit]:
+        """Discover unprocessed action-context units across all 6 providers.
 
-        Honors ``provider_filter`` (skip non-matching providers' discovery
-        entirely) and ``max_units`` (cap each provider's discovered units),
-        both set via the constructor for ad-hoc one-off runs.
+        A unit is a match (most providers) or a ``(match, period)`` half (IDSSE).
+        Honors ``provider_filter`` + ``max_units`` (per-provider cap), same as ``check``.
+
+        Memoised on ``(catalog, schema)`` (P1/R1): the 6 anti-joins are expensive, so
+        ``check()`` (skip-guard count) and the preflight body (units) share ONE
+        discovery. Keying on the target makes the cache safe BY CONSTRUCTION even on
+        the long-lived module-level ``skip_guard`` singleton — a different target
+        self-invalidates, so it can never serve stale discovery across runs.
         """
+        if self._units_cache is not None and self._units_cache_key == (catalog, schema):
+            return self._units_cache
+
         from ingestion.guards import ensure_table
 
         results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
         spadl_table = f"{catalog}.bronze.spadl_actions"
         ensure_table(spark, results_table, _ACTION_CONTEXT_DDL)
 
-        # ── IDSSE: period-level discovery ──
-        idsse_pairs = (
-            self._cap(
-                _find_idsse_new_period_pairs(
-                    spark,
-                    f"{catalog}.bronze.idsse_tracking",
-                    spadl_table,
-                    results_table,
-                )
+        units: list[WorkUnit] = []
+        if self._selected("idsse"):
+            pairs = self._cap(
+                _find_idsse_new_period_pairs(spark, f"{catalog}.bronze.idsse_tracking", spadl_table, results_table)
             )
-            if self._selected("idsse")
-            else []
-        )
-        idsse_half_chunks: list[str] = [f"idsse:{mid}:{period}" for mid, period in idsse_pairs]
+            units += [WorkUnit(provider="idsse", match_id=mid, period=period) for mid, period in pairs]
 
-        # ── Other tracking providers: match-level discovery ──
-        metrica_ids = (
-            self._cap(
-                _find_tracking_new_ids(
-                    spark, f"{catalog}.bronze.metrica_tracking", spadl_table, results_table, "metrica"
+        for prov, table in (
+            ("metrica", "metrica_tracking"),
+            ("skillcorner", "skillcorner_tracking"),
+            ("gradientsports", "gradientsports_tracking"),
+        ):
+            if self._selected(prov):
+                ids = self._cap(
+                    _find_tracking_new_ids(spark, f"{catalog}.bronze.{table}", spadl_table, results_table, prov)
                 )
-            )
-            if self._selected("metrica")
-            else []
-        )
-        skillcorner_ids = (
-            self._cap(
-                _find_tracking_new_ids(
-                    spark, f"{catalog}.bronze.skillcorner_tracking", spadl_table, results_table, "skillcorner"
-                )
-            )
-            if self._selected("skillcorner")
-            else []
-        )
-        gradientsports_ids = (
-            self._cap(
-                _find_tracking_new_ids(
-                    spark, f"{catalog}.bronze.gradientsports_tracking", spadl_table, results_table, "gradientsports"
-                )
-            )
-            if self._selected("gradientsports")
-            else []
-        )
+                units += [WorkUnit(provider=prov, match_id=mid) for mid in ids]
 
-        # ── Event-only providers: Spark-native anti-join ──
-        statsbomb_ids = (
-            self._cap(_find_event_only_new_ids(spark, spadl_table, results_table, "statsbomb"))
-            if self._selected("statsbomb")
-            else []
-        )
-        wyscout_ids = (
-            self._cap(_find_event_only_new_ids(spark, spadl_table, results_table, "wyscout"))
-            if self._selected("wyscout")
-            else []
-        )
+        for prov in ("statsbomb", "wyscout"):
+            if self._selected(prov):
+                ids = self._cap(_find_event_only_new_ids(spark, spadl_table, results_table, prov))
+                units += [WorkUnit(provider=prov, match_id=mid) for mid in ids]
 
-        total = (
-            len(idsse_half_chunks)
-            + len(metrica_ids)
-            + len(skillcorner_ids)
-            + len(gradientsports_ids)
-            + len(statsbomb_ids)
-            + len(wyscout_ids)
-        )
-        if total == 0:
-            return FilterResult(workflow_id=self.workflow_id, count=0)
+        self._units_cache = units
+        self._units_cache_key = (catalog, schema)
+        return units
 
-        # Build chunks
-        chunks: list[list[str]] = []
-        for chunk_str in idsse_half_chunks:
-            chunks.append([chunk_str])
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        """Skip-guard hook: count of unprocessed units (0 => skip).
 
-        for prov, ids in [
-            ("metrica", metrica_ids),
-            ("skillcorner", skillcorner_ids),
-            ("gradientsports", gradientsports_ids),
-            ("statsbomb", statsbomb_ids),
-            ("wyscout", wyscout_ids),
-        ]:
-            cs = self.chunk_sizes.get(prov, 2)
-            for i in range(0, len(ids), cs):
-                batch = ids[i : i + cs]
-                chunks.append([f"{prov}:{','.join(batch)}"])
-
-        return FilterResult(
-            workflow_id=self.workflow_id,
-            count=total,
-            chunks=chunks,
-        )
+        Returns only the generic count; ``FilterResult.chunks`` (the shared fan-out
+        field used by other guards) is intentionally NOT populated for AC-1 — the
+        worker-drain fan-out reads structured units via ``discover_units`` instead.
+        """
+        units = self.discover_units(spark, catalog, schema)
+        return FilterResult(workflow_id=self.workflow_id, count=len(units))
 
 
 skip_guard = _ActionContextGuard()
@@ -764,18 +696,29 @@ def _parse_preflight_filters(provider: str | None, max_units: str | None) -> tup
     return provider_filter, capped
 
 
-def _write_action_chunks_task_value(
-    chunks_for_inputs: list[str],
-    task_logger: logging.Logger,
-) -> None:
-    """Write discovered chunks as a Databricks task value."""
+def _resolve_run_id(args: argparse.Namespace) -> str:
+    """The job-level run id, passed as ``--run-id`` (from ``{{job.run_id}}``).
+
+    Never read from the worker's env (``DATABRICKS_RUN_ID`` is per-task / has
+    ``"unknown"`` fallbacks; see ADR-037 B1). Falls back to a timestamp only for a
+    standalone/manual invocation with no ``--run-id``.
+    """
+    raw = getattr(args, "run_id", None)
+    if raw and str(raw).strip():
+        return str(raw).strip()
+    import time
+
+    return f"local-{int(time.time())}"
+
+
+def _set_task_value(key: str, value: object, task_logger: logging.Logger) -> None:
+    """Write a Databricks task value (no-op + warn in standalone mode)."""
     try:
         from pyspark.dbutils import DBUtils  # type: ignore[import-not-found]
 
-        spark = get_spark_session()
-        dbutils = DBUtils(spark)
-        dbutils.jobs.taskValues.set(key="action_context_chunks", value=chunks_for_inputs)
-        task_logger.info("Wrote task value 'action_context_chunks' (%d chunks)", len(chunks_for_inputs))
+        dbutils = DBUtils(get_spark_session())
+        dbutils.jobs.taskValues.set(key=key, value=value)
+        task_logger.info("Wrote task value %r", key)
     except (ImportError, AttributeError, RuntimeError) as exc:
         task_logger.warning("Task values not available (standalone mode) -- %s", exc)
 
@@ -784,17 +727,16 @@ def _write_action_chunks_task_value(
 
 
 def main_preflight() -> None:
-    """CLI entry point for action context preflight.
+    """CLI entry point for action context preflight (ADR-037 worker-drain).
 
-    Runs the skip guard, partitions discovered matches into fan-out chunks,
-    writes chunk list as a Databricks task value for the downstream for_each_task.
+    Discovers unprocessed UNITS once (memoised), LPT-bin-packs them across
+    ``_N_DRAIN_WORKERS`` into ``observability.action_context_work_queue``, and emits
+    the constant worker-id list + the run_id as task values for the for-each.
 
-    xT grid loading is NOT done here -- each downstream iteration reads the
-    pre-computed global grid from bronze.expected_threat_grids independently
-    (~192 rows, instant). This keeps the preflight O(1) w.r.t. data volume.
+    xT grid loading is NOT done here -- each drain worker loads it once at startup.
     """
     args = parse_ingestion_args(
-        "Preflight: discover unprocessed action context matches and emit chunks",
+        "Preflight: discover unprocessed action context units and fill the work-queue",
         extra_args=[
             (
                 "--provider",
@@ -812,6 +754,14 @@ def main_preflight() -> None:
                     "default": None,
                     "help": "Cap discovered units to <=N per provider (default/empty: no cap). "
                     "A unit is a match (most providers) or a (match, period) half (IDSSE).",
+                },
+            ),
+            (
+                "--run-id",
+                {
+                    "type": str,
+                    "default": None,
+                    "help": "Job-level run id (from {{job.run_id}}); shared with the drain workers.",
                 },
             ),
         ],
@@ -833,17 +783,33 @@ def main_preflight() -> None:
             max_units,
         )
     guard = _ActionContextGuard(provider_filter=provider_filter, max_units=max_units)
-    fr = timed_check(guard, spark, args.catalog, args.schema)
+    fr = timed_check(guard, spark, args.catalog, args.schema)  # telemetry (count + skip); discovery memoised
+    if fr.count == 0:
+        task_logger.info("Action context preflight: nothing to do")
+        _set_task_value("action_context_run_id", "", task_logger)
+        _set_task_value("action_context_worker_ids", [], task_logger)
+        return
 
-    chunks_for_inputs: list[str] = [",".join(chunk) for chunk in (fr.chunks or [])]
+    # Spark adapter imported function-locally: it pulls pyspark, and action_context.py must stay
+    # importable offline. Tests patch it at its source (ingestion.action_context_queue.DeltaWorkQueue).
+    from ingestion.action_context_queue import DeltaWorkQueue
 
+    units = guard.discover_units(spark, args.catalog, args.schema)  # memoised; check() already ran it
+    assignments = assign_workers(units, _ActionContextGuard._N_DRAIN_WORKERS)
+    run_id = _resolve_run_id(args)
+    queue = DeltaWorkQueue(spark, args.catalog)
+    queue.ensure_table()
+    queue.enqueue(run_id, assignments)
+
+    worker_ids = [str(i) for i in range(_ActionContextGuard._N_DRAIN_WORKERS)]
+    _set_task_value("action_context_run_id", run_id, task_logger)
+    _set_task_value("action_context_worker_ids", worker_ids, task_logger)
     task_logger.info(
-        "Action context preflight: %d missing matches across %d chunks",
-        fr.count,
-        len(chunks_for_inputs),
+        "Action context preflight: %d units across %d workers (run_id=%s)",
+        len(units),
+        len(worker_ids),
+        run_id,
     )
-
-    _write_action_chunks_task_value(chunks_for_inputs, task_logger)
 
 
 def _iteration_fingerprint(
@@ -1004,6 +970,64 @@ def main() -> None:
         provider,
         summary["n_matches_zero_rows"],
         summary["n_matches_processed"],
+    )
+
+
+def main_drain_worker() -> None:
+    """for-each worker (ADR-037): drain this worker's slice of the action-context queue.
+
+    Receives ``--worker-id "{{input}}"`` and ``--run-id`` from the preflight task
+    value (NOT from env -- see ADR-037 B1). The per-game watchdog (1800 s) bounds each
+    unit; the task timeout (8 h) bounds the whole drain.
+
+    ``drain_worker`` is module-level (pure, patch on ``ac``); the Spark adapters are
+    imported function-locally (they pull pyspark; action_context.py must import offline)
+    and tests patch them at their source ``ingestion.action_context_queue.*`` (P2).
+    """
+    args = parse_ingestion_args(
+        "Drain a worker's action-context queue slice",
+        extra_args=[
+            ("--worker-id", {"type": str, "default": None, "help": "for-each worker index"}),
+            ("--run-id", {"type": str, "default": None, "help": "preflight run id (task value)"}),
+        ],
+    )
+    task_logger = configure_logging("action_context_drain")
+    spark = get_spark_session()
+
+    from ingestion.bootstrap import bootstrap_hooks
+
+    bootstrap_hooks(spark, args.catalog, args.schema)
+
+    raw_wid = getattr(args, "worker_id", None)
+    run_id = getattr(args, "run_id", None)
+    if raw_wid is None or not str(raw_wid).strip():
+        raise SystemExit("--worker-id is required")
+    if not run_id or not str(run_id).strip():
+        task_logger.info("Empty run_id (preflight found nothing) -- drain worker exits cleanly")
+        return
+    worker_id = int(str(raw_wid).strip())
+    run_id = str(run_id).strip()
+
+    from ingestion.action_context_queue import DeltaWorkQueue, SparkGameProcessor, SparkInterruptWatchdog
+
+    queue = DeltaWorkQueue(spark, args.catalog)
+    # Short-circuit empty slices (e.g. scoped/provider-filtered runs with fewer units than
+    # workers): skip the xT-grid load + processor build for workers with no assigned units.
+    units = queue.units_for_worker(run_id, worker_id)
+    if not units:
+        task_logger.info("Drain worker %d: no units assigned for run %s -- exiting", worker_id, run_id)
+        return
+
+    processor = SparkGameProcessor(spark, args.catalog, args.schema)
+    watchdog = SparkInterruptWatchdog(spark)
+    summary = drain_worker(queue, processor, watchdog, run_id, worker_id, task_logger, units=units)
+    task_logger.info(
+        "Drain worker %d complete: processed=%d failed=%d timed_out=%d rows=%d",
+        worker_id,
+        summary.processed,
+        summary.failed,
+        summary.timed_out,
+        summary.total_rows,
     )
 
 

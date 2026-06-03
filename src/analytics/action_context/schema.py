@@ -209,13 +209,22 @@ def _restore_native_identity(actions: pd.DataFrame) -> pd.DataFrame:
     return actions
 
 
-def _null_to_none(v: object) -> object:
-    """Map a null cell (``None`` or float ``NaN``) to ``None``, pass real values through.
+def _to_native_string(v: object) -> str | None:
+    """Coerce a STRING-output cell to ``str`` (or ``None`` for null) — Arrow StringType-safe.
 
-    Used to keep STRING output columns object-dtype with ``None`` nulls (Arrow StringType-safe);
-    the ``isinstance(v, float)`` guard avoids pd.NA boolean-ambiguity on nullable dtypes.
+    A STRING-typed column can arrive holding non-string values: NaN where unresolved, OR numeric
+    ids (e.g. statsbomb's integer player ids, which pandas stores as float64 once NaN-mixed) — so
+    `spark.createDataFrame(schema=STRING)` raises BOTH `got float64` (all-numeric series) and
+    `Expected bytes, got a 'float' object` (object series with a surviving float). Mapping nulls to
+    None is NOT enough; real values must be stringified. Integral floats render without the ``.0``
+    (5522.0 -> "5522") so the native id matches its integer-string form. The ``isinstance(v, float)``
+    guards avoid pd.NA boolean-ambiguity on nullable dtypes.
     """
-    return None if v is None or (isinstance(v, float) and v != v) else v
+    if v is None or (isinstance(v, float) and v != v):  # None or NaN
+        return None
+    if isinstance(v, float) and v.is_integer():  # 5522.0 -> "5522", not "5522.0"
+        return str(int(v))
+    return str(v)
 
 
 def _ddl_string_columns(ddl: str) -> frozenset[str]:
@@ -232,12 +241,13 @@ def _ddl_string_columns(ddl: str) -> frozenset[str]:
     return frozenset(cols)
 
 
-# STRING-typed output columns. Spark Connect's Arrow serializer cannot convert an all-NULL
-# ``float64`` pandas column (what ``out[col] = np.nan`` produces) to ``StringType`` even WITH an
-# explicit ``schema=`` (ADR-033) — it raises ``ArrowTypeError: Expected a string ... got float64``.
-# This bit a statsbomb event-only match whose ``defending_gk_player_id_native`` resolved to no GK
-# on any action (all-NULL). build_output therefore fills/coerces STRING columns to object/None,
-# the same single-source-of-truth-driven coercion discipline as the GradientSports id fix (ADR-034).
+# STRING-typed output columns. Spark Connect's Arrow serializer cannot serialize a STRING column
+# whose pandas values are non-string: an all-NULL float64 (`out[col] = np.nan`) raises
+# `got float64`, and an object column holding numeric ids (statsbomb's integer player ids stored as
+# float64 once NaN-mixed) raises `Expected bytes, got a 'float' object` — even WITH an explicit
+# `schema=` (ADR-033). build_output therefore STRINGIFIES STRING columns (null -> None, numeric ->
+# str via _to_native_string), the same single-source-of-truth coercion discipline as the
+# GradientSports id fix (ADR-034). Bit statsbomb + wyscout event-only writes (ADR-033 amendment).
 _STRING_OUTPUT_COLUMNS = _ddl_string_columns(ACTION_CONTEXT_DDL)
 
 
@@ -273,13 +283,11 @@ def build_output(actions: pd.DataFrame, match_id_native: str, data_source: str) 
             # StringType under an explicit schema — see _STRING_OUTPUT_COLUMNS note + ADR-033 §amend).
             out[col] = None if col in _STRING_OUTPUT_COLUMNS else np.nan
 
-    # Coerce any STRING column that IS present but entirely NULL (silly-kicks may emit it as
-    # float64 when no value resolved) back to object/None, so the Arrow serializer maps it to a
-    # StringType null column rather than raising on a float64 series. (NaN -> None element-wise;
-    # an explicit list keeps the result object-dtype and avoids the float64 retention that
-    # ``Series.where(..., None)`` / ``astype`` leave behind.)
+    # STRINGIFY every STRING column (null -> None, numeric id -> str) so the explicit-schema Arrow
+    # write always sees str/None, never a float (all-NULL float64 OR an object column with numeric
+    # ids). Idempotent for already-string columns. See _to_native_string + ADR-033 amendment.
     for col in _STRING_OUTPUT_COLUMNS:
         if col in out.columns:
-            out[col] = np.array([_null_to_none(v) for v in out[col].tolist()], dtype=object)
+            out[col] = np.array([_to_native_string(v) for v in out[col].tolist()], dtype=object)
 
     return out[output_cols].copy()
