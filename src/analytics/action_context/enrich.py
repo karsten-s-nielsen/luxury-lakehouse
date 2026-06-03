@@ -282,13 +282,16 @@ def _enrich_tracking_match(
     # in the wheel → no network, safe in the no-internet Databricks UDF). actions_for_context
     # supplies score_diff / phase context.
     #
-    # kde_backend="cpu-numba": ghost-GK is the AC-1 bottleneck (~74% of the tracking chain on
-    # serverless — the weighted KDE over the full ~36k-point training cloud per action). The
-    # cpu-numba @njit kernel is 9.6x the "vectorized" numpy default and MACHINE-PRECISION
-    # identical to the scipy oracle (mode/mean/spread exact, grid rel-err ~1e-14) — so this is
-    # value-equivalent within golden tolerance, NO golden re-baseline (the mini-golden gate stays
-    # green). numba is present + validated on serverless (NUMBA_CACHE_DIR fix, ADR/PR #326). See
-    # project memory ac1-numba-das-cost. (FFT-KDE — ~2000x — is the eventual silly-kicks lever.)
+    # kde_backend="fft-cic": ghost-GK is the AC-1 bottleneck (~74% of the tracking chain — the
+    # weighted KDE over the full ~36k-point training cloud per action). The "fft-cic" backend
+    # (silly-kicks 4.9.0+) is the binned-convolution KDE with CIC (bilinear) binning — ~2000x the
+    # cpu-numba @njit kernel on large clouds, which is what makes a full metrica tracking game
+    # finish inside the per-game watchdog (cpu-numba cannot). It approximates the scipy-oracle
+    # argmax: on J03WMX_p1 it is 95% mode-exact (92/97), mean Δ 97mm, with 2 multi-metre flips on
+    # genuinely bimodal near-tie grids (argmax inherently unstable there); entropy/spread err
+    # <0.3%. CIC chosen over plain "fft" (NGP): 95% vs 78% mode-exact at the same cost. NOT
+    # value-equivalent to cpu-numba within bit tolerance — BOTH goldens were re-baselined to
+    # fft-cic. See ADR-035 (amendment) + project memory next-session-cic-ghost-gk-testing.
     out = add_ghost_gk(
         out,
         tracking_df,
@@ -296,7 +299,7 @@ def _enrich_tracking_match(
         links=links,
         home_team_id=home_team_id,
         actions_for_context=actions_df,
-        kde_backend="cpu-numba",
+        kde_backend="fft-cic",
     )
 
     # Step 13: GK influence (xt positional)

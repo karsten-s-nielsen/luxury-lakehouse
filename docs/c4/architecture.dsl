@@ -6,7 +6,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         developer = person "Developer" "Deploys updates, triggers pipeline runs, monitors costs"
         operator = person "Platform Operator" "Triggers retrain cycles, reviews job runs, manages synced tables"
 
-        taipyApp = softwareSystem "Taipy Dashboard" "18-page interactive analytics app on HF Spaces. Shot maps, player comparisons, defensive impact, workflow monitoring." {
+        taipyApp = softwareSystem "Taipy Dashboard" "17-page interactive analytics app on HF Spaces. Shot maps, player comparisons, defensive impact, workflow monitoring." {
             guiLayer = container "Taipy GUI" "Root template with sidebar nav, glossary panels, page routing. CSP defense-in-depth via Flask after_request." "Python, Taipy 4.1"
             adminApi = container "Admin API" "Flask blueprint for cache clear and synced table refresh. HF org membership auth." "Python, Flask"
             templateEngine = container "Template Engine" "Three layout builders (standard, sub-view, dashboard). Typed PageConfig dataclasses." "Python"
@@ -38,7 +38,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             artifactDeploy = container "Artifact Deploy" "Training-to-production contract (ADR-012). MLflow + UC Volume helpers." "Python"
             hfPublish = container "HF Publish Helper" "README delivery (ADR-014). upload_hf_readme + get_hf_card_path." "Python"
             databricksSqlFetch = container "Databricks SQL Fetch" "HTTP helper for HF Jobs trainers querying gold marts (no Spark)" "Python, requests"
-            ingestionPipelines = container "Compute Pipelines" "39 @workflow-decorated Databricks ingestion/compute pipelines across 6 providers. GS bronze frame dedup keep-first (ADR-030); per-provider silly-kicks 4.x ET-direction derivers (ADR-029)." "Python, PySpark"
+            ingestionPipelines = container "Compute Pipelines" "38 @workflow-decorated Databricks ingestion/compute pipelines across 6 providers. GS bronze frame dedup keep-first (ADR-030); per-provider silly-kicks 4.x ET-direction derivers (ADR-029)." "Python, PySpark"
             refreshSyncedTables = container "Synced Table Refresh" "Triggers SNAPSHOT refresh on 42 Lakebase synced tables via SDK postgres API" "Python, databricks-sdk"
             migrateSyncedTables = container "Synced Table Migration" "SDK-managed lifecycle: delete, CDF enable, create, wait (ADR-026). Replaces Terraform module." "Python, databricks-sdk"
             dbtRunner = container "dbt Runner" "python_wheel_task entry point. OAuth token exchange, warehouse start." "Python, dbt-core"
@@ -46,7 +46,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             calibrationRunner = container "TC-3 Calibration Runner" "Optuna TPE sweep for silly-kicks defaults: carrier params, k3, off-ball runs. Databricks SQL + ThreadPool." "Python, Optuna, XGBoost"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models: xG, xT, VAEP, OBSO, pitch control, embeddings" "Python, PyTorch"
             execVisibility = container "Executor Visibility (exec_visibility)" "Driver PhaseHeartbeat + executor env-fingerprint / faulthandler / UC-Volume rendezvous markers. Spark-Connect-safe applyInPandas progress + hang diagnostics (ADR-031)." "Python"
-            actionContextHexagon = container "Action Context Hexagon" "Pure-domain AC-1 enrichment to bronze.spadl_action_context (ADR-028): 5 ports + enrich_batch, identical in Spark UDF and local run_work_unit. 20-step tracking chain incl. ghost_gk + DAS." "Python, pandas, silly-kicks 4.6"
+            actionContextHexagon = container "Action Context Hexagon" "Pure-domain AC-1 enrichment to bronze.spadl_action_context (ADR-028): 5 ports + enrich_batch, identical in Spark UDF and local run_work_unit. 20-step tracking chain incl. ghost_gk + DAS." "Python, pandas, silly-kicks 4.9"
             sharedLibrary = container "Shared Library" "Cross-package constants. Zero external deps." "Python"
         }
 
@@ -78,7 +78,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         databricksWorkflows = softwareSystem "Databricks Workflows" "38-task daily DAG: 7 ingest, 15 compute, 5 preflight, 3 dbt_build, 2 backfill, 6 other (hf_sync, import, extract, refresh, resolve, validate)" "External"
         hfIdentity = softwareSystem "HuggingFace Identity API" "Token validation via /api/whoami-v2. Org membership check." "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds Dockerfile, serves port 7860." "External"
-        hfHub = softwareSystem "HuggingFace Hub" "16 models, 21 datasets, build-artifacts wheel. READMEs via ADR-014." "External"
+        hfHub = softwareSystem "HuggingFace Hub" "16 models, 20 datasets, 3 Spaces, build-artifacts wheel. READMEs via ADR-014." "External"
         hfJobs = softwareSystem "HuggingFace Jobs" "L40S GPU / cpu-basic compute for training and batch analytics" "External"
         openRouter = softwareSystem "OpenRouter" "LLM API: Claude Sonnet 4 (80%), Haiku 4.5 (20%) for Evolve mutations" "External"
 

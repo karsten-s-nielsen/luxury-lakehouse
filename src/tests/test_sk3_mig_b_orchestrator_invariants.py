@@ -227,7 +227,7 @@ def _extract_pep723_block(src: str) -> str:
 def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     """No trainer may pin `silly-kicks` in its PEP 723 deps.
 
-    The wheel's ``[spadl]`` extra (silly-kicks>=4.6.0,<5) is the single source
+    The wheel's ``[spadl]`` extra (silly-kicks>=4.9.0,<5) is the single source
     of truth. Trainers install ``luxury-lakehouse[spadl] @ ...wheel`` which
     resolves silly-kicks transitively. uv silently picks a conflicting
     top-level pin over the wheel's transitive pin (verified empirically
@@ -254,7 +254,7 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     )
 
 
-# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 6, 0) ──────────
+# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 9, 0) ──────────
 # Floor advanced 3.30.0 -> 4.0.0 (2026-05-30) to force silly-kicks 4.0.0 everywhere
 # (ET-direction symmetric guard via require_et_direction across all 5
 # per-period-absolute converters; breaking only for ET matches without the flag).
@@ -276,13 +276,17 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
 # Floor advanced 4.4.0 -> 4.6.0 (2026-06-02) to adopt silly-kicks 4.6.0: the FFT/binned-
 # convolution ghost-GK KDE backend (NGP binning; CIC not yet) — the O(grid log grid) lever
 # beyond cpu-numba — plus 4.4.1 (DAS "value-neutral" record corrected) and 4.5.0 (cacheable
-# infer_ball_carrier). AC-1 keeps kde_backend="cpu-numba" (exact); the fft backend is now
-# available for a future switch (which would need a golden re-baseline — it's approximate).
-# Matches the pyproject [spadl] pin `silly-kicks>=4.6.0,<5`.
+# infer_ball_carrier).
+# Floor advanced 4.6.0 -> 4.9.0 (2026-06-03) to adopt the fft-cic (CIC bilinear binning) ghost-GK
+# KDE backend (silly-kicks 4.8.0/4.9.0) as the AC-1 production default — the FFT lever that makes
+# a full metrica tracking game finish inside the per-game watchdog (cpu-numba cannot). fft-cic
+# approximates the scipy-oracle argmax (95% mode-exact on J03WMX_p1, mean Δ 97mm, entropy err
+# <0.3%), so BOTH AC-1 goldens were re-baselined to fft-cic. See ADR-035 (2nd amendment).
+# Matches the pyproject [spadl] pin `silly-kicks>=4.9.0,<5`.
 
 
 def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
-    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 6, 0)`.
+    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 9, 0)`.
 
     Per spec §2.10.5: the runtime check inside `main()` is not directly
     introspectable post-hoc, so we assert the constant. Code review covers
@@ -300,9 +304,9 @@ def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
         if not hasattr(trainer, "_REQUIRED_SK_MIN"):
             missing.append(item)
             continue
-        expected = (4, 6, 0)
+        expected = (4, 9, 0)
         actual = trainer._REQUIRED_SK_MIN
         if actual != expected:
             wrong_value[item] = actual
-    assert not missing, f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 6, 0)`: {missing}"
-    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 6, 0): {wrong_value}"
+    assert not missing, f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 9, 0)`: {missing}"
+    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 9, 0): {wrong_value}"
