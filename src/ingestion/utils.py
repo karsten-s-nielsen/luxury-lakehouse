@@ -12,9 +12,10 @@ import hashlib
 import json
 import logging
 import os
+import random
 import re
 import time
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
@@ -227,6 +228,95 @@ def add_audit_columns(df: DataFrame) -> DataFrame:
     return df.withColumn("_ingested_at", spark_fn.current_timestamp())
 
 
+# Concurrent-commit contention on a shared Delta table (ADR-038): N workers race the same
+# _delta_log version; one wins, the rest must retry. Delta's own retry does NOT catch the raw
+# S3-400 the serverless coordinated-commit path raises (run 730644476818402), so we match it here.
+# DRIFT RISK: this is stringly-typed on JVM messages; a DBR upgrade can change the format and
+# silently stop matching. The exhaustion-ERROR log in _commit_with_retry surfaces that.
+_COMMIT_CONFLICT_MARKERS: frozenset[str] = frozenset(
+    {
+        "ConcurrentAppendException",
+        "ConcurrentDeleteReadException",
+        "ConcurrentDeleteDeleteException",
+        "ConcurrentModificationException",
+        "ProtocolChangedException",
+        "CommitFailedException",
+    }
+)
+_S3_COMMIT_PATH_MARKERS: frozenset[str] = frozenset(
+    {"putIfAbsent", "writeCommit", "MultiClusterLogStore", "S3CommitClient"}
+)
+# Broad on purpose: a conditional-write conflict's canonical codes are 409/412, but Databricks'
+# coordinated-commit path was observed to surface it as 400. "Status Code: 4" future-proofs all 4xx.
+_S3_4XX_MARKERS: frozenset[str] = frozenset({"Bad Request", "Status Code: 4", " 400"})
+
+# Sized to the AC-1 for-each fan-out (concurrency 8): a worker can lose the _delta_log-version race
+# more than once under 8-way contention, so allow > 8 attempts. An extra event-only retry costs
+# ~seconds; exhausting costs a hard write failure -> over-provision.
+_COMMIT_MAX_ATTEMPTS = 10
+_COMMIT_BACKOFF_BASE_S = 0.5
+_COMMIT_BACKOFF_CAP_S = 20.0
+
+
+def _is_concurrent_commit_error(exc: BaseException) -> bool:
+    """True if ``exc`` is a Delta concurrent-commit conflict that should be retried.
+
+    Matches the typed Delta conflict family OR the serverless S3-400-at-commit signature
+    (a 4xx whose message references the ``_delta_log`` commit path). Marker-based because
+    Spark Connect returns these as stringly-typed SparkExceptions (ADR-002 §3 discipline).
+    """
+    msg = str(exc)
+    if any(m in msg for m in _COMMIT_CONFLICT_MARKERS):
+        return True
+    return (
+        "_delta_log" in msg
+        and any(m in msg for m in _S3_COMMIT_PATH_MARKERS)
+        and any(m in msg for m in _S3_4XX_MARKERS)
+    )
+
+
+def _commit_with_retry(commit_fn: Callable[[], None], table: str, logger: logging.Logger | None) -> None:
+    """Run ``commit_fn`` (a Delta write), retrying ONLY concurrent-commit conflicts.
+
+    Full jitter is essential: N drain workers racing one table would re-collide on a fixed schedule;
+    jitter de-synchronises them so they serialise across _delta_log versions. Non-conflict errors
+    raise immediately; conflicts past the attempt cap raise too (with an ERROR hint, since either
+    contention is severe or the matcher drifted -- see _is_concurrent_commit_error).
+    """
+    # max(..., 1) guarantees the commit is attempted at least once even if _COMMIT_MAX_ATTEMPTS is
+    # ever misconfigured to < 1 -- a write helper must never silently no-op (return without writing).
+    max_attempts = max(_COMMIT_MAX_ATTEMPTS, 1)
+    for attempt in range(1, max_attempts + 1):
+        try:
+            commit_fn()
+            return
+        except Exception as exc:
+            if not _is_concurrent_commit_error(exc):
+                raise
+            if attempt >= max_attempts:
+                if logger is not None:
+                    logger.error(
+                        "write_delta_table exhausted %d concurrent-commit retries on %s -- contention "
+                        "severe, OR _is_concurrent_commit_error may have drifted (DBR change); compare "
+                        "against _S3_COMMIT_PATH_MARKERS",
+                        max_attempts,
+                        table,
+                    )
+                raise
+            ceiling = min(_COMMIT_BACKOFF_CAP_S, _COMMIT_BACKOFF_BASE_S * 2 ** (attempt - 1))
+            sleep_s = random.uniform(0, ceiling)  # noqa: S311 -- backoff jitter, not cryptographic
+            if logger is not None:
+                logger.warning(
+                    "write_delta_table concurrent-commit retry %d/%d on %s after %.2fs (%s)",
+                    attempt,
+                    max_attempts,
+                    table,
+                    sleep_s,
+                    type(exc).__name__,
+                )
+            time.sleep(sleep_s)
+
+
 def write_delta_table(
     df: DataFrame,
     catalog: str,
@@ -275,7 +365,7 @@ def write_delta_table(
     else:
         writer = writer.option("mergeSchema", "true").mode(mode)
 
-    writer.saveAsTable(full_table)
+    _commit_with_retry(lambda: writer.saveAsTable(full_table), full_table, logger)
 
     if logger:
         logger.info("Wrote %d rows to %s", row_count, full_table)
@@ -320,6 +410,8 @@ def merge_delta_table(
         msg = f"Invalid table_name '{table_name}': must match {IDENTIFIER_RE.pattern}"
         raise ValueError(msg)
 
+    # NOTE: single-writer today, so no concurrent-commit retry. If a concurrent merge writer is ever
+    # added, wrap the merge/commit in _commit_with_retry (ADR-038) -- same S3-400 contention class.
     full_table = f"{catalog}.{schema}.{table_name}"
     df = add_audit_columns(df)
     if row_count is None:

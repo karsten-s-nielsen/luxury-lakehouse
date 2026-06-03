@@ -98,6 +98,9 @@ now a **per-game watchdog inside the worker**, and the task is a **documented ex
 
 - **Spec:** `docs/superpowers/specs/2026-06-02-action-context-worker-drain-fanout-design.md`
 - **ADRs:** complements ADR-028 (AC-1 hexagon); independent of ADR-033/034 (schema/coercion).
+- **ADR-038** — Delta concurrent-commit retry in `write_delta_table`, the fix for the
+  concurrent-commit contention this worker-drain exposed (run 730644476818402: 1/5 written, 4/5
+  identical S3-400 racing `_delta_log/00035.json`).
 - **Code:** `src/analytics/action_context/drain.py`, `src/ingestion/action_context_queue.py`,
   `src/ingestion/action_context.py` (`discover_units`, `main_preflight`, `main_drain_worker`),
   `scripts/migrations/2026-06-02-create-action-context-work-queue.sql`,

@@ -326,3 +326,159 @@ class TestWriteDeltaTable:
 
         write_delta_table(mock_df, "cat", "sch", "tbl", logger=mock_logger)
         mock_logger.info.assert_called_once_with("Wrote %d rows to %s", 100, "cat.sch.tbl")
+
+
+# ---------------------------------------------------------------------------
+# Delta concurrent-commit retry (ADR-038)
+# ---------------------------------------------------------------------------
+
+from ingestion.utils import (  # noqa: E402
+    _COMMIT_BACKOFF_BASE_S,
+    _COMMIT_BACKOFF_CAP_S,
+    _COMMIT_MAX_ATTEMPTS,
+    _commit_with_retry,
+    _is_concurrent_commit_error,
+)
+
+# Real observed S3-400-at-commit message snippet (run 730644476818402, worker 0).
+_S3_COMMIT_400 = (
+    "(shaded.databricks.awssdk.com.amazonaws.services.s3.model.AmazonS3Exception) Bad Request; "
+    "request: HEAD https://dbstorage-prod-1huff.s3.amazonaws.com uc/.../__unitystorage/catalogs/"
+    ".../tables/.../_delta_log/00000000000000000035.json ... "
+    "com.databricks.tahoe.store.EnhancedS3AFileSystem.nativeS3PutIfAbsent ... "
+    "com.databricks.tahoe.store.MultiClusterLogStore.writeCommit ... Status Code: 400; "
+    "Error Code: 400 Bad Request"
+)
+
+
+def test_matcher_true_on_delta_conflict_markers() -> None:
+    for marker in (
+        "ConcurrentAppendException",
+        "ConcurrentDeleteReadException",
+        "ConcurrentDeleteDeleteException",
+        "ConcurrentModificationException",
+        "ProtocolChangedException",
+        "CommitFailedException",
+    ):
+        assert _is_concurrent_commit_error(RuntimeError(f"Job aborted: {marker}: files added")), marker
+
+
+def test_matcher_true_on_s3_400_at_commit() -> None:
+    assert _is_concurrent_commit_error(RuntimeError(_S3_COMMIT_400))
+
+
+def test_matcher_true_on_412_precondition_at_commit() -> None:
+    # canonical conditional-write conflict code; the broad "Status Code: 4" marker is DELIBERATE.
+    msg = (
+        "AmazonS3Exception Precondition Failed; HEAD .../_delta_log/00035.json "
+        "com.databricks.tahoe.store.MultiClusterLogStore.writeCommit Status Code: 412"
+    )
+    assert _is_concurrent_commit_error(RuntimeError(msg))
+
+
+def test_matcher_false_on_unrelated_400() -> None:
+    plain = "AmazonS3Exception Bad Request; request: GET s3://bucket/data/file.parquet Status Code: 400"
+    assert not _is_concurrent_commit_error(RuntimeError(plain))
+
+
+def test_matcher_false_on_delta_log_read_400() -> None:
+    read = "AmazonS3Exception Bad Request; HEAD .../_delta_log/00000000000000000010.json Status Code: 400"
+    assert not _is_concurrent_commit_error(RuntimeError(read))
+
+
+def test_matcher_false_on_commit_path_4xx_without_delta_log() -> None:
+    msg = "AmazonS3Exception Bad Request; MultiClusterLogStore.writeCommit Status Code: 400 (no log path)"
+    assert not _is_concurrent_commit_error(RuntimeError(msg))
+
+
+def test_matcher_false_on_other_errors() -> None:
+    assert not _is_concurrent_commit_error(RuntimeError("[TABLE_OR_VIEW_NOT_FOUND] cannot find table"))
+    assert not _is_concurrent_commit_error(ValueError("boom"))
+
+
+def test_commit_with_retry_succeeds_after_conflicts(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("ingestion.utils.time.sleep", lambda *_: None)
+    calls = {"n": 0}
+
+    def _commit() -> None:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise RuntimeError("Job aborted due to ConcurrentAppendException: files added")
+
+    _commit_with_retry(_commit, "cat.bronze.t", logger=None)
+    assert calls["n"] == 3
+
+
+def test_commit_with_retry_reraises_non_retryable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("ingestion.utils.time.sleep", lambda *_: None)
+    calls = {"n": 0}
+
+    def _commit() -> None:
+        calls["n"] += 1
+        raise ValueError("boom")
+
+    with pytest.raises(ValueError, match="boom"):
+        _commit_with_retry(_commit, "cat.bronze.t", logger=None)
+    assert calls["n"] == 1
+
+
+def test_commit_with_retry_exhausts_then_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("ingestion.utils.time.sleep", lambda *_: None)
+    calls = {"n": 0}
+
+    def _commit() -> None:
+        calls["n"] += 1
+        raise RuntimeError("ConcurrentAppendException always")
+
+    with pytest.raises(RuntimeError, match="ConcurrentAppendException"):
+        _commit_with_retry(_commit, "cat.bronze.t", logger=None)
+    assert calls["n"] == _COMMIT_MAX_ATTEMPTS
+
+
+def test_commit_with_retry_jitter_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    slept: list[float] = []
+    monkeypatch.setattr("ingestion.utils.time.sleep", lambda s: slept.append(s))
+
+    def _commit() -> None:
+        raise RuntimeError("ConcurrentAppendException")
+
+    with pytest.raises(RuntimeError):
+        _commit_with_retry(_commit, "cat.bronze.t", logger=None)
+    assert len(slept) == _COMMIT_MAX_ATTEMPTS - 1
+    for attempt, s in enumerate(slept, start=1):
+        ceiling = min(_COMMIT_BACKOFF_CAP_S, _COMMIT_BACKOFF_BASE_S * 2 ** (attempt - 1))
+        assert 0.0 <= s <= ceiling, (attempt, s, ceiling)
+
+
+def test_commit_with_retry_always_attempts_once_even_if_misconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
+    # invariant: a write helper must NEVER silently no-op. Even if _COMMIT_MAX_ATTEMPTS is misconfigured
+    # to 0, the commit must still be attempted exactly once (the max(..., 1) guard).
+    monkeypatch.setattr("ingestion.utils._COMMIT_MAX_ATTEMPTS", 0)
+    monkeypatch.setattr("ingestion.utils.time.sleep", lambda *_: None)
+    calls = {"n": 0}
+
+    def _commit() -> None:
+        calls["n"] += 1
+
+    _commit_with_retry(_commit, "cat.bronze.t", logger=None)
+    assert calls["n"] == 1  # attempted once despite the bad constant -- no silent no-op
+
+
+def test_write_delta_table_routes_commit_through_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(utils_mod, "add_audit_columns", lambda df: df)
+    writer = MagicMock()
+    df = MagicMock()
+    df.write.format.return_value.option.return_value.option.return_value.mode.return_value = writer
+
+    captured: dict[str, object] = {}
+
+    def _fake_retry(commit_fn: object, table: str, logger: object) -> None:
+        captured["table"] = table
+        commit_fn()  # type: ignore[operator]
+
+    monkeypatch.setattr(utils_mod, "_commit_with_retry", _fake_retry)
+
+    rows = write_delta_table(df, "cat", "bronze", "spadl_action_context", replace_where="match_id = 'X'", row_count=7)
+    assert rows == 7
+    assert captured["table"] == "cat.bronze.spadl_action_context"
+    writer.saveAsTable.assert_called_once_with("cat.bronze.spadl_action_context")
