@@ -89,6 +89,10 @@ with action_raw as (
         gk_reachable_area_m2,
         gk_closing_time_mean_s__six_yard_box,
         gk_closing_time_min_s__six_yard_box,
+        gk_closing_time_mean_s__near_post,
+        gk_closing_time_min_s__near_post,
+        gk_closing_time_mean_s__far_post,
+        gk_closing_time_min_s__far_post,
         n_blocked_receivers,
         n_potential_receivers,
         blocking_score,
@@ -116,7 +120,9 @@ with action_raw as (
         shape_graph_mean_stability_defending,
         ghost_gk_x,
         ghost_gk_y,
-        ghost_gk_spread
+        ghost_gk_spread,
+        xshot_occurrence,
+        pitch_control_method
     from {{ ref('stg_action_context__values') }}
 
 ),
@@ -225,6 +231,10 @@ final as (
         gk_reachable_area_m2,
         gk_closing_time_mean_s__six_yard_box,
         gk_closing_time_min_s__six_yard_box,
+        gk_closing_time_mean_s__near_post,
+        gk_closing_time_min_s__near_post,
+        gk_closing_time_mean_s__far_post,
+        gk_closing_time_min_s__far_post,
         n_blocked_receivers,
         n_potential_receivers,
         blocking_score,
@@ -252,7 +262,9 @@ final as (
         shape_graph_mean_stability_defending,
         ghost_gk_x,
         ghost_gk_y,
-        ghost_gk_spread
+        ghost_gk_spread,
+        xshot_occurrence,
+        pitch_control_method
 
     from keyed
     -- No QUALIFY needed: staging dedup + single Kimball join = guaranteed unique grain.

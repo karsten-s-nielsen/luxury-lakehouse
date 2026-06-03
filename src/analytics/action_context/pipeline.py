@@ -207,7 +207,10 @@ def enrich_batch(
         actions = pd.DataFrame(actions_records)
         if actions.empty:
             return _empty_result()
-        result = _enrich_sb360_match(actions, frames_pdf, meta.home_team_id)
+        # xt for the SB360 voronoi pitch-control metrics (gk_influence). The grid params are
+        # already enrich_batch arguments; the tracking branch reconstructs the same below (ADR-039).
+        xt = _reconstruct_xt(xt_grid_data, xt_l, xt_w)
+        result = _enrich_sb360_match(actions, frames_pdf, meta.home_team_id, xt)
         return build_output(result, native_match_id, provider)
 
     # ── tracking tier (per-250-frame batch) ──

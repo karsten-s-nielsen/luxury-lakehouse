@@ -1,7 +1,7 @@
 """Action-context enrichment tiers (pure pandas/numpy/silly_kicks).
 
 Moved verbatim from ``ingestion.action_context`` (behavior-preserving). Three
-tiers — tracking (full ~20-step chain), SB360 (synthetic freeze-frames), and
+tiers — tracking (full ~21-step chain), SB360 (synthetic freeze-frames), and
 event-only — plus the mutate-then-restore identity resolver. No pyspark; runs
 identically on a Spark executor (inside the applyInPandas UDF) and locally.
 """
@@ -187,6 +187,7 @@ def _enrich_tracking_match(
         add_space_creation,
         add_sync_score,
         add_team_shape,
+        add_xshot_occurrence,
         derive_team_in_possession,
         infer_ball_carrier,
         link_actions_to_frames,
@@ -302,8 +303,19 @@ def _enrich_tracking_match(
         kde_backend="fft-cic",
     )
 
-    # Step 13: GK influence (xt positional)
-    out = add_gk_influence(out, tracking_df, xt, links=links, home_team_id=home_team_id, pitch_control_cache=pc_cache)
+    # Step 13: GK influence (xt positional). Explicit method="spearman" (velocity-aware; full
+    # tracking has velocity) keeps the pitch_control_method provenance label honest if the
+    # silly-kicks default ever changes. zone_names persists near/far-post closing-time too.
+    out = add_gk_influence(
+        out,
+        tracking_df,
+        xt,
+        links=links,
+        home_team_id=home_team_id,
+        pitch_control_cache=pc_cache,
+        method="spearman",
+        zone_names=["six_yard_box", "near_post", "far_post"],
+    )
 
     # Step 14: Cover shadows (xt positional). detailed=True: the cheap fixed-cast default
     # only affects max_single_defender_blocking_score, where it diverges from the accurate
@@ -317,11 +329,18 @@ def _enrich_tracking_match(
     # to action-linked frames internally when `links` is supplied (bit-identical).
     out = add_shape_graph(out, tracking_df, links=links, home_team_id=home_team_id)
 
-    # Step 16: OBSO — MUST precede add_pausa
-    out = add_obso(out, tracking_df, links=links, home_team_id=home_team_id, pitch_control_cache=pc_cache)
+    # Step 16: OBSO — MUST precede add_pausa. Explicit spearman (provenance honesty).
+    out = add_obso(
+        out,
+        tracking_df,
+        links=links,
+        home_team_id=home_team_id,
+        pitch_control_cache=pc_cache,
+        pitch_control_method="spearman",
+    )
 
     # Step 17: PAUSA (depends on OBSO columns from Step 16)
-    out = add_pausa(out, tracking_df, links=links, home_team_id=home_team_id)
+    out = add_pausa(out, tracking_df, links=links, home_team_id=home_team_id, pitch_control_method="spearman")
 
     # Step 18: Space creation
     out = add_space_creation(out, tracking_df, links=links, home_team_id=home_team_id, pitch_control_cache=pc_cache)
@@ -332,6 +351,16 @@ def _enrich_tracking_match(
     # Step 20: Sync score
     out = add_sync_score(out, links)
 
+    # Step 21: xShotOccurrence (xS) — P(shot attempted); Pipping-Gamón, Feng & Sabin (2026),
+    # arXiv:2512.00203. Bundled "default" XGBoost (model=None; no network, serverless-safe).
+    # Reuse the shared pitch-control cache. ADR-039.
+    out = add_xshot_occurrence(
+        out, tracking_df, model=None, links=links, home_team_id=home_team_id, pitch_control_cache=pc_cache
+    )
+
+    # Provenance: the persisted pitch-control-derived metrics on the tracking path use spearman.
+    out["pitch_control_method"] = "spearman"
+
     return out
 
 
@@ -339,12 +368,15 @@ def _enrich_sb360_match(
     actions_df: pd.DataFrame,
     freeze_frames: pd.DataFrame,
     home_team_id: str,
+    xt: ExpectedThreat,
 ) -> pd.DataFrame:
     """Enrichment chain for StatsBomb 360 matches.
 
-    Uses snapshot_to_tracking_frames to convert per-event freeze-frame
-    snapshots into synthetic tracking frames, then runs single-frame
-    add_* features. Velocity/temporal features remain NULL.
+    Uses snapshot_to_tracking_frames to convert per-event freeze-frame snapshots into synthetic
+    tracking frames, then runs every single-frame-supportable enrichment (ADR-039). Velocity- and
+    temporal-dependent features (DAS, cover_shadows, pre_shot_gk, off-ball, space-creation, elastic)
+    remain NULL. Pitch-control-dependent metrics use voronoi (position-only — freeze-frames have no
+    velocity); pitch_control_method='voronoi' records the provenance. All partial/sparse.
     """
     from silly_kicks.spadl import add_game_state
     from silly_kicks.spadl.utils import add_pre_shot_gk_context
@@ -352,9 +384,15 @@ def _enrich_sb360_match(
         add_action_context,
         add_defensive_line,
         add_line_break,
+        add_obso,
+        add_pausa,
+        add_pressure_on_actor,
+        add_shape_graph,
         add_team_shape,
+        add_xshot_occurrence,
         snapshot_to_tracking_frames,
     )
+    from silly_kicks.tracking.features import add_ghost_gk, add_gk_influence
 
     # Step 0: Actions-only enrichments
     out = add_game_state(actions_df)
@@ -379,6 +417,36 @@ def _enrich_sb360_match(
 
     # Step 5: Team shape
     out = add_team_shape(out, frames, links=links, home_team_id=home_team_id)
+
+    # SB360 coverage (ADR-039): the remaining single-frame-supportable metrics. Pitch-control-
+    # dependent ones use voronoi (no velocity on freeze-frames; spearman returns all-NaN). All
+    # partial/sparse — honest NULL where the freeze-frame lacks the needed players.
+    out = add_pressure_on_actor(out, frames, links=links)
+    out = add_shape_graph(out, frames, links=links, home_team_id=home_team_id)
+    out = add_ghost_gk(
+        out,
+        frames,
+        model="default",
+        links=links,
+        home_team_id=home_team_id,
+        actions_for_context=out,
+        kde_backend="fft-cic",
+    )
+    out = add_gk_influence(
+        out,
+        frames,
+        xt,
+        links=links,
+        home_team_id=home_team_id,
+        method="voronoi",
+        zone_names=["six_yard_box", "near_post", "far_post"],
+    )
+    out = add_obso(out, frames, links=links, home_team_id=home_team_id, pitch_control_method="voronoi")
+    out = add_pausa(out, frames, links=links, home_team_id=home_team_id, pitch_control_method="voronoi")
+    out = add_xshot_occurrence(out, frames, model=None, links=links, home_team_id=home_team_id)
+
+    # Provenance: the persisted pitch-control-derived metrics on SB360 use voronoi (ADR-039).
+    out["pitch_control_method"] = "voronoi"
 
     return out
 

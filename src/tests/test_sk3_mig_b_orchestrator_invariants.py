@@ -227,7 +227,7 @@ def _extract_pep723_block(src: str) -> str:
 def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     """No trainer may pin `silly-kicks` in its PEP 723 deps.
 
-    The wheel's ``[spadl]`` extra (silly-kicks>=4.9.0,<5) is the single source
+    The wheel's ``[spadl]`` extra (silly-kicks>=4.9.1,<5) is the single source
     of truth. Trainers install ``luxury-lakehouse[spadl] @ ...wheel`` which
     resolves silly-kicks transitively. uv silently picks a conflicting
     top-level pin over the wheel's transitive pin (verified empirically
@@ -254,7 +254,7 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     )
 
 
-# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 9, 0) ──────────
+# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 9, 1) ──────────
 # Floor advanced 3.30.0 -> 4.0.0 (2026-05-30) to force silly-kicks 4.0.0 everywhere
 # (ET-direction symmetric guard via require_et_direction across all 5
 # per-period-absolute converters; breaking only for ET matches without the flag).
@@ -282,11 +282,14 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
 # a full metrica tracking game finish inside the per-game watchdog (cpu-numba cannot). fft-cic
 # approximates the scipy-oracle argmax (95% mode-exact on J03WMX_p1, mean Δ 97mm, entropy err
 # <0.3%), so BOTH AC-1 goldens were re-baselined to fft-cic. See ADR-035 (2nd amendment).
-# Matches the pyproject [spadl] pin `silly-kicks>=4.9.0,<5`.
+# Floor advanced 4.9.0 -> 4.9.1 (2026-06-03) to adopt silly-kicks 4.9.1's DAS empty-frame-batch
+# fix (guards the accessible-space None simulation_result on a zero-frame subset; GS-10502 class)
+# alongside the xShotOccurrence + gk_influence-zone + SB360-coverage feature work. See ADR-039.
+# Matches the pyproject [spadl] pin `silly-kicks>=4.9.1,<5`.
 
 
 def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
-    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 9, 0)`.
+    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 9, 1)`.
 
     Per spec §2.10.5: the runtime check inside `main()` is not directly
     introspectable post-hoc, so we assert the constant. Code review covers
@@ -304,9 +307,9 @@ def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
         if not hasattr(trainer, "_REQUIRED_SK_MIN"):
             missing.append(item)
             continue
-        expected = (4, 9, 0)
+        expected = (4, 9, 1)
         actual = trainer._REQUIRED_SK_MIN
         if actual != expected:
             wrong_value[item] = actual
-    assert not missing, f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 9, 0)`: {missing}"
-    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 9, 0): {wrong_value}"
+    assert not missing, f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 9, 1)`: {missing}"
+    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 9, 1): {wrong_value}"

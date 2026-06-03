@@ -130,6 +130,10 @@ cleaned as (
         cast(gk_reachable_area_m2 as double) as gk_reachable_area_m2,
         cast(gk_closing_time_mean_s__six_yard_box as double) as gk_closing_time_mean_s__six_yard_box,
         cast(gk_closing_time_min_s__six_yard_box as double) as gk_closing_time_min_s__six_yard_box,
+        cast(gk_closing_time_mean_s__near_post as double) as gk_closing_time_mean_s__near_post,
+        cast(gk_closing_time_min_s__near_post as double) as gk_closing_time_min_s__near_post,
+        cast(gk_closing_time_mean_s__far_post as double) as gk_closing_time_mean_s__far_post,
+        cast(gk_closing_time_min_s__far_post as double) as gk_closing_time_min_s__far_post,
         -- Cover shadows
         cast(n_blocked_receivers as bigint) as n_blocked_receivers,
         cast(n_potential_receivers as bigint) as n_potential_receivers,
@@ -165,7 +169,10 @@ cleaned as (
         -- Ghost GK
         cast(ghost_gk_x as double) as ghost_gk_x,
         cast(ghost_gk_y as double) as ghost_gk_y,
-        cast(ghost_gk_spread as double) as ghost_gk_spread
+        cast(ghost_gk_spread as double) as ghost_gk_spread,
+        -- xShotOccurrence + pitch-control provenance (ADR-039)
+        cast(xshot_occurrence as double) as xshot_occurrence,
+        cast(pitch_control_method as string) as pitch_control_method
 
     from deduplicated
     where _row_num = 1

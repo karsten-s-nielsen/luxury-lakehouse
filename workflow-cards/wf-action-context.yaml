@@ -44,7 +44,7 @@ outputs:
   tables:
     - id: "{catalog}.bronze.spadl_action_context"
       destination: delta-table
-      description: "Per-action context features (~102 columns for tracking, ~5 for event-only)"
+      description: "Per-action context features (~110 columns for tracking, ~5 for event-only)"
 
 execution:
   enrichment:
@@ -68,6 +68,10 @@ idempotency:
 performance:
   memory_ceiling: "800 MB per UDF group (1 GB limit)"
   compute_estimate: "2-5 min per tracking match, <10s per event-only match"
+
+references:
+  - citation: "Pipping-Gamón, Feng & Sabin (2026). Beyond Expected Goals: A Probabilistic Framework for Shot Occurrences in Soccer. arXiv:2512.00203 (xShotOccurrence / xshot_occurrence)"
+    role: methodology
 ---
 
 ## Overview
@@ -76,4 +80,4 @@ Unified action context pipeline (AC-1). Runs the full silly-kicks enrichment
 chain in a single applyInPandas pass per match. Covers all 6 providers:
 StatsBomb, Wyscout, IDSSE, Metrica, SkillCorner, GradientSports.
 Event-only providers get game_state + GK resolution (~5 columns);
-tracking providers get the full ~102 column feature set.
+tracking providers get the full ~110 column feature set.

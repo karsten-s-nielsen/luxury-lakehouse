@@ -35,10 +35,12 @@ Note: IDSSE ``frame`` is not 0-based (period 1 starts at 10000, period 2 at 1000
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import time
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -209,6 +211,53 @@ def _pull_actions(*, provider: str, match_id: str, catalog: str, bronze: str, wa
         f"ORDER BY period_id, action_id"
     )
     return _execute_query_to_df(sql, warehouse_id)
+
+
+def _pull_sb360_snapshots(
+    *, match_id: str, actions_pdf: pd.DataFrame, catalog: str, bronze: str, warehouse_id: str
+) -> pd.DataFrame:
+    """Build the SB360 snapshot frame (action_id, team_id, is_goalkeeper, x, y) from
+    bronze.statsbomb_360 — mirrors ingestion.action_context._run_sb360_enrichment exactly so the
+    committed fixture matches production. Empty DataFrame if the match has no 360 data."""
+    sb = _execute_query_to_df(
+        f"SELECT id, teammate, keeper, location FROM {catalog}.{bronze}.statsbomb_360 "  # noqa: S608
+        f"WHERE match_id = {int(match_id)}",
+        warehouse_id,
+    )
+    if sb.empty:
+        return pd.DataFrame(columns=["action_id", "team_id", "is_goalkeeper", "x", "y"])
+    _ev = actions_pdf["original_event_id"].dropna()
+    ev2act = dict(zip(_ev, actions_pdf.loc[_ev.index, "action_id"], strict=True))
+    act2team = dict(zip(actions_pdf["action_id"], actions_pdf["team_id"].astype(str), strict=False))
+    all_teams = [str(t) for t in actions_pdf["team_id"].dropna().unique()]
+    rows: list[dict[str, Any]] = []
+    for _, row in sb.iterrows():
+        aid = ev2act.get(str(row.get("id", "")))
+        if aid is None:
+            continue
+        at = act2team.get(aid)
+        if at is None:
+            continue
+        opp = [t for t in all_teams if t != at]
+        team_id = at if bool(row.get("teammate", False)) else (opp[0] if opp else at)
+        loc = row.get("location")
+        if isinstance(loc, str):
+            try:
+                loc = json.loads(loc)
+            except (json.JSONDecodeError, TypeError):
+                continue
+        if not isinstance(loc, (list, tuple)) or len(loc) < 2:
+            continue
+        rows.append(
+            {
+                "action_id": int(aid),
+                "team_id": team_id,
+                "is_goalkeeper": bool(row.get("keeper", False)),
+                "x": float(loc[0]),
+                "y": float(loc[1]),
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def _pull_xt_grid(*, catalog: str, bronze: str, warehouse_id: str) -> pd.DataFrame:
@@ -413,6 +462,12 @@ def main() -> None:
     parser.add_argument("--bronze-schema", default="bronze")
     parser.add_argument("--gold-schema", default="dev_gold")
     parser.add_argument("--no-oracles", action="store_true", help="Skip legacy oracle pulls (frames/actions only).")
+    parser.add_argument(
+        "--max-actions",
+        type=int,
+        default=None,
+        help="Slice actions to the first N (keeps the SB360 fixture small; statsbomb only).",
+    )
     args = parser.parse_args()
 
     for var in ("DATABRICKS_HOST", "DATABRICKS_TOKEN", "DATABRICKS_SQL_WAREHOUSE_ID"):
@@ -450,8 +505,22 @@ def main() -> None:
     )
     if actions.empty:
         raise SystemExit(f"No SPADL actions for {provider}/{match_id} — nothing to extract.")
+    if args.max_actions is not None:
+        actions = actions.head(args.max_actions).copy()
+        logger.info("sliced actions to first %d", args.max_actions)
     actions.to_parquet(out_dir / "actions.parquet", index=False)
     logger.info("actions: %d rows", len(actions))
+
+    # SB360 freeze-frame snapshots (statsbomb only — drives the sb360 hexagon tier).
+    if provider == "statsbomb":
+        sb360 = _pull_sb360_snapshots(
+            match_id=match_id, actions_pdf=actions, catalog=catalog, bronze=bronze, warehouse_id=warehouse_id
+        )
+        if not sb360.empty:
+            sb360.to_parquet(out_dir / "sb360.parquet", index=False)
+            logger.info("sb360: %d snapshot rows (%d actions)", len(sb360), sb360["action_id"].nunique())
+        else:
+            logger.info("sb360: no freeze-frame data for %s — event-only fixture", match_id)
 
     # tracking (tracking providers only)
     if provider in _TRACKING_PROVIDERS:
