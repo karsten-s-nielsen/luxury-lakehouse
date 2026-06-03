@@ -70,7 +70,8 @@ performance:
   compute_estimate: "2-5 min per tracking match, <10s per event-only match"
 
 references:
-  - "Pipping-Gamón, Feng & Sabin (2026). Beyond Expected Goals: A Probabilistic Framework for Shot Occurrences in Soccer. arXiv:2512.00203 (xShotOccurrence / xshot_occurrence)"
+  - citation: "Pipping-Gamón, Feng & Sabin (2026). Beyond Expected Goals: A Probabilistic Framework for Shot Occurrences in Soccer. arXiv:2512.00203 (xShotOccurrence / xshot_occurrence)"
+    role: methodology
 ---
 
 ## Overview
