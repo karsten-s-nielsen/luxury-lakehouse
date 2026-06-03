@@ -25,6 +25,7 @@ from analytics.action_context.enrich import (
     _enrich_event_only_match,
     _enrich_sb360_match,
 )
+from analytics.action_context.pipeline import _reconstruct_xt
 from analytics.action_context.schema import (
     ACTION_CONTEXT_DDL as _ACTION_CONTEXT_DDL,
 )
@@ -949,7 +950,7 @@ def main() -> None:
                 task_logger,
             )
         elif provider == "statsbomb":
-            written = _process_statsbomb_match(spark, catalog, schema, match_id, task_logger)
+            written = _process_statsbomb_match(spark, catalog, schema, match_id, xt_grid_data, xt_l, xt_w, task_logger)
         elif provider == "wyscout":
             written = _process_event_only_match(spark, catalog, schema, "wyscout", match_id, task_logger)
         else:
@@ -1686,6 +1687,9 @@ def _process_statsbomb_match(
     catalog: str,
     schema: str,
     match_id: str,
+    xt_grid_data: list[list[float]],
+    xt_l: int,
+    xt_w: int,
     task_logger: logging.Logger,
 ) -> int:
     """Process a StatsBomb match — SB360 tier (with freeze-frames) or event-only."""
@@ -1720,6 +1724,9 @@ def _process_statsbomb_match(
             catalog,
             actions_pdf,
             match_id,
+            xt_grid_data,
+            xt_l,
+            xt_w,
             task_logger,
         )
     else:
@@ -1754,9 +1761,16 @@ def _run_sb360_enrichment(
     catalog: str,
     actions_pdf: pd.DataFrame,
     match_id: str,
+    xt_grid_data: list[list[float]],
+    xt_l: int,
+    xt_w: int,
     task_logger: logging.Logger,
 ) -> pd.DataFrame:
-    """Run SB360 enrichment — converts freeze-frames to synthetic tracking then enriches."""
+    """Run SB360 enrichment — converts freeze-frames to synthetic tracking then enriches.
+
+    SB360 pitch-control-dependent metrics (gk_influence/OBSO/PAUSA) need the xT grid for the
+    voronoi pitch-control surface (ADR-039); reconstructed once and passed to _enrich_sb360_match.
+    """
     import pandas as pd
     from pyspark.sql import functions as F  # noqa: N812
 
@@ -1834,7 +1848,8 @@ def _run_sb360_enrichment(
     unique_teams = actions_pdf["team_id"].dropna().unique()
     home_team_id = str(unique_teams[0]) if len(unique_teams) > 0 else "unknown"
 
-    return _enrich_sb360_match(actions_pdf, freeze_frames, home_team_id)
+    xt = _reconstruct_xt(xt_grid_data, xt_l, xt_w)
+    return _enrich_sb360_match(actions_pdf, freeze_frames, home_team_id, xt)
 
 
 def _process_event_only_match(

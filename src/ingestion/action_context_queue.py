@@ -202,7 +202,16 @@ class SparkGameProcessor:
                 self._logger,
             )
         if unit.provider == "statsbomb":
-            return _process_statsbomb_match(self._spark, self._catalog, self._schema, unit.match_id, self._logger)
+            return _process_statsbomb_match(
+                self._spark,
+                self._catalog,
+                self._schema,
+                unit.match_id,
+                self._xt_grid,
+                self._xt_l,
+                self._xt_w,
+                self._logger,
+            )
         if unit.provider == "wyscout":
             return _process_event_only_match(
                 self._spark, self._catalog, self._schema, "wyscout", unit.match_id, self._logger
