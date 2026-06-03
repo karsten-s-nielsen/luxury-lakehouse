@@ -140,3 +140,20 @@ Net rule: a typed Delta write from pandas needs **both** (a) an explicit `schema
 inference/merge — original decision) **and** (b) dtype-correct fill for non-numeric columns
 (string → object/None — this amendment). `_get_result_schema()` + `build_output` together now
 satisfy both.
+
+### Amendment v2 (2026-06-02, same day): STRING columns must be STRINGIFIED, not just null-coerced
+
+The v1 amendment above (null → `None`, keep object) was an **incomplete diagnosis**. It assumed the
+failing column was *all-NULL*; it is not. `defending_gk_player_id_native` holds **numeric GK player
+ids** — statsbomb/wyscout player ids are integers, which pandas stores as **float64** once NaN-mixed.
+So on the deployed v1 wheel (0.5.11) the same write still failed, with the error now reading
+`Expected bytes, got a 'float' object` (object series, but a real `5522.0` float survived) instead of
+`got float64`. v1's NaN→None left the numeric floats untouched.
+
+**Corrected fix:** `build_output` **stringifies** every STRING column via `_to_native_string` —
+null → `None`, integral float → its int-string (`5522.0 → "5522"`, not `"5522.0"`), else `str(v)`;
+idempotent for already-string columns. A STRING-typed column must contain `str`/`None`, never a
+numeric. Added regression test `test_string_columns_stringify_numeric_ids` (the case v1's tests
+missed — they only exercised NaN, never numeric values, which is how the half-fix shipped). v1
+landed in #333; this v2 correction is a follow-up PR. Process lesson: reproduce the *exact* failing
+value shape locally before fixing (the v1 tests passed while production still failed).

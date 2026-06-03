@@ -132,7 +132,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         workflowFramework -> costEstimateHook "Dispatches lifecycle hooks" ""
         ingestionPipelines -> analyticsLibrary "Imports domain logic" ""
         ingestionPipelines -> sharedLibrary "Imports constants" ""
-        ingestionPipelines -> actionContextHexagon "compute_action_context UDF delegates to enrich_batch (ADR-028)" ""
+        ingestionPipelines -> actionContextHexagon "Worker-drain fan-out (ADR-037): N persistent workers drain a queue, each delegating per-game to enrich_batch (ADR-028)" ""
         ingestionPipelines -> execVisibility "UDF + driver emit progress/diagnostics (ADR-031)" ""
         actionContextHexagon -> sharedLibrary "Imports identifiers" ""
         actionContextHexagon -> bronzeSchema "Reads tracking+SPADL+xT grid, writes spadl_action_context" "PySpark/Delta"

@@ -20,6 +20,7 @@ import pytest
 
 from analytics.action_context.enrich import _enrich_tracking_match
 from analytics.action_context.schema import RESULT_COLUMNS as _RESULT_COLUMNS
+from analytics.action_context.work_unit import WorkUnit
 from ingestion.action_context import (
     _ActionContextGuard,
     _build_output,
@@ -32,6 +33,7 @@ from ingestion.action_context import (
     _is_tracking_provider,
     _load_xt_grid_from_delta,
     _parse_preflight_filters,
+    assign_workers,
 )
 
 
@@ -631,35 +633,23 @@ def test_find_idsse_new_period_pairs_three_way() -> None:
     assert sorted(result) == [("i1", 2), ("i2", 1), ("i2", 2)]
 
 
-def test_guard_chunk_sizes_keep_task_value_under_limit() -> None:
-    """With 5488 matches (cold start), chunk count must stay under task value size limit.
+def test_worker_id_task_value_is_constant_size() -> None:
+    """The for-each task value is O(_N_DRAIN_WORKERS), independent of game count (ADR-037).
 
-    Databricks task values are limited to ~48 KB. At chunk_size=200 for
-    event-only providers, 5488 matches produce ~45 chunks — well under limit.
-    This test validates the chunk_sizes produce a manageable number of chunks.
+    Replaces the old 48 KB chunk-count guard: the worker-drain fan-out emits a fixed
+    worker-id list, so the task-value size no longer scales with the number of games.
     """
-    guard = _ActionContextGuard()
+    worker_ids = [str(i) for i in range(_ActionContextGuard._N_DRAIN_WORKERS)]
+    assert len(worker_ids) == _ActionContextGuard._N_DRAIN_WORKERS
+    assert all(s.isdigit() for s in worker_ids)
 
-    # Simulate: 3463 StatsBomb + 1941 Wyscout + 64 GradientSports +
-    # 10 SkillCorner + 3 Metrica + 14 IDSSE halves = real-world cold start
-    provider_counts = {
-        "statsbomb": 3463,
-        "wyscout": 1941,
-        "gradientsports": 64,
-        "skillcorner": 10,
-        "metrica": 3,
-    }
-    total_chunks = 14  # IDSSE halves (1:1)
-    for prov, count in provider_counts.items():
-        cs = guard.chunk_sizes.get(prov, 2)
-        total_chunks += -(-count // cs)  # ceiling division
 
-    # Each chunk string ~ 50 chars max. Task value overhead ~ 2 bytes/element.
-    # Conservative estimate: 60 bytes per chunk entry in JSON.
-    estimated_bytes = total_chunks * 60
-
-    assert total_chunks < 200, f"Too many chunks ({total_chunks}) — will exceed task value limit"
-    assert estimated_bytes < 48_000, f"Estimated size {estimated_bytes} exceeds 48 KB limit"
+def test_assignment_retains_every_unit_at_scale() -> None:
+    """assign_workers retains EVERY discovered unit (no 48 KB truncation) at any scale."""
+    units = [WorkUnit(provider="wyscout", match_id=f"w{i}") for i in range(100_000)]
+    assignments = assign_workers(units, n_workers=8)
+    assert len(assignments) == 100_000
+    assert len({a.unit.match_id for a in assignments}) == 100_000
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -667,18 +657,12 @@ def test_guard_chunk_sizes_keep_task_value_under_limit() -> None:
 # ──────────────────────────────────────────────────────────────────────────
 
 
-def _chunk_provider(chunk_str: str) -> str:
-    return chunk_str.split(":", 1)[0]
+def _providers(units: list[WorkUnit]) -> list[str]:
+    return [u.provider for u in units]
 
 
-def _chunk_units(chunk_str: str) -> list[str]:
-    """Units packed into one chunk string. IDSSE 'idsse:mid:period' is one half-unit."""
-    prov, rest = chunk_str.split(":", 1)
-    return [rest] if prov == "idsse" else rest.split(",")
-
-
-def _flat_chunks(fr: object) -> list[str]:
-    return [c[0] for c in (fr.chunks or [])]  # type: ignore[attr-defined]
+def _match_ids(units: list[WorkUnit]) -> list[str]:
+    return [u.match_id for u in units]
 
 
 # ---- _parse_preflight_filters (pure validation/coercion) ----
@@ -717,7 +701,7 @@ def test_parse_preflight_filters_bad_max_units_raises() -> None:
 
 @pytest.mark.usefixtures("_mock_pyspark")
 def test_guard_provider_filter_restricts_to_one_provider() -> None:
-    """provider_filter='wyscout' -> ONLY wyscout chunks; other providers' discovery skipped
+    """provider_filter='wyscout' -> ONLY wyscout units; other providers' discovery skipped
     even though their tables hold unprocessed units."""
     tables = {
         "cat.bronze.spadl_actions": _MockDF([{"_join_id": "w1"}, {"_join_id": "w2"}, {"_join_id": "w3"}]),
@@ -725,12 +709,11 @@ def test_guard_provider_filter_restricts_to_one_provider() -> None:
         "cat.bronze.metrica_tracking": _MockDF([{"_join_id": "w1"}]),
         "cat.bronze.idsse_tracking": _MockDF([{"_mid": "i1", "_period": 1}]),
     }
-    fr = _ActionContextGuard(provider_filter="wyscout").check(_MockSpark(tables), "cat", "bronze")
+    units = _ActionContextGuard(provider_filter="wyscout").discover_units(_MockSpark(tables), "cat", "bronze")
 
-    flat = _flat_chunks(fr)
-    assert flat, "expected wyscout chunks"
-    assert all(_chunk_provider(c) == "wyscout" for c in flat), flat
-    assert sorted(u for c in flat for u in _chunk_units(c)) == ["w1", "w2", "w3"]
+    assert units, "expected wyscout units"
+    assert all(u.provider == "wyscout" for u in units)
+    assert sorted(_match_ids(units)) == ["w1", "w2", "w3"]
 
 
 @pytest.mark.usefixtures("_mock_pyspark")
@@ -741,18 +724,17 @@ def test_guard_max_units_caps_deterministically() -> None:
             [{"_join_id": "w3"}, {"_join_id": "w1"}, {"_join_id": "w5"}, {"_join_id": "w2"}, {"_join_id": "w4"}]
         ),
     }
-    fr = _ActionContextGuard(provider_filter="wyscout", max_units=2).check(_MockSpark(tables), "cat", "bronze")
+    guard = _ActionContextGuard(provider_filter="wyscout", max_units=2)
+    spark = _MockSpark(tables)
+    units = guard.discover_units(spark, "cat", "bronze")
 
-    flat = _flat_chunks(fr)
-    units = sorted(u for c in flat for u in _chunk_units(c))
-    assert units == ["w1", "w2"], f"max_units=2 must pick the sorted-first 2, got {units}"
-    assert fr.count == 2
+    assert sorted(_match_ids(units)) == ["w1", "w2"], f"max_units=2 must pick sorted-first 2, got {units}"
+    assert guard.check(spark, "cat", "bronze").count == 2  # memoised -> same result
 
 
 @pytest.mark.usefixtures("_mock_pyspark")
 def test_guard_max_units_one_per_provider() -> None:
-    """max_units=1 with no provider_filter -> every chunk holds exactly one unit
-    (cap applied per provider, across all of them)."""
+    """max_units=1 with no provider_filter -> exactly one unit per provider that has work."""
     # Real spadl rows carry match_id_native (aliased to _join_id by event/tracking
     # discovery and to _mid by IDSSE discovery); the mock's passthrough select means
     # each row must carry BOTH keys.
@@ -770,15 +752,11 @@ def test_guard_max_units_one_per_provider() -> None:
             [{"_mid": "i1", "_period": 1}, {"_mid": "i1", "_period": 2}, {"_mid": "i2", "_period": 1}]
         ),
     }
-    fr = _ActionContextGuard(max_units=1).check(_MockSpark(tables), "cat", "bronze")
+    units = _ActionContextGuard(max_units=1).discover_units(_MockSpark(tables), "cat", "bronze")
 
-    flat = _flat_chunks(fr)
-    assert flat, "expected some chunks"
-    for c in flat:
-        assert len(_chunk_units(c)) == 1, f"max_units=1 must yield 1 unit/chunk, got {c}"
-    # each provider contributes at most one chunk (1 unit < every chunk_size)
-    provs = [_chunk_provider(c) for c in flat]
-    assert len(provs) == len(set(provs)), f"a provider produced >1 chunk under max_units=1: {provs}"
+    assert units, "expected some units"
+    provs = _providers(units)
+    assert len(provs) == len(set(provs)), f"a provider produced >1 unit under max_units=1: {provs}"
 
 
 @pytest.mark.usefixtures("_mock_pyspark")
@@ -788,14 +766,12 @@ def test_guard_defaults_unchanged_no_filter_no_cap() -> None:
         "cat.bronze.spadl_actions": _MockDF([{"_join_id": "w1"}, {"_join_id": "w2"}, {"_join_id": "w3"}]),
         "cat.bronze.metrica_tracking": _MockDF([{"_join_id": "w1"}, {"_join_id": "w2"}]),
     }
-    fr = _ActionContextGuard().check(_MockSpark(tables), "cat", "bronze")
+    units = _ActionContextGuard().discover_units(_MockSpark(tables), "cat", "bronze")
 
-    flat = _flat_chunks(fr)
-    provs = {_chunk_provider(c) for c in flat}
+    provs = set(_providers(units))
     assert "wyscout" in provs and "metrica" in provs, provs
-    # wyscout event-only chunk_size=200 -> all 3 ids in one uncapped chunk
-    wy_units = sorted(u for c in flat if _chunk_provider(c) == "wyscout" for u in _chunk_units(c))
-    assert wy_units == ["w1", "w2", "w3"], f"default path must not cap: {wy_units}"
+    wy = sorted(u.match_id for u in units if u.provider == "wyscout")
+    assert wy == ["w1", "w2", "w3"], f"default path must not cap: {wy}"
 
 
 @pytest.mark.usefixtures("_mock_pyspark")
@@ -807,9 +783,182 @@ def test_guard_provider_filter_idsse_half_units() -> None:
             [{"_mid": "i1", "_period": 1}, {"_mid": "i1", "_period": 2}, {"_mid": "i2", "_period": 1}]
         ),
     }
-    fr = _ActionContextGuard(provider_filter="idsse", max_units=2).check(_MockSpark(tables), "cat", "bronze")
+    guard = _ActionContextGuard(provider_filter="idsse", max_units=2)
+    units = guard.discover_units(_MockSpark(tables), "cat", "bronze")
 
-    flat = _flat_chunks(fr)
-    assert all(_chunk_provider(c) == "idsse" for c in flat), flat
-    assert len(flat) == 2, f"max_units=2 must cap to 2 idsse halves, got {flat}"
-    assert flat == ["idsse:i1:1", "idsse:i1:2"], f"sorted-first 2 halves expected, got {flat}"
+    assert all(u.provider == "idsse" for u in units)
+    assert len(units) == 2, f"max_units=2 must cap to 2 idsse halves, got {units}"
+    assert [(u.match_id, u.period) for u in units] == [("i1", 1), ("i1", 2)]
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# discover_units memoisation (P1/R1) + worker-drain entry points (ADR-037)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def test_discover_units_memoised_and_keyed_on_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    import ingestion.action_context as ac
+    import ingestion.guards as g
+
+    calls = {"idsse": 0, "tracking": 0, "event": 0}
+
+    def _bump(key: str, value: object) -> object:
+        calls[key] += 1
+        return value
+
+    monkeypatch.setattr(ac, "_find_idsse_new_period_pairs", lambda *a, **k: _bump("idsse", [("idm", 1), ("idm", 2)]))
+    monkeypatch.setattr(ac, "_find_tracking_new_ids", lambda *a, **k: _bump("tracking", ["t1"]))
+    monkeypatch.setattr(ac, "_find_event_only_new_ids", lambda *a, **k: _bump("event", ["e1", "e2"]))
+    monkeypatch.setattr(g, "ensure_table", lambda *a, **k: None)
+
+    guard = ac._ActionContextGuard()
+    units = guard.discover_units(None, "c", "bronze")  # type: ignore[arg-type]
+    assert WorkUnit(provider="idsse", match_id="idm", period=1) in units
+    assert sum(u.provider in {"metrica", "skillcorner", "gradientsports"} for u in units) == 3
+    assert sum(u.provider in {"statsbomb", "wyscout"} for u in units) == 4
+
+    # P1: check() + a second discover_units() must NOT re-run the anti-joins (memoised once).
+    assert guard.check(None, "c", "bronze").count == len(units)  # type: ignore[arg-type]
+    assert guard.discover_units(None, "c", "bronze") is units  # type: ignore[arg-type]
+    assert calls == {"idsse": 1, "tracking": 3, "event": 2}
+
+    # R1: a DIFFERENT (catalog, schema) self-invalidates the memo -> re-discovers.
+    guard.discover_units(None, "OTHER", "bronze")  # type: ignore[arg-type]
+    assert calls == {"idsse": 2, "tracking": 6, "event": 4}
+
+
+def test_main_preflight_builds_queue_and_task_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    import argparse
+
+    import ingestion.action_context as ac
+    import ingestion.action_context_queue as q
+    import ingestion.bootstrap as bs
+    from ingestion.guards import FilterResult
+
+    ns = argparse.Namespace(catalog="cat", schema="bronze", provider=None, max_units=None, run_id="JOBRUN42")
+    monkeypatch.setattr(ac, "parse_ingestion_args", lambda *a, **k: ns)
+    monkeypatch.setattr(ac, "get_spark_session", lambda: object())
+    monkeypatch.setattr(bs, "bootstrap_hooks", lambda *a, **k: None)
+    monkeypatch.setattr(ac, "timed_check", lambda g, s, c, sc: FilterResult(workflow_id="x", count=20))
+    units = [WorkUnit(provider="wyscout", match_id=f"w{i}") for i in range(20)]
+    monkeypatch.setattr(ac._ActionContextGuard, "discover_units", lambda self, s, c, sc: units)
+
+    captured: dict[str, object] = {}
+
+    class _FakeQueue:
+        def __init__(self, *a: object, **k: object) -> None:
+            pass
+
+        def ensure_table(self) -> None:
+            captured["ensured"] = True
+
+        def enqueue(self, run_id: str, assignments: list) -> None:
+            captured["run_id"] = run_id
+            captured["n"] = len(assignments)
+
+    monkeypatch.setattr(q, "DeltaWorkQueue", _FakeQueue)  # patched at SOURCE (function-local import)
+
+    set_values: dict[str, object] = {}
+    monkeypatch.setattr(ac, "_set_task_value", lambda key, value, log: set_values.__setitem__(key, value))
+
+    ac.main_preflight()
+
+    assert captured["ensured"] is True
+    assert captured["run_id"] == "JOBRUN42"
+    assert captured["n"] == 20
+    assert set_values["action_context_run_id"] == "JOBRUN42"
+    assert set_values["action_context_worker_ids"] == [str(i) for i in range(ac._ActionContextGuard._N_DRAIN_WORKERS)]
+
+
+def test_main_preflight_empty_emits_empty_worker_ids(monkeypatch: pytest.MonkeyPatch) -> None:
+    import argparse
+
+    import ingestion.action_context as ac
+    import ingestion.bootstrap as bs
+    from ingestion.guards import FilterResult
+
+    ns = argparse.Namespace(catalog="cat", schema="bronze", provider=None, max_units=None, run_id="JOBRUN42")
+    monkeypatch.setattr(ac, "parse_ingestion_args", lambda *a, **k: ns)
+    monkeypatch.setattr(ac, "get_spark_session", lambda: object())
+    monkeypatch.setattr(bs, "bootstrap_hooks", lambda *a, **k: None)
+    monkeypatch.setattr(ac, "timed_check", lambda g, s, c, sc: FilterResult(workflow_id="x", count=0))
+
+    set_values: dict[str, object] = {}
+    monkeypatch.setattr(ac, "_set_task_value", lambda key, value, log: set_values.__setitem__(key, value))
+
+    ac.main_preflight()
+    assert set_values["action_context_worker_ids"] == []  # for-each runs zero iterations
+
+
+def test_main_drain_worker_calls_drain(monkeypatch: pytest.MonkeyPatch) -> None:
+    import argparse
+
+    import ingestion.action_context as ac
+    import ingestion.action_context_queue as q
+    import ingestion.bootstrap as bs
+    from analytics.action_context.drain import DrainSummary
+
+    ns = argparse.Namespace(catalog="cat", schema="bronze", worker_id="2", run_id="JOBRUN42")
+    monkeypatch.setattr(ac, "parse_ingestion_args", lambda *a, **k: ns)
+    monkeypatch.setattr(ac, "get_spark_session", lambda: object())
+    monkeypatch.setattr(bs, "bootstrap_hooks", lambda *a, **k: None)
+
+    prefetched = [WorkUnit(provider="wyscout", match_id="x")]
+
+    class _Q:
+        def __init__(self, *a: object, **k: object) -> None:
+            pass
+
+        def units_for_worker(self, run_id: str, worker_id: int) -> list[WorkUnit]:
+            return prefetched
+
+    monkeypatch.setattr(q, "DeltaWorkQueue", _Q)
+    monkeypatch.setattr(q, "SparkGameProcessor", lambda *a, **k: object())
+    monkeypatch.setattr(q, "SparkInterruptWatchdog", lambda *a, **k: object())
+
+    seen: dict[str, object] = {}
+
+    def _fake_drain(queue, processor, watchdog, run_id, worker_id, logger, **kw):
+        seen["run_id"] = run_id
+        seen["worker_id"] = worker_id
+        seen["units"] = kw.get("units")  # short-circuit passes the pre-fetched units
+        return DrainSummary(worker_id=worker_id, processed=3, total_rows=9)
+
+    monkeypatch.setattr(ac, "drain_worker", _fake_drain)
+
+    ac.main_drain_worker()
+    assert seen["run_id"] == "JOBRUN42"
+    assert seen["worker_id"] == 2
+    assert seen["units"] is prefetched  # fetched once, passed in (no re-read)
+
+
+def test_main_drain_worker_empty_slice_short_circuits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A worker with no assigned units exits BEFORE building the processor (no xT-grid load)."""
+    import argparse
+
+    import ingestion.action_context as ac
+    import ingestion.action_context_queue as q
+    import ingestion.bootstrap as bs
+
+    ns = argparse.Namespace(catalog="cat", schema="bronze", worker_id="5", run_id="JOBRUN42")
+    monkeypatch.setattr(ac, "parse_ingestion_args", lambda *a, **k: ns)
+    monkeypatch.setattr(ac, "get_spark_session", lambda: object())
+    monkeypatch.setattr(bs, "bootstrap_hooks", lambda *a, **k: None)
+
+    class _EmptyQ:
+        def __init__(self, *a: object, **k: object) -> None:
+            pass
+
+        def units_for_worker(self, run_id: str, worker_id: int) -> list[WorkUnit]:
+            return []
+
+    monkeypatch.setattr(q, "DeltaWorkQueue", _EmptyQ)
+
+    def _boom(*a: object, **k: object) -> object:
+        raise AssertionError("empty worker must NOT build the processor / call drain_worker")
+
+    monkeypatch.setattr(q, "SparkGameProcessor", _boom)
+    monkeypatch.setattr(q, "SparkInterruptWatchdog", _boom)
+    monkeypatch.setattr(ac, "drain_worker", _boom)
+
+    ac.main_drain_worker()  # returns cleanly, no processor built
