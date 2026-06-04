@@ -254,7 +254,7 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     )
 
 
-# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 11, 0) ──────────
+# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 12, 0) ──────────
 # Floor advanced 3.30.0 -> 4.0.0 (2026-05-30) to force silly-kicks 4.0.0 everywhere
 # (ET-direction symmetric guard via require_et_direction across all 5
 # per-period-absolute converters; breaking only for ET matches without the flag).
@@ -289,11 +289,14 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
 # ghost_gk_method provenance + period work-units work, absorbing silly-kicks 4.10.0's ghost-GK
 # serve-carrier re-baseline (ghost_gk_x/y shift on ~0.4% of frames; both goldens regenerated).
 # 4.11.0's xCrossAttempt (TF-17) ships untrained and is NOT consumed. See ADR-035/037 amendments.
-# Matches the pyproject [spadl] pin `silly-kicks>=4.11.0,<5`.
+# Floor advanced 4.11.0 -> 4.12.0 (2026-06-04) to adopt silly-kicks 4.12.0's period-relative
+# time_seconds contract + per-period link-coverage guard (validate_time_base / on_low_coverage);
+# purely additive (no AC-1 enrichment value change; goldens unchanged). See ADR-040.
+# Matches the pyproject [spadl] pin `silly-kicks>=4.12.0,<5`.
 
 
 def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
-    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 11, 0)`.
+    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 12, 0)`.
 
     Per spec §2.10.5: the runtime check inside `main()` is not directly
     introspectable post-hoc, so we assert the constant. Code review covers
@@ -311,11 +314,11 @@ def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
         if not hasattr(trainer, "_REQUIRED_SK_MIN"):
             missing.append(item)
             continue
-        expected = (4, 11, 0)
+        expected = (4, 12, 0)
         actual = trainer._REQUIRED_SK_MIN
         if actual != expected:
             wrong_value[item] = actual
     assert not missing, (
-        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 11, 0)`: {missing}"
+        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 12, 0)`: {missing}"
     )
-    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 11, 0): {wrong_value}"
+    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 12, 0): {wrong_value}"

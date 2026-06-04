@@ -1411,6 +1411,20 @@ def _process_tracking_match(
     if provider == "gradientsports":
         trk_sdf = trk_sdf.withColumn("timestamp", F.col("period_elapsed_time"))
 
+    # Work-unit time-base guard (ADR-040): assert the work unit's actions are period-relative
+    # (not on an absolute match clock — the GS period-2 class) before the per-batch applyInPandas
+    # dispatch. Frame-independent (action min per period from the in-driver actions_pdf); mirrors
+    # the local hexagon (pipeline.run_work_unit), kept in lockstep by test_time_base_guard's sentinel.
+    from analytics.action_context.time_base_guard import assert_work_unit_time_base
+
+    if "time_seconds" in actions_pdf.columns:
+        assert_work_unit_time_base(
+            {
+                int(p): float(s.min())
+                for p, s in actions_pdf.dropna(subset=["time_seconds"]).groupby("period_id")["time_seconds"]
+            }
+        )
+
     # Observability branch: single-process cProfile on the driver instead of the
     # distributed applyInPandas write. trk_sdf is already shaped exactly like the
     # UDF's groups (frame_batch_id present), so the per-batch enrich_batch calls

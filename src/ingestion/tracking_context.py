@@ -660,7 +660,11 @@ def _enrich_match(
     )
 
     # Step 0: Link actions to frames (single call, reused by all steps)
-    links, _report = link_actions_to_frames(actions, frames)
+    # on_low_coverage="ignore": silly-kicks 4.12.0 (ADR-017) warns by default on low per-period
+    # coverage; tracking_context links on pre-shaped inputs where a sub-1.0 rate is expected, so
+    # pass "ignore" to preserve pre-4.12.0 behavior (no spurious UserWarning). tracking_context
+    # inherits the GradientSports period-relative time_seconds fix via bronze (ADR-040).
+    links, _report = link_actions_to_frames(actions, frames, on_low_coverage="ignore")
 
     # Step 1: GK resolution (events + tracking) — no links kwarg (spadl.utils)
     actions = add_pre_shot_gk_context(actions, frames=frames)
