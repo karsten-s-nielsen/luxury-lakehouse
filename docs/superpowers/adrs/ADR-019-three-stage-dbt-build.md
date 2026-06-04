@@ -126,3 +126,18 @@ None. The classification taxonomy is enforced by `test_dbt_mart_classification.p
 The user explicitly chose three-stage over two-stage on the rationale that more `intermediate_mart` cases will likely emerge as ML pipelines compose (e.g. an OBSO-derived feature flowing to a downstream embedding model). Locking in the three-stage pattern now avoids a future cycle that would otherwise re-introduce the migration cost.
 
 The reclassification of `fct_passes` / `fct_match_summary` / `fct_physical_stats` from the initially-proposed `input_mart` to `output_mart` was a strict-spec-compliance call made during PR-α implementation: when the semantic conformance test flagged compute-output bronze in their lineage, the choice was between (a) reclassifying or (b) relaxing the spec definition. The user's direction was "rip off the band-aid now and do this properly" — option (a). Option F in §Alternatives Considered captures the rejected (b) path.
+
+## Amendment (2026-06-04): full model coverage — the staging/intermediate orphan gap
+
+**Problem.** PR-β's stage 3 selector was `--select tag:output_mart` with **no leading `+`**, on the documented assumption that "all staging ancestors were built by stages 1 + 2." That assumption is false. dbt staging/intermediate models that are selected by **no** stage are never built by the daily flow — and because staging is materialized as **views** (a view's column list is frozen at creation), an additive schema change to such a model's SQL never takes effect on the live object. Two classes were orphaned:
+
+1. **Output-mart-only staging** — staging that feeds ONLY an output mart (e.g. `stg_action_context__values` → `fct_action_context`). Stage 3's `tag:output_mart` (no `+`) never pulled them; stages 1–2 never reach them.
+2. **Leaf staging/intermediate with no dbt consumer** but read externally (e.g. `stg_pitch_control__values`, consumed by the HF pitch-control publisher + the Taipy app; `stg_statsbomb__360`, consumed by the 360 training-data prep). Referenced by no `ref()`, so no `+tag:` selector reaches them.
+
+This surfaced when the GradientSports period-relative fix (ADR-040 / PR #339) full-refreshed the marts: `fct_action_context` failed with `UNRESOLVED_COLUMN.WITH_SUGGESTION` on `gk_closing_time_mean_s__near_post` — a column added to `stg_action_context__values`'s SQL by PR #337 that the **stale live view** never exposed. A coverage audit found **22** orphaned models total.
+
+**Decision (amendment).** Stage 3 now selects `+tag:output_mart path:models/staging path:models/intermediate --exclude +tag:input_mart +tag:dimension +tag:intermediate_mart`. Stage 3 runs LAST (after all ingest + compute), so every bronze source is available; it builds **output marts + ALL staging + ALL intermediate, minus everything stages 1+2 already built** (those marts + their ancestors). This makes `union(stage1, stage2, stage3) == every model` **by construction** — no model can be orphaned. The redundant-rebuild cost is nil: shared ancestors are subtracted by `--exclude`; only output-mart-only + leaf models (mostly cheap views) are added.
+
+**Guard.** `src/tests/test_dbt_stage_selector_coverage.py` resolves the three stage selectors against the dbt ref-graph and asserts the union covers every model. A future model that no stage builds fails this test at PR-CI time. (`dbt_runner._SELECTOR_TO_CARD` and `test_terraform_workflow_dbt_task` updated to the new stage-3 selector.)
+
+**Consequence.** The stale live views are only healed when the amended flow RUNS — the post-deploy validation run of this change rebuilds them (and resolves `fct_action_context`). No separate manual rebuild is needed.

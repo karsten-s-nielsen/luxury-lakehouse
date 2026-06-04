@@ -118,12 +118,15 @@ def test_three_stage_dbt_tasks_use_correct_entry_point_and_environment() -> None
 def test_three_stage_dbt_tasks_use_distinct_select_parameters() -> None:
     """Stage 1 selects input_mart + dimension (with ancestors), stage 2
     selects intermediate_mart (with ancestors), stage 3 selects output_mart
-    (no ancestors — they were built by stages 1 + 2)."""
+    WITH ancestors (`+tag:output_mart`) and ``--exclude``s everything stages
+    1+2 already built — so each output mart's own staging/intermediate
+    ancestors are rebuilt (ADR-019 amended; full model coverage is enforced by
+    ``test_dbt_stage_selector_coverage``)."""
     src = _read_workflows_main_tf()
     expected = {
         "dbt_build_input_marts": ["+tag:input_mart", "+tag:dimension"],
         "dbt_build_intermediate_marts": ["+tag:intermediate_mart"],
-        "dbt_build_output_marts": ["tag:output_mart"],
+        "dbt_build_output_marts": ["+tag:output_mart", "path:models/staging", "path:models/intermediate"],
     }
     for task_key, selectors in expected.items():
         idx = _find_task_block_start(src, task_key)
@@ -133,6 +136,13 @@ def test_three_stage_dbt_tasks_use_distinct_select_parameters() -> None:
             assert f'"{sel}"' in window, (
                 f"{task_key} must pass --select with selector {sel!r}; window=\n{window[:600]}..."
             )
+    # Stage 3 must --exclude what stages 1+2 already built so it rebuilds ONLY the
+    # output marts + their not-yet-built ancestors (no redundant mart rebuilds).
+    idx3 = _find_task_block_start(src, "dbt_build_output_marts")
+    window3 = src[idx3 : idx3 + 2500]
+    assert '"--exclude"' in window3, "dbt_build_output_marts must --exclude stage-1/2 models"
+    for ex in ("+tag:input_mart", "+tag:dimension", "+tag:intermediate_mart"):
+        assert f'"{ex}"' in window3, f"dbt_build_output_marts --exclude must contain {ex!r}"
 
 
 def test_dbt_build_input_marts_depends_on_all_ingest_helpers() -> None:

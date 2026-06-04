@@ -292,3 +292,68 @@ def test_dbt_full_refresh_combined_with_no_watermark(mock_runner_cls: MagicMock,
     assert "--no-watermark" not in dbt_args
     assert "--dbt-full-refresh" not in dbt_args
     assert "tag:output_mart" in dbt_args
+
+
+@patch("ingestion.dbt_runner._ensure_databricks_env_vars")
+@patch("ingestion.dbt_runner.dbtRunner")
+def test_stage3_selector_resolves_card_and_forwards_exclude(
+    mock_runner_cls: MagicMock, _mock_ensure: MagicMock
+) -> None:
+    """The ADR-019-amended stage-3 selector must (a) resolve to the
+    ``wf-dbt-build-output-marts`` watermark card — proven by the guard
+    (``timed_check``) actually running — and (b) forward its ``--exclude``
+    selectors to dbt verbatim while NOT letting them pollute the card key.
+
+    Regression guard for the integration seam this PR introduces: if the
+    ``--select``-capture parser ever stopped halting at ``--exclude``, the
+    ``_SELECTOR_TO_CARD`` lookup would silently miss, ``card_id`` would be
+    ``None``, and stage 3 would lose both its watermark-skip optimisation and
+    its watermark recording — a silent regression, not a hard failure.
+    """
+    mock_runner = MagicMock()
+    mock_runner.invoke.return_value = _make_runner_result(success=True, node_count=5)
+    mock_runner_cls.return_value = mock_runner
+
+    from ingestion.dbt_runner import main
+
+    # Exactly the parameters terraform/modules/workflows/main.tf passes for
+    # dbt_build_output_marts (minus the job-level --dbt-full-refresh, so the
+    # watermark-guard path is exercised).
+    argv = [
+        "dbt_build",
+        "--select",
+        "+tag:output_mart",
+        "path:models/staging",
+        "path:models/intermediate",
+        "--exclude",
+        "+tag:input_mart",
+        "+tag:dimension",
+        "+tag:intermediate_mart",
+    ]
+    with patch("sys.argv", argv):
+        with patch("ingestion.dbt_runner.get_spark_session") as mock_spark:
+            mock_spark.return_value = MagicMock()
+            with patch("ingestion.dbt_runner.timed_check") as mock_timed:
+                # count=1 → upstream changed → proceed to run dbt (not skipped).
+                mock_timed.return_value = MagicMock(count=1)
+                with patch("ingestion.dbt_runner.resolve_upstream_tables_from_card", return_value=[]):
+                    with patch("ingestion.dbt_runner.record_watermarks"):
+                        result = main()
+
+    assert result == 0
+    # card_id resolved to a real card → the watermark guard ran exactly once.
+    # (If the selector→card lookup had missed, timed_check would never be called.)
+    mock_timed.assert_called_once()
+    # dbt was invoked, and the --exclude block was forwarded verbatim.
+    dbt_args = mock_runner.invoke.call_args.args[0]
+    assert "--select" in dbt_args
+    assert "--exclude" in dbt_args
+    for tok in (
+        "+tag:output_mart",
+        "path:models/staging",
+        "path:models/intermediate",
+        "+tag:input_mart",
+        "+tag:dimension",
+        "+tag:intermediate_mart",
+    ):
+        assert tok in dbt_args, f"stage-3 selector token {tok!r} must be forwarded to dbt"

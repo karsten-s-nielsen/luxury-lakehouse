@@ -733,8 +733,20 @@ resource "databricks_job" "data_ingestion" {
   # PR-Cycle-C PR-β (2026-05-02, ADR-019): third of three sequential dbt
   # invocations. Builds output_marts — every mart that is NOT consumed
   # by a compute task (consumed only by apps/dashboards/HF/run_model_validation).
-  # Selector: --select tag:output_mart (no leading `+`) because all
-  # staging ancestors were built by stages 1 + 2.
+  # Selector: --select +tag:output_mart path:models/staging path:models/intermediate
+  #           --exclude +tag:input_mart +tag:dimension +tag:intermediate_mart.
+  # Stage 3 runs LAST (after all ingest + compute), so every bronze source is
+  # available — it builds output marts + ALL staging + ALL intermediate models,
+  # MINUS everything stages 1+2 already built (those marts + their ancestors).
+  # This makes union(stage1, stage2, stage3) == every model BY CONSTRUCTION.
+  # ADR-019's original `tag:output_mart` (no `+`, no staging/intermediate paths)
+  # wrongly assumed stages 1+2 built ALL staging. They did not: staging VIEWS
+  # that feed ONLY output marts (e.g. stg_action_context__values) or that have
+  # NO dbt consumer but are read externally (e.g. stg_pitch_control__values via
+  # the HF publisher / Taipy app) were selected by NO stage → never rebuilt →
+  # went schema-stale (a view's columns are frozen at creation). That broke
+  # fct_action_context full-refresh after the PR-#337 GK-zone columns landed.
+  # Full coverage is enforced by test_dbt_stage_selector_coverage. ADR-019 (amended).
   #
   # refresh_synced_tables and run_model_validation are SIBLINGS depending
   # on this stage — both children of `dbt_build_output_marts`. A
@@ -750,7 +762,7 @@ resource "databricks_job" "data_ingestion" {
     python_wheel_task {
       package_name = "luxury_lakehouse"
       entry_point  = "dbt_build"
-      parameters   = ["--select", "tag:output_mart", "--dbt-full-refresh", "{{job.parameters.dbt_full_refresh}}"]
+      parameters   = ["--select", "+tag:output_mart", "path:models/staging", "path:models/intermediate", "--exclude", "+tag:input_mart", "+tag:dimension", "+tag:intermediate_mart", "--dbt-full-refresh", "{{job.parameters.dbt_full_refresh}}"]
     }
 
     # Stage 2 sequential edge + every phase-2 compute task that writes
