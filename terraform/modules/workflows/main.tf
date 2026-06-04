@@ -82,6 +82,19 @@ resource "databricks_job" "data_ingestion" {
     default = ""
   }
 
+  # AC-1 ghost-GK backend selection (ADR-035 amendment). The job-parameter default IS the
+  # per-installation knob: serverless cannot take per-task env vars via TF, so the installation default
+  # flows var.ghost_gk_backend_default => {{job.parameters.ghost_gk_backend}} => preflight --ghost-gk-backend.
+  # Override per run via job_parameters, e.g. {"ghost_gk_backend":"cpu-numba","watchdog_budget_s":"5400"}.
+  parameter {
+    name    = "ghost_gk_backend"
+    default = var.ghost_gk_backend_default
+  }
+  parameter {
+    name    = "watchdog_budget_s"
+    default = var.watchdog_budget_s
+  }
+
   # ── Schedule: Daily at 6am UTC ───────────────────────────────────────────
   schedule {
     quartz_cron_expression = "0 0 6 * * ?"
@@ -186,6 +199,8 @@ resource "databricks_job" "data_ingestion" {
             "--schema", "bronze",
             "--worker-id", "{{input}}",
             "--run-id", "{{tasks.preflight_action_context.values.action_context_run_id}}",
+            # Per-game watchdog override (ADR-037 amendment); empty => in-code WATCHDOG_BUDGET_S=2700.
+            "--watchdog-budget-s", "{{job.parameters.watchdog_budget_s}}",
           ]
         }
 
@@ -1044,15 +1059,16 @@ resource "databricks_job" "data_ingestion" {
   # drain worker reads it from bronze.expected_threat_grids (~192 rows) at startup.
   #
   # environment_key = "default": main_preflight only imports numpy + the
-  # wheel; no silly-kicks / xgboost / mlflow / scipy needed. Keeps cold-start
-  # setup under the 300 s task timeout (the analytics env's 11-dep pip
-  # resolution can exceed 300 s on cache-cold builds).
+  # wheel; no silly-kicks / xgboost / mlflow / scipy needed. The task timeout was
+  # raised 300 -> 600 s (2026-06-03): cold-start env setup alone (the analytics env's
+  # 11-dep pip resolution on a cache-cold build) was busting the 300 s budget before
+  # the preflight finished enqueuing (observed TIMEDOUT on warm-vs-cold runs).
   #
   # The downstream `compute_action_context` for_each_task consumes the constant
   # worker-id list + run_id task values this preflight writes (ADR-037 worker-drain).
   task {
     task_key        = "preflight_action_context"
-    timeout_seconds = 300
+    timeout_seconds = 600
     max_retries     = 0
 
     # Needs SPADL + all provider data ingested before checking freshness.
@@ -1079,6 +1095,9 @@ resource "databricks_job" "data_ingestion" {
         "--schema", "bronze",
         "--provider", "{{job.parameters.provider}}",
         "--max-units", "{{job.parameters.max_units}}",
+        # Ghost-GK backend (ADR-035 amendment): default = var.ghost_gk_backend_default (installation knob);
+        # the preflight resolves + stamps it onto every WorkUnit, so the drain workers read it off the queue.
+        "--ghost-gk-backend", "{{job.parameters.ghost_gk_backend}}",
         # Job-level run id (identical across all tasks in the run) -> written to the
         # action_context_run_id task value -> read by each drain worker (ADR-037 B1).
         "--run-id", "{{job.run_id}}",
@@ -1098,7 +1117,7 @@ resource "databricks_job" "data_ingestion" {
   #   - 0 matches  → [] → 0 iterations spawned
   task {
     task_key        = "preflight_gradientsports"
-    timeout_seconds = 300
+    timeout_seconds = 600
     max_retries     = 0
 
     python_wheel_task {
@@ -1126,7 +1145,7 @@ resource "databricks_job" "data_ingestion" {
   # hardcoded chunks, no Terraform changes when adding/removing matches.
   task {
     task_key        = "preflight_idsse"
-    timeout_seconds = 300
+    timeout_seconds = 600
     max_retries     = 0
 
     python_wheel_task {
@@ -1147,7 +1166,7 @@ resource "databricks_job" "data_ingestion" {
   # emits chunk strings as task values for downstream for_each_task.
   task {
     task_key        = "preflight_spadl_vaep"
-    timeout_seconds = 300
+    timeout_seconds = 600
     max_retries     = 0
 
     # Same dependencies as the old monolithic compute_spadl_vaep.
@@ -1194,7 +1213,7 @@ resource "databricks_job" "data_ingestion" {
   # `{{tasks.preflight_tracking_context.values.tracking_context_chunks}}`.
   task {
     task_key        = "preflight_tracking_context"
-    timeout_seconds = 300
+    timeout_seconds = 600
     max_retries     = 0
 
     # Same upstream deps as the old monolithic compute_tracking_context:
@@ -1327,7 +1346,7 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path,
-        "silly-kicks>=4.9.1,<5",
+        "silly-kicks>=4.11.0,<5",
         "accessible-space>=2.0,<3",
         # numba: silly-kicks ships @njit kernels for pitch control + ball-carrier
         # (tracking/pitch_control/_{spearman,fernandez_bornn}.py, tracking/_ball_carrier.py)

@@ -28,7 +28,7 @@ from ingestion.action_context import (
     _enrich_sb360_match,
     _find_event_only_new_ids,
     _find_idsse_new_period_pairs,
-    _find_tracking_new_ids,
+    _find_tracking_new_period_pairs,
     _is_event_only_provider,
     _is_tracking_provider,
     _load_xt_grid_from_delta,
@@ -500,70 +500,70 @@ class _MockSpark:
 
 
 @pytest.mark.usefixtures("_mock_pyspark")
-def test_find_tracking_new_ids_three_way_join() -> None:
-    """Tracking discovery: only matches in tracking ∩ spadl \\ results are returned."""
+def test_find_tracking_new_period_pairs_three_way_join() -> None:
+    """Tracking discovery (per-period): tracking(mid,period) ∩ spadl(mid) \\ results(mid,period)."""
     tables = {
         "cat.bronze.metrica_tracking": _MockDF(
             [
-                {"_join_id": "m1"},
-                {"_join_id": "m2"},
-                {"_join_id": "m3"},
+                {"_mid": "m1", "_period": 1},
+                {"_mid": "m1", "_period": 2},
+                {"_mid": "m2", "_period": 1},
+                {"_mid": "m3", "_period": 1},  # m3 has no SPADL
             ]
         ),
         "cat.bronze.spadl_actions": _MockDF(
             [
-                {"_join_id": "m1"},
-                {"_join_id": "m2"},  # m3 has no SPADL
+                {"_mid": "m1"},
+                {"_mid": "m2"},
             ]
         ),
         "cat.bronze.spadl_action_context": _MockDF(
             [
-                {"_join_id": "m1"},  # m1 already processed
+                {"_mid": "m1", "_period": 1},  # m1 half 1 already processed
             ]
         ),
     }
     spark = _MockSpark(tables)
 
-    result = _find_tracking_new_ids(
+    result = _find_tracking_new_period_pairs(
         spark,
         "cat.bronze.metrica_tracking",
         "cat.bronze.spadl_actions",
         "cat.bronze.spadl_action_context",
         "metrica",
     )
-    assert sorted(result) == ["m2"]
+    assert sorted(result) == [("m1", 2), ("m2", 1)]
 
 
 @pytest.mark.usefixtures("_mock_pyspark")
-def test_find_tracking_new_ids_empty_results_cold_start() -> None:
-    """Cold start: empty results table -> all tracking∩spadl matches returned."""
+def test_find_tracking_new_period_pairs_empty_results_cold_start() -> None:
+    """Cold start: empty results table -> all tracking(mid,period)∩spadl(mid) pairs returned."""
     tables = {
         "cat.bronze.skillcorner_tracking": _MockDF(
             [
-                {"_join_id": "s1"},
-                {"_join_id": "s2"},
-                {"_join_id": "s3"},
+                {"_mid": "s1", "_period": 1},
+                {"_mid": "s1", "_period": 2},
+                {"_mid": "s2", "_period": 1},
             ]
         ),
         "cat.bronze.spadl_actions": _MockDF(
             [
-                {"_join_id": "s1"},
-                {"_join_id": "s2"},
-                {"_join_id": "s3"},
+                {"_mid": "s1"},
+                {"_mid": "s2"},
             ]
         ),
         "cat.bronze.spadl_action_context": _MockDF([]),  # empty
     }
     spark = _MockSpark(tables)
 
-    result = _find_tracking_new_ids(
+    result = _find_tracking_new_period_pairs(
         spark,
         "cat.bronze.skillcorner_tracking",
         "cat.bronze.spadl_actions",
         "cat.bronze.spadl_action_context",
         "skillcorner",
     )
-    assert sorted(result) == ["s1", "s2", "s3"]
+    assert sorted(result) == [("s1", 1), ("s1", 2), ("s2", 1)]
 
 
 @pytest.mark.usefixtures("_mock_pyspark")
@@ -762,7 +762,7 @@ def test_guard_max_units_one_per_provider() -> None:
                 {"_join_id": "i2", "_mid": "i2"},
             ]
         ),
-        "cat.bronze.metrica_tracking": _MockDF([{"_join_id": "a1"}, {"_join_id": "a2"}]),
+        "cat.bronze.metrica_tracking": _MockDF([{"_mid": "a1", "_period": 1}, {"_mid": "a2", "_period": 1}]),
         "cat.bronze.idsse_tracking": _MockDF(
             [{"_mid": "i1", "_period": 1}, {"_mid": "i1", "_period": 2}, {"_mid": "i2", "_period": 1}]
         ),
@@ -778,8 +778,10 @@ def test_guard_max_units_one_per_provider() -> None:
 def test_guard_defaults_unchanged_no_filter_no_cap() -> None:
     """No provider_filter + no max_units (the daily path) -> all providers, no truncation."""
     tables = {
-        "cat.bronze.spadl_actions": _MockDF([{"_join_id": "w1"}, {"_join_id": "w2"}, {"_join_id": "w3"}]),
-        "cat.bronze.metrica_tracking": _MockDF([{"_join_id": "w1"}, {"_join_id": "w2"}]),
+        "cat.bronze.spadl_actions": _MockDF(
+            [{"_join_id": "w1", "_mid": "w1"}, {"_join_id": "w2", "_mid": "w2"}, {"_join_id": "w3", "_mid": "w3"}]
+        ),
+        "cat.bronze.metrica_tracking": _MockDF([{"_mid": "w1", "_period": 1}, {"_mid": "w2", "_period": 1}]),
     }
     units = _ActionContextGuard().discover_units(_MockSpark(tables), "cat", "bronze")
 
@@ -822,7 +824,7 @@ def test_discover_units_memoised_and_keyed_on_target(monkeypatch: pytest.MonkeyP
         return value
 
     monkeypatch.setattr(ac, "_find_idsse_new_period_pairs", lambda *a, **k: _bump("idsse", [("idm", 1), ("idm", 2)]))
-    monkeypatch.setattr(ac, "_find_tracking_new_ids", lambda *a, **k: _bump("tracking", ["t1"]))
+    monkeypatch.setattr(ac, "_find_tracking_new_period_pairs", lambda *a, **k: _bump("tracking", [("t1", 1)]))
     monkeypatch.setattr(ac, "_find_event_only_new_ids", lambda *a, **k: _bump("event", ["e1", "e2"]))
     monkeypatch.setattr(g, "ensure_table", lambda *a, **k: None)
 

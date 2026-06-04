@@ -22,12 +22,29 @@ _EVENT_ONLY_PROVIDERS: frozenset[str] = frozenset({"wyscout"})
 
 @dataclass(frozen=True)
 class WorkUnit:
-    """One unit of action-context work."""
+    """One unit of action-context work.
+
+    ``kde_backend`` is domain policy (how to compute ghost-GK), resolved once at the adapter boundary
+    and carried per-unit through the queue (single source of truth across the preflight→drain task
+    boundary). Validated here so a bad value is rejected before it enters the queue rather than failing
+    deep in silly-kicks. See ``analytics.action_context.ghost_gk_backend``.
+    """
 
     provider: str
     match_id: str
     period: int | None = None
     frame_range: tuple[int, int] | None = None
+    # Default kept in sync with ghost_gk_backend.DEFAULT_GHOST_GK_BACKEND (a literal here to avoid a
+    # module-scope import — work_unit.py must import offline; __post_init__ imports the allowlist lazily).
+    kde_backend: str = "fft-cic"
+
+    def __post_init__(self) -> None:
+        # Belt-and-braces against a value that bypasses resolve_ghost_gk_backend (e.g. a direct
+        # WorkUnit(kde_backend="typo")). Reads only — valid on a frozen dataclass.
+        from analytics.action_context.ghost_gk_backend import GHOST_GK_KDE_BACKENDS
+
+        if self.kde_backend not in GHOST_GK_KDE_BACKENDS:
+            raise ValueError(f"Unknown ghost-GK backend {self.kde_backend!r}. Valid: {sorted(GHOST_GK_KDE_BACKENDS)}")
 
 
 @dataclass(frozen=True)

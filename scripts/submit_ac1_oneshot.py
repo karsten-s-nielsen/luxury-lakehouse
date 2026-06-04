@@ -46,7 +46,7 @@ logger = logging.getLogger("ac1_oneshot")
 # Mirror terraform/modules/workflows/main.tf "analytics" environment spec exactly
 # so the one-shot executor env matches the daily job's. Keep in sync.
 _ANALYTICS_DEPENDENCIES: tuple[str, ...] = (
-    "silly-kicks>=4.9.1,<5",
+    "silly-kicks>=4.11.0,<5",
     "accessible-space>=2.0,<3",
     # numba: JITs silly-kicks pitch-control + ball-carrier kernels (else silent
     # numpy fallback). Added to the TF analytics env in PR #325; mirrored here.
@@ -143,8 +143,21 @@ def main() -> int:
     p.add_argument("--match-ids", required=True, help="provider:id  or  provider:id:period")
     p.add_argument("--catalog", default="soccer_analytics")
     p.add_argument("--schema", default="bronze")
-    p.add_argument("--timeout-min", type=int, default=40, help="Max minutes to poll before giving up")
+    p.add_argument("--timeout-min", type=int, default=40, help="Max minutes to poll before giving up (LOCAL)")
     p.add_argument("--wheel-path", default=None, help="Override deployed wheel UC Volume path")
+    p.add_argument(
+        "--ghost-gk-backend",
+        default=None,
+        help="Ghost-GK KDE backend for compute_action_context (one of scipy,vectorized,cpu-numba,fft,fft-cic; "
+        "default fft-cic). Exact backends are slow — pair with --timeout-seconds. Ignored with --profile.",
+    )
+    p.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=7200,
+        help="REMOTE Databricks task timeout (jobs.SubmitTask.timeout_seconds). The for-each/oneshot path has "
+        "no in-process watchdog, so this is the escape hatch for a slow exact-backend run.",
+    )
     p.add_argument(
         "--profile",
         action="store_true",
@@ -198,6 +211,9 @@ def main() -> int:
     wheel_params = ["--catalog", args.catalog, "--schema", args.schema, "--match-ids", args.match_ids]
     if args.profile:
         wheel_params += ["--max-batches", str(args.max_batches)]
+    elif args.ghost_gk_backend:
+        # compute_action_context accepts --ghost-gk-backend; profile_action_context does not.
+        wheel_params += ["--ghost-gk-backend", args.ghost_gk_backend]
     waiter = w.jobs.submit(
         run_name=f"ac1-{'profile' if args.profile else 'oneshot'}-{provider}-{match_id}",
         run_as=run_as,
@@ -210,6 +226,7 @@ def main() -> int:
                     parameters=wheel_params,
                 ),
                 environment_key="analytics",
+                timeout_seconds=args.timeout_seconds,
             )
         ],
         environments=[

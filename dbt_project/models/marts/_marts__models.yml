@@ -5119,3 +5119,6 @@ models:
         data_type: double
       - name: pitch_control_method
         data_type: string
+      - name: ghost_gk_method
+        data_type: string
+        description: "Ghost-GK KDE backend that produced this row's ghost_gk_* values (scopes to ghost_gk_* only; orthogonal to pitch_control_method). NULL on event-only rows."

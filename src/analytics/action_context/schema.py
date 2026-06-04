@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     import pandas as pd
 
 # Identity (12) + game_state (1) + linkage (4) + GK (14) + features (76)
-# + xShotOccurrence (1) + provenance (1) + audit (1) = 110
+# + xShotOccurrence (1) + provenance (2) + audit (1) = 111
 RESULT_COLUMNS: list[str] = [
     # Identity (12)
     "data_source",
@@ -151,6 +151,8 @@ RESULT_COLUMNS: list[str] = [
     "xshot_occurrence",
     # Pitch-control provenance for the persisted pitch-control-derived metrics (1)
     "pitch_control_method",
+    # Ghost-GK backend provenance — the resolved kde_backend per row (scopes to ghost_gk_* only) (1)
+    "ghost_gk_method",
     # Audit (1)
     "_ingested_at",
 ]
@@ -209,7 +211,7 @@ ACTION_CONTEXT_DDL = (
     "shape_graph_density_defending DOUBLE, shape_graph_n_edges_defending BIGINT, "
     "shape_graph_mean_stability_defending DOUBLE, "
     "ghost_gk_x DOUBLE, ghost_gk_y DOUBLE, ghost_gk_spread DOUBLE, "
-    "xshot_occurrence DOUBLE, pitch_control_method STRING, "
+    "xshot_occurrence DOUBLE, pitch_control_method STRING, ghost_gk_method STRING, "
     "_ingested_at TIMESTAMP"
 )
 

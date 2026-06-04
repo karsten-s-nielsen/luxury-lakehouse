@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS soccer_analytics.observability.action_context_work_qu
   frame_range_lo BIGINT,
   frame_range_hi BIGINT,
   est_cost DOUBLE,
+  kde_backend STRING,
   _ingested_at TIMESTAMP
 )
 USING DELTA;

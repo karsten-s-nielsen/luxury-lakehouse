@@ -15,7 +15,7 @@ size_categories:
 
 # SPADL Action Context Features
 
-Unified per-action context features for football matches from the [luxury-lakehouse](https://github.com/karsten-s-nielsen/luxury-lakehouse) analytics platform. One row per SPADL action, with ~110 columns for tracking providers and ~5 for event-only providers. Covers all 6 data sources.
+Unified per-action context features for football matches from the [luxury-lakehouse](https://github.com/karsten-s-nielsen/luxury-lakehouse) analytics platform. One row per SPADL action, with ~111 columns for tracking providers and ~5 for event-only providers. Covers all 6 data sources.
 
 ## Provider Tiers
 
@@ -23,7 +23,7 @@ Unified per-action context features for football matches from the [luxury-lakeho
 |------|-----------|-----------------|
 | Event-only | StatsBomb, Wyscout | Identity + game state (~5 columns) |
 | SB360 | StatsBomb (with 360 freeze-frames) | Event-only + freeze-frame-derived context |
-| Tracking | IDSSE, Metrica, SkillCorner | Full ~110 columns including pitch control, team shape, line-breaking, OBSO, PAUSA, gk_influence zones, xShotOccurrence |
+| Tracking | IDSSE, Metrica, SkillCorner | Full ~111 columns including pitch control, team shape, line-breaking, OBSO, PAUSA, gk_influence zones, xShotOccurrence |
 
 GradientSports data is computed but excluded from HF publication per licensing restrictions.
 
@@ -35,6 +35,12 @@ pitch-control-derived metrics (OBSO, PAUSA, `gk_influence`/`gk_closing_time_*`):
 (which carry no velocity), and `null` on event-only rows. SB360 and tracking values for these
 columns are therefore produced by different estimators and are **not directly comparable** —
 segment on `pitch_control_method`.
+
+The `ghost_gk_method` column records which ghost-GK **KDE backend** produced each row's `ghost_gk_x/y/spread`
+(one of `scipy`, `vectorized`, `cpu-numba`, `fft`, `fft-cic`; `null` on event-only rows). The default is
+`fft-cic` (a ~95% mode-exact fast approximation); a run may select an exact backend for higher accuracy,
+which yields *different* `ghost_gk_*` values. This column scopes **only** to `ghost_gk_*` and is independent
+of `pitch_control_method` — **segment on `ghost_gk_method` before comparing `ghost_gk_*` across rows.**
 
 SB360 freeze-frame coverage is **partial and sparse**: each metric only populates the subset of
 actions whose freeze-frame contains the needed players, and `xshot_occurrence` in particular is
@@ -79,6 +85,7 @@ print(df.columns.tolist())
 | Shape Graph | shape_graph_centrality, shape_graph_clustering |
 | xShotOccurrence | xshot_occurrence (P(shot attempted); Pipping-Gamón, Feng & Sabin 2026, arXiv:2512.00203) |
 | Pitch-Control Provenance | pitch_control_method (spearman=tracking / voronoi=SB360 / null=event-only) |
+| Ghost-GK Backend Provenance | ghost_gk_method (scipy/vectorized/cpu-numba/fft/fft-cic; null=event-only) |
 
 ## Data Fields
 

@@ -186,6 +186,7 @@ def enrich_batch(
     xt_w: int,
     meta: MatchMeta,
     native_match_id: str,
+    kde_backend: str = "fft-cic",
 ) -> pd.DataFrame:
     """Enrich ONE unit of work — the shared contract called identically by prod + local.
 
@@ -210,7 +211,7 @@ def enrich_batch(
         # xt for the SB360 voronoi pitch-control metrics (gk_influence). The grid params are
         # already enrich_batch arguments; the tracking branch reconstructs the same below (ADR-039).
         xt = _reconstruct_xt(xt_grid_data, xt_l, xt_w)
-        result = _enrich_sb360_match(actions, frames_pdf, meta.home_team_id, xt)
+        result = _enrich_sb360_match(actions, frames_pdf, meta.home_team_id, xt, kde_backend=kde_backend)
         return build_output(result, native_match_id, provider)
 
     # ── tracking tier (per-250-frame batch) ──
@@ -250,7 +251,9 @@ def enrich_batch(
     frames["game_id"] = int(actions["game_id"].iloc[0])
 
     actions = _resolve_enrichment_identity(actions, provider=provider, match_id_native=native_match_id)
-    result = _enrich_tracking_match(actions_df=actions, tracking_df=frames, xt=xt, home_team_id=meta.home_team_id)
+    result = _enrich_tracking_match(
+        actions_df=actions, tracking_df=frames, xt=xt, home_team_id=meta.home_team_id, kde_backend=kde_backend
+    )
     out = build_output(result, native_match_id, provider)
     if owned_action_ids is not None and "action_id" in out.columns:
         out = out[out["action_id"].isin(owned_action_ids)].copy()
@@ -288,6 +291,7 @@ def run_work_unit(
         "xt_w": xt_w,
         "meta": m,
         "native_match_id": wu.match_id,
+        "kde_backend": wu.kde_backend,
     }
 
     if bundle.tier != "tracking":

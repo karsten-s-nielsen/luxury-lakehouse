@@ -122,7 +122,8 @@ with action_raw as (
         ghost_gk_y,
         ghost_gk_spread,
         xshot_occurrence,
-        pitch_control_method
+        pitch_control_method,
+        ghost_gk_method
     from {{ ref('stg_action_context__values') }}
 
 ),
@@ -264,7 +265,8 @@ final as (
         ghost_gk_y,
         ghost_gk_spread,
         xshot_occurrence,
-        pitch_control_method
+        pitch_control_method,
+        ghost_gk_method
 
     from keyed
     -- No QUALIFY needed: staging dedup + single Kimball join = guaranteed unique grain.
