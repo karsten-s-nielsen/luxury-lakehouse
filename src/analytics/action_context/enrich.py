@@ -205,7 +205,13 @@ def _enrich_tracking_match(
     out = add_game_state(actions_df)
 
     # Step 1: Frame linkage — computed ONCE; links passed to every add_* call.
-    links, _report = link_actions_to_frames(out, tracking_df)
+    # on_low_coverage="ignore": silly-kicks 4.12.0 (ADR-017) added a warn-by-default per-period
+    # low-coverage guard, but THIS call is per-250-frame batch — enrich_batch already pre-filters
+    # actions to the batch's frame time-window and M13 drops cross-batch actions, so a sub-1.0
+    # link rate here is expected and benign. The real time-base guard runs ONCE per work unit at
+    # the driver entry (assert_work_unit_time_base, ADR-040); keep this bit-identical to pre-4.12.0
+    # and avoid spurious per-batch UserWarnings inside the UDF (which land in executor logs).
+    links, _report = link_actions_to_frames(out, tracking_df, on_low_coverage="ignore")
 
     # One shared per-frame pitch-control surface cache for this batch (silly-kicks 3.25.0
     # TF-7): obso / cover_shadows / gk_influence / space_creation / pitch_control_at_action

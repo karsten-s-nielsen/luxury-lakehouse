@@ -127,10 +127,33 @@ class TestAdaptGradientSportsEvents:
         adapted = adapt_gradientsports_events(pdf)
         assert adapted["event_id"].iloc[0] == 6498520.0
         assert adapted["period_id"].iloc[0] == 2.0
-        assert adapted["time_seconds"].iloc[0] == 3500.0
+        # time_seconds is PERIOD-RELATIVE: GS bronze startGameClock=3500 is the nominal
+        # absolute clock (2700 nominal p2 start + 800 elapsed); the adapter subtracts the
+        # nominal offset so actions share GS tracking's period_elapsed_time base. 3500 - 2700 = 800.
+        assert adapted["time_seconds"].iloc[0] == 800.0
         assert adapted["player_id"].iloc[0] == 84.0
         assert adapted["team_id"].iloc[0] == 361.0
         assert adapted["set_piece_type"].iloc[0] == "CK"
+
+    def test_adapt_time_seconds_is_period_relative(self) -> None:
+        """GS bronze startGameClock is a NOMINAL absolute clock (nominal_offset[period] +
+        period_elapsed); the adapter must convert it to silly-kicks' canonical PERIOD-RELATIVE
+        time_seconds by subtracting the nominal period-start offset, so GS actions share the
+        per-period base used by GS tracking frames. Regression guard for the GS period-2
+        action<->frame time-base mismatch (ADR-040) — order-preserving, per period."""
+        from ingestion.spadl_adapter import adapt_gradientsports_events
+
+        rows = [
+            _make_gs_bronze_row(period=1.0, start_game_clock=120.0),  # p1: offset 0    -> 120
+            _make_gs_bronze_row(period=2.0, start_game_clock=2820.0),  # p2: offset 2700 -> 120
+            _make_gs_bronze_row(period=3.0, start_game_clock=5460.0),  # p3: offset 5400 -> 60
+            _make_gs_bronze_row(period=4.0, start_game_clock=6360.0),  # p4: offset 6300 -> 60
+        ]
+        adapted = adapt_gradientsports_events(pd.DataFrame(rows))
+        assert list(adapted["time_seconds"]) == [120.0, 120.0, 60.0, 60.0]
+        # Every converted value is within a plausible single-period range (no double-count,
+        # no absolute-clock leakage) — the bug symptom was p2 values landing at 2700+.
+        assert adapted["time_seconds"].max() < 2700.0
 
     def test_adapt_empty_match(self) -> None:
         """Empty DataFrame returns empty with correct columns."""

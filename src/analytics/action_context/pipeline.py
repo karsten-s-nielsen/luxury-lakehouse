@@ -25,6 +25,7 @@ from analytics.action_context.enrich import (
     _resolve_enrichment_identity,
 )
 from analytics.action_context.schema import RESULT_COLUMNS, build_output
+from analytics.action_context.time_base_guard import assert_work_unit_time_base
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -280,6 +281,19 @@ def run_work_unit(
     bundle = frames.frames(wu)
     actions_df = actions.actions(wu)
     actions_records: list[dict[str, Any]] = actions_df.to_dict("records")  # type: ignore[assignment]
+
+    # Work-unit time-base guard (ADR-040): assert the work unit's actions are period-relative
+    # (silly-kicks' canonical convention), not on an absolute match clock — the GradientSports
+    # period-2 class. Frame-independent (action min per period); mirrors the Spark driver
+    # (_process_tracking_match). Kept in lockstep by the sentinel test.
+    if "time_seconds" in actions_df.columns:
+        assert_work_unit_time_base(
+            {
+                int(p): float(s.min())  # type: ignore[arg-type]  # p is the int period groupby key
+                for p, s in actions_df.dropna(subset=["time_seconds"]).groupby("period_id")["time_seconds"]
+            }
+        )
+
     xt_grid_data, xt_l, xt_w = xt.grid()
     m = meta.metadata(wu)
 

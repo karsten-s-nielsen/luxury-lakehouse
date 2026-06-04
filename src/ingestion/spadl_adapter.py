@@ -777,6 +777,32 @@ def _parse_ball_json(ball_series: pd.Series) -> tuple[pd.Series, pd.Series]:  # 
     return ball_x, ball_y
 
 
+# GradientSports bronze ``gameEvents.startGameClock`` is a NOMINAL absolute game clock: each
+# period's clock starts at a fixed nominal offset (0 / 45 / 90 / 105 / 120 min) and runs forward,
+# so ``startGameClock == nominal_offset[period] + period_elapsed`` (verified on GS match 10503:
+# p2 game-clock [2700, 5842.8] == period_elapsed [0, 3142.8] + 2700, exactly). silly-kicks'
+# canonical SPADL ``time_seconds`` is PERIOD-RELATIVE — seconds since the start of the current
+# period, resetting to 0 each period (matches Opta/StatsBomb and GS *tracking*'s
+# ``period_elapsed_time``). We subtract the nominal offset so GS *actions* share the per-period
+# base that GS tracking frames and every other provider already use, fixing the action<->frame
+# time-base mismatch that silently dropped ~81% of GS period-2 actions in AC-1 enrichment.
+# These offsets are the inverse of ``stg_spadl__action_values.sql``'s ``minute`` derivation; keep
+# the two in lockstep. See ADR-040.
+_GS_NOMINAL_PERIOD_START_SECONDS: dict[int, float] = {1: 0.0, 2: 2700.0, 3: 5400.0, 4: 6300.0, 5: 7200.0}
+
+
+def _gs_nominal_period_start(period: object) -> float:
+    """Nominal seconds-from-kickoff at which ``period`` starts (0.0 if NaN/unknown).
+
+    Unknown or NaN periods get a 0.0 offset (value left untouched) rather than raising —
+    the AC-1 work-unit time-base guard (``analytics.action_context.time_base_guard``) is the
+    place that fails loud on a genuine base mismatch; the adapter stays a pure transform.
+    """
+    if pd.isna(period):  # type: ignore[arg-type]  # scalar object accepted by pd.isna
+        return 0.0
+    return _GS_NOMINAL_PERIOD_START_SECONDS.get(int(period), 0.0)  # type: ignore[arg-type]
+
+
 def adapt_gradientsports_events(pdf: pd.DataFrame) -> pd.DataFrame:
     """Rename + derive bronze columns to match silly-kicks EXPECTED_INPUT_COLUMNS.
 
@@ -786,6 +812,9 @@ def adapt_gradientsports_events(pdf: pd.DataFrame) -> pd.DataFrame:
        gameEventId -> event_id, gameEvents.period -> period_id,
        gameEvents.startGameClock -> time_seconds, gameEvents.playerId -> player_id,
        gameEvents.teamId -> team_id, gameEvents.setpieceType -> set_piece_type
+    2b. Time-base normalization: gameEvents.startGameClock is a NOMINAL absolute
+        clock; subtract the nominal period-start offset so time_seconds is silly-kicks'
+        canonical PERIOD-RELATIVE value (see _GS_NOMINAL_PERIOD_START_SECONDS / ADR-040).
     3. Ball JSON parsing: ball -> ball_x, ball_y
 
     Args:
@@ -824,6 +853,15 @@ def adapt_gradientsports_events(pdf: pd.DataFrame) -> pd.DataFrame:
         columns=[k for k in derived_columns if k in adapted.columns],
         errors="ignore",
     )
+
+    # Step 2b: normalize the nominal absolute game-clock to PERIOD-RELATIVE time_seconds.
+    # startGameClock = nominal_offset[period] + period_elapsed; subtract the offset so GS actions
+    # reset to 0 each period, matching GS tracking's period_elapsed_time and silly-kicks' canonical
+    # convention. Without this, GS period-2 actions sit on the match clock (2700+) while frames are
+    # period-relative (0..), so action<->frame linkage silently drops them. See ADR-040.
+    if "period_id" in adapted.columns and "time_seconds" in adapted.columns:
+        period_offsets = adapted["period_id"].map(_gs_nominal_period_start)
+        adapted["time_seconds"] = adapted["time_seconds"].astype("float64") - period_offsets
 
     # Step 3: Parse ball JSON string -> ball_x, ball_y
     # (O(n) Python loop per match — fine for 64 WC2022 matches; revisit if scaling)
