@@ -15,8 +15,11 @@ tags:
 
 # Stage 3 of 3 in PR-Cycle-C PR-β (ADR-019). Builds output_marts — marts that
 # are NOT consumed by any compute task (consumed only by apps/dashboards/HF/
-# run_model_validation). Selector: `--select tag:output_mart` (no leading `+`)
-# because all ancestors are built by stages 1 + 2.
+# run_model_validation). Selector (ADR-019 amended 2026-06-04): `--select
+# +tag:output_mart path:models/staging path:models/intermediate --exclude
+# +tag:input_mart +tag:dimension +tag:intermediate_mart` — builds output marts
+# + ALL staging + ALL intermediate minus everything stages 1+2 built, so
+# output-mart-only / externally-consumed leaf staging views can't go stale.
 #
 # refresh_synced_tables and run_model_validation are siblings depending on
 # this stage — validation reads today's output marts but a validation
@@ -218,8 +221,15 @@ links:
 ## Overview
 
 Stage 3 of the three-stage dbt_build topology introduced by ADR-019. Builds
-the 32 output_marts. Selector: `--select tag:output_mart` (no leading `+`)
-because all staging ancestors were built by stages 1 + 2.
+the output marts plus every staging/intermediate model not already built by
+stages 1+2. Selector (ADR-019 amended 2026-06-04): `--select +tag:output_mart
+path:models/staging path:models/intermediate --exclude +tag:input_mart
++tag:dimension +tag:intermediate_mart`. The original `tag:output_mart` (no `+`,
+no staging/intermediate paths) orphaned staging VIEWS that feed only an output
+mart (e.g. `stg_action_context__values`) or have no dbt consumer but are read
+externally (e.g. `stg_pitch_control__values`) — they were selected by no stage,
+never rebuilt, and went schema-stale. Full coverage is now enforced by
+`src/tests/test_dbt_stage_selector_coverage.py`.
 
 `refresh_synced_tables` and `run_model_validation` are SIBLINGS depending on
 this stage — both children of `dbt_build_output_marts`. A validation

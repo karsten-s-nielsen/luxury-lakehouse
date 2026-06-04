@@ -59,7 +59,12 @@ logger = logging.getLogger(__name__)
 _SELECTOR_TO_CARD: dict[frozenset[str], str] = {
     frozenset({"+tag:input_mart", "+tag:dimension"}): "wf-dbt-build-input-marts",
     frozenset({"+tag:intermediate_mart"}): "wf-dbt-build-intermediate-marts",
-    frozenset({"tag:output_mart"}): "wf-dbt-build-output-marts",
+    # Stage 3 selects output marts + ALL staging + ALL intermediate, with `--exclude`
+    # of stages 1+2, so output-mart-only and externally-consumed leaf staging are
+    # rebuilt — see ADR-019 (amended) + test_dbt_stage_selector_coverage. The card
+    # key matches the captured `--select` tokens (the `--exclude` args are not part
+    # of the watermark-card key).
+    frozenset({"+tag:output_mart", "path:models/staging", "path:models/intermediate"}): "wf-dbt-build-output-marts",
 }
 
 
