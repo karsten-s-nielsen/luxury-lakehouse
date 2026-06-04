@@ -82,9 +82,11 @@ def test_new_gk_and_xshot_columns_present() -> None:
         "gk_closing_time_min_s__far_post",
         "xshot_occurrence",
         "pitch_control_method",
+        "ghost_gk_method",
     ]
     for c in new_cols:
         assert c in RESULT_COLUMNS, f"{c} missing from RESULT_COLUMNS"
         assert c in ACTION_CONTEXT_DDL, f"{c} missing from ACTION_CONTEXT_DDL"
     assert "pitch_control_method STRING" in ACTION_CONTEXT_DDL
     assert "xshot_occurrence DOUBLE" in ACTION_CONTEXT_DDL
+    assert "ghost_gk_method STRING" in ACTION_CONTEXT_DDL

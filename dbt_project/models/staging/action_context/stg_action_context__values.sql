@@ -172,7 +172,9 @@ cleaned as (
         cast(ghost_gk_spread as double) as ghost_gk_spread,
         -- xShotOccurrence + pitch-control provenance (ADR-039)
         cast(xshot_occurrence as double) as xshot_occurrence,
-        cast(pitch_control_method as string) as pitch_control_method
+        cast(pitch_control_method as string) as pitch_control_method,
+        -- ghost-GK backend provenance (ADR-035 amendment)
+        cast(ghost_gk_method as string) as ghost_gk_method
 
     from deduplicated
     where _row_num = 1

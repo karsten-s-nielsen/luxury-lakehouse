@@ -161,10 +161,12 @@ def _enrich_tracking_match(
     tracking_df: pd.DataFrame,
     xt: ExpectedThreat,
     home_team_id: str,
+    kde_backend: str = "fft-cic",
 ) -> pd.DataFrame:
     """Full enrichment chain for tracking providers.
 
-    See spec section 4.2 for the complete call graph and ordering rationale.
+    ``kde_backend`` selects the ghost-GK KDE backend (resolved upstream; default ``fft-cic``) and is
+    recorded per-row in ``ghost_gk_method``. See spec section 4.2 for the complete call graph.
     """
     from silly_kicks.spadl import add_game_state
     from silly_kicks.spadl.utils import add_pre_shot_gk_context
@@ -300,7 +302,7 @@ def _enrich_tracking_match(
         links=links,
         home_team_id=home_team_id,
         actions_for_context=actions_df,
-        kde_backend="fft-cic",
+        kde_backend=kde_backend,
     )
 
     # Step 13: GK influence (xt positional). Explicit method="spearman" (velocity-aware; full
@@ -358,8 +360,10 @@ def _enrich_tracking_match(
         out, tracking_df, model=None, links=links, home_team_id=home_team_id, pitch_control_cache=pc_cache
     )
 
-    # Provenance: the persisted pitch-control-derived metrics on the tracking path use spearman.
+    # Provenance: the persisted pitch-control-derived metrics on the tracking path use spearman;
+    # ghost_gk_method records which KDE backend produced ghost_gk_* (scopes to ghost_gk_* only).
     out["pitch_control_method"] = "spearman"
+    out["ghost_gk_method"] = kde_backend
 
     return out
 
@@ -369,6 +373,7 @@ def _enrich_sb360_match(
     freeze_frames: pd.DataFrame,
     home_team_id: str,
     xt: ExpectedThreat,
+    kde_backend: str = "fft-cic",
 ) -> pd.DataFrame:
     """Enrichment chain for StatsBomb 360 matches.
 
@@ -430,7 +435,7 @@ def _enrich_sb360_match(
         links=links,
         home_team_id=home_team_id,
         actions_for_context=out,
-        kde_backend="fft-cic",
+        kde_backend=kde_backend,
     )
     out = add_gk_influence(
         out,
@@ -445,8 +450,10 @@ def _enrich_sb360_match(
     out = add_pausa(out, frames, links=links, home_team_id=home_team_id, pitch_control_method="voronoi")
     out = add_xshot_occurrence(out, frames, model=None, links=links, home_team_id=home_team_id)
 
-    # Provenance: the persisted pitch-control-derived metrics on SB360 use voronoi (ADR-039).
+    # Provenance: the persisted pitch-control-derived metrics on SB360 use voronoi (ADR-039);
+    # ghost_gk_method records the ghost-GK KDE backend (scopes to ghost_gk_* only).
     out["pitch_control_method"] = "voronoi"
+    out["ghost_gk_method"] = kde_backend
 
     return out
 

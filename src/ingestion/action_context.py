@@ -16,15 +16,17 @@ import argparse
 import logging
 import re
 from collections.abc import Callable
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from analytics.action_context.drain import assign_workers, drain_worker
+from analytics.action_context.drain import WATCHDOG_BUDGET_S, assign_workers, drain_worker
 from analytics.action_context.enrich import (
     _enrich_event_only_match,
     _enrich_sb360_match,
 )
+from analytics.action_context.ghost_gk_backend import resolve_ghost_gk_backend
 from analytics.action_context.pipeline import _reconstruct_xt
 from analytics.action_context.schema import (
     ACTION_CONTEXT_DDL as _ACTION_CONTEXT_DDL,
@@ -37,6 +39,16 @@ from ingestion.guards import FilterResult, timed_check
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_backend_or_exit(explicit: str | None, env_default: str | None) -> str:
+    """Resolve the ghost-GK backend at the CLI boundary, translating the domain ``ValueError`` into the
+    operator fail-loud ``SystemExit``. Keeps ``resolve_ghost_gk_backend`` pure (domain layer)."""
+    try:
+        return resolve_ghost_gk_backend(explicit, env_default)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -264,6 +276,7 @@ def _make_action_context_udf(
     gs_jersey_to_player_id: dict[tuple[str, str], str] | None = None,
     gs_gk_player_ids: list[str] | None = None,
     exec_rendezvous_dir: str | None = None,
+    kde_backend: str = "fft-cic",
 ) -> Callable[[pd.DataFrame], pd.DataFrame]:
     """Build the applyInPandas UDF closure for action context enrichment.
 
@@ -361,6 +374,7 @@ def _make_action_context_udf(
                 xt_w=xt_w,
                 meta=_meta,
                 native_match_id=native_match_id,
+                kde_backend=kde_backend,
             )
             # Executor-side per-batch progress log: serverless / Spark Connect
             # forbids driver-side accumulators (PySparkAttributeError on
@@ -414,35 +428,47 @@ def _make_action_context_udf(
 # ── Guard ─────────────────────────────────────────────────────────────
 
 
-def _find_tracking_new_ids(
+def _find_tracking_new_period_pairs(
     spark: SparkSession,
     tracking_table: str,
     spadl_table: str,
     results_table: str,
     provider: str,
-) -> list[str]:
-    """Find unprocessed tracking matches that also have SPADL actions (Spark-native).
+) -> list[tuple[str, int]]:
+    """Find unprocessed ``(match_id, period)`` pairs for a tracking provider (Spark-native).
 
-    Three-way query pushed entirely to Spark executors:
-      tracking ∩ spadl (INNER JOIN) \\ results (LEFT ANTI JOIN)
+    Per-period generalisation of the whole-match discovery — all four tracking bronze tables carry a
+    ``period`` column, so every tracking provider now enqueues per-half units like IDSSE (ADR-037
+    amendment). Three-way join at period granularity:
+      tracking(mid, period) ∩ spadl(mid) \\ results(mid, period)
     """
     from pyspark.sql import functions as F  # noqa: N812
 
-    tracking_df = spark.table(tracking_table).select(F.col("match_id").cast("string").alias("_join_id")).distinct()
+    tracking_df = (
+        spark.table(tracking_table)
+        .select(
+            F.col("match_id").cast("string").alias("_mid"),
+            F.col("period").cast("bigint").alias("_period"),
+        )
+        .distinct()
+    )
     spadl_df = (
         spark.table(spadl_table)
         .filter(F.col("data_source") == provider)
-        .select(F.col("match_id_native").cast("string").alias("_join_id"))
+        .select(F.col("match_id_native").cast("string").alias("_mid"))
         .distinct()
     )
     results_df = (
         spark.table(results_table)
         .filter(F.col("data_source") == provider)
-        .select(F.col("match_id").cast("string").alias("_join_id"))
+        .select(
+            F.col("match_id").cast("string").alias("_mid"),
+            F.col("period_id").cast("bigint").alias("_period"),
+        )
         .distinct()
     )
-    new_df = tracking_df.join(spadl_df, "_join_id", "inner").join(results_df, "_join_id", "left_anti")
-    return [str(row["_join_id"]) for row in new_df.collect()]
+    new_df = tracking_df.join(spadl_df, "_mid", "inner").join(results_df, ["_mid", "_period"], "left_anti")
+    return [(str(row["_mid"]), int(row["_period"])) for row in new_df.collect()]
 
 
 def _find_event_only_new_ids(
@@ -606,10 +632,12 @@ class _ActionContextGuard:
             ("gradientsports", "gradientsports_tracking"),
         ):
             if self._selected(prov):
-                ids = self._cap(
-                    _find_tracking_new_ids(spark, f"{catalog}.bronze.{table}", spadl_table, results_table, prov)
+                pairs = self._cap(
+                    _find_tracking_new_period_pairs(
+                        spark, f"{catalog}.bronze.{table}", spadl_table, results_table, prov
+                    )
                 )
-                units += [WorkUnit(provider=prov, match_id=mid) for mid in ids]
+                units += [WorkUnit(provider=prov, match_id=mid, period=period) for mid, period in pairs]
 
         for prov in ("statsbomb", "wyscout"):
             if self._selected(prov):
@@ -765,6 +793,15 @@ def main_preflight() -> None:
                     "help": "Job-level run id (from {{job.run_id}}); shared with the drain workers.",
                 },
             ),
+            (
+                "--ghost-gk-backend",
+                {
+                    "type": str,
+                    "default": None,
+                    "help": "Ghost-GK KDE backend; empty resolves to AC1_GHOST_GK_BACKEND env then fft-cic. "
+                    "One of {scipy,vectorized,cpu-numba,fft,fft-cic}.",
+                },
+            ),
         ],
     )
     task_logger = configure_logging("action_context_preflight")
@@ -793,9 +830,19 @@ def main_preflight() -> None:
 
     # Spark adapter imported function-locally: it pulls pyspark, and action_context.py must stay
     # importable offline. Tests patch it at its source (ingestion.action_context_queue.DeltaWorkQueue).
+    import os
+
     from ingestion.action_context_queue import DeltaWorkQueue
 
-    units = guard.discover_units(spark, args.catalog, args.schema)  # memoised; check() already ran it
+    kde_backend = _resolve_backend_or_exit(
+        getattr(args, "ghost_gk_backend", None), os.environ.get("AC1_GHOST_GK_BACKEND")
+    )
+    # discover_units is memoised + shared with the skip-guard count path (which is backend-agnostic),
+    # so stamp the resolved backend onto every unit here rather than inside discovery (domain policy on
+    # the work spec; the queue carries it to the drain workers).
+    units = [replace(u, kde_backend=kde_backend) for u in guard.discover_units(spark, args.catalog, args.schema)]
+    if kde_backend != "fft-cic":
+        task_logger.info("Action context preflight: ghost-GK backend = %s (non-default)", kde_backend)
     assignments = assign_workers(units, _ActionContextGuard._N_DRAIN_WORKERS)
     run_id = _resolve_run_id(args)
     queue = DeltaWorkQueue(spark, args.catalog)
@@ -899,11 +946,23 @@ def main() -> None:
     - Wyscout: event-only (driver-side, no tracking)
     """
     import json as _json
+    import os
     import time as _time
 
     args = parse_ingestion_args(
         "Compute action context features",
-        extra_args=[("--match-ids", {"type": str, "default": None, "help": "provider:id1,id2"})],
+        extra_args=[
+            ("--match-ids", {"type": str, "default": None, "help": "provider:id1,id2"}),
+            (
+                "--ghost-gk-backend",
+                {
+                    "type": str,
+                    "default": None,
+                    "help": "Ghost-GK KDE backend; empty resolves to AC1_GHOST_GK_BACKEND env then fft-cic. "
+                    "One of {scipy,vectorized,cpu-numba,fft,fft-cic}.",
+                },
+            ),
+        ],
     )
     task_logger = configure_logging("action_context")
     spark = get_spark_session()
@@ -911,6 +970,10 @@ def main() -> None:
     from ingestion.bootstrap import bootstrap_hooks
 
     bootstrap_hooks(spark, args.catalog, args.schema)
+
+    kde_backend = _resolve_backend_or_exit(
+        getattr(args, "ghost_gk_backend", None), os.environ.get("AC1_GHOST_GK_BACKEND")
+    )
 
     match_ids_parsed = _parse_action_match_ids_arg(getattr(args, "match_ids", None))
     if match_ids_parsed is None:
@@ -948,9 +1011,12 @@ def main() -> None:
                 xt_l,
                 xt_w,
                 task_logger,
+                kde_backend=kde_backend,
             )
         elif provider == "statsbomb":
-            written = _process_statsbomb_match(spark, catalog, schema, match_id, xt_grid_data, xt_l, xt_w, task_logger)
+            written = _process_statsbomb_match(
+                spark, catalog, schema, match_id, xt_grid_data, xt_l, xt_w, task_logger, kde_backend=kde_backend
+            )
         elif provider == "wyscout":
             written = _process_event_only_match(spark, catalog, schema, "wyscout", match_id, task_logger)
         else:
@@ -978,8 +1044,9 @@ def main_drain_worker() -> None:
     """for-each worker (ADR-037): drain this worker's slice of the action-context queue.
 
     Receives ``--worker-id "{{input}}"`` and ``--run-id`` from the preflight task
-    value (NOT from env -- see ADR-037 B1). The per-game watchdog (1800 s) bounds each
-    unit; the task timeout (8 h) bounds the whole drain.
+    value (NOT from env -- see ADR-037 B1). The per-game watchdog (2700 s default,
+    overridable via ``--watchdog-budget-s``) bounds each unit; the task timeout (8 h)
+    bounds the whole drain.
 
     ``drain_worker`` is module-level (pure, patch on ``ac``); the Spark adapters are
     imported function-locally (they pull pyspark; action_context.py must import offline)
@@ -990,6 +1057,15 @@ def main_drain_worker() -> None:
         extra_args=[
             ("--worker-id", {"type": str, "default": None, "help": "for-each worker index"}),
             ("--run-id", {"type": str, "default": None, "help": "preflight run id (task value)"}),
+            (
+                "--watchdog-budget-s",
+                {
+                    "type": str,
+                    "default": None,
+                    "help": "Per-game watchdog budget seconds (default/empty -> WATCHDOG_BUDGET_S=2700). "
+                    "Raise for slower exact ghost-GK backends.",
+                },
+            ),
         ],
     )
     task_logger = configure_logging("action_context_drain")
@@ -1009,6 +1085,17 @@ def main_drain_worker() -> None:
     worker_id = int(str(raw_wid).strip())
     run_id = str(run_id).strip()
 
+    raw_budget = (getattr(args, "watchdog_budget_s", None) or "").strip()
+    if raw_budget:
+        try:
+            budget_s = int(raw_budget)
+        except ValueError as exc:
+            raise SystemExit(f"--watchdog-budget-s must be an integer, got {raw_budget!r}") from exc
+        if budget_s <= 0:
+            raise SystemExit(f"--watchdog-budget-s must be > 0, got {budget_s}")
+    else:
+        budget_s = WATCHDOG_BUDGET_S
+
     from ingestion.action_context_queue import DeltaWorkQueue, SparkGameProcessor, SparkInterruptWatchdog
 
     queue = DeltaWorkQueue(spark, args.catalog)
@@ -1021,7 +1108,7 @@ def main_drain_worker() -> None:
 
     processor = SparkGameProcessor(spark, args.catalog, args.schema)
     watchdog = SparkInterruptWatchdog(spark)
-    summary = drain_worker(queue, processor, watchdog, run_id, worker_id, task_logger, units=units)
+    summary = drain_worker(queue, processor, watchdog, run_id, worker_id, task_logger, units=units, budget_s=budget_s)
     task_logger.info(
         "Drain worker %d complete: processed=%d failed=%d timed_out=%d rows=%d",
         worker_id,
@@ -1098,6 +1185,18 @@ def _build_gradientsports_roster_dicts(
     return team_side_to_id, jersey_to_player_id, gk_player_ids
 
 
+def _period_replace_where(match_id: str, period_filter: int | None) -> str:
+    """Delta ``replaceWhere`` predicate for a (match, optional-period) write.
+
+    Pure (no Spark) so the per-period disjoint-write invariant is unit-testable: when ``period_filter``
+    is set the predicate is period-scoped (``match_id AND period_id``), so two per-period units of the
+    same match replace disjoint partitions; when ``None`` the whole match is replaced.
+    """
+    if period_filter is not None:
+        return f"match_id = '{match_id}' AND period_id = {period_filter}"
+    return f"match_id = '{match_id}'"
+
+
 def _process_tracking_match(
     spark: SparkSession,
     catalog: str,
@@ -1111,6 +1210,7 @@ def _process_tracking_match(
     task_logger: logging.Logger,
     profile: bool = False,
     profile_max_batches: int = 0,
+    kde_backend: str = "fft-cic",
 ) -> int:
     """Process a single tracking-provider match via applyInPandas.
 
@@ -1149,9 +1249,7 @@ def _process_tracking_match(
         task_logger.warning("Could not create rendezvous dir %s: %s", exec_rendezvous_dir, exc)
         exec_rendezvous_dir = None
 
-    _count_where = (
-        f"match_id = '{match_id}' AND period_id = {period_filter}" if period_filter else f"match_id = '{match_id}'"
-    )
+    _count_where = _period_replace_where(match_id, period_filter)
     hb = PhaseHeartbeat(
         tag="AC1_HEARTBEAT",
         interval_s=15.0,
@@ -1337,6 +1435,7 @@ def _process_tracking_match(
                 exec_rendezvous_dir=exec_rendezvous_dir,
                 task_logger=task_logger,
                 max_batches=profile_max_batches,
+                kde_backend=kde_backend,
             )
         finally:
             hb.stop()
@@ -1360,6 +1459,7 @@ def _process_tracking_match(
         gs_jersey_to_player_id=gs_jersey_to_player_id,
         gs_gk_player_ids=gs_gk_player_ids,
         exec_rendezvous_dir=exec_rendezvous_dir,
+        kde_backend=kde_backend,
     )
 
     # GradientSports uses "period" (not "period_id") in bronze
@@ -1369,10 +1469,7 @@ def _process_tracking_match(
         schema=_get_result_schema(),
     )
 
-    if period_filter is not None:
-        rw = f"match_id = '{match_id}' AND period_id = {period_filter}"
-    else:
-        rw = f"match_id = '{match_id}'"
+    rw = _period_replace_where(match_id, period_filter)
 
     # This is the action that materializes the applyInPandas DAG. If the hang is
     # in the UDF, the heartbeat keeps printing "phase=write_delta_applyInPandas"
@@ -1490,6 +1587,7 @@ def _run_profile_on_driver(
     exec_rendezvous_dir: str | None,
     task_logger: logging.Logger,
     max_batches: int = 0,
+    kde_backend: str = "fft-cic",
 ) -> int:
     """Pull the whole match to the driver, run ``enrich_batch`` per 250-frame
     batch under ``cProfile`` (single-process), and write the breakdown to the
@@ -1580,6 +1678,7 @@ def _run_profile_on_driver(
             xt_w=xt_w,
             meta=meta,
             native_match_id=native_match_id,
+            kde_backend=kde_backend,
         )
         n_rows += len(result)
         for _c in _health_cols:
@@ -1691,6 +1790,7 @@ def _process_statsbomb_match(
     xt_l: int,
     xt_w: int,
     task_logger: logging.Logger,
+    kde_backend: str = "fft-cic",
 ) -> int:
     """Process a StatsBomb match — SB360 tier (with freeze-frames) or event-only."""
     from pyspark.sql import functions as F  # noqa: N812
@@ -1728,6 +1828,7 @@ def _process_statsbomb_match(
             xt_l,
             xt_w,
             task_logger,
+            kde_backend=kde_backend,
         )
     else:
         task_logger.info("StatsBomb match %s — event-only tier", match_id)
@@ -1765,6 +1866,7 @@ def _run_sb360_enrichment(
     xt_l: int,
     xt_w: int,
     task_logger: logging.Logger,
+    kde_backend: str = "fft-cic",
 ) -> pd.DataFrame:
     """Run SB360 enrichment — converts freeze-frames to synthetic tracking then enriches.
 
@@ -1849,7 +1951,7 @@ def _run_sb360_enrichment(
     home_team_id = str(unique_teams[0]) if len(unique_teams) > 0 else "unknown"
 
     xt = _reconstruct_xt(xt_grid_data, xt_l, xt_w)
-    return _enrich_sb360_match(actions_pdf, freeze_frames, home_team_id, xt)
+    return _enrich_sb360_match(actions_pdf, freeze_frames, home_team_id, xt, kde_backend=kde_backend)
 
 
 def _process_event_only_match(

@@ -94,6 +94,14 @@ Performance Budgets: note that `compute_action_context` is a worker-drain task �
 now a **per-game watchdog inside the worker**, and the task is a **documented exception** to the
 "compute task ≤ 2 hr" budget (one-time cold start ~5.5 h). The `chunk_sizes` concept is removed.
 
+## Amendment (2026-06-03): period work-units for all tracking providers + watchdog 1800→2700 + override
+
+- **All tracking providers now enqueue per-`(match, period)` units** like IDSSE already did (`metrica`/`skillcorner`/`gradientsports`). `discover_units` uses `_find_tracking_new_period_pairs` (replacing `_find_tracking_new_ids`); the processing + write path already supported this (the `replaceWhere` predicate — now the pure `_period_replace_where(match_id, period_filter)` helper — is period-scoped when a period is set, and `enrich_batch` filters actions to the period, so two per-period units of one match replace **disjoint** Delta partitions). Smaller units parallelise better under the persistent-worker drain (cold start already amortised) and give the per-game watchdog **per-half** headroom — which is what makes the exact ghost-GK backends (ADR-035 third amendment) fit.
+- **Per-game watchdog `WATCHDOG_BUDGET_S` 1800 → 2700 s** (`src/analytics/action_context/drain.py`), with a per-run override: the drain worker takes `--watchdog-budget-s` (job parameter `watchdog_budget_s` ← `var.watchdog_budget_s`), passed to `drain_worker(budget_s=…)`. `_TIER_COST_S` (the LPT load-balancing estimate) is intentionally left unchanged — only rank order matters there. The oneshot/for-each path has **no** in-process watchdog, so its escape hatch for a slow exact-backend run is `submit_ac1_oneshot.py --timeout-seconds` → `SubmitTask(timeout_seconds=…)`, not a watchdog.
+- **Preflight task timeout 300 → 600 s** on all 5 preflight tasks: 300 s includes serverless cold-start env setup, and the analytics env's 11-dep pip resolution exceeded it on cache-cold builds (observed TIMEDOUT live 2026-06-03).
+
+CLAUDE.md "Performance Budgets" updated: the per-game watchdog is now **2700 s** (per-half), overridable via `--watchdog-budget-s`.
+
 ## Related
 
 - **Spec:** `docs/superpowers/specs/2026-06-02-action-context-worker-drain-fanout-design.md`

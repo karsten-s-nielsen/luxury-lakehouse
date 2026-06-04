@@ -100,6 +100,9 @@ INVARIANT_ONLY: dict[str, tuple[str, float | None, float | None]] = {
     "xshot_occurrence": ("float", 0.0, 1.0),
     # Pitch-control provenance (ADR-039): categorical {spearman, voronoi}; NULL on event-only rows.
     "pitch_control_method": ("categorical", None, None),
+    # Ghost-GK backend provenance (ADR-035 amendment): categorical {scipy,vectorized,cpu-numba,fft,fft-cic};
+    # NULL on event-only rows.
+    "ghost_gk_method": ("categorical", None, None),
 }
 
 # Identity + linkage passthrough columns — not differential features (skip).

@@ -13,7 +13,11 @@ from typing import Protocol
 
 from analytics.action_context.work_unit import WorkUnit, provider_tier
 
-WATCHDOG_BUDGET_S = 1800
+# Per-game (now per-half — all tracking providers enqueue per-period units, ADR-037 amendment) watchdog
+# budget. 1800 -> 2700 (2026-06-03): headroom for slower exact ghost-GK backends and per-experiment slack;
+# overridable per run via the drain worker's --watchdog-budget-s. _TIER_COST_S (below) is the SEPARATE LPT
+# load-balancing estimate (rank order only) and is intentionally left unchanged.
+WATCHDOG_BUDGET_S = 2700
 MAX_ABANDONED_THREADS = 3
 
 _TIER_COST_S: dict[str, float] = {"tracking": 1800.0, "statsbomb": 120.0, "event_only": 60.0}

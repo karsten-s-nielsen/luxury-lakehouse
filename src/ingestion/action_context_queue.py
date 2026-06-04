@@ -41,6 +41,10 @@ _QUEUE_COLUMNS: list[tuple[str, str, bool]] = [
     ("frame_range_lo", "bigint", True),
     ("frame_range_hi", "bigint", True),
     ("est_cost", "double", False),
+    # Ghost-GK backend policy carried per-unit (ADR-035 amendment): resolved at preflight, stamped on
+    # each unit, read by the drain worker. Nullable for back-compat with rows enqueued before the column
+    # existed (``_row_to_work_unit`` reads NULL → "fft-cic").
+    ("kde_backend", "string", True),
 ]
 
 
@@ -57,6 +61,24 @@ def _queue_struct():
     mapping = {"string": T.StringType, "int": T.IntegerType, "bigint": T.LongType, "double": T.DoubleType}
     return T.StructType(
         [T.StructField(name, mapping[sql_type](), nullable) for name, sql_type, nullable in _QUEUE_COLUMNS]
+    )
+
+
+def _row_to_work_unit(row) -> WorkUnit:
+    """Reconstruct a ``WorkUnit`` from a queue row (Spark ``Row`` or mapping).
+
+    Pure (no Spark) so the round-trip contract is unit-testable. A NULL/absent ``kde_backend`` (rows
+    enqueued before the column existed) reads back as the ``"fft-cic"`` default.
+    """
+    lo = row["frame_range_lo"]
+    frame_range = (lo, row["frame_range_hi"]) if lo is not None else None
+    kde_backend = row["kde_backend"] if row["kde_backend"] else "fft-cic"
+    return WorkUnit(
+        provider=row["provider"],
+        match_id=row["match_id"],
+        period=row["period"],
+        frame_range=frame_range,
+        kde_backend=kde_backend,
     )
 
 
@@ -81,7 +103,18 @@ class DeltaWorkQueue:
         for a in assignments:
             lo, hi = a.unit.frame_range or (None, None)
             rows.append(
-                (run_id, a.worker_id, a.seq, a.unit.provider, a.unit.match_id, a.unit.period, lo, hi, a.est_cost)
+                (
+                    run_id,
+                    a.worker_id,
+                    a.seq,
+                    a.unit.provider,
+                    a.unit.match_id,
+                    a.unit.period,
+                    lo,
+                    hi,
+                    a.est_cost,
+                    a.unit.kde_backend,
+                )
             )
         sdf = self._spark.createDataFrame(rows, schema=_queue_struct())
         write_delta_table(
@@ -101,11 +134,7 @@ class DeltaWorkQueue:
             .where((F.col("run_id") == run_id) & (F.col("worker_id") == worker_id))
             .orderBy("seq")
         )
-        out: list[WorkUnit] = []
-        for r in df.collect():
-            fr = (r["frame_range_lo"], r["frame_range_hi"]) if r["frame_range_lo"] is not None else None
-            out.append(WorkUnit(provider=r["provider"], match_id=r["match_id"], period=r["period"], frame_range=fr))
-        return out
+        return [_row_to_work_unit(r) for r in df.collect()]
 
 
 class SparkInterruptWatchdog:
@@ -200,6 +229,7 @@ class SparkGameProcessor:
                 self._xt_l,
                 self._xt_w,
                 self._logger,
+                kde_backend=unit.kde_backend,
             )
         if unit.provider == "statsbomb":
             return _process_statsbomb_match(
@@ -211,6 +241,7 @@ class SparkGameProcessor:
                 self._xt_l,
                 self._xt_w,
                 self._logger,
+                kde_backend=unit.kde_backend,
             )
         if unit.provider == "wyscout":
             return _process_event_only_match(

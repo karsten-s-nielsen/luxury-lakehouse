@@ -156,7 +156,7 @@ Factor loop-invariant computation out and broadcast; verify HF Jobs dataset size
 
 ### Performance Budgets
 
-- **Pipeline task timeout**: ingest tasks ≤15 min, compute tasks ≤2 hr. **Documented exception ([ADR-037](docs/superpowers/adrs/ADR-037-action-context-worker-drain-fanout.md)):** `compute_action_context` is a worker-drain task (`timeout_seconds = 28800`); it drains the whole work-queue to completion (one-time cold start ~5.5 h). The 1800 s budget there is a **per-game watchdog inside the worker**, not the iteration timeout, and there is no `chunk_size` (the per-game watchdog + persistent worker removed the per-iteration budget it packed against).
+- **Pipeline task timeout**: ingest tasks ≤15 min, compute tasks ≤2 hr. **Documented exception ([ADR-037](docs/superpowers/adrs/ADR-037-action-context-worker-drain-fanout.md)):** `compute_action_context` is a worker-drain task (`timeout_seconds = 28800`); it drains the whole work-queue to completion (one-time cold start ~5.5 h). The **2700 s** budget there (raised from 1800 s 2026-06-03; overridable per run via the drain worker's `--watchdog-budget-s`) is a **per-game watchdog inside the worker** — now effectively **per-half**, since all tracking providers enqueue per-`(match, period)` units — not the iteration timeout, and there is no `chunk_size` (the per-game watchdog + persistent worker removed the per-iteration budget it packed against).
 - **App page load**: ≤3 seconds (first load), ≤500ms (cached interaction)
 - **UDF group memory**: ≤800 MB peak (1 GB limit minus overhead)
 - **Batched pitch control**: ≤5ms per frame for 22 targets (benchmark baseline)
