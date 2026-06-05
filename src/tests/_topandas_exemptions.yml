@@ -43,11 +43,11 @@ exemptions:
     reason: "`SELECT DISTINCT` over match-grain dimension columns; bounded to ~5,400 matches. Same shape as line 156."
 
   - file: src/ingestion/spadl_conversion.py
-    line: 315
+    line: 327
     reason: "`statsbomb_matches` dimension table — one row per match (~3,000 matches across 5 competitions). Bounded by source-table size."
 
   - file: src/ingestion/spadl_conversion.py
-    line: 627
+    line: 654
     reason: "`wyscout_matches` dimension table — one row per match across 3 competitions. Bounded by source-table size."
 
   - file: src/ingestion/statsbomb.py

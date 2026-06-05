@@ -95,7 +95,11 @@ _SPADL_SCHEMA = (
     "tackle_winner_player_id_native STRING, tackle_winner_player_key BIGINT, "
     "tackle_winner_team_id_native STRING, tackle_winner_team_key BIGINT, "
     "tackle_loser_player_id_native STRING, tackle_loser_player_key BIGINT, "
-    "tackle_loser_team_id_native STRING, tackle_loser_team_key BIGINT"
+    "tackle_loser_team_id_native STRING, tackle_loser_team_key BIGINT, "
+    # silly-kicks 4.13.0 (sk ADR-018): is_synthetic provenance flag. True on GS
+    # synthesized rows (foul restarts + cross-goal shots); False everywhere else
+    # (native on GS, manufactured False on the other 5 providers). Non-NULL.
+    "is_synthetic BOOLEAN"
 )
 _VAEP_TABLE = "vaep_action_values"
 _VAEP_SCHEMA = (
@@ -128,7 +132,10 @@ _VAEP_SCHEMA = (
     "tackle_winner_player_id_native STRING, tackle_winner_player_key BIGINT, "
     "tackle_winner_team_id_native STRING, tackle_winner_team_key BIGINT, "
     "tackle_loser_player_id_native STRING, tackle_loser_player_key BIGINT, "
-    "tackle_loser_team_id_native STRING, tackle_loser_team_key BIGINT"
+    "tackle_loser_team_id_native STRING, tackle_loser_team_key BIGINT, "
+    # silly-kicks 4.13.0 (sk ADR-018): is_synthetic carried through from
+    # spadl_actions to vaep_action_values. Same type as _SPADL_SCHEMA (BOOLEAN).
+    "is_synthetic BOOLEAN"
 )
 
 
@@ -550,6 +557,8 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                 "tackle_loser_player_key",
                 "tackle_loser_team_id_native",
                 "tackle_loser_team_key",
+                # silly-kicks 4.13.0: is_synthetic carried through from spadl_actions.
+                "is_synthetic",
             ]
         )
 
@@ -681,6 +690,9 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                                 "tackle_loser_player_key",
                                 "tackle_loser_team_id_native",
                                 "tackle_loser_team_key",
+                                # silly-kicks 4.13.0: is_synthetic provenance
+                                # carried through to vaep_action_values.
+                                "is_synthetic",
                             ]
                             if c in game_actions.columns
                         ]
@@ -919,6 +931,8 @@ def _vaep_output_schema() -> Any:
             StructField("tackle_loser_player_key", LongType()),
             StructField("tackle_loser_team_id_native", StringType()),
             StructField("tackle_loser_team_key", LongType()),
+            # silly-kicks 4.13.0: is_synthetic carried through to vaep_action_values.
+            StructField("is_synthetic", BooleanType()),
         ]
     )
 

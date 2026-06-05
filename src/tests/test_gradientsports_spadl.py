@@ -176,6 +176,47 @@ class TestAdaptGradientSportsEvents:
         assert "game_id" in adapted.columns
         assert adapted["game_id"].iloc[0] == 10502.0
 
+    def test_adapt_surfaces_nonevent(self) -> None:
+        """possessionEvents.nonEvent is surfaced as the literal `nonEvent` column so
+        silly-kicks 4.13.0 Component-4 voided-event exclusion fires (else the converter
+        emits the absent-column UserWarning and voided events are still emitted)."""
+        from ingestion.spadl_adapter import adapt_gradientsports_events
+
+        pdf = _make_gs_bronze_df(n=3)
+        pdf["possessionEvents.nonEvent"] = [False, True, False]
+        adapted = adapt_gradientsports_events(pdf)
+        assert "nonEvent" in adapted.columns
+        assert adapted["nonEvent"].tolist() == [False, True, False]
+
+    def test_nonevent_true_excluded_through_converter_no_warning(self) -> None:
+        """End-to-end: a nonEvent==True voided row, surfaced via our adapter, is excluded
+        by silly-kicks Component-4 — and the absent-column warning does NOT fire."""
+        import warnings
+
+        import silly_kicks.spadl.gradientsports as gs
+
+        from ingestion.spadl_adapter import (
+            adapt_gradientsports_events,
+            extract_gradientsports_match_metadata,
+        )
+
+        pdf = _make_gs_bronze_df(n=3, team_id=366.0, home_team=True, home_team_start_left=True)
+        pdf["possessionEvents.nonEvent"] = [False, True, False]
+        meta = extract_gradientsports_match_metadata(pdf)
+        adapted = adapt_gradientsports_events(pdf)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _actions, report = gs.convert_to_actions(
+                adapted,
+                home_team_id=meta["home_team_id"],
+                home_team_start_left=meta["home_team_start_left"],
+                home_team_start_left_extratime=meta["home_team_start_left_extratime"],
+            )
+        assert not any("nonEvent" in str(w.message) for w in caught), (
+            "nonEvent-absent warning fired despite the column being surfaced"
+        )
+        assert report.excluded_counts.get("nonEvent") == 1
+
 
 class TestExtractGradientSportsMatchMetadata:
     def test_extract_metadata_regular(self) -> None:
@@ -379,6 +420,18 @@ class TestGradientSportsUdf:
         assert len(result) > 0, "UDF must produce at least 1 action from 5 input rows"
         assert result["start_x"].dropna().between(0, 105).all()
         assert result["start_y"].dropna().between(0, 68).all()
+
+    def test_udf_emits_is_synthetic_column(self) -> None:
+        """silly-kicks 4.13.0 GRADIENTSPORTS_SPADL_COLUMNS adds an is_synthetic bool
+        flag (True only on synthesized rows — foul restarts + cross-goal shots).
+        Our GS UDF must RETAIN it (the projection silently dropped it pre-4.13.0).
+        Normal possession rows are non-synthetic -> all False, dtype bool."""
+        pdf = _make_gs_bronze_df(n=5)
+        result = self._run_udf(pdf)
+        assert "is_synthetic" in result.columns, "GS UDF dropped is_synthetic — must be added to _spadl_cols projection"
+        # No synthesized rows in a plain possession fixture -> all False, clean bool.
+        assert result["is_synthetic"].notna().all(), "is_synthetic must never be NULL"
+        assert (~result["is_synthetic"].astype(bool)).all(), "plain possession rows must be is_synthetic=False"
 
 
 class TestGuardIntegration:
@@ -833,6 +886,8 @@ class TestSparkDotNotationColumns:
                 StructField("tackle_loser_player_key", LongType()),
                 StructField("tackle_loser_team_id_native", StringType()),
                 StructField("tackle_loser_team_key", LongType()),
+                # silly-kicks 4.13.0 (sk ADR-018): is_synthetic provenance flag.
+                StructField("is_synthetic", BooleanType()),
             ]
         )
 
