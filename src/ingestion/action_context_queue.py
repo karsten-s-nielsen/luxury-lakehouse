@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Protocol
 
 from analytics.action_context.drain import GameTimeoutError, WorkAssignment
 from analytics.action_context.work_unit import WorkUnit
@@ -24,8 +24,24 @@ from analytics.action_context.work_unit import WorkUnit
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
+
+class _DeleteResult(Protocol):
+    """Structural type for a Databricks DELETE result (a Spark ``DataFrame`` in prod, a fake in tests).
+
+    Only ``first()`` is consumed — it yields the single ``num_affected_rows`` row, or ``None``.
+    A ``Protocol`` (not the nominal ``pyspark.sql.DataFrame``) so the offline test fakes type-check too.
+    """
+
+    def first(self) -> Any: ...
+
+
 _QUEUE_TABLE = "action_context_work_queue"
 _QUEUE_SCHEMA = "observability"
+
+# Retention for the self-prune at preflight start. Queue rows are ephemeral per-run scratch
+# (one batch per daily run, keyed by run_id); a run drains within hours, so anything older than
+# a week is dead. 7 days mirrors the time-based retention shape used by dbt fct_workflow_costs.
+_QUEUE_RETENTION_DAYS = 7
 
 # SINGLE SOURCE OF TRUTH for the queue columns (P5), as (name, simpleString type,
 # nullable) — pyspark-free so the parity test + DDL string work OFFLINE. Excludes
@@ -53,6 +69,33 @@ def queue_columns_sql() -> str:
     cols = [f"{name} {sql_type}" for name, sql_type, _ in _QUEUE_COLUMNS]
     cols.append("_ingested_at timestamp")
     return ", ".join(cols)
+
+
+def _prune_sql(table: str, retention_days: int = _QUEUE_RETENTION_DAYS) -> str:
+    """Build the age-based DELETE for stale queue rows (pure — no Spark).
+
+    ``retention_days`` is coerced via ``int()`` (defence-in-depth against any non-int payload
+    reaching the SQL string) and must be positive. ``_ingested_at`` is the audit column
+    ``write_delta_table`` stamps on every enqueue.
+    """
+    days = int(retention_days)
+    if days <= 0:
+        raise ValueError(f"retention_days must be positive, got {retention_days!r}")
+    # S608 suppressed: no user input reaches the string — ``days`` is int()-coerced above and
+    # ``table`` is the internal catalog-derived FQN (same trusted pattern as ``ensure_table``'s
+    # CREATE TABLE in this module). Parameterised binding is not available for DELETE DDL here.
+    return f"DELETE FROM {table} WHERE _ingested_at < CURRENT_TIMESTAMP - INTERVAL {days} DAYS"  # noqa: S608
+
+
+def _affected_rows(result: _DeleteResult) -> int:
+    """Extract ``num_affected_rows`` from a Databricks DELETE result; 0 if unavailable."""
+    row = result.first()
+    if row is None:
+        return 0
+    try:
+        return int(row["num_affected_rows"])
+    except (KeyError, ValueError, TypeError):
+        return 0
 
 
 def _queue_struct():
@@ -95,6 +138,16 @@ class DeltaWorkQueue:
         # idempotent + cheap. In dev/prod observability already exists (watermarks).
         self._spark.sql(f"CREATE SCHEMA IF NOT EXISTS {self._catalog}.{_QUEUE_SCHEMA}")
         self._spark.sql(f"CREATE TABLE IF NOT EXISTS {self._table} ({queue_columns_sql()}) USING DELTA")
+
+    def prune(self, retention_days: int = _QUEUE_RETENTION_DAYS) -> int:
+        """Delete queue rows older than ``retention_days`` (by ``_ingested_at``); return rows deleted.
+
+        Sweeps stale per-run scratch rows so the queue does not grow unbounded across daily runs.
+        Idempotent and safe to call before every enqueue. Runs as the preflight task's SP, which holds
+        MODIFY on ``observability``. The Spark-touching seam; the SQL builder (``_prune_sql``) and the
+        affected-row extraction (``_affected_rows``) are pure + unit-tested offline.
+        """
+        return _affected_rows(self._spark.sql(_prune_sql(self._table, retention_days)))
 
     def enqueue(self, run_id: str, assignments: list[WorkAssignment]) -> None:
         from ingestion.utils import write_delta_table

@@ -847,6 +847,11 @@ def main_preflight() -> None:
     run_id = _resolve_run_id(args)
     queue = DeltaWorkQueue(spark, args.catalog)
     queue.ensure_table()
+    # Self-prune stale per-run scratch rows before enqueueing this run's batch, so the queue
+    # does not grow unbounded across daily runs (ADR-037 fan-out leaves one batch per run_id).
+    pruned = queue.prune()
+    if pruned:
+        task_logger.info("Action context preflight: pruned %d stale work-queue rows (retention)", pruned)
     queue.enqueue(run_id, assignments)
 
     worker_ids = [str(i) for i in range(_ActionContextGuard._N_DRAIN_WORKERS)]

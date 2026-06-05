@@ -165,6 +165,41 @@ def test_terraform_env_specs_align_with_pyproject() -> None:
     )
 
 
+def _env_key_for_task(task_key: str) -> str | None:
+    """Return the ``environment_key`` assigned to the named ``task_key`` in main.tf.
+
+    Captures the first ``environment_key = "..."`` after the task's ``task_key = "..."`` line.
+    """
+    text = _TF.read_text(encoding="utf-8")
+    m = re.search(
+        rf'task_key\s*=\s*"{re.escape(task_key)}"(.*?)environment_key\s*=\s*"([^"]+)"',
+        text,
+        re.DOTALL,
+    )
+    return m.group(2) if m else None
+
+
+def test_refresh_synced_tables_env_ships_databricks_sdk() -> None:
+    """``refresh_synced_tables`` calls ``ws.postgres.*`` (databricks-sdk PostgresAPI). Its task
+    env MUST install databricks-sdk — otherwise the task falls back to the serverless runtime's
+    bundled SDK, which lacks ``.postgres``, and every synced-table refresh fails with SystemExit:1.
+
+    Regression guard for the 2026-06-05 all-42-syncs-fail incident: the task ran in the bare
+    ``default`` env (wheel only), and base ``[project.dependencies]`` does not include databricks-sdk
+    (it lives only in the ``[sdk]`` / ``[taipy-app]`` extras). ``test_terraform_env_specs_align_with_pyproject``
+    only checks version OVERLAP for shared packages — it cannot catch a task whose env is MISSING a
+    package it imports. This test closes that gap for the one task whose contract requires the SDK.
+    """
+    env_key = _env_key_for_task("refresh_synced_tables")
+    assert env_key is not None, "could not locate refresh_synced_tables task / environment_key in main.tf"
+    tf_envs = _parse_tf_env_deps()
+    assert env_key in tf_envs, f"refresh_synced_tables references env '{env_key}' not defined in main.tf"
+    assert "databricks-sdk" in tf_envs[env_key], (
+        f"refresh_synced_tables runs in env '{env_key}' which does NOT ship databricks-sdk — "
+        "ws.postgres.* will fail against the runtime's bundled SDK. Add databricks-sdk to that env."
+    )
+
+
 def test_parser_finds_known_analytics_deps() -> None:
     """Sanity anchor: a parser regression that produces empty results would
     silently pass the parity test. Anchor against known-stable contents."""
