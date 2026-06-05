@@ -392,6 +392,10 @@ dev = [
     "pre-commit>=3.6.0",
     "sqlfluff>=3.0.0",
     "pip-audit>=2.7.0",
+    # Transitive dep (pip-audit -> pip-api -> pip). Floored to >=26.1.2 to resolve
+    # PYSEC-2026-196 (pip < 26.1.2 vulnerability). Durable pin per the idna/pyjwt
+    # precedent rather than a pip-audit --ignore-vuln entry.
+    "pip>=26.1.2",
     "import-linter>=2.0",
     "numba>=0.60.0",
     "matplotlib>=3.10.8",
