@@ -1285,7 +1285,11 @@ resource "databricks_job" "data_ingestion" {
       task_key = "dbt_build_output_marts"
     }
 
-    environment_key = "default"
+    # Control-plane task: calls ws.postgres.* (databricks-sdk PostgresAPI) to resolve + poll
+    # synced-table pipelines. Needs the "lakebase" env (wheel + databricks-sdk) — the bare
+    # "default" env's runtime-bundled SDK lacks .postgres. Guarded by
+    # test_refresh_synced_tables_env_ships_databricks_sdk.
+    environment_key = "lakebase"
   }
 
   # ── Task: Resolve cross-source player identity ───────────────────────────
@@ -1451,6 +1455,26 @@ resource "databricks_job" "data_ingestion" {
       dependencies = [
         var.wheel_path,
         "huggingface_hub>=1.5.0"
+      ]
+    }
+  }
+
+  # ── Environment for Lakebase control-plane tasks (databricks-sdk PostgresAPI) ──
+  # refresh_synced_tables resolves + polls synced-table pipelines via
+  # ws.postgres.get_synced_table (databricks-sdk >= the line that added PostgresAPI).
+  # The serverless runtime bundles an older SDK without .postgres, so the SDK must be
+  # pinned here explicitly. Kept separate from "default" so the ~15 default tasks (preflight
+  # / ingestion) stay minimal. Pin matches pyproject's [sdk] / [taipy-app] extras (==0.113.0);
+  # version overlap enforced by test_terraform_env_specs_align_with_pyproject.
+  environment {
+    environment_key = "lakebase"
+
+    spec {
+      client = "1"
+
+      dependencies = [
+        var.wheel_path,
+        "databricks-sdk==0.113.0",
       ]
     }
   }

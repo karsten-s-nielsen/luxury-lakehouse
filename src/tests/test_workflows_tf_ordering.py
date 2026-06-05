@@ -239,7 +239,10 @@ def test_data_ingestion_parser_count_anchor() -> None:
     # 7 → 6 in SkillCorner ingestion rewrite (2026-05-16): removed `tracking`
     # environment block (was kloppy-only for SkillCorner open data); tasks
     # moved to `default`.
-    assert len(env_keys) == 6, f"expected 6 environment blocks on data_ingestion, parser found {len(env_keys)}"
+    # 6 → 7 (2026-06-05): added `lakebase` environment (wheel + databricks-sdk) so
+    # refresh_synced_tables can call ws.postgres.* — see
+    # test_refresh_synced_tables_env_ships_databricks_sdk.
+    assert len(env_keys) == 7, f"expected 7 environment blocks on data_ingestion, parser found {len(env_keys)}"
     # 29 → 30 in PR-Cycle-A (2026-04-30): added `preflight_idsse` for runtime
     # chunk discovery feeding the `ingest_idsse` for_each_task fan-out.
     # 30 → 31 in PR-Cycle-B (2026-05-01): split `import_obso_results` out of

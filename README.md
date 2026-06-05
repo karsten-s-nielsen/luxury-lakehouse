@@ -34,7 +34,7 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 
 ## Architecture
 
-> **[View interactive C4 diagrams](docs/c4/architecture.html)** &mdash; System Context and Container levels, generated from [Structurizr DSL](docs/c4/architecture.dsl) via the Structurizr &rarr; PlantUML rendering pipeline.
+> **[View interactive C4 diagrams](docs/c4/architecture.html)** &mdash; System Context, Container, Dynamic-flow, and Deployment views, generated from [Structurizr DSL](docs/c4/architecture.dsl) via the Structurizr &rarr; PlantUML rendering pipeline.
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|

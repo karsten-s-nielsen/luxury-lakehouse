@@ -869,6 +869,10 @@ def test_main_preflight_builds_queue_and_task_values(monkeypatch: pytest.MonkeyP
         def ensure_table(self) -> None:
             captured["ensured"] = True
 
+        def prune(self, *a: object, **k: object) -> int:
+            captured["pruned"] = True
+            return 0
+
         def enqueue(self, run_id: str, assignments: list) -> None:
             captured["run_id"] = run_id
             captured["n"] = len(assignments)
@@ -881,6 +885,7 @@ def test_main_preflight_builds_queue_and_task_values(monkeypatch: pytest.MonkeyP
     ac.main_preflight()
 
     assert captured["ensured"] is True
+    assert captured["pruned"] is True  # preflight self-prunes stale work-queue rows before enqueue
     assert captured["run_id"] == "JOBRUN42"
     assert captured["n"] == 20
     assert set_values["action_context_run_id"] == "JOBRUN42"

@@ -43,6 +43,27 @@ def test_delta_work_queue_roundtrip_and_run_id_isolation(spark, tmp_catalog) -> 
     ]
 
 
+def test_prune_executes_and_spares_fresh_rows(spark, tmp_catalog) -> None:
+    """prune runs against real Delta (the DELETE + `_ingested_at` column + `num_affected_rows`
+    extraction all work) and a large retention window spares freshly-enqueued rows.
+
+    Backdating `_ingested_at` to force a deletion is not worth the fixture cost here — the row-age
+    DELETE predicate is unit-tested offline in test_work_queue_prune.py. This proves the live wiring:
+    the SQL is valid Databricks Delta, the audit column exists, and fresh scratch is NOT nuked.
+    """
+    from analytics.action_context.drain import assign_workers
+    from analytics.action_context.work_unit import WorkUnit
+    from ingestion.action_context_queue import DeltaWorkQueue
+
+    q = DeltaWorkQueue(spark, catalog=tmp_catalog)
+    q.ensure_table()
+    q.enqueue("RUN_PRUNE", assign_workers([WorkUnit(provider="wyscout", match_id="pm")], n_workers=1))
+
+    deleted = q.prune(retention_days=36500)  # ~100y: nothing this fresh can be that old
+    assert deleted == 0  # num_affected_rows extracted from the real DELETE result
+    assert [u.match_id for w in (0,) for u in q.units_for_worker("RUN_PRUNE", w)] == ["pm"]  # fresh row survived
+
+
 def test_idsse_halves_survive_each_other(spark, tmp_catalog) -> None:
     """B2 precision: period-aware replaceWhere — writing period 2 must NOT delete period 1."""
     import logging
