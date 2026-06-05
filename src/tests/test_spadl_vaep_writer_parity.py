@@ -107,6 +107,8 @@ def _build_statsbomb_spadl_struct():  # type: ignore[no-untyped-def]
             StructField("tackle_loser_player_key", LongType()),
             StructField("tackle_loser_team_id_native", StringType()),
             StructField("tackle_loser_team_key", LongType()),
+            # silly-kicks 4.13.0 (sk ADR-018): is_synthetic provenance flag.
+            StructField("is_synthetic", BooleanType()),
         ]
     )
 
@@ -167,6 +169,8 @@ def _build_wyscout_spadl_struct():  # type: ignore[no-untyped-def]
             StructField("tackle_loser_player_key", LongType()),
             StructField("tackle_loser_team_id_native", StringType()),
             StructField("tackle_loser_team_key", LongType()),
+            # silly-kicks 4.13.0 (sk ADR-018): is_synthetic provenance flag.
+            StructField("is_synthetic", BooleanType()),
         ]
     )
 
@@ -457,6 +461,36 @@ class TestSpadlVaepWriterDdlParity:
                 f"_VAEP_SCHEMA {col!r} type drift: got {ddl[col]!r}, expected {expected_type!r}"
             )
 
+    def test_spadl_ddl_includes_is_synthetic(self) -> None:
+        """silly-kicks 4.13.0 (sk ADR-018): is_synthetic provenance flag in _SPADL_SCHEMA."""
+        from ingestion import spadl_vaep
+
+        ddl = _parse_ddl(spadl_vaep._SPADL_SCHEMA)
+        assert "is_synthetic" in ddl, "_SPADL_SCHEMA missing is_synthetic (silly-kicks 4.13.0)"
+        assert ddl["is_synthetic"] == "boolean", (
+            f"_SPADL_SCHEMA is_synthetic type drift: got {ddl['is_synthetic']!r}, expected 'boolean'"
+        )
+
+    def test_vaep_ddl_includes_is_synthetic(self) -> None:
+        """is_synthetic must propagate through to vaep_action_values."""
+        from ingestion import spadl_vaep
+
+        ddl = _parse_ddl(spadl_vaep._VAEP_SCHEMA)
+        assert "is_synthetic" in ddl, "_VAEP_SCHEMA missing is_synthetic (silly-kicks 4.13.0)"
+        assert ddl["is_synthetic"] == "boolean", (
+            f"_VAEP_SCHEMA is_synthetic type drift: got {ddl['is_synthetic']!r}, expected 'boolean'"
+        )
+
+    def test_spadl_vaep_is_synthetic_type_parity(self) -> None:
+        """is_synthetic must be BOOLEAN in BOTH DDLs (no narrowing across the boundary)."""
+        from ingestion import spadl_vaep
+
+        spadl = _parse_ddl(spadl_vaep._SPADL_SCHEMA)
+        vaep = _parse_ddl(spadl_vaep._VAEP_SCHEMA)
+        assert spadl["is_synthetic"] == vaep["is_synthetic"], (
+            f"is_synthetic type drift: _SPADL_SCHEMA={spadl['is_synthetic']!r} vs _VAEP_SCHEMA={vaep['is_synthetic']!r}"
+        )
+
     def test_vaep_per_game_projection_matches_output_cols(self) -> None:
         """PR-LL2 Path B close-out hot-fix (2026-04-30): regression test for the
         VAEP scoring UDF's inner per-game column-projection list. The list at
@@ -655,6 +689,8 @@ def _build_idsse_spadl_struct():  # type: ignore[no-untyped-def]
             StructField("tackle_loser_player_key", LongType()),
             StructField("tackle_loser_team_id_native", StringType()),
             StructField("tackle_loser_team_key", LongType()),
+            # silly-kicks 4.13.0 (sk ADR-018): is_synthetic provenance flag.
+            StructField("is_synthetic", BooleanType()),
         ]
     )
 
@@ -732,6 +768,8 @@ def _build_vaep_scoring_struct():  # type: ignore[no-untyped-def]
             StructField("tackle_loser_player_key", LongType()),
             StructField("tackle_loser_team_id_native", StringType()),
             StructField("tackle_loser_team_key", LongType()),
+            # silly-kicks 4.13.0 (sk ADR-018): is_synthetic provenance flag.
+            StructField("is_synthetic", BooleanType()),
         ]
     )
 

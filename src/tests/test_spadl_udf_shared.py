@@ -60,6 +60,9 @@ _EXPECTED_COLUMNS = [
     "tackle_loser_player_key",
     "tackle_loser_team_id_native",
     "tackle_loser_team_key",
+    # silly-kicks 4.13.0 (sk ADR-018): is_synthetic provenance flag (manufactured
+    # False on these non-GS providers; native bool on GS).
+    "is_synthetic",
 ]
 
 

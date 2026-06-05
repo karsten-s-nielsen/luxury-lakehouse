@@ -161,6 +161,12 @@ def _make_sb_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
                 "tackle_loser_player_key",
                 "tackle_loser_team_id_native",
                 "tackle_loser_team_key",
+                # silly-kicks 4.13.0: is_synthetic provenance flag. Native (bool) on
+                # the GS converter (True on synthesized foul + cross-goal-shot rows);
+                # manufactured False on the 5 non-GS providers (no GS-style row
+                # synthesis there). Cross-provider column per the False-default
+                # decision — drops silently from the projection if omitted here.
+                "is_synthetic",
             ]
         )
 
@@ -257,6 +263,12 @@ def _make_sb_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
         )
         n = len(actions)
         actions = null_fill_tackle_qualifiers(actions, n=n)
+
+        # silly-kicks 4.13.0 is_synthetic (sk ADR-018): coerce native bool (GS) /
+        # manufacture False (5 non-GS providers) — see ensure_is_synthetic.
+        from ingestion.spadl_udf_shared import ensure_is_synthetic as _ensure_is_synthetic
+
+        actions = _ensure_is_synthetic(actions)
 
         return _pd.DataFrame(actions[_spadl_cols])
 
@@ -400,6 +412,9 @@ def _convert_statsbomb_from_bronze(
             StructField("tackle_loser_player_key", LongType()),
             StructField("tackle_loser_team_id_native", StringType()),
             StructField("tackle_loser_team_key", LongType()),
+            # silly-kicks 4.13.0 is_synthetic provenance (sk ADR-018): native on GS,
+            # manufactured False elsewhere. Must mirror _spadl_cols + _SPADL_SCHEMA.
+            StructField("is_synthetic", BooleanType()),
         ]
     )
 
@@ -503,6 +518,12 @@ def _make_ws_spadl_udf(goalkeeper_ids: set[int] | None = None) -> Callable[[pd.D
                 "tackle_loser_player_key",
                 "tackle_loser_team_id_native",
                 "tackle_loser_team_key",
+                # silly-kicks 4.13.0: is_synthetic provenance flag. Native (bool) on
+                # the GS converter (True on synthesized foul + cross-goal-shot rows);
+                # manufactured False on the 5 non-GS providers (no GS-style row
+                # synthesis there). Cross-provider column per the False-default
+                # decision — drops silently from the projection if omitted here.
+                "is_synthetic",
             ]
         )
 
@@ -562,6 +583,12 @@ def _make_ws_spadl_udf(goalkeeper_ids: set[int] | None = None) -> Callable[[pd.D
             match_id_native=str(match_id),
         )
         actions = null_fill_tackle_qualifiers(actions, n=n)
+
+        # silly-kicks 4.13.0 is_synthetic (sk ADR-018): coerce native bool (GS) /
+        # manufacture False (5 non-GS providers) — see ensure_is_synthetic.
+        from ingestion.spadl_udf_shared import ensure_is_synthetic as _ensure_is_synthetic
+
+        actions = _ensure_is_synthetic(actions)
 
         return _pd.DataFrame(actions[_spadl_cols])
 
@@ -738,6 +765,9 @@ def _convert_wyscout_from_bronze(
             StructField("tackle_loser_player_key", LongType()),
             StructField("tackle_loser_team_id_native", StringType()),
             StructField("tackle_loser_team_key", LongType()),
+            # silly-kicks 4.13.0 is_synthetic provenance (sk ADR-018): native on GS,
+            # manufactured False elsewhere. Must mirror _spadl_cols + _SPADL_SCHEMA.
+            StructField("is_synthetic", BooleanType()),
         ]
     )
 
@@ -869,6 +899,12 @@ def _make_idsse_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
                 "tackle_loser_player_key",
                 "tackle_loser_team_id_native",
                 "tackle_loser_team_key",
+                # silly-kicks 4.13.0: is_synthetic provenance flag. Native (bool) on
+                # the GS converter (True on synthesized foul + cross-goal-shot rows);
+                # manufactured False on the 5 non-GS providers (no GS-style row
+                # synthesis there). Cross-provider column per the False-default
+                # decision — drops silently from the projection if omitted here.
+                "is_synthetic",
             ]
         )
 
@@ -1046,6 +1082,12 @@ def _make_idsse_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
                 actions[native_col] = _pd.array([_pd.NA] * len(actions), dtype="string")
                 actions[key_col] = _pd.array([_pd.NA] * len(actions), dtype="Int64")
 
+        # silly-kicks 4.13.0 is_synthetic (sk ADR-018): coerce native bool (GS) /
+        # manufacture False (5 non-GS providers) — see ensure_is_synthetic.
+        from ingestion.spadl_udf_shared import ensure_is_synthetic as _ensure_is_synthetic
+
+        actions = _ensure_is_synthetic(actions)
+
         return _pd.DataFrame(actions[_spadl_cols])
 
     return _udf
@@ -1152,6 +1194,9 @@ def _convert_idsse_from_bronze(
             StructField("tackle_loser_player_key", LongType()),
             StructField("tackle_loser_team_id_native", StringType()),
             StructField("tackle_loser_team_key", LongType()),
+            # silly-kicks 4.13.0 is_synthetic provenance (sk ADR-018): native on GS,
+            # manufactured False elsewhere. Must mirror _spadl_cols + _SPADL_SCHEMA.
+            StructField("is_synthetic", BooleanType()),
         ]
     )
 
@@ -1265,6 +1310,12 @@ def _make_metrica_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
                 "tackle_loser_player_key",
                 "tackle_loser_team_id_native",
                 "tackle_loser_team_key",
+                # silly-kicks 4.13.0: is_synthetic provenance flag. Native (bool) on
+                # the GS converter (True on synthesized foul + cross-goal-shot rows);
+                # manufactured False on the 5 non-GS providers (no GS-style row
+                # synthesis there). Cross-provider column per the False-default
+                # decision — drops silently from the projection if omitted here.
+                "is_synthetic",
             ]
         )
 
@@ -1373,6 +1424,12 @@ def _make_metrica_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
         )
         actions = null_fill_tackle_qualifiers(actions, n=n)
 
+        # silly-kicks 4.13.0 is_synthetic (sk ADR-018): coerce native bool (GS) /
+        # manufacture False (5 non-GS providers) — see ensure_is_synthetic.
+        from ingestion.spadl_udf_shared import ensure_is_synthetic as _ensure_is_synthetic
+
+        actions = _ensure_is_synthetic(actions)
+
         return _pd.DataFrame(actions[_spadl_cols])
 
     return _udf
@@ -1475,6 +1532,9 @@ def _convert_metrica_from_bronze(
             StructField("tackle_loser_player_key", LongType()),
             StructField("tackle_loser_team_id_native", StringType()),
             StructField("tackle_loser_team_key", LongType()),
+            # silly-kicks 4.13.0 is_synthetic provenance (sk ADR-018): native on GS,
+            # manufactured False elsewhere. Must mirror _spadl_cols + _SPADL_SCHEMA.
+            StructField("is_synthetic", BooleanType()),
         ]
     )
 
@@ -1586,6 +1646,12 @@ def _make_skillcorner_spadl_udf(*, match_metadata: dict[str, object]) -> Callabl
                 "tackle_loser_player_key",
                 "tackle_loser_team_id_native",
                 "tackle_loser_team_key",
+                # silly-kicks 4.13.0: is_synthetic provenance flag. Native (bool) on
+                # the GS converter (True on synthesized foul + cross-goal-shot rows);
+                # manufactured False on the 5 non-GS providers (no GS-style row
+                # synthesis there). Cross-provider column per the False-default
+                # decision — drops silently from the projection if omitted here.
+                "is_synthetic",
             ]
         )
 
@@ -1672,6 +1738,12 @@ def _make_skillcorner_spadl_udf(*, match_metadata: dict[str, object]) -> Callabl
             match_id_native=skillcorner_native_match_id(match_id_str),
         )
         actions = null_fill_tackle_qualifiers(actions, n=n)
+
+        # silly-kicks 4.13.0 is_synthetic (sk ADR-018): coerce native bool (GS) /
+        # manufacture False (5 non-GS providers) — see ensure_is_synthetic.
+        from ingestion.spadl_udf_shared import ensure_is_synthetic as _ensure_is_synthetic
+
+        actions = _ensure_is_synthetic(actions)
 
         return _pd.DataFrame(actions[_spadl_cols])
 
@@ -1775,6 +1847,9 @@ def _convert_skillcorner_from_bronze(
             StructField("tackle_loser_player_key", LongType()),
             StructField("tackle_loser_team_id_native", StringType()),
             StructField("tackle_loser_team_key", LongType()),
+            # silly-kicks 4.13.0 is_synthetic provenance (sk ADR-018): native on GS,
+            # manufactured False elsewhere. Must mirror _spadl_cols + _SPADL_SCHEMA.
+            StructField("is_synthetic", BooleanType()),
         ]
     )
 
@@ -1941,6 +2016,12 @@ def _make_gradientsports_spadl_udf(
                 "tackle_loser_player_key",
                 "tackle_loser_team_id_native",
                 "tackle_loser_team_key",
+                # silly-kicks 4.13.0: is_synthetic provenance flag. Native (bool) on
+                # the GS converter (True on synthesized foul + cross-goal-shot rows);
+                # manufactured False on the 5 non-GS providers (no GS-style row
+                # synthesis there). Cross-provider column per the False-default
+                # decision — drops silently from the projection if omitted here.
+                "is_synthetic",
             ]
         )
 
@@ -2062,6 +2143,12 @@ def _make_gradientsports_spadl_udf(
             else:
                 actions[native_col] = _pd.array([_pd.NA] * len(actions), dtype="string")
                 actions[key_col] = _pd.array([_pd.NA] * len(actions), dtype="Int64")
+
+        # silly-kicks 4.13.0 is_synthetic (sk ADR-018): coerce native bool (GS) /
+        # manufacture False (5 non-GS providers) — see ensure_is_synthetic.
+        from ingestion.spadl_udf_shared import ensure_is_synthetic as _ensure_is_synthetic
+
+        actions = _ensure_is_synthetic(actions)
 
         return _pd.DataFrame(actions[_spadl_cols])
 
@@ -2236,6 +2323,9 @@ def _convert_gradientsports_from_bronze(
             StructField("tackle_loser_player_key", LongType()),
             StructField("tackle_loser_team_id_native", StringType()),
             StructField("tackle_loser_team_key", LongType()),
+            # silly-kicks 4.13.0 is_synthetic provenance (sk ADR-018): native on GS,
+            # manufactured False elsewhere. Must mirror _spadl_cols + _SPADL_SCHEMA.
+            StructField("is_synthetic", BooleanType()),
         ]
     )
 

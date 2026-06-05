@@ -85,6 +85,24 @@ def cast_enrichment_dtypes(actions: pd.DataFrame) -> pd.DataFrame:
     return actions
 
 
+def ensure_is_synthetic(actions: pd.DataFrame) -> pd.DataFrame:
+    """Normalise the silly-kicks 4.13.0 ``is_synthetic`` provenance flag (sk ADR-018).
+
+    Native (bool) only on the Gradient Sports converter
+    (``GRADIENTSPORTS_SPADL_COLUMNS``) — True on synthesized rows (foul restarts
+    + cross-goal shots) — and absent from the other 5 providers' output. Coerce
+    to clean bool where present; manufacture False where absent so
+    ``bronze.spadl_actions`` carries a uniform, non-NULL cross-provider column
+    (False = genuine observed action). Must mirror ``_spadl_cols`` +
+    ``_SPADL_SCHEMA`` + the applyInPandas StructType in each UDF.
+    """
+    if "is_synthetic" in actions.columns:
+        actions["is_synthetic"] = actions["is_synthetic"].fillna(False).astype(bool)
+    else:
+        actions["is_synthetic"] = False
+    return actions
+
+
 def null_fill_tackle_qualifiers(
     actions: pd.DataFrame,
     *,

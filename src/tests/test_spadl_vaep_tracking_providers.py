@@ -121,6 +121,10 @@ def _build_two_team_fixture(n_actions: int = 100) -> pd.DataFrame:
     for col in _null_string_cols:
         df[col] = pd.NA
 
+    # silly-kicks 4.13.0 (sk ADR-018): is_synthetic is a non-NULL bool (False on
+    # genuine observed actions — all of this fixture), not part of the NA fill.
+    df["is_synthetic"] = False
+
     # Populate team_id_native (realistic for tracking providers)
     df["team_id_native"] = df["team_id"].map({_HOME_TEAM_ID: _HOME_NATIVE, _AWAY_TEAM_ID: _AWAY_NATIVE})
 

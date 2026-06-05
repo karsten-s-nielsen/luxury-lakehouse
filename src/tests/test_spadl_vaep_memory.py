@@ -77,6 +77,9 @@ def _build_synthetic_spadl_group(n_rows: int = 2711, *, random_state: int = 42) 
             "tackle_loser_player_key": pd.array([None] * n_rows, dtype=pd.Int64Dtype()),
             "tackle_loser_team_id_native": None,
             "tackle_loser_team_key": pd.array([None] * n_rows, dtype=pd.Int64Dtype()),
+            # silly-kicks 4.13.0 (sk ADR-018): is_synthetic provenance flag. False on
+            # genuine observed actions (all of this synthetic StatsBomb fixture).
+            "is_synthetic": np.zeros(n_rows, dtype=bool),
         }
     )
 

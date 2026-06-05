@@ -740,6 +740,10 @@ _GS_BRONZE_TO_SNAKE: dict[str, str] = {
     "possessionEvents.saveReboundType": "save_rebound_type",
     "possessionEvents.reboundOutcomeType": "rebound_outcome_type",
     "possessionEvents.incompletionReasonType": "incompletion_reason_type",
+    # nonEvent: voided ("annulled") play flag — silly-kicks 4.13.0 Component-4 excludes
+    # nonEvent==True rows (foul/advantage/offside callbacks + disallowed goals). Kept as the
+    # literal camelCase `nonEvent` the converter reads (NOT snake) so the exclusion fires.
+    "possessionEvents.nonEvent": "nonEvent",
     # gameEvents.* (only gameEventType is a 1:1 rename; period/playerId/
     # teamId/setpieceType are derived, not renamed — see _DERIVED_COLUMNS below)
     "gameEvents.gameEventType": "game_event_type",
