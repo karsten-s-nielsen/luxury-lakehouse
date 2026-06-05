@@ -733,16 +733,16 @@ wheels = [
 
 [[package]]
 name = "databricks-sdk"
-version = "0.113.0"
+version = "0.114.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-auth" },
     { name = "protobuf" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f2/f7/d8c664dd344497817e03ce573205ef15c80d89c8805d9b05b7a18bf57a69/databricks_sdk-0.113.0.tar.gz", hash = "sha256:00daf5256ed055d9e17a31125dfdf626c78e8e227d48346c6a2fa999b453d0c9", size = 961043, upload-time = "2026-06-01T09:58:03.574Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9f/1f/b11394c4439f4e1c14af91d133126396bbe3e70e9204784f58be064b749c/databricks_sdk-0.114.0.tar.gz", hash = "sha256:d62e6fcb1dc98b0b390d369261d1d68a6cf9f91139c34cf659865faf50b1d044", size = 961592, upload-time = "2026-06-02T09:33:31.302Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/28/a9/ffa03ef10fa3c7daf27590557dea3717a42eaf7b928a17224f5fd50f2000/databricks_sdk-0.113.0-py3-none-any.whl", hash = "sha256:c8bf97833868ab406db867822e6c0bea6c5524dfad14b1e280a616147905c68b", size = 906975, upload-time = "2026-06-01T09:58:01.854Z" },
+    { url = "https://files.pythonhosted.org/packages/1d/f5/54a7fa8f9bb292fe1c4095731bb2cf9bbc38ebfe25abbc88657dea34d4ce/databricks_sdk-0.114.0-py3-none-any.whl", hash = "sha256:25a40b83d76fa6c8a621f884da41e45e3ae5267218dafa71db9b363dd9238f57", size = 907537, upload-time = "2026-06-02T09:33:29.541Z" },
 ]
 
 [[package]]
@@ -1904,7 +1904,7 @@ mlflow = [
     { name = "optuna-integration", extra = ["mlflow"] },
 ]
 sdk = [
-    { name = "databricks-sdk", version = "0.113.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "databricks-sdk", version = "0.114.0", source = { registry = "https://pypi.org/simple" } },
     { name = "psycopg2-binary" },
 ]
 spadl = [
@@ -1912,7 +1912,7 @@ spadl = [
 ]
 taipy-app = [
     { name = "cachetools" },
-    { name = "databricks-sdk", version = "0.113.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "databricks-sdk", version = "0.114.0", source = { registry = "https://pypi.org/simple" } },
     { name = "huggingface-hub" },
     { name = "mplsoccer" },
     { name = "numpy" },
@@ -1958,8 +1958,8 @@ dev = [
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.14.0" },
     { name = "cachetools", marker = "extra == 'taipy-app'", specifier = ">=6.0.0" },
-    { name = "databricks-sdk", marker = "extra == 'sdk'", specifier = "==0.113.0" },
-    { name = "databricks-sdk", marker = "extra == 'taipy-app'", specifier = "==0.113.0" },
+    { name = "databricks-sdk", marker = "extra == 'sdk'", specifier = "==0.114.0" },
+    { name = "databricks-sdk", marker = "extra == 'taipy-app'", specifier = "==0.114.0" },
     { name = "databricks-sql-connector", marker = "extra == 'analytics'", specifier = ">=4.0.0" },
     { name = "datasets", marker = "extra == 'training'", specifier = ">=3.0" },
     { name = "dbt-core", marker = "extra == 'dbt'", specifier = ">=1.10.0" },
@@ -2221,7 +2221,7 @@ dependencies = [
     { name = "click" },
     { name = "cloudpickle" },
     { name = "databricks-sdk", version = "0.77.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-dbt'" },
-    { name = "databricks-sdk", version = "0.113.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-sdk' or extra == 'extra-16-luxury-lakehouse-taipy-app' or extra != 'extra-16-luxury-lakehouse-dbt'" },
+    { name = "databricks-sdk", version = "0.114.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-sdk' or extra == 'extra-16-luxury-lakehouse-taipy-app' or extra != 'extra-16-luxury-lakehouse-dbt'" },
     { name = "fastapi" },
     { name = "gitpython" },
     { name = "importlib-metadata" },
@@ -2251,7 +2251,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cachetools" },
     { name = "databricks-sdk", version = "0.77.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-dbt'" },
-    { name = "databricks-sdk", version = "0.113.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-sdk' or extra == 'extra-16-luxury-lakehouse-taipy-app' or extra != 'extra-16-luxury-lakehouse-dbt'" },
+    { name = "databricks-sdk", version = "0.114.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-sdk' or extra == 'extra-16-luxury-lakehouse-taipy-app' or extra != 'extra-16-luxury-lakehouse-dbt'" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-proto" },
     { name = "opentelemetry-sdk" },

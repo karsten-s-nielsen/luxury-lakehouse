@@ -1464,7 +1464,7 @@ resource "databricks_job" "data_ingestion" {
   # ws.postgres.get_synced_table (databricks-sdk >= the line that added PostgresAPI).
   # The serverless runtime bundles an older SDK without .postgres, so the SDK must be
   # pinned here explicitly. Kept separate from "default" so the ~15 default tasks (preflight
-  # / ingestion) stay minimal. Pin matches pyproject's [sdk] / [taipy-app] extras (==0.113.0);
+  # / ingestion) stay minimal. Pin matches pyproject's [sdk] / [taipy-app] extras (==0.114.0);
   # version overlap enforced by test_terraform_env_specs_align_with_pyproject.
   environment {
     environment_key = "lakebase"
@@ -1474,7 +1474,7 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path,
-        "databricks-sdk==0.113.0",
+        "databricks-sdk==0.114.0",
       ]
     }
   }
