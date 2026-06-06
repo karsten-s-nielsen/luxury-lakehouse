@@ -870,10 +870,19 @@ models:
           - not_null:
               config:
                 where: "data_source IN ('statsbomb', 'wyscout')"
+          # Bound corrected to [-2, 2] (2026-06-06). VAEP net value =
+          # offensive_value + defensive_value (Decroos 2019), each in [-1, 1],
+          # so the theoretical range is [-2, 2] — not [-1, 1]. The old [-1, 1]
+          # bound was structurally too tight: it warned on legitimate high-value
+          # actions (e.g. dribble/keeper_save successes that both create a chance
+          # AND prevent a concession reach vaep_value ≈ 1.9; max observed 1.92)
+          # plus the GS own-goal at -1.0032. This was a long-standing mismatch
+          # surfaced by the silly-kicks 4.13 retrain, not introduced by it. [-2, 2]
+          # is the true formula range and still catches genuinely impossible values.
           - dbt_expectations.expect_column_values_to_be_between:
               arguments:
-                min_value: -1
-                max_value: 1
+                min_value: -2
+                max_value: 2
                 row_condition: "vaep_value is not null"
               config:
                 severity: warn

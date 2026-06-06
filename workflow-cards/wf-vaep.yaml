@@ -36,7 +36,7 @@ inputs:
 
 outputs:
   models:
-    - id: "luxury-lakehouse/vaep-model-statsbomb-wyscout"
+    - id: "luxury-lakehouse/vaep-model"
       destination: huggingface
       format: json-base64
   tables:
@@ -97,7 +97,7 @@ links:
   source_code:
     - "src/ingestion/spadl_vaep.py"
     - "scripts/train_vaep_model_hf.py"
-  hf_model: "https://huggingface.co/luxury-lakehouse/vaep-model-statsbomb-wyscout"
+  hf_model: "https://huggingface.co/luxury-lakehouse/vaep-model"
   hf_dataset: "https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values"
 ---
 

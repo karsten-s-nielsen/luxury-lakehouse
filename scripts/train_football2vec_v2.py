@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.21-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.22-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -50,6 +50,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from analytics.football2vec_transformer import Football2VecConfig, Football2VecEncoder
+from ingestion.artifact_deploy import require_mlflow_env, set_and_verify_mlflow_champion
 from ingestion.football2vec_v2_training import (
     ADVERSARIAL_LAMBDA_MAX,
     ADVERSARIAL_WARMUP_EPOCHS,
@@ -581,9 +582,9 @@ def _log_mlflow(
     nv: int,
     nte: int,
 ) -> None:
-    uri = os.environ.get("MLFLOW_TRACKING_URI", "")
-    if not uri:
-        return
+    # ADR-012 §4: registration is unconditional (require_mlflow_env() at main()
+    # entry proved the env present). Read via subscript so a missing value raises.
+    uri = os.environ["MLFLOW_TRACKING_URI"]
     import mlflow
 
     fqn = mlflow_model_uri(CATALOG, SCHEMA, MODEL_NAME)
@@ -642,12 +643,9 @@ def _log_mlflow(
             input_example=pd.DataFrame({"x": [0.0]}),
         )
         run_id = mlflow.active_run().info.run_id
+    # ADR-012 §4 zombie-alias guard: round-trip the @Champion alias read.
     client = mlflow.tracking.MlflowClient()
-    versions = client.search_model_versions(f"name='{fqn}'")
-    if versions:
-        latest = max(versions, key=lambda v: int(v.version))
-        client.set_registered_model_alias(name=fqn, alias="Champion", version=latest.version)
-        logger.info("MLflow complete (version=%s, run=%s)", latest.version, run_id)
+    set_and_verify_mlflow_champion(client, mlflow_fqn=fqn, run_id=run_id)
 
 
 # ---------------------------------------------------------------------------
@@ -659,6 +657,7 @@ def _log_mlflow(
 def main() -> None:
     """Train Football2Vec v2: Stage 1 (MLM) or Stage 2 (adversarial debiasing)."""
     _assert_silly_kicks_min()
+    require_mlflow_env()  # ADR-012 §4: fail loud before training if registration env is missing.
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--stage", type=int, choices=[1, 2], default=1)

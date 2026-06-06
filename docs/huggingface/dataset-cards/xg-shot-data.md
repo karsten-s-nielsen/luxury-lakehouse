@@ -199,7 +199,7 @@ If you use this dataset, please cite the data providers:
 | [xG v2 Set Encoder](https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder) | Model | Deep Sets + MLP with MC Dropout uncertainty |
 | [xG Freeze Frame Data](https://huggingface.co/datasets/luxury-lakehouse/xg-freeze-frame-data) | Dataset | Player positions at shot time (15.58M rows, 323 matches) |
 | [SPADL/VAEP Action Values](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values) | Dataset | Per-action VAEP valuations (~9.5M actions) |
-| [VAEP Model](https://huggingface.co/luxury-lakehouse/vaep-model-statsbomb-wyscout) | Model | P(scores) + P(concedes) XGBClassifiers |
+| [VAEP Model](https://huggingface.co/luxury-lakehouse/vaep-model) | Model | P(scores) + P(concedes) XGBClassifiers |
 
 ## Demo
 

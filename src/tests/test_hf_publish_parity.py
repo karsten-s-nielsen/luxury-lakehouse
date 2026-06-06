@@ -158,7 +158,6 @@ class TestModelCardParity:
         # ADR-023; the HF Hub repo is exempted via _MODEL_CARD_EXEMPT above.
         _aliases: dict[str, str] = {
             "xg-v2-model-set-encoder": "xg-v2-model-card",
-            "vaep-model-statsbomb-wyscout": "vaep-model",
             "football2vec-v2": "football2vec-v2-model-card",
             "football2vec-360": "football2vec-360-model-card",
             "obso-pausa-method": "obso-pausa",
@@ -184,7 +183,6 @@ class TestModelCardParity:
         # xg-model-card (v1) deleted in SK3-MIG-B per ADR-023.
         _card_to_repo: dict[str, str] = {
             "xg-v2-model-card": "xg-v2-model-set-encoder",
-            "vaep-model": "vaep-model-statsbomb-wyscout",
             "football2vec-v2-model-card": "football2vec-v2",
             "football2vec-360-model-card": "football2vec-360",
             "obso-pausa": "obso-pausa-method",

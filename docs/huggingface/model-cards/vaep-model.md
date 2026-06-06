@@ -11,6 +11,9 @@ tags:
   - xgboost
   - statsbomb
   - wyscout
+  - idsse
+  - metrica
+  - skillcorner
   - silly-kicks
 datasets:
   - luxury-lakehouse/spadl-vaep-action-values
@@ -19,9 +22,9 @@ datasets:
 pipeline_tag: tabular-classification
 ---
 
-# VAEP Model &mdash; StatsBomb + Wyscout
+# VAEP Model
 
-Two XGBClassifier models that estimate **P(scoring)** and **P(conceding)** within the next 10 actions, enabling per-action valuation of every on-ball event in a soccer match. Trained on **~2,388 matches** from [StatsBomb Open Data](https://github.com/statsbomb/open-data) and [Wyscout](https://figshare.com/collections/Soccer_match_event_dataset/4415000) via [Hugging Face Jobs](https://huggingface.co/docs/hub/jobs) (CPU).
+Two XGBClassifier models that estimate **P(scoring)** and **P(conceding)** within the next 10 actions, enabling per-action valuation of every on-ball event in a soccer match. Trained on **~5,414 matches** across five open providers — [StatsBomb Open Data](https://github.com/statsbomb/open-data), [Wyscout](https://figshare.com/collections/Soccer_match_event_dataset/4415000), IDSSE (DFL Bundesliga), Metrica Sports, and SkillCorner — via [Hugging Face Jobs](https://huggingface.co/docs/hub/jobs) (CPU). Own goals are valued (≈ &minus;1) as of silly-kicks 4.13.
 
 Part of the (Right! Luxury!) Lakehouse soccer analytics platform.
 
@@ -131,7 +134,7 @@ from huggingface_hub import snapshot_download
 from xgboost import XGBClassifier
 
 # Download model
-model_dir = snapshot_download("luxury-lakehouse/vaep-model-statsbomb-wyscout")
+model_dir = snapshot_download("luxury-lakehouse/vaep-model")
 
 # Load from JSON envelope
 with open(f"{model_dir}/vaep_model.json") as f:
@@ -210,10 +213,10 @@ See the [`AI_GOVERNANCE.md`](https://github.com/karsten-s-nielsen/luxury-lakehou
 
 ## Limitations
 
-- **Open data only**: Trained on publicly available StatsBomb and Wyscout data. Commercial datasets with richer event annotations may yield different VAEP scores.
+- **Open data only**: Trained on publicly available open data (StatsBomb, Wyscout, IDSSE/DFL, Metrica, SkillCorner). Commercial datasets with richer event annotations may yield different VAEP scores.
 - **No tracking data**: VAEP is event-based. Off-ball positioning, pressing intensity, and space creation are not captured. See [OBSO](https://github.com/karsten-s-nielsen/luxury-lakehouse) for tracking-based approaches.
 - **Competition-agnostic**: The models are trained across all competitions jointly. League-specific models may produce more calibrated probabilities for individual leagues.
-- **Cross-source alignment**: StatsBomb and Wyscout use different event taxonomies. The SPADL adapter normalizes them, but subtle differences in event definitions (e.g., duel classification) remain.
+- **Cross-source alignment**: The five providers use different event taxonomies. The SPADL adapter normalizes them, but subtle differences in event definitions (e.g., duel classification) remain.
 - **No calibration**: Unlike the xG models, the VAEP classifiers do not include post-hoc isotonic calibration. Predicted probabilities may not be perfectly calibrated in absolute terms. For ranking players or actions, this is less consequential; for applications requiring absolute probability values, validate with a reliability diagram.
 - **10-action horizon**: VAEP considers only the next 10 actions. Longer-range effects (e.g., a switch of play that leads to a goal 20 actions later) are not captured.
 
@@ -252,7 +255,7 @@ And the silly-kicks library:
 
 ```bibtex
 @software{nielsen2026vaep,
-  title={VAEP Model: Action Valuation on StatsBomb and Wyscout Open Data},
+  title={VAEP Model: Multi-Provider Action Valuation on Open Soccer Data},
   author={Nielsen, Karsten Skyt},
   year={2026},
   url={https://github.com/karsten-s-nielsen/luxury-lakehouse}

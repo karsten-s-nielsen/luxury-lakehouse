@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.21-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.22-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -66,6 +66,7 @@ from analytics.scoutgpt_training import (
     stratified_split,
     train_loop,
 )
+from ingestion.artifact_deploy import require_mlflow_env, set_and_verify_mlflow_champion
 from ingestion.hf_jobs_cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 from shared.constants import mlflow_model_uri
@@ -217,10 +218,9 @@ def _log_mlflow(
     n_val: int,
     n_test: int,
 ) -> None:
-    uri = os.environ.get("MLFLOW_TRACKING_URI", "")
-    if not uri:
-        logger.info("MLFLOW_TRACKING_URI not set — skipping MLflow logging")
-        return
+    # ADR-012 §4: registration is unconditional (require_mlflow_env() at main()
+    # entry proved the env present). Read via subscript so a missing value raises.
+    uri = os.environ["MLFLOW_TRACKING_URI"]
     import mlflow
 
     fqn = mlflow_model_uri(CATALOG, SCHEMA, MODEL_NAME)
@@ -272,12 +272,9 @@ def _log_mlflow(
         )
         run_id = mlflow.active_run().info.run_id
 
+    # ADR-012 §4 zombie-alias guard: round-trip the @Champion alias read.
     client = mlflow.tracking.MlflowClient()
-    versions = client.search_model_versions(f"name='{fqn}'")
-    if versions:
-        latest = max(versions, key=lambda v: int(v.version))
-        client.set_registered_model_alias(name=fqn, alias="Champion", version=latest.version)
-        logger.info("MLflow complete (version=%s, run=%s)", latest.version, run_id)
+    set_and_verify_mlflow_champion(client, mlflow_fqn=fqn, run_id=run_id)
 
 
 # ---------------------------------------------------------------------------
@@ -555,6 +552,7 @@ def main_local() -> None:
 def main() -> None:
     """Train ScoutGPT (HF Jobs path): player-conditioned autoregressive decoder over SPADL episodes."""
     _assert_silly_kicks_min()
+    require_mlflow_env()  # ADR-012 §4: fail loud before training if registration env is missing.
 
     args = _build_arg_parser().parse_args()
 
