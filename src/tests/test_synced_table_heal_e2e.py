@@ -3,8 +3,9 @@ destructive path (PG ghost drop, CDF ensure, real checkpoint reset). Asserts the
 (spec M3/M6), not just "comes online".
 
 SCAFFOLDING / GATED: requires a live Databricks workspace (SDK + warehouse + Lakebase PG) and the
-``RUN_SERVERLESS_TESTS=1`` opt-in. Skipped in normal offline CI; run nightly / on PRs touching
-``synced_table_lifecycle`` or ``synced_table_heal`` via .github/workflows/synced-table-heal-e2e.yml.
+``RUN_SERVERLESS_TESTS=1`` opt-in. Skipped in normal offline CI. NOT a PR gate (the repro depends on
+non-deterministic live DLT pipeline scheduling); runs nightly + on-demand via workflow_dispatch in
+.github/workflows/synced-table-heal-e2e.yml. The deterministic offline suite is the merge gate.
 
 Decoupled from dbt (review R2): the failure trigger is *only* a new source-table id, so the test
 reproduces it with a plain ``DROP TABLE`` + ``CREATE TABLE`` — no dbt build / UC-catalog-creation.

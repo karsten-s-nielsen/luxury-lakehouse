@@ -85,8 +85,13 @@ Key decisions and the findings/risks they answer:
   daily-maintenance backstop heals within ≤24 h).
 - The destructive automation deletes production synced tables; this is bounded by marker-gating
   (SQLSTATE `XXKST` only), verify-before-destroy, the kill-switch, the workflow concurrency group, and
-  the serverless e2e gate (`synced-table-heal-e2e.yml`) that proves the live path on every change to the
-  heal core.
+  the serverless e2e (`synced-table-heal-e2e.yml`) that proves the live path. That e2e runs **nightly +
+  on-demand (`workflow_dispatch`), not as a PR gate**: its reproduction depends on non-deterministic
+  live DLT pipeline scheduling (empirically, the same code reached the heal on one run and timed out at
+  the repro step on the next) and a run takes ~15 min against real infra, so the deterministic offline
+  suite is the merge gate. The e2e earned its keep during this ADR's own development — it surfaced a real
+  heal bug (an explicit `start_update` after recreate races the auto-started initial sync → `ResourceConflict`;
+  fixed by tolerating that conflict in `SdkWriterAdapter.trigger_refresh`).
 - The Lakebase PG host is **derived** from the Databricks REST API (`ingestion.lakebase_endpoint.derive_lakebase_dns`,
   the importable home of the contract already used by `create_indexes.py` / `run_lakebase_grants.py`);
   `LAKEBASE_HOST` is honoured only as a local-dev override, so neither the heal step nor the e2e needs a
