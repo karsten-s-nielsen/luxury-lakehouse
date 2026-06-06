@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.21-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.22-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -54,6 +54,7 @@ from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
 
+from ingestion.artifact_deploy import require_mlflow_env, set_and_verify_mlflow_champion
 from ingestion.hf_jobs_cost import HF_RATE_CPU_BASIC, HFJobsCostRecorder
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 from shared.constants import mlflow_model_uri
@@ -94,7 +95,7 @@ logging.basicConfig(
 # ---------------------------------------------------------------------------
 HF_ORG = "luxury-lakehouse"
 SPADL_DATASET = f"{HF_ORG}/spadl-vaep-action-values"
-MODEL_REPO = f"{HF_ORG}/vaep-model-statsbomb-wyscout"
+MODEL_REPO = f"{HF_ORG}/vaep-model"
 
 # VAEP feature extraction (matches src/ingestion/spadl_vaep.py)
 _FEATURE_FNS: list[Any] = [
@@ -270,6 +271,10 @@ def serialize_vaep_models(
 def main() -> None:
     """Download SPADL actions, train VAEP models, log to MLflow, push to HF Hub."""
     _assert_silly_kicks_min()
+    # ADR-012 §4: fail loud on missing MLflow/Databricks env BEFORE the
+    # expensive HF download + training, so registration can never be silently
+    # skipped (the old `if tracking_uri:` gate, removed below).
+    require_mlflow_env()
 
     from huggingface_hub import HfApi, get_token, hf_hub_download
 
@@ -360,18 +365,26 @@ def main() -> None:
     logger.info("SPADL actions: %s rows, %d columns", f"{len(actions_spadl):,}", len(actions_spadl.columns))
 
     # ------------------------------------------------------------------
-    # 3. Train/test split by competition_id (80/20, stratified)
+    # 3. Train/test split by competition (80/20, stratified)
     # ------------------------------------------------------------------
     logger.info("=== Splitting data ===")
     game_ids = actions_spadl["game_id"].unique().tolist()
 
-    # Build game -> competition mapping for stratified split
+    # Build game -> competition mapping for the stratified split. Stratify on the
+    # Kimball surrogate ``competition_key`` (ADR-011), NOT the legacy numeric
+    # ``competition_id``: the legacy column is NULL for non-numeric provider IDs
+    # (idsse / metrica / skillcorner), which put pd.NA into the stratify array and
+    # crashed ``train_test_split`` (boolean value of NA is ambiguous). The Kimball
+    # surrogate is non-NULL for ALL providers, so the trainer can use every
+    # provider's SPADL. Competition is only a split-balancing label here, never a
+    # model feature. NA-safe int cast is defense-in-depth (a SB/WS row will never
+    # be NULL, but a future provider with a sparse key should degrade, not crash).
+    _comp_col = "competition_key" if "competition_key" in actions_spadl.columns else "competition_id"
     game_comp = (
-        actions_spadl[["game_id", "competition_id"]]
-        .drop_duplicates(subset=["game_id"])
-        .set_index("game_id")["competition_id"]
+        actions_spadl[["game_id", _comp_col]].drop_duplicates(subset=["game_id"]).set_index("game_id")[_comp_col]
     )
-    comp_labels = [game_comp.get(gid, 0) for gid in game_ids]
+    game_comp = pd.to_numeric(game_comp, errors="coerce").fillna(0).astype("int64")
+    comp_labels = [int(game_comp.get(gid, 0)) for gid in game_ids]
 
     # Stratified split requires each class to have >= 2 members.
     # Merge rare competition_ids into a shared bucket. Use threshold
@@ -485,74 +498,64 @@ def main() -> None:
     # ------------------------------------------------------------------
     # 7. Log to MLflow (remote tracking URI)
     # ------------------------------------------------------------------
-    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "")
-    if tracking_uri:
-        import mlflow
-        import mlflow.pyfunc
+    # ADR-012 §4: registration is unconditional (require_mlflow_env() proved the
+    # env present at entry). Read via subscript so a missing value fails loud.
+    tracking_uri = os.environ["MLFLOW_TRACKING_URI"]
+    import mlflow
+    import mlflow.pyfunc
 
-        logger.info("=== Logging to MLflow (%s) ===", tracking_uri)
-        mlflow.set_tracking_uri(tracking_uri)
-        mlflow.set_experiment("/soccer_analytics/vaep_model")
+    logger.info("=== Logging to MLflow (%s) ===", tracking_uri)
+    mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_experiment("/soccer_analytics/vaep_model")
 
-        # Pyfunc wrapper that stores both VAEP models for @Champion loading
-        class _VaepPyfuncWrapper(mlflow.pyfunc.PythonModel):  # type: ignore[misc]
-            def __init__(self, scores: XGBClassifier, concedes: XGBClassifier) -> None:
-                self.scores_model = scores
-                self.concedes_model = concedes
+    # Pyfunc wrapper that stores both VAEP models for @Champion loading
+    class _VaepPyfuncWrapper(mlflow.pyfunc.PythonModel):  # type: ignore[misc]
+        def __init__(self, scores: XGBClassifier, concedes: XGBClassifier) -> None:
+            self.scores_model = scores
+            self.concedes_model = concedes
 
-            def predict(self, context: Any, model_input: pd.DataFrame) -> np.ndarray:
-                return self.scores_model.predict_proba(model_input)[:, 1]
+        def predict(self, context: Any, model_input: pd.DataFrame) -> np.ndarray:
+            return self.scores_model.predict_proba(model_input)[:, 1]
 
-        wrapper = _VaepPyfuncWrapper(model_scores, model_concedes)
-        input_example = x_test.head(1)
+    wrapper = _VaepPyfuncWrapper(model_scores, model_concedes)
+    input_example = x_test.head(1)
 
-        with mlflow.start_run(run_name="vaep_model_hf_jobs"):
-            mlflow.log_params(
-                {
-                    "n_estimators": N_ESTIMATORS,
-                    "max_depth": MAX_DEPTH,
-                    "learning_rate": LEARNING_RATE,
-                    "nb_prev_actions": _NB_PREV_ACTIONS,
-                    "n_train_games": len(train_games),
-                    "n_test_games": len(test_games),
-                    "n_train_samples": len(x_train),
-                    "n_test_samples": len(x_test),
-                    "n_features": x_train.shape[1],
-                    "training_env": "hf_jobs_cpu",
-                    "hf_dataset_commit": dataset_commit_hash,
-                }
-            )
-            for name, value in scores_metrics.items():
-                mlflow.log_metric(f"scores_{name}", value)
-            for name, value in concedes_metrics.items():
-                mlflow.log_metric(f"concedes_{name}", value)
+    _vaep_fqn = mlflow_model_uri("soccer_analytics", "dev_gold", "vaep_model")
+    with mlflow.start_run(run_name="vaep_model_hf_jobs"):
+        mlflow.log_params(
+            {
+                "n_estimators": N_ESTIMATORS,
+                "max_depth": MAX_DEPTH,
+                "learning_rate": LEARNING_RATE,
+                "nb_prev_actions": _NB_PREV_ACTIONS,
+                "n_train_games": len(train_games),
+                "n_test_games": len(test_games),
+                "n_train_samples": len(x_train),
+                "n_test_samples": len(x_test),
+                "n_features": x_train.shape[1],
+                "training_env": "hf_jobs_cpu",
+                "hf_dataset_commit": dataset_commit_hash,
+            }
+        )
+        for name, value in scores_metrics.items():
+            mlflow.log_metric(f"scores_{name}", value)
+        for name, value in concedes_metrics.items():
+            mlflow.log_metric(f"concedes_{name}", value)
 
-            mlflow.pyfunc.log_model(
-                python_model=wrapper,
-                artifact_path="vaep_model",
-                registered_model_name=mlflow_model_uri("soccer_analytics", "dev_gold", "vaep_model"),
-                input_example=input_example,
-            )
+        mlflow.pyfunc.log_model(
+            python_model=wrapper,
+            artifact_path="vaep_model",
+            registered_model_name=_vaep_fqn,
+            input_example=input_example,
+        )
 
-            # Set @Champion alias
-            run_id = mlflow.active_run().info.run_id
+        run_id = mlflow.active_run().info.run_id
 
-        client = mlflow.tracking.MlflowClient()
-        # Get the latest version just created
-        _vaep_fqn = mlflow_model_uri("soccer_analytics", "dev_gold", "vaep_model")
-        versions = client.search_model_versions(f"name='{_vaep_fqn}'")
-        if versions:
-            latest = max(versions, key=lambda v: int(v.version))
-            client.set_registered_model_alias(
-                name=_vaep_fqn,
-                alias="Champion",
-                version=latest.version,
-            )
-            logger.info("Set @Champion alias on version %s (run=%s)", latest.version, run_id)
+    # ADR-012 §4 zombie-alias guard: round-trip the @Champion alias read.
+    client = mlflow.tracking.MlflowClient()
+    set_and_verify_mlflow_champion(client, mlflow_fqn=_vaep_fqn, run_id=run_id)
 
-        logger.info("MLflow logging complete")
-    else:
-        logger.info("=== MLflow skipped (MLFLOW_TRACKING_URI not set) ===")
+    logger.info("MLflow logging complete")
 
     # ------------------------------------------------------------------
     # 8. Serialize and publish to HF Hub

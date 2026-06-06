@@ -35,7 +35,11 @@ def test_vaep_value_within_bounds(
     sql = f"""
     SELECT
       COUNT(*) AS n_total,
-      SUM(CASE WHEN vaep_value < -1 OR vaep_value > 1 THEN 1 ELSE 0 END) AS n_out,
+      -- Bound [-2, 2]: VAEP net value = offensive_value + defensive_value
+      -- (Decroos 2019), each in [-1, 1], so the true range is [-2, 2] — high-value
+      -- actions (dribble/keeper_save successes) legitimately reach ≈1.9. Matches
+      -- the corrected dbt expect_column_values_to_be_between bound on fct_action_values.
+      SUM(CASE WHEN vaep_value < -2 OR vaep_value > 2 THEN 1 ELSE 0 END) AS n_out,
       SUM(CASE WHEN vaep_value IS NULL THEN 1 ELSE 0 END) AS n_null,
       AVG(vaep_value) AS mean_value
     FROM (
@@ -54,7 +58,7 @@ def test_vaep_value_within_bounds(
     mean_v = float(rows[0][3])
 
     assert n_total > 0
-    assert n_out == 0, f"{n_out}/{n_total} vaep_value outside [-1, 1]"
+    assert n_out == 0, f"{n_out}/{n_total} vaep_value outside [-2, 2]"
     assert n_null == 0, f"{n_null}/{n_total} vaep_value NULL"
     assert _LOWER <= mean_v <= _UPPER, (
         f"vaep_value mean = {mean_v:.6f}, expected within "

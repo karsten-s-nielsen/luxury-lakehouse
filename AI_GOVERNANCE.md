@@ -264,9 +264,9 @@ All training data used by the thirteen systems in §5 is publicly licensed open-
 |---|---|---|---|
 | StatsBomb Open Data | ≈ 3,000 matches (events); 323 matches (360 freeze frames) | CC-BY 4.0 | xG v2, VAEP, PSxG, Football2Vec v1/v2/360, ScoutGPT |
 | Wyscout Public Dataset | ≈ 1,900 matches (events) | CC-BY-NC 4.0 | xG v2, VAEP, Football2Vec v1/v2, ScoutGPT |
-| Metrica Sports sample-data | Small sample | Permissive | Pitch Control, Off-Ball xT, OBSO/PAUSA, Space Creation |
-| IDSSE (Bassek et al. 2025, DFL) | 7 Bundesliga matches | CC-BY 4.0 | Pitch Control, Off-Ball xT, OBSO/PAUSA, Space Creation |
-| SkillCorner Open Data | 10 A-League matches | MIT | Pitch Control, Off-Ball xT, OBSO/PAUSA, Space Creation |
+| Metrica Sports sample-data | Small sample | Permissive | Pitch Control, Off-Ball xT, OBSO/PAUSA, Space Creation, VAEP |
+| IDSSE (Bassek et al. 2025, DFL) | 7 Bundesliga matches | CC-BY 4.0 | Pitch Control, Off-Ball xT, OBSO/PAUSA, Space Creation, VAEP |
+| SkillCorner Open Data | 10 A-League matches | MIT | Pitch Control, Off-Ball xT, OBSO/PAUSA, Space Creation, VAEP |
 
 ### 10.3 Representativity
 
