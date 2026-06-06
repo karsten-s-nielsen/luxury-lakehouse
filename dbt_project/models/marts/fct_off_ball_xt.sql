@@ -4,7 +4,10 @@
     unique_key='off_ball_xt_id',
     on_schema_change='append_new_columns',
     liquid_clustered_by=['match_key'],
-    tags=['marts', 'output_mart']
+    tags=['marts', 'output_mart'],
+    tblproperties={
+        'delta.enableChangeDataFeed': 'true',
+    }
 ) }}
 -- fct_off_ball_xt.sql
 -- Gold-layer off-ball expected threat (xT) results per player per match.

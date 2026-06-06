@@ -34,7 +34,6 @@ else:
 
 CATALOG = "soccer_analytics"
 SCHEMA = "dev_gold"
-LAKEBASE_HOST = os.environ["LAKEBASE_HOST"]  # Required — fail fast if missing
 ENDPOINT_NAME = os.environ.get(
     "LAKEBASE_ENDPOINT_NAME", "projects/soccer-analytics-dev/branches/production/endpoints/primary"
 )
@@ -84,36 +83,41 @@ def main() -> None:
 
     ws = WorkspaceClient()
 
+    # The two-step delete (SDK delete + PG ghost drop) is the canonical lifecycle; the
+    # implementations now live in the shared thin adapters (single source of truth).
+    from ingestion.lakebase_endpoint import derive_lakebase_dns
+    from ingestion.synced_table_lifecycle import PsycopgGhostAdapter, SdkWriterAdapter
+
     # Step 1: Delete synced table via Databricks SDK
     print(f"\n[1/2] Deleting synced table: {full_name}")
     try:
-        ws.postgres.delete_synced_table(name=f"synced_tables/{full_name}")
-        print("  OK — synced table deleted")
+        deleted = SdkWriterAdapter(ws).sdk_delete(full_name)
+        print("  OK — synced table deleted" if deleted else "  Not found — may already be deleted. Continuing.")
     except Exception as exc:
         print(f"  ERROR: {exc}")
-        print("  (If 'not found', the table may already be deleted. Continuing to PG cleanup.)")
+        print("  (Continuing to PG cleanup.)")
 
     # Step 2: Drop ghost PG table
     print(f"\n[2/2] Dropping PG ghost table: {SCHEMA}.{table_name}")
     try:
         token, username = _get_pg_token(ws)
         print(f"  PG user: {username}")
+        # Derive the endpoint DNS (LAKEBASE_HOST is an optional local-dev override only) — ADR-041.
+        lakebase_host = derive_lakebase_dns(ws, endpoint_name=ENDPOINT_NAME)
 
-        conn = psycopg2.connect(
-            host=LAKEBASE_HOST,
-            port=5432,
-            dbname=PG_DATABASE,
-            user=username,
-            password=token,
-            sslmode="require",
-            options="-c statement_timeout=30000",
-        )
-        conn.autocommit = True
-        with conn.cursor() as cur:
-            # Use quoted identifier to prevent SQL injection
-            cur.execute(f'DROP TABLE IF EXISTS {SCHEMA}."{table_name}"')
-            print("  OK — PG table dropped")
-        conn.close()
+        def _pg_connect():
+            return psycopg2.connect(
+                host=lakebase_host,
+                port=5432,
+                dbname=PG_DATABASE,
+                user=username,
+                password=token,
+                sslmode="require",
+                options="-c statement_timeout=30000",
+            )
+
+        PsycopgGhostAdapter(_pg_connect).drop_pg_ghost(SCHEMA, table_name)
+        print("  OK — PG table dropped")
     except Exception as exc:
         print(f"  ERROR dropping PG ghost: {exc}")
         print("  You may need to drop it manually via psql.")

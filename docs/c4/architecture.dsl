@@ -39,7 +39,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             hfPublish = container "HF Publish Helper" "README delivery (ADR-014). upload_hf_readme + get_hf_card_path." "Python"
             databricksSqlFetch = container "Databricks SQL Fetch" "HTTP helper for HF Jobs trainers querying gold marts (no Spark)" "Python, requests"
             ingestionPipelines = container "Compute Pipelines" "38 @workflow-decorated Databricks ingestion/compute pipelines across 6 providers. GS bronze frame dedup keep-first (ADR-030); per-provider silly-kicks 4.x ET-direction derivers (ADR-029)." "Python, PySpark"
-            refreshSyncedTables = container "Synced Table Refresh" "Triggers SNAPSHOT refresh on 42 Lakebase synced tables via SDK postgres API" "Python, databricks-sdk"
+            refreshSyncedTables = container "Synced Table Refresh" "Triggers refresh on 42 synced tables; detect-only for checkpoint-broken TRIGGERED tables — flags + dispatches the heal, never deletes (ADR-041)" "Python, databricks-sdk"
             migrateSyncedTables = container "Synced Table Migration" "SDK-managed lifecycle: delete, CDF enable, create, wait (ADR-026). Replaces Terraform module." "Python, databricks-sdk"
             dbtRunner = container "dbt Runner" "python_wheel_task entry point. OAuth token exchange, warehouse start." "Python, dbt-core"
             evolveEngine = container "Evolve Engine" "LLM-guided architecture search. AST validation, restricted exec." "Python, OpenEvolve"
@@ -88,7 +88,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             pythonCi = container "Python CI" "ruff, pyright, pytest, detect-secrets, pip-audit. Deploys wheel on main." ".github/workflows/"
             dbtCi = container "dbt CI" "dbt parse + slim CI for contract verification" ".github/workflows/"
             semgrepCi = container "Semgrep SAST" "OWASP-aligned static analysis on every push" ".github/workflows/"
-            lakebaseGrantsWorkflow = container "Lakebase Grants" "Self-healing SELECT grants for Taipy SP (ADR-005)" ".github/workflows/"
+            lakebaseGrantsWorkflow = container "Lakebase Maintenance" "Self-healing SELECT grants (ADR-005) + checkpoint-broken synced-table recreate (heal before grants/indexes; concurrency-guarded — ADR-041)" ".github/workflows/"
             dataQualityCi = container "Data Quality CI" "Bronze schema parity, Kimball contracts, xref invariants, ADR-013 compliance" ".github/workflows/"
         }
 

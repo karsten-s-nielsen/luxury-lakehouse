@@ -1,0 +1,166 @@
+[
+  {
+    "error": {
+      "exceptions": [
+        {
+          "class_name": "org.apache.spark.sql.streaming.StreamingQueryException",
+          "message": "[STREAM_FAILED] Query [id = 00000000-0000-0000-0000-000000000001, runId = 00000000-0000-0000-0000-000000000002] terminated with exception: [DIFFERENT_DELTA_TABLE_READ_BY_STREAMING_SOURCE] The streaming query was reading from an unexpected Delta table (id = '00000000-0000-0000-0000-000000000003'). \nIt used to read from another Delta table (id = '00000000-0000-0000-0000-000000000004') according to checkpoint. \nThis may happen when you changed the code to read from a new table or you deleted and \nre-created a table. Please revert your change or delete your streaming query checkpoint \nto restart from scratch. SQLSTATE: XXKST",
+          "stack": [
+            {
+              "declaring_class": "org.apache.spark.sql.execution.streaming.runtime.StreamExecution",
+              "file_name": "StreamExecution.scala",
+              "line_number": 515,
+              "method_name": "$anonfun$runStream$1"
+            }
+          ]
+        },
+        {
+          "class_name": "com.databricks.sql.transaction.tahoe.DeltaIllegalStateException",
+          "message": "[DIFFERENT_DELTA_TABLE_READ_BY_STREAMING_SOURCE] The streaming query was reading from an unexpected Delta table (id = '00000000-0000-0000-0000-000000000003'). \nIt used to read from another Delta table (id = '00000000-0000-0000-0000-000000000004') according to checkpoint. \nThis may happen when you changed the code to read from a new table or you deleted and \nre-created a table. Please revert your change or delete your streaming query checkpoint \nto restart from scratch.",
+          "stack": [
+            {
+              "declaring_class": "com.databricks.sql.transaction.tahoe.DeltaErrorsBase",
+              "file_name": "DeltaErrors.scala",
+              "line_number": 1777,
+              "method_name": "differentDeltaTableReadByStreamingSource"
+            }
+          ]
+        }
+      ],
+      "fatal": false
+    },
+    "event_type": "update_progress",
+    "id": "00000000-0000-0000-0000-000000000005",
+    "level": "ERROR",
+    "maturity_level": "STABLE",
+    "message": "Update 000001 is FAILED since flow 'databricks_postgres_dev_gold_fct_action_values_synced' has failed more than 2 times.",
+    "origin": {
+      "cloud": "AWS",
+      "cluster_id": "0000-000000-redacted",
+      "org_id": 0,
+      "pipeline_id": "00000000-0000-0000-0000-000000000006",
+      "pipeline_name": "Synced table: soccer_analytics.dev_gold.fct_action_values_synced",
+      "region": "us-east-1",
+      "request_id": "00000000-0000-0000-0000-000000000007",
+      "update_id": "00000000-0000-0000-0000-000000000008"
+    },
+    "sequence": {
+      "control_plane_seq_no": 1000,
+      "data_plane_id": {
+        "instance": "execution",
+        "seq_no": 2000
+      }
+    },
+    "timestamp": "2026-06-05T16:04:25.594Z"
+  },
+  {
+    "error": {
+      "exceptions": [
+        {
+          "class_name": "org.apache.spark.sql.streaming.StreamingQueryException",
+          "message": "[STREAM_FAILED] Query [id = 00000000-0000-0000-0000-000000000001, runId = 00000000-0000-0000-0000-000000000002] terminated with exception: [DIFFERENT_DELTA_TABLE_READ_BY_STREAMING_SOURCE] The streaming query was reading from an unexpected Delta table (id = '00000000-0000-0000-0000-000000000003'). \nIt used to read from another Delta table (id = '00000000-0000-0000-0000-000000000004') according to checkpoint. \nThis may happen when you changed the code to read from a new table or you deleted and \nre-created a table. Please revert your change or delete your streaming query checkpoint \nto restart from scratch. SQLSTATE: XXKST",
+          "stack": [
+            {
+              "declaring_class": "org.apache.spark.sql.execution.streaming.runtime.StreamExecution",
+              "file_name": "StreamExecution.scala",
+              "line_number": 515,
+              "method_name": "$anonfun$runStream$1"
+            }
+          ]
+        },
+        {
+          "class_name": "com.databricks.sql.transaction.tahoe.DeltaIllegalStateException",
+          "message": "[DIFFERENT_DELTA_TABLE_READ_BY_STREAMING_SOURCE] The streaming query was reading from an unexpected Delta table (id = '00000000-0000-0000-0000-000000000003'). \nIt used to read from another Delta table (id = '00000000-0000-0000-0000-000000000004') according to checkpoint. \nThis may happen when you changed the code to read from a new table or you deleted and \nre-created a table. Please revert your change or delete your streaming query checkpoint \nto restart from scratch.",
+          "stack": [
+            {
+              "declaring_class": "com.databricks.sql.transaction.tahoe.DeltaErrorsBase",
+              "file_name": "DeltaErrors.scala",
+              "line_number": 1777,
+              "method_name": "differentDeltaTableReadByStreamingSource"
+            }
+          ]
+        }
+      ],
+      "fatal": false
+    },
+    "event_type": "flow_progress",
+    "id": "00000000-0000-0000-0000-000000000009",
+    "level": "ERROR",
+    "maturity_level": "STABLE",
+    "message": "Flow 'databricks_postgres_dev_gold_fct_action_values_synced' has FAILED more than 2 times and will not be restarted.",
+    "origin": {
+      "cloud": "AWS",
+      "cluster_id": "0000-000000-redacted",
+      "flow_id": "00000000-0000-0000-0000-000000000001",
+      "flow_name": "databricks_postgres_dev_gold_fct_action_values_synced",
+      "org_id": 0,
+      "pipeline_id": "00000000-0000-0000-0000-000000000006",
+      "pipeline_name": "Synced table: soccer_analytics.dev_gold.fct_action_values_synced",
+      "region": "us-east-1",
+      "request_id": "00000000-0000-0000-0000-000000000007",
+      "update_id": "00000000-0000-0000-0000-000000000008"
+    },
+    "sequence": {
+      "control_plane_seq_no": 1001,
+      "data_plane_id": {
+        "instance": "execution",
+        "seq_no": 2001
+      }
+    },
+    "timestamp": "2026-06-05T16:04:24.575Z"
+  },
+  {
+    "error": {
+      "exceptions": [
+        {
+          "class_name": "org.apache.spark.sql.streaming.StreamingQueryException",
+          "message": "[STREAM_FAILED] Query [id = 00000000-0000-0000-0000-000000000001, runId = 00000000-0000-0000-0000-000000000010] terminated with exception: [DIFFERENT_DELTA_TABLE_READ_BY_STREAMING_SOURCE] The streaming query was reading from an unexpected Delta table (id = '00000000-0000-0000-0000-000000000003'). \nIt used to read from another Delta table (id = '00000000-0000-0000-0000-000000000004') according to checkpoint. \nThis may happen when you changed the code to read from a new table or you deleted and \nre-created a table. Please revert your change or delete your streaming query checkpoint \nto restart from scratch. SQLSTATE: XXKST",
+          "stack": [
+            {
+              "declaring_class": "org.apache.spark.sql.execution.streaming.runtime.StreamExecution",
+              "file_name": "StreamExecution.scala",
+              "line_number": 515,
+              "method_name": "$anonfun$runStream$1"
+            }
+          ]
+        },
+        {
+          "class_name": "com.databricks.sql.transaction.tahoe.DeltaIllegalStateException",
+          "message": "[DIFFERENT_DELTA_TABLE_READ_BY_STREAMING_SOURCE] The streaming query was reading from an unexpected Delta table (id = '00000000-0000-0000-0000-000000000003'). \nIt used to read from another Delta table (id = '00000000-0000-0000-0000-000000000004') according to checkpoint. \nThis may happen when you changed the code to read from a new table or you deleted and \nre-created a table. Please revert your change or delete your streaming query checkpoint \nto restart from scratch.",
+          "stack": [
+            {
+              "declaring_class": "com.databricks.sql.transaction.tahoe.DeltaErrorsBase",
+              "file_name": "DeltaErrors.scala",
+              "line_number": 1777,
+              "method_name": "differentDeltaTableReadByStreamingSource"
+            }
+          ]
+        }
+      ],
+      "fatal": false
+    },
+    "event_type": "update_progress",
+    "id": "00000000-0000-0000-0000-000000000011",
+    "level": "ERROR",
+    "maturity_level": "STABLE",
+    "message": "Update 000001 is FAILED since flow 'databricks_postgres_dev_gold_fct_action_values_synced' has failed more than 2 times.",
+    "origin": {
+      "cloud": "AWS",
+      "cluster_id": "0000-000000-redacted",
+      "org_id": 0,
+      "pipeline_id": "00000000-0000-0000-0000-000000000006",
+      "pipeline_name": "Synced table: soccer_analytics.dev_gold.fct_action_values_synced",
+      "region": "us-east-1",
+      "request_id": "00000000-0000-0000-0000-000000000007",
+      "update_id": "00000000-0000-0000-0000-000000000012"
+    },
+    "sequence": {
+      "control_plane_seq_no": 1002,
+      "data_plane_id": {
+        "instance": "execution",
+        "seq_no": 2002
+      }
+    },
+    "timestamp": "2026-06-05T15:58:40.473Z"
+  }
+]

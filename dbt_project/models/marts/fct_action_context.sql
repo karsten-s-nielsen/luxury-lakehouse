@@ -4,7 +4,10 @@
     unique_key='action_context_id',
     on_schema_change='append_new_columns',
     liquid_clustered_by=['match_key'],
-    tags=['marts', 'output_mart']
+    tags=['marts', 'output_mart'],
+    tblproperties={
+        'delta.enableChangeDataFeed': 'true',
+    }
 ) }}
 -- fct_action_context.sql
 -- Gold-layer unified action context features per SPADL action.
