@@ -157,7 +157,13 @@ def run_heal_pass(
         outcome = heal_synced_table(ports, config, catalog, schema)
         outcomes[name] = outcome
         if outcome is HealOutcome.HEALED:
-            state.mark_healed(name, now)
+            # Strand-state recording is best-effort: the table is already healed, so a telemetry-write
+            # failure (e.g. warehouse hiccup) must NOT downgrade a real heal. Surfaced at ERROR (never
+            # a silent warning-swallow — ADR-002) so stale recurrence tracking is visible.
+            try:
+                state.mark_healed(name, now)
+            except Exception:
+                logger.exception("heal: %s healed but mark_healed failed (recurrence tracking may be stale)", name)
         elif outcome is HealOutcome.HEAL_FAILED:
             logger.error("heal: %s -> HEAL_FAILED (needs attention)", name)
     return outcomes
