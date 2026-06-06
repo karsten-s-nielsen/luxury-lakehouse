@@ -37,14 +37,16 @@ jobs:
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}  # pragma: allowlist secret
       DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
-      LAKEBASE_HOST: ${{ vars.LAKEBASE_HOST }}
+      # Lakebase host is derived from the Databricks REST API (ADR-041) — no LAKEBASE_HOST var needed.
+      # HEAL_E2E_SCHEMA is the ONLY operator input: a disposable UC schema for the throwaway synced
+      # table this test creates/breaks/heals. Recommended value: heal_e2e (see docs/engineering/conventions.md).
       HEAL_E2E_SCHEMA: ${{ vars.HEAL_E2E_SCHEMA }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Validate required config
         run: |
-          for v in DATABRICKS_HOST DATABRICKS_TOKEN DATABRICKS_HTTP_PATH LAKEBASE_HOST HEAL_E2E_SCHEMA; do
+          for v in DATABRICKS_HOST DATABRICKS_TOKEN DATABRICKS_HTTP_PATH HEAL_E2E_SCHEMA; do
             if [ -z "${!v}" ]; then echo "::error::$v is required for the heal e2e"; exit 1; fi
           done
 

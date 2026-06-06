@@ -34,7 +34,6 @@ else:
 
 CATALOG = "soccer_analytics"
 SCHEMA = "dev_gold"
-LAKEBASE_HOST = os.environ["LAKEBASE_HOST"]  # Required — fail fast if missing
 ENDPOINT_NAME = os.environ.get(
     "LAKEBASE_ENDPOINT_NAME", "projects/soccer-analytics-dev/branches/production/endpoints/primary"
 )
@@ -86,6 +85,7 @@ def main() -> None:
 
     # The two-step delete (SDK delete + PG ghost drop) is the canonical lifecycle; the
     # implementations now live in the shared thin adapters (single source of truth).
+    from ingestion.lakebase_endpoint import derive_lakebase_dns
     from ingestion.synced_table_lifecycle import PsycopgGhostAdapter, SdkWriterAdapter
 
     # Step 1: Delete synced table via Databricks SDK
@@ -102,10 +102,12 @@ def main() -> None:
     try:
         token, username = _get_pg_token(ws)
         print(f"  PG user: {username}")
+        # Derive the endpoint DNS (LAKEBASE_HOST is an optional local-dev override only) — ADR-041.
+        lakebase_host = derive_lakebase_dns(ws, endpoint_name=ENDPOINT_NAME)
 
         def _pg_connect():
             return psycopg2.connect(
-                host=LAKEBASE_HOST,
+                host=lakebase_host,
                 port=5432,
                 dbname=PG_DATABASE,
                 user=username,

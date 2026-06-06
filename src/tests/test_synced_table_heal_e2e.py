@@ -10,8 +10,9 @@ Decoupled from dbt (review R2): the failure trigger is *only* a new source-table
 reproduces it with plain ``CREATE OR REPLACE TABLE`` — no dbt build / UC-catalog-creation. The proof
 is about the heal, not about dbt.
 
-Required env: DATABRICKS_HOST, DATABRICKS_TOKEN, DATABRICKS_HTTP_PATH (warehouse), LAKEBASE_HOST.
-Fill the ``<TEST_CATALOG>`` / ``<TEST_SCHEMA>`` markers with a disposable catalog/schema.
+Required env: DATABRICKS_HOST, DATABRICKS_TOKEN, DATABRICKS_HTTP_PATH (warehouse). The Lakebase host
+is derived from the Databricks REST API (ADR-041) — no LAKEBASE_HOST needed. ``HEAL_E2E_SCHEMA`` is
+the only operator input (a disposable UC schema, default ``heal_e2e``); the test creates it if absent.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 _CATALOG = os.environ.get("HEAL_E2E_CATALOG", "soccer_analytics")
-_SCHEMA = os.environ.get("HEAL_E2E_SCHEMA", "<TEST_SCHEMA>")
+_SCHEMA = os.environ.get("HEAL_E2E_SCHEMA", "heal_e2e")
 _SOURCE = "fct_heal_e2e_src"
 _SYNCED = "fct_heal_e2e_src_synced"
 
@@ -58,7 +59,8 @@ def test_heal_resets_checkpoint_and_resumes_incremental_cdf() -> None:
     fqn = f"{_CATALOG}.{_SCHEMA}.{_SYNCED}"
     src = f"{_CATALOG}.{_SCHEMA}.{_SOURCE}"
 
-    # (a) seed a CDF-enabled source + its synced table.
+    # (a) seed a CDF-enabled source + its synced table (disposable schema created if absent).
+    sql(f"CREATE SCHEMA IF NOT EXISTS {_CATALOG}.{_SCHEMA}")
     sql(f"CREATE OR REPLACE TABLE {src} (id BIGINT) TBLPROPERTIES ('delta.enableChangeDataFeed' = 'true')")
     sql(f"INSERT INTO {src} VALUES (1), (2), (3)")
     ports.writer.create_synced_table(cfg, _CATALOG, _SCHEMA)

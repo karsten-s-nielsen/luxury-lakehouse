@@ -134,7 +134,7 @@ jobs:
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.verify_only != true }}
         continue-on-error: true
         env:
-          LAKEBASE_HOST: ${{ vars.LAKEBASE_HOST }}
+          # Lakebase host is derived from the Databricks REST API (ADR-041); no LAKEBASE_HOST var needed.
           DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
           SYNCED_TABLE_HEAL_ENABLED: ${{ vars.SYNCED_TABLE_HEAL_ENABLED || '1' }}
         run: |

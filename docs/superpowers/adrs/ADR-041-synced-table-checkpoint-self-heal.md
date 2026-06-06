@@ -87,6 +87,11 @@ Key decisions and the findings/risks they answer:
   (SQLSTATE `XXKST` only), verify-before-destroy, the kill-switch, the workflow concurrency group, and
   the serverless e2e gate (`synced-table-heal-e2e.yml`) that proves the live path on every change to the
   heal core.
+- The Lakebase PG host is **derived** from the Databricks REST API (`ingestion.lakebase_endpoint.derive_lakebase_dns`,
+  the importable home of the contract already used by `create_indexes.py` / `run_lakebase_grants.py`);
+  `LAKEBASE_HOST` is honoured only as a local-dev override, so neither the heal step nor the e2e needs a
+  hand-set host var in CI. The e2e's **only** operator input is the repo variable `HEAL_E2E_SCHEMA`
+  (recommended `heal_e2e`) — a disposable UC schema the test creates/breaks/heals a throwaway table in.
 - TRIGGERED/CDF incremental sync is preserved (no fallback to SNAPSHOT). A new contract test
   (`test_synced_table_cdf_contract`) prevents anyone re-opening F2 by adding a TRIGGERED synced table
   over a CDF-off source.

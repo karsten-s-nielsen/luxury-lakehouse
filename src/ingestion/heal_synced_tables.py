@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 
 import requests
 
+from ingestion.lakebase_endpoint import derive_lakebase_dns
 from ingestion.refresh_synced_tables import DEFAULT_CATALOG, DEFAULT_SCHEMA, SYNCED_TABLES
 from ingestion.synced_table_heal import HealPorts, is_checkpoint_mismatch_failure, run_heal_pass
 from ingestion.synced_table_lifecycle import (
@@ -88,7 +89,9 @@ def _make_pg_connect(ws: WorkspaceClient):
     token = resp.json()["token"]
     payload = json.loads(base64.b64decode(token.split(".")[1] + "==="))
     username = payload["sub"]
-    lakebase_host = os.environ["LAKEBASE_HOST"]
+    # Derive the endpoint DNS the same way create_indexes / run_lakebase_grants do (ADR-041): no
+    # hand-set LAKEBASE_HOST var needed in CI; the env var is honoured only as a local-dev override.
+    lakebase_host = derive_lakebase_dns(ws, endpoint_name=_ENDPOINT_NAME)
 
     def _connect():
         import psycopg2
