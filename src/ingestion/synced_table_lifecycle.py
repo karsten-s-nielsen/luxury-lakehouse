@@ -35,6 +35,11 @@ SYNCED_TABLE_ONLINE_STATE = "SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE"
 _ONLINE_OK_STATE = "SYNCED_TABLE_ONLINE"
 _OFFLINE_STATES = ("SYNCED_TABLE_OFFLINE", "SYNCED_TABLE_OFFLINE_FAILED")
 _NOT_FOUND_MARKERS = ("not found", "does not exist")
+# A freshly (re)created synced table auto-starts its initial sync, so an explicit start_update races
+# with it: "An active update '<id>' already exists for pipeline '<id>'." That in-flight update IS the
+# refresh we wanted, so trigger_refresh tolerates this conflict (idempotent) and lets wait_until_online
+# observe the result — mirrors the HTTP-409 tolerance in refresh_synced_tables._trigger_refresh.
+_ACTIVE_UPDATE_MARKERS = ("active update", "already exists for pipeline")
 
 
 # --------------------------------------------------------------------------------------------- ports
@@ -146,7 +151,15 @@ class SdkWriterAdapter:
             raise
 
     def trigger_refresh(self, pipeline_id: str) -> None:
-        self._ws.pipelines.start_update(pipeline_id=pipeline_id)
+        try:
+            self._ws.pipelines.start_update(pipeline_id=pipeline_id)
+        except Exception as exc:
+            # The sync we asked for is already running (e.g. a just-created table's initial sync) —
+            # treat as a no-op rather than a heal-failing error. Every other failure propagates.
+            msg = str(exc).lower()
+            if all(m in msg for m in _ACTIVE_UPDATE_MARKERS):
+                return
+            raise
 
     def _status(self, fqn: str) -> str:
         meta = self._ws.postgres.get_synced_table(name=f"synced_tables/{fqn}")  # type: ignore[attr-defined]

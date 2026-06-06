@@ -6,6 +6,8 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
+
 from ingestion.synced_table_lifecycle import (
     PsycopgGhostAdapter,
     SdkReaderAdapter,
@@ -60,6 +62,22 @@ def test_writer_trigger_refresh_starts_update() -> None:
     ws = MagicMock()
     SdkWriterAdapter(ws).trigger_refresh("pid-9")
     ws.pipelines.start_update.assert_called_once_with(pipeline_id="pid-9")
+
+
+def test_writer_trigger_refresh_tolerates_active_update_conflict() -> None:
+    # A just-(re)created synced table auto-starts its initial sync; start_update then conflicts.
+    ws = MagicMock()
+    ws.pipelines.start_update.side_effect = RuntimeError(
+        "An active update '6f2f0020' already exists for pipeline '3f9e10ed'."
+    )
+    SdkWriterAdapter(ws).trigger_refresh("pid-9")  # must NOT raise — that sync is the refresh we wanted
+
+
+def test_writer_trigger_refresh_propagates_other_errors() -> None:
+    ws = MagicMock()
+    ws.pipelines.start_update.side_effect = RuntimeError("PERMISSION_DENIED on pipeline")
+    with pytest.raises(RuntimeError, match="PERMISSION_DENIED"):
+        SdkWriterAdapter(ws).trigger_refresh("pid-9")
 
 
 def test_ghost_adapter_executes_drop() -> None:
