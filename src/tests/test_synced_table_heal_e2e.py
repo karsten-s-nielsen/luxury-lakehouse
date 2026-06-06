@@ -7,8 +7,10 @@ SCAFFOLDING / GATED: requires a live Databricks workspace (SDK + warehouse + Lak
 ``synced_table_lifecycle`` or ``synced_table_heal`` via .github/workflows/synced-table-heal-e2e.yml.
 
 Decoupled from dbt (review R2): the failure trigger is *only* a new source-table id, so the test
-reproduces it with plain ``CREATE OR REPLACE TABLE`` — no dbt build / UC-catalog-creation. The proof
-is about the heal, not about dbt.
+reproduces it with a plain ``DROP TABLE`` + ``CREATE TABLE`` — no dbt build / UC-catalog-creation.
+(``CREATE OR REPLACE TABLE`` is NOT enough: it overwrites in place and keeps the table id, so the
+stream never sees a different id — a real DROP+CREATE is required.) The proof is about the heal,
+not about dbt.
 
 Required env: DATABRICKS_HOST, DATABRICKS_TOKEN, DATABRICKS_HTTP_PATH (warehouse). The Lakebase host
 is derived from the Databricks REST API (ADR-041) — no LAKEBASE_HOST needed. ``HEAL_E2E_SCHEMA`` is
@@ -66,12 +68,17 @@ def test_heal_resets_checkpoint_and_resumes_incremental_cdf() -> None:
     ports.writer.create_synced_table(cfg, _CATALOG, _SCHEMA)
     assert ports.writer.wait_until_online(fqn, timeout_s=900) == "SYNCED_TABLE_ONLINE"
 
-    # (b) DROP+CREATE the source to mint a NEW Delta table id -> reproduce the checkpoint mismatch.
-    sql(f"CREATE OR REPLACE TABLE {src} (id BIGINT) TBLPROPERTIES ('delta.enableChangeDataFeed' = 'true')")
+    # (b) DROP then CREATE the source to mint a genuinely NEW Delta table id -> reproduce the
+    # checkpoint mismatch the same way a dbt --full-refresh does. NB: `CREATE OR REPLACE TABLE`
+    # overwrites the data in place and KEEPS the table id, so it does NOT reproduce the mismatch
+    # (empirically confirmed: a create-or-replace recreate never failed the stream). A real DROP +
+    # CREATE is required to get a new id and the DIFFERENT_DELTA_TABLE_READ_BY_STREAMING_SOURCE error.
+    sql(f"DROP TABLE IF EXISTS {src}")
+    sql(f"CREATE TABLE {src} (id BIGINT) TBLPROPERTIES ('delta.enableChangeDataFeed' = 'true')")
     sql(f"INSERT INTO {src} VALUES (1), (2), (3), (4)")
     pid = reader.get_pipeline_id(fqn)
     ports.writer.trigger_refresh(pid)
-    deadline = time.monotonic() + 600
+    deadline = time.monotonic() + 900  # the failed update must run + surface; margin over create-online latency
     while reader.get_synced_table_status(fqn) != "SYNCED_TABLE_ONLINE_PIPELINE_FAILED":
         assert time.monotonic() < deadline, "source-recreate did not produce a pipeline failure"
         time.sleep(15)
