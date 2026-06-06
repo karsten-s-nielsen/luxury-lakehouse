@@ -4,7 +4,10 @@
     unique_key='shape_timeline_id',
     on_schema_change='append_new_columns',
     liquid_clustered_by=['match_key'],
-    tags=['marts', 'output_mart']
+    tags=['marts', 'output_mart'],
+    tblproperties={
+        'delta.enableChangeDataFeed': 'true',
+    }
 ) }}
 -- fct_tracking_shape_timeline.sql
 -- Pre-computed time-bucketed positions at 5-second intervals.

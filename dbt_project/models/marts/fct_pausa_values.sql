@@ -19,7 +19,10 @@
     liquid_clustered_by=['match_key'],
     on_schema_change='fail',
     contract={'enforced': true},
-    tags=['marts', 'output_mart']
+    tags=['marts', 'output_mart'],
+    tblproperties={
+        'delta.enableChangeDataFeed': 'true',
+    }
 ) }}
 
 select

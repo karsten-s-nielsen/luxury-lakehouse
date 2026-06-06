@@ -29,7 +29,10 @@
     incremental_strategy='merge',
     on_schema_change='append_new_columns',
     liquid_clustered_by=['canonical_player_id', 'match_key'],
-    tags=['marts', 'output_mart']
+    tags=['marts', 'output_mart'],
+    tblproperties={
+        'delta.enableChangeDataFeed': 'true',
+    }
 ) }}
 
 -- D62 (2026-04-15) introduced a 360-embeddings variant alongside the

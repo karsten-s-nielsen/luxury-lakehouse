@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.5.20"
+version = "0.5.21"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -162,6 +162,7 @@ publish_freeze_frame_hf = "ingestion.publish_freeze_frame_hf:main"
 evolve = "evolve.runner:main"
 hf_sync = "ingestion.hf_sync:main"
 refresh_synced_tables = "ingestion.refresh_synced_tables:main"
+heal_synced_tables = "ingestion.heal_synced_tables:main"
 dbt_build = "ingestion.dbt_runner:main"
 
 [tool.ruff]
@@ -196,6 +197,7 @@ select = [
 # when only a single call site needs the exemption inside a file; use these
 # file-level entries only when multiple sites in one module all share the same
 # architectural reason.
+"src/tests/test_synced_table_heal_e2e.py" = ["S608"]  # gated e2e DDL over internal/env-config names (no user input)
 "src/ingestion/hf_jobs_cost.py" = ["BLE001"]  # retry loop + best-effort cost history pruning
 "src/ingestion/refresh_synced_tables.py" = ["BLE001"]  # CLI error accumulator
 "src/ingestion/sync_hf_costs.py" = ["BLE001"]  # per-item HF parse loop (best-effort)

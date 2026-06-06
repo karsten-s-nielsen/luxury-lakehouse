@@ -39,13 +39,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.postgres import (
-    SyncedTable,
-    SyncedTableSyncedTableSpec,
-)
-from databricks.sdk.service.postgres import (
-    SyncedTableSyncedTableSpecSyncedTableSchedulingPolicy as SchedulingPolicy,
-)
 from databricks.sdk.service.sql import StatementState
 
 from ingestion.refresh_synced_tables import (
@@ -55,14 +48,10 @@ from ingestion.refresh_synced_tables import (
     SyncedTableConfig,
     wait_until_online,
 )
+from ingestion.synced_table_lifecycle import SdkWriterAdapter
 
-_SCHEDULING_POLICY_MAP: dict[str, SchedulingPolicy] = {
-    "SNAPSHOT": SchedulingPolicy.SNAPSHOT,
-    "TRIGGERED": SchedulingPolicy.TRIGGERED,
-}
-
-_BRANCH = "projects/soccer-analytics-dev/branches/production"
-_PG_DATABASE = "databricks_postgres"
+# Synced-table create/delete now delegate to the shared SdkWriterAdapter (single source of truth —
+# see src/ingestion/synced_table_lifecycle.py). _BRANCH / _PG_DATABASE / the policy map live there.
 _SMOKE_TEST_TABLE = "dim_competitions_synced_sdk_test"
 _SMOKE_TEST_SOURCE = "dim_competitions"
 
@@ -96,46 +85,14 @@ def _get_warehouse_id() -> str:
 
 
 def _create_synced_table(ws: WorkspaceClient, config: SyncedTableConfig, catalog: str, default_schema: str) -> None:
-    """Create a single synced table via the SDK postgres API using typed objects."""
-    schema = config.schema_override or default_schema
-    synced_table_id = f"{catalog}.{schema}.{config.name}"
-    source_fqn = f"{catalog}.{schema}.{config.source_table}"
-
-    try:
-        policy = _SCHEDULING_POLICY_MAP[config.scheduling_policy]
-    except KeyError:
-        raise ValueError(
-            f"Unknown scheduling_policy {config.scheduling_policy!r} for {config.name}. "
-            f"Valid values: {sorted(_SCHEDULING_POLICY_MAP)}"
-        ) from None
-
-    ws.postgres.create_synced_table(
-        synced_table=SyncedTable(
-            spec=SyncedTableSyncedTableSpec(
-                source_table_full_name=source_fqn,
-                branch=_BRANCH,
-                primary_key_columns=list(config.primary_key_columns),
-                scheduling_policy=policy,
-                postgres_database=_PG_DATABASE,
-                create_database_objects_if_missing=True,
-            ),
-        ),
-        synced_table_id=synced_table_id,
-    )
+    """Create a single synced table via the SDK postgres API (delegates to the shared adapter)."""
+    SdkWriterAdapter(ws).create_synced_table(config, catalog, default_schema)
 
 
 def _delete_synced_table(ws: WorkspaceClient, config: SyncedTableConfig, catalog: str, default_schema: str) -> bool:
-    """Delete a single synced table. Returns True if deleted, False if not found."""
+    """Delete a single synced table (SDK only). Returns True if deleted, False if not found."""
     schema = config.schema_override or default_schema
-    full_name = f"{catalog}.{schema}.{config.name}"
-    name = f"synced_tables/{full_name}"
-    try:
-        ws.postgres.delete_synced_table(name=name)
-        return True
-    except Exception as exc:
-        if "not found" in str(exc).lower() or "does not exist" in str(exc).lower():
-            return False
-        raise
+    return SdkWriterAdapter(ws).sdk_delete(f"{catalog}.{schema}.{config.name}")
 
 
 def phase_0_smoke_test(ws: WorkspaceClient, catalog: str, default_schema: str) -> None:

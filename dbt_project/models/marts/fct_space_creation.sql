@@ -2,7 +2,10 @@
     materialized='table',
     liquid_clustered_by=['match_key'],
     contract=({'enforced': true} if var('space_creation_enabled', false) else {'enforced': false}),
-    tags=['marts', 'output_mart']
+    tags=['marts', 'output_mart'],
+    tblproperties={
+        'delta.enableChangeDataFeed': 'true',
+    }
 ) }}
 
 -- fct_space_creation.sql

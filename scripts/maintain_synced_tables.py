@@ -72,6 +72,9 @@ def main() -> int:
     parser.add_argument("--catalog", default="soccer_analytics", help="Unity Catalog catalog name")
     parser.add_argument("--schema", default="dev_gold", help="Target schema (default: dev_gold)")
     parser.add_argument("--dry-run", action="store_true", help="Print commands without executing")
+    parser.add_argument(
+        "--skip-heal", action="store_true", help="Skip Step -2 (recreate checkpoint-broken synced tables)"
+    )
     parser.add_argument("--skip-grants", action="store_true", help="Skip Step 0 (grant SP permissions)")
     parser.add_argument("--skip-refresh", action="store_true", help="Skip Step 1 (refresh synced tables)")
     parser.add_argument("--skip-verify", action="store_true", help="Skip Step 3 (EXPLAIN ANALYZE verification)")
@@ -88,6 +91,24 @@ def main() -> int:
 
     base_args = ["--catalog", args.catalog, "--schema", args.schema]
     total_elapsed = 0.0
+
+    # ── Step -2: Heal checkpoint-broken synced tables (recreate) ─────────────
+    # MUST run before grants + indexes (Step 0/0.5/2): a recreated synced table is a brand-new PG
+    # table, so it needs the event-log-ownership fix + SELECT grants + custom indexes reapplied by the
+    # steps below. Ordering is load-bearing (spec P5) and guarded by test_maintain_synced_tables_heal.
+    # A heal failure logs but does NOT abort — the remaining maintenance must still run for the
+    # healthy tables (the heal entry logs ERROR per HEAL_FAILED table itself).
+    if not args.skip_heal:
+        ok, elapsed = _run_step(
+            name="heal_synced_tables",
+            cmd=[sys.executable, "-m", "ingestion.heal_synced_tables", *base_args],
+            dry_run=args.dry_run,
+        )
+        total_elapsed += elapsed
+        if not ok:
+            _log("heal_warnings", message="heal step reported failures (continuing maintenance)")
+    else:
+        _log("step_skipped", step="heal_synced_tables")
 
     # ── Step -1: Fix pipeline event_log_* ownership drift ────────────────────
     # When a synced table is recreated via the Databricks UI, the pipeline's

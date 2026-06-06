@@ -59,9 +59,20 @@ on:
         description: "Verify drift without applying grants"
         type: boolean
         default: false
+      tables:
+        description: "Comma-separated synced-table names to heal (empty = scan all TRIGGERED)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
+
+# Serialize all maintenance runs (daily cron / post-Terraform-Apply / dispatch) so two runs never
+# delete+recreate the same synced table concurrently (spec H4). cancel-in-progress=false: let an
+# in-flight heal finish rather than abort it mid-recreate.
+concurrency:
+  group: lakebase-maintenance
+  cancel-in-progress: false
 
 jobs:
   apply_grants:
@@ -111,6 +122,23 @@ jobs:
 
       - name: Install sdk dependencies
         run: uv sync --frozen --extra sdk
+
+      # Step 0: Heal checkpoint-broken synced tables (recreate to reset the streaming checkpoint).
+      # MUST run before the grants + index steps below: a recreated synced table is a brand-new PG
+      # table whose grants + indexes those steps reapply (spec P5). Scans all TRIGGERED tables, or the
+      # explicit `tables` dispatch input (fired by the daily detect task for immediacy — spec H2).
+      # continue-on-error: the heal entry logs ERROR per HEAL_FAILED table itself; a heal/config issue
+      # must NOT break the existing grants/index critical path for the healthy tables. Disable entirely
+      # with vars.SYNCED_TABLE_HEAL_ENABLED=0 (kill-switch, spec P3).
+      - name: Heal checkpoint-broken synced tables
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.verify_only != true }}
+        continue-on-error: true
+        env:
+          LAKEBASE_HOST: ${{ vars.LAKEBASE_HOST }}
+          DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
+          SYNCED_TABLE_HEAL_ENABLED: ${{ vars.SYNCED_TABLE_HEAL_ENABLED || '1' }}
+        run: |
+          uv run python -m ingestion.heal_synced_tables --tables "${{ inputs.tables }}"
 
       # Step 1: Fix event_log_* pipeline-metadata ownership drift. When a
       # synced table is recreated via the Databricks UI, the pipeline's

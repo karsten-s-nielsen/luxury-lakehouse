@@ -4,7 +4,10 @@
     liquid_clustered_by=['match_key'],
     incremental_strategy='merge',
     on_schema_change='append_new_columns',
-    tags=['marts', 'output_mart']
+    tags=['marts', 'output_mart'],
+    tblproperties={
+        'delta.enableChangeDataFeed': 'true',
+    }
 ) }}
 -- fct_defcon_pressure.sql
 -- Per-attacker per-match defensive pressure summary.

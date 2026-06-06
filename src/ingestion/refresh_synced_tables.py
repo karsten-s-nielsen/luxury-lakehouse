@@ -27,7 +27,8 @@ import sys
 import time
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import TYPE_CHECKING
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any
 
 import requests
 
@@ -639,6 +640,92 @@ def _derive_upstream_tables(catalog: str, default_schema: str) -> list[str]:
     return tables
 
 
+def classify_and_exit_code(
+    results: Mapping[str, str],
+    stranded: set[str],
+    state: Any,
+    *,
+    now: datetime,
+) -> tuple[int, str]:
+    """Decide the refresh task's exit code + a freshness-honest summary (spec §1 / H3 / M7 / P1 / P6).
+
+    ``results`` maps synced-table name -> poll state ("COMPLETE" = fresh, anything else = failed).
+    ``stranded`` is the subset of failures that are the auto-healable checkpoint mismatch (computed via
+    the read-only DetectionPort in ``main``). Precedence (P6):
+      real-failure RED  >  recurrence RED  >  first-strand green-with-warning  >  all-fresh green.
+
+    Recurrence (H3) uses the PRIOR strand state and is evaluated BEFORE recording this run's strand, so
+    a strand that was healed and then re-stranded weeks later reads as a NEW incident (green), not a
+    failure (P1). The summary always distinguishes all-fresh from K-stranded so no downstream freshness
+    consumer misreads green-with-warning as "everything fresh" (M7, Hyrum's Law).
+    """
+    total = len(results)
+    fresh = [t for t, s in results.items() if s == "COMPLETE"]
+    failed = [t for t, s in results.items() if s != "COMPLETE"]
+    real_failures = sorted(t for t in failed if t not in stranded)
+    if real_failures:
+        return 1, f"{len(fresh)}/{total} fresh; {len(real_failures)} FAILED (not self-healable): {real_failures}"
+    if not stranded:
+        return 0, f"all {total} synced tables fresh"
+    recurrent = sorted(t for t in stranded if state.was_stranded_unhealed(t))
+    for t in stranded:  # record this run's strand AFTER the recurrence check (P1)
+        state.mark_stranded(t, now)
+    if recurrent:
+        return 1, (
+            f"{len(fresh)}/{total} fresh; {len(recurrent)} STILL stranded after a prior heal "
+            f"(recurrence — correlate with the maintenance heal-pass ERROR log): {recurrent}"
+        )
+    return 0, (
+        f"{len(fresh)}/{total} fresh; {len(stranded)} stranded "
+        f"(checkpoint reset pending heal — dispatched): {sorted(stranded)}"
+    )
+
+
+class _NoOpStrandState:
+    """Strand state for CLI runs where Spark is unavailable: no recurrence tracking, never crashes."""
+
+    def was_stranded_unhealed(self, table_name: str) -> bool:
+        return False
+
+    def mark_stranded(self, table_name: str, event_at: datetime) -> None:
+        pass
+
+
+def _build_strand_state(spark: SparkSession | None, catalog: str) -> Any:
+    if spark is None:
+        return _NoOpStrandState()
+    from ingestion.synced_table_strand_state import SparkStrandStateBackend, StrandStateStore
+
+    return StrandStateStore(SparkStrandStateBackend(spark, catalog))
+
+
+def _dispatch_heal(tables: list[str]) -> None:
+    """Best-effort: fire the Lakebase Maintenance ``workflow_dispatch`` for the stranded tables (H2).
+
+    Degrades to the daily maintenance backstop if no GitHub token is configured or the call fails —
+    never raises into the daily task (review R5).
+    """
+    import os
+
+    token = os.environ.get("GH_DISPATCH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    repo = os.environ.get("GITHUB_REPOSITORY", "karsten-s-nielsen/luxury-lakehouse")
+    if not token:
+        print("Heal dispatch skipped (no GH token) — Lakebase Maintenance backstop will heal", file=sys.stderr)
+        return
+    try:
+        resp = requests.post(
+            f"https://api.github.com/repos/{repo}/actions/workflows/lakebase-grants.yml/dispatches",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            json={"ref": "main", "inputs": {"tables": ",".join(tables)}},
+            verify=True,
+            timeout=(10, 30),
+        )
+        resp.raise_for_status()
+        print(f"Dispatched maintenance heal for {len(tables)} stranded table(s)")
+    except Exception as exc:
+        print(f"Heal dispatch failed ({exc}) — Lakebase Maintenance backstop will heal", file=sys.stderr)
+
+
 skip_guard = _RefreshSyncedTablesGuard()
 
 
@@ -694,6 +781,14 @@ def main() -> None:
             f"Concurrency cap for --wait polling (default: {_DEFAULT_POLL_MAX_WORKERS}). "
             f"Each worker polls one pipeline; total wait collapses from "
             f"Sum-per-pipeline to max-of-pipelines."
+        ),
+    )
+    parser.add_argument(
+        "--no-dispatch",
+        action="store_true",
+        help=(
+            "Do not fire the maintenance workflow_dispatch for stranded tables (detection still runs; "
+            "the daily Lakebase Maintenance backstop will heal them on its next run)."
         ),
     )
     args = parser.parse_args()
@@ -792,9 +887,36 @@ def main() -> None:
             f"(polling every {POLL_INTERVAL_S}s, up to {args.max_workers} in parallel)..."
         )
         poll_results = _poll_pipelines_parallel(triggered, headers, max_workers=args.max_workers)
-        errors += sum(1 for state in poll_results.values() if state != "IDLE")
+        results = {t: ("COMPLETE" if s == "IDLE" else "FAILED") for t, s in poll_results.items()}
 
-    # Record watermarks after successful refresh (only if Spark was available)
+        # Detect which failures are the auto-healable checkpoint mismatch. Read-only — the SP path
+        # performs NO destructive op (it only detects + dispatches; the privileged maintenance path
+        # recreates). Then classify the task outcome via the strand-state recurrence signal.
+        from ingestion.synced_table_heal import is_checkpoint_mismatch_failure
+        from ingestion.synced_table_lifecycle import SdkReaderAdapter
+
+        reader = SdkReaderAdapter(_get_workspace_client())
+        pid_by_table = dict(triggered)
+        stranded = {
+            t for t, s in results.items() if s == "FAILED" and is_checkpoint_mismatch_failure(reader, pid_by_table[t])
+        }
+        state = _build_strand_state(spark, args.catalog)
+        rc, summary = classify_and_exit_code(results, stranded, state, now=datetime.now(tz=timezone.utc))
+        if errors:  # trigger-phase failures (event-log drift / trigger errors) are real, non-healable
+            rc = 1
+
+        if stranded and not args.no_dispatch:
+            _dispatch_heal(sorted(stranded))
+
+        # Watermarks only when fully fresh (no errors, nothing stranded-stale).
+        if rc == 0 and not stranded and spark is not None:
+            upstream = _derive_upstream_tables(args.catalog, args.schema)
+            record_watermarks(spark, args.catalog, skip_guard.workflow_id, upstream)
+
+        print(f"\nSummary: {len(triggered)} triggered, {errors} trigger-error(s). {summary}")
+        sys.exit(rc)
+
+    # Fire-and-forget path (no --wait, or nothing triggered): original behavior.
     if errors == 0 and spark is not None:
         upstream = _derive_upstream_tables(args.catalog, args.schema)
         record_watermarks(spark, args.catalog, skip_guard.workflow_id, upstream)

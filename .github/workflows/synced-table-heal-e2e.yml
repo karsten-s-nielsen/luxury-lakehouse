@@ -1,0 +1,68 @@
+name: Synced-Table Heal E2E (serverless)
+
+# The ONLY test that exercises the live destructive self-heal path (PG ghost drop, CDF ensure, real
+# checkpoint reset). The offline unit suite + the real-event classifier fixture are the merge gates;
+# this proves the destructive path actually works (spec M3/M6/P4) — for a feature that DELETES prod
+# synced tables, "operator-run later" is not acceptable, so it gates on every change to the heal core.
+#
+# Triggers:
+#   - nightly 04:00 UTC (well clear of the 06:00 ingestion job / 07:00 maintenance)
+#   - PRs that touch the lifecycle/heal modules or this test (so a ghost/CDF/checkpoint regression
+#     cannot ship behind a green offline suite)
+#   - manual dispatch
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  pull_request:
+    paths:
+      - "src/ingestion/synced_table_lifecycle.py"
+      - "src/ingestion/synced_table_heal.py"
+      - "src/ingestion/heal_synced_tables.py"
+      - "src/tests/test_synced_table_heal_e2e.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: synced-table-heal-e2e
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    env:
+      RUN_SERVERLESS_TESTS: "1"
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}  # pragma: allowlist secret
+      DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
+      LAKEBASE_HOST: ${{ vars.LAKEBASE_HOST }}
+      HEAL_E2E_SCHEMA: ${{ vars.HEAL_E2E_SCHEMA }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Validate required config
+        run: |
+          for v in DATABRICKS_HOST DATABRICKS_TOKEN DATABRICKS_HTTP_PATH LAKEBASE_HOST HEAL_E2E_SCHEMA; do
+            if [ -z "${!v}" ]; then echo "::error::$v is required for the heal e2e"; exit 1; fi
+          done
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+
+      - name: Set up Python 3.10
+        run: uv python install 3.10
+
+      - name: Materialize dbt packages (required before uv sync)
+        env:
+          DATABRICKS_HOST: https://example.databricks.com
+          DATABRICKS_HTTP_PATH: /sql/1.0/warehouses/dummywarehouseid0
+          DATABRICKS_TOKEN: dummy  # pragma: allowlist secret
+        run: uvx --from "dbt-core>=1.10.0,<1.12.0" dbt deps --project-dir dbt_project --profiles-dir dbt_project
+
+      - name: Install sdk dependencies
+        run: uv sync --frozen --extra sdk
+
+      - name: Run heal e2e
+        run: uv run pytest src/tests/test_synced_table_heal_e2e.py -v --tb=short --no-header
