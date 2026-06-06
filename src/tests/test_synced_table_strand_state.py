@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock
+
+import pytest
 
 from ingestion.synced_table_strand_state import (
     HEALED,
     STRANDED,
     SparkStrandStateBackend,
     StrandStateStore,
+    WarehouseStrandStateBackend,
 )
 
 _T0 = datetime(2026, 6, 1)
@@ -71,3 +75,44 @@ def test_backend_read_fail_open_on_missing_table() -> None:
     spark = MagicMock()
     spark.sql.side_effect = RuntimeError("[TABLE_OR_VIEW_NOT_FOUND] Table or view not found: x")
     assert SparkStrandStateBackend(spark, "cat").read_latest("fct_x_synced") == (None, None)
+
+
+# -------------------------------------------------------------- WarehouseStrandStateBackend (no Spark)
+# The heal runs in the GitHub Actions maintenance env, which has NO pyspark. It records `healed` via
+# the SQL warehouse instead of Spark. Regression context: 2026-06-06 `ModuleNotFoundError: No module
+# named 'pyspark'` crashed the heal step before it healed anything.
+def _capturing_sql_exec() -> tuple[list[str], Callable[[str], None]]:
+    statements: list[str] = []
+    return statements, statements.append
+
+
+def test_warehouse_backend_append_creates_then_inserts() -> None:
+    statements, sql_exec = _capturing_sql_exec()
+    WarehouseStrandStateBackend(sql_exec, "soccer_analytics").append_event("fct_x_synced", HEALED, _t(3))
+    joined = "\n".join(statements)
+    assert any("CREATE TABLE IF NOT EXISTS" in s and "synced_table_strand_state" in s for s in statements)
+    assert any("INSERT INTO" in s for s in statements)
+    assert "fct_x_synced" in joined and "healed" in joined
+    assert "2026-06-01 03:00:00" in joined  # event_at rendered as a TIMESTAMP literal
+
+
+def test_warehouse_backend_ensures_table_only_once() -> None:
+    statements, sql_exec = _capturing_sql_exec()
+    backend = WarehouseStrandStateBackend(sql_exec, "soccer_analytics")
+    backend.append_event("fct_x_synced", HEALED, _t(1))
+    backend.append_event("fct_y_synced", HEALED, _t(2))
+    creates = [s for s in statements if "CREATE TABLE IF NOT EXISTS" in s]
+    inserts = [s for s in statements if "INSERT INTO" in s]
+    assert len(creates) == 1 and len(inserts) == 2  # ensure-table is idempotent + done once
+
+
+def test_warehouse_backend_read_latest_unsupported() -> None:
+    _, sql_exec = _capturing_sql_exec()
+    with pytest.raises(NotImplementedError):
+        WarehouseStrandStateBackend(sql_exec, "cat").read_latest("fct_x_synced")
+
+
+def test_warehouse_store_mark_healed_inserts_healed_event() -> None:
+    statements, sql_exec = _capturing_sql_exec()
+    StrandStateStore(WarehouseStrandStateBackend(sql_exec, "cat")).mark_healed("fct_x_synced", _t(5))
+    assert any("INSERT INTO" in s and "healed" in s and "fct_x_synced" in s for s in statements)

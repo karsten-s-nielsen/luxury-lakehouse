@@ -35,8 +35,7 @@ from ingestion.synced_table_lifecycle import (
     SdkWriterAdapter,
     WarehouseCdfAdapter,
 )
-from ingestion.synced_table_strand_state import SparkStrandStateBackend, StrandStateStore
-from ingestion.utils import get_spark_session
+from ingestion.synced_table_strand_state import StrandStateStore, WarehouseStrandStateBackend
 from shared.constants import IDENTIFIER_RE
 
 if TYPE_CHECKING:
@@ -141,11 +140,12 @@ def main() -> None:
 
     ws = WorkspaceClient()
     reader = SdkReaderAdapter(ws)
+    sql_exec = _make_sql_exec(ws)  # one warehouse exec, shared by ensure-CDF and strand-state recording
     ports = HealPorts(
         reader=reader,
         writer=SdkWriterAdapter(ws),
         ghost=PsycopgGhostAdapter(_make_pg_connect(ws)),
-        warehouse=WarehouseCdfAdapter(_make_sql_exec(ws)),
+        warehouse=WarehouseCdfAdapter(sql_exec),
     )
 
     configs_by_name = {c.name: c for c in SYNCED_TABLES}
@@ -162,7 +162,8 @@ def main() -> None:
     stranded = _discover_stranded(reader, args.catalog, args.schema, candidates)
     print(f"heal scan: {len(stranded)} stranded of {len(candidates)} candidates: {stranded}")
 
-    state = StrandStateStore(SparkStrandStateBackend(get_spark_session(), args.catalog))
+    # Spark-free: the maintenance runner has no pyspark, so record `healed` via the warehouse (ADR-041).
+    state = StrandStateStore(WarehouseStrandStateBackend(sql_exec, args.catalog))
     outcomes = run_heal_pass(
         ports,
         stranded,

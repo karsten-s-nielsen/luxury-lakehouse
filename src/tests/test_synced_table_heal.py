@@ -140,3 +140,50 @@ def test_heal_pass_killswitch_off_does_nothing() -> None:
     assert out == {}
     assert f.calls == []  # no destructive op when disabled
     assert state.healed == []
+
+
+class _BrokenState:
+    """mark_healed always fails — strand-state recording is best-effort, must NOT undo a real heal."""
+
+    def mark_healed(self, table_name: str, event_at: datetime) -> None:
+        raise RuntimeError("warehouse INSERT failed")
+
+
+def test_heal_pass_mark_healed_failure_does_not_fail_a_real_heal(caplog) -> None:
+    f = _FakePorts()  # heals successfully
+    with caplog.at_level(logging.ERROR):
+        out = run_heal_pass(
+            _ports(f), ["fct_x_synced"], _CONFIGS, "cat", "dev_gold", _BrokenState(), now=_NOW, enabled=True
+        )
+    assert out == {"fct_x_synced": HealOutcome.HEALED}  # the heal stands; recording failure is non-fatal
+    assert "drop_pg_ghost" in f.calls and "create" in f.calls  # the destructive heal actually ran
+    assert any(r.levelno >= logging.ERROR for r in caplog.records)  # surfaced, not silently swallowed
+
+
+def test_heal_entry_is_pyspark_free() -> None:
+    """The heal runs in the GitHub Actions maintenance env (no pyspark). Regression guard for the
+    2026-06-06 `ModuleNotFoundError: No module named 'pyspark'` crash: heal_synced_tables built its
+    strand-state via SparkStrandStateBackend(get_spark_session()) which is unavailable there.
+
+    AST-based (not raw-text) so the explanatory comments that mention 'pyspark' don't trip it."""
+    import ast
+    import pathlib
+
+    import ingestion.heal_synced_tables as heal_entry
+
+    tree = ast.parse(pathlib.Path(heal_entry.__file__).read_text(encoding="utf-8"))
+    imports: set[str] = set()
+    identifiers: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imports.update(a.name for a in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            imports.add(node.module or "")
+        elif isinstance(node, ast.Name):
+            identifiers.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            identifiers.add(node.attr)
+
+    assert not any("pyspark" in m for m in imports), "heal entry must not import pyspark (none in maintenance env)"
+    assert "get_spark_session" not in identifiers, "heal entry must not call get_spark_session (no Spark in maint env)"
+    assert "SparkStrandStateBackend" not in identifiers, "use WarehouseStrandStateBackend in the heal path"

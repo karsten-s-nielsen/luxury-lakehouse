@@ -70,9 +70,18 @@ Key decisions and the findings/risks they answer:
   window is one detect interval (~24 h).
 - **Concurrency (H4).** The maintenance workflow has a `concurrency: lakebase-maintenance` group
   (`cancel-in-progress: false`) so its three triggers (daily cron / post-Terraform-Apply /
-  `workflow_dispatch`) never delete+recreate the same table concurrently. Strand-state writes go
-  through `write_delta_table` (ADR-038 concurrent-commit retry) as the two identities write the same
-  rows and the SP is not in the concurrency group.
+  `workflow_dispatch`) never delete+recreate the same table concurrently.
+- **Strand-state has two writers in two runtimes (no shared Spark).** The detect task runs on
+  Databricks (has pyspark) and appends `stranded` via `SparkStrandStateBackend` /`write_delta_table`
+  (ADR-038 concurrent-commit retry). The heal runs in the GitHub Actions maintenance workflow, which
+  installs the `[sdk]` extra but **NOT pyspark** — so it appends `healed` via a **SQL-warehouse INSERT**
+  (`WarehouseStrandStateBackend`, reusing the heal's `sql_exec`), with a defensive
+  `CREATE TABLE IF NOT EXISTS`. A Spark dependency in the heal was the 2026-06-06 regression
+  (`ModuleNotFoundError: No module named 'pyspark'`) that crashed the heal before it healed anything;
+  `test_heal_entry_is_pyspark_free` guards against re-introducing it. Recurrence READS stay on the
+  Spark side; the warehouse backend's `read_latest` is unsupported by design. Appends (not upserts)
+  keep both identities safe under the concurrency group, and a strand-state write failure in the heal
+  is best-effort (logged at ERROR) — it never downgrades a successful heal.
 - **Mid-sequence-failure recovery (M4).** If create fails after delete, the table is absent; the
   maintenance create-all pass recreates any missing `SYNCED_TABLES` entry on its next run.
 - **Kill-switch (P3).** `SYNCED_TABLE_HEAL_ENABLED=0` disables all destructive heal without a deploy.

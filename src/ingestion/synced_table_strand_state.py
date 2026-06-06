@@ -21,6 +21,7 @@ offline; ``SparkStrandStateBackend`` is the production implementation.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Protocol
 
@@ -99,3 +100,46 @@ class SparkStrandStateBackend:
         )
         sdf = self._spark.createDataFrame([(table_name, event_type, event_at)], schema=schema)
         write_delta_table(sdf, self._catalog, _SCHEMA, _TABLE, mode="append", row_count=1)
+
+
+class WarehouseStrandStateBackend:
+    """Spark-free strand-state writer for the heal/maintenance path.
+
+    The heal runs in the GitHub Actions maintenance environment, which installs the ``[sdk]`` extra
+    but NOT pyspark — so it cannot use ``SparkStrandStateBackend`` (that crashed the 2026-06-06
+    maintenance run with ``ModuleNotFoundError: No module named 'pyspark'`` before healing anything).
+    It records the ``healed`` event through the SQL warehouse instead (the same ``sql_exec`` the heal
+    already builds for ensure-CDF). Recurrence READS stay with the Spark-backed detect task, which
+    runs on Databricks where pyspark exists; ``read_latest`` is unsupported here by design.
+    """
+
+    def __init__(self, sql_exec: Callable[[str], None], catalog: str) -> None:
+        self._sql_exec = sql_exec
+        self._fqn = f"{catalog}.{_SCHEMA}.{_TABLE}"
+        self._ensured = False
+
+    def _ensure_table(self) -> None:
+        # Defensive + idempotent: the migration is the canonical creator, but a CREATE IF NOT EXISTS
+        # makes the heal self-sufficient if it runs before the migration has applied. Done once.
+        if self._ensured:
+            return
+        self._sql_exec(
+            f"CREATE TABLE IF NOT EXISTS {self._fqn} "
+            "(table_name STRING, event_type STRING, event_at TIMESTAMP, _ingested_at TIMESTAMP) USING DELTA"
+        )
+        self._ensured = True
+
+    def read_latest(self, table_name: str) -> tuple[datetime | None, datetime | None]:
+        raise NotImplementedError(
+            "WarehouseStrandStateBackend is append-only (heal path); recurrence reads use the Spark detect task"
+        )
+
+    def append_event(self, table_name: str, event_type: str, event_at: datetime) -> None:
+        self._ensure_table()
+        ts = event_at.strftime("%Y-%m-%d %H:%M:%S")
+        # Inputs are trusted: table_name comes from SYNCED_TABLES (static identifiers), event_type is a
+        # module constant (STRANDED/HEALED), event_at is a datetime rendered as a TIMESTAMP literal.
+        self._sql_exec(
+            f"INSERT INTO {self._fqn} (table_name, event_type, event_at, _ingested_at) "  # noqa: S608
+            f"VALUES ('{table_name}', '{event_type}', TIMESTAMP '{ts}', current_timestamp())"
+        )
