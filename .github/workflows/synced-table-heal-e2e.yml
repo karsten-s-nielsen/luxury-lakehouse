@@ -4,11 +4,17 @@ name: Synced-Table Heal E2E (serverless)
 # checkpoint reset). The deterministic offline unit suite + the real-event classifier fixture are the
 # merge gates; this proves the destructive path end-to-end on a schedule.
 #
-# NOT a PR gate. The reproduction depends on live Databricks DLT pipeline scheduling — whether the
-# recreated source's failing update surfaces within the break-detect window is non-deterministic
-# (observed: same code reached the heal on one run and timed out at the repro on the next), and a
-# full run takes ~15 min and mutates real infra. That makes it a poor per-PR blocking check. It runs
-# nightly to catch drift and on-demand via workflow_dispatch (run it manually on heal-core changes).
+# NOT a PR gate: it drives live Databricks DLT + Lakebase, mutates real infra, and takes ~5-8 min.
+# That makes it a poor per-PR blocking check. It runs nightly to catch drift and on-demand via
+# workflow_dispatch (run it manually on heal-core changes).
+#
+# Re-characterised 2026-06-07: the checkpoint-mismatch strand reproduces only when the synced table
+# already has a COMMITTED streaming offset (the test does one incremental CDF sync before recreating
+# the source); an initial-snapshot-only table is re-snapshotted cleanly on a source-id change. The
+# test detects the strand via is_checkpoint_mismatch_failure (the heal's own preflight signal), not by
+# waiting for SYNCED_TABLE_ONLINE_PIPELINE_FAILED — that status lags ~13 min behind the first update
+# failure (DLT retries with backoff). A red here means the strand stopped reproducing despite the
+# committed offset (a genuine DLT behaviour change to re-characterise), NOT a heal-code regression.
 #
 # Triggers:
 #   - nightly 04:00 UTC (well clear of the 06:00 ingestion job / 07:00 maintenance)
