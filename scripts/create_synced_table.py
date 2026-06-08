@@ -32,8 +32,8 @@ def main() -> int:
 
     from databricks.sdk import WorkspaceClient
 
-    from ingestion.refresh_synced_tables import SYNCED_TABLES
-    from ingestion.synced_table_lifecycle import SdkWriterAdapter, wait_until_online
+    from ingestion.refresh_synced_tables import SYNCED_TABLES, wait_until_online
+    from ingestion.synced_table_lifecycle import SdkWriterAdapter
 
     cfg = next((c for c in SYNCED_TABLES if c.name == table_name), None)
     if cfg is None:
