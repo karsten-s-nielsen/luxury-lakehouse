@@ -98,3 +98,38 @@ def test_mini_golden_recompute_matches_and_exercises_das_ghost() -> None:
 
     detail = "\n  ".join(mismatches)
     assert not mismatches, f"mini-golden recompute diverged (intentional value change? regen mini-golden):\n  {detail}"
+
+
+_NEW_PLAYER_INFLUENCE = [
+    "actor_reachable_area_m2", "off_ball_xt_team", "off_ball_xt_opponent",
+    "off_ball_xt_diff", "reachable_area_team", "reachable_area_opponent", "reachable_area_diff",
+]  # fmt: skip
+_NEW_STRUCTURAL = ["structural_lbs", "structural_sgm", "structural_sdi"]
+_PASS_OR_CROSS = {"pass", "cross"}
+
+
+def test_new_ac_fields_emit_and_nan_contracts() -> None:
+    """Golden-independent guards for the 11 new columns (spec §9).
+
+    - Emit-drift: xcross_attempt + the 7 player-influence columns populate on the possessing-team
+      tracking slice, so an upstream emit rename (column drops out of the enrich output and
+      build_output fills it all-NaN) fails this RED without needing the frozen golden.
+    - NaN contract: structural_* is NaN on every non-pass/cross action (silly-kicks contract).
+    """
+    result = _recompute()
+
+    for col in ["xcross_attempt", *_NEW_PLAYER_INFLUENCE, *_NEW_STRUCTURAL]:
+        assert col in result.columns, f"{col} missing from enrich output"
+
+    # Emit-drift guard: these populate for the possessing team on the IDSSE mini slice.
+    for col in ["xcross_attempt", *_NEW_PLAYER_INFLUENCE]:
+        assert result[col].notna().any(), f"{col} all-NaN — aggregator not wired or emit renamed upstream"
+
+    # Structural NaN contract: non-NaN only on pass/cross rows.
+    non_pass = ~result["type_name"].isin(_PASS_OR_CROSS)
+    for col in _NEW_STRUCTURAL:
+        assert result.loc[non_pass, col].isna().all(), f"{col} must be NaN on non-pass/cross actions"
+    # If the slice has any pass/cross, structural must populate on at least one (emit-drift guard).
+    if result["type_name"].isin(_PASS_OR_CROSS).any():
+        for col in _NEW_STRUCTURAL:
+            assert result.loc[~non_pass, col].notna().any(), f"{col} all-NaN on pass/cross — emit drift?"

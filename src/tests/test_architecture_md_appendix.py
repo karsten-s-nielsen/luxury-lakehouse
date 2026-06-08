@@ -39,6 +39,8 @@ def test_architecture_md_has_appendix_d_academic_references() -> None:
         "Tancik",  # Fourier Features (scoutgpt fourier_cross_attention)
         "Shazeer",  # SwiGLU variants (scoutgpt swiglu)
         "Pipping-Gamón",  # xShotOccurrence (xS) in fct_action_context (ADR-039)
+        "Karakus",  # structural pass (structural_lbs/sgm/sdi) in fct_action_context (ADR-042)
+        "Cao",  # xCrossAttempt (xcross_attempt) in fct_action_context (ADR-042)
     ]
     appendix_idx = text.find("D. Academic References")
     appendix = text[appendix_idx:]

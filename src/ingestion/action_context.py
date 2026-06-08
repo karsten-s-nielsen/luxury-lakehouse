@@ -1680,7 +1680,7 @@ def _run_profile_on_driver(
     # Result-health: non-null counts for carrier/possession-dependent columns. Proves the
     # enrichment RESOLVES (not just "no crash") — e.g. catches GS possession breaking when
     # frame ids don't match the action id space. All-zero here == broken resolution.
-    _health_cols = ("das_team", "das_opponent", "das_diff", "ghost_gk_x", "ghost_gk_spread")
+    _health_cols = ("das_team", "das_opponent", "das_diff", "ghost_gk_x", "ghost_gk_density_spread")
     health_nonnull: dict[str, int] = dict.fromkeys(_health_cols, 0)
     profiler = cProfile.Profile()
     t0 = _time.monotonic()

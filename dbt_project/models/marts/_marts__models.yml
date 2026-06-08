@@ -5122,7 +5122,29 @@ models:
         data_type: double
       - name: ghost_gk_y
         data_type: double
-      - name: ghost_gk_spread
+      - name: ghost_gk_density_spread
+        data_type: double
+      - name: structural_lbs
+        data_type: bigint
+      - name: structural_sgm
+        data_type: double
+      - name: structural_sdi
+        data_type: double
+      - name: actor_reachable_area_m2
+        data_type: double
+      - name: off_ball_xt_team
+        data_type: double
+      - name: off_ball_xt_opponent
+        data_type: double
+      - name: off_ball_xt_diff
+        data_type: double
+      - name: reachable_area_team
+        data_type: double
+      - name: reachable_area_opponent
+        data_type: double
+      - name: reachable_area_diff
+        data_type: double
+      - name: xcross_attempt
         data_type: double
       - name: xshot_occurrence
         data_type: double

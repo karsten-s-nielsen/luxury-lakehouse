@@ -78,6 +78,30 @@ def test_string_columns_stringify_numeric_ids() -> None:
     assert col.iloc[2] == "6011"
 
 
+_NEW_AC_FIELDS = [
+    "structural_lbs", "structural_sgm", "structural_sdi",
+    "actor_reachable_area_m2", "off_ball_xt_team", "off_ball_xt_opponent",
+    "off_ball_xt_diff", "reachable_area_team", "reachable_area_opponent",
+    "reachable_area_diff", "xcross_attempt",
+]  # fmt: skip
+
+
+def test_new_ac_fields_present_in_schema() -> None:
+    for col in _NEW_AC_FIELDS:
+        assert col in RESULT_COLUMNS, f"{col} missing from RESULT_COLUMNS"
+    ddl_cols = [tok.strip().split()[0] for tok in ACTION_CONTEXT_DDL.split(",")]
+    for col in _NEW_AC_FIELDS:
+        assert col in ddl_cols, f"{col} missing from ACTION_CONTEXT_DDL"
+    assert "structural_lbs BIGINT" in ACTION_CONTEXT_DDL
+
+
+def test_ghost_gk_spread_renamed_to_density_spread() -> None:
+    assert "ghost_gk_density_spread" in RESULT_COLUMNS
+    assert "ghost_gk_spread" not in RESULT_COLUMNS
+    assert "ghost_gk_density_spread DOUBLE" in ACTION_CONTEXT_DDL
+    assert "ghost_gk_spread DOUBLE" not in ACTION_CONTEXT_DDL
+
+
 def test_ingestion_reexports_match_domain() -> None:
     # The ingestion adapter still imports DDL + build_output from the domain (used
     # locally by the guard / _process_* paths), so they remain importable there.
