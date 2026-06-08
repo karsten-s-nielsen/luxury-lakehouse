@@ -187,8 +187,10 @@ def _enrich_tracking_match(
         add_pressure_on_actor,
         add_shape_graph,
         add_space_creation,
+        add_structural_pass,
         add_sync_score,
         add_team_shape,
+        add_xcross_attempt,
         add_xshot_occurrence,
         derive_team_in_possession,
         infer_ball_carrier,
@@ -196,9 +198,9 @@ def _enrich_tracking_match(
         pitch_control_at_action,
     )
 
-    # add_ghost_gk + PitchControlCache are not re-exported from the silly_kicks.tracking
-    # namespace (3.25.0) — import from their defining modules.
-    from silly_kicks.tracking.features import add_ghost_gk
+    # add_ghost_gk + add_player_influence + PitchControlCache are not re-exported from the
+    # silly_kicks.tracking namespace (3.25.0) — import from their defining modules.
+    from silly_kicks.tracking.features import add_ghost_gk, add_player_influence
     from silly_kicks.tracking.pitch_control import PitchControlCache
 
     # Step 0: Actions-only enrichments (no tracking needed)
@@ -366,6 +368,33 @@ def _enrich_tracking_match(
         out, tracking_df, model=None, links=links, home_team_id=home_team_id, pitch_control_cache=pc_cache
     )
 
+    # Step 22: Structural-pass primitives (TF-45; Karakus & Arkadas 2026, arXiv:2603.28916).
+    # No xt / no pitch control. NaN for non-pass/non-cross + non-possessing-team actions.
+    out = add_structural_pass(out, tracking_df, links=links, home_team_id=home_team_id)
+
+    # Step 23: Player influence (xt positional; shared pitch-control cache; spearman = velocity-aware).
+    out = add_player_influence(
+        out,
+        tracking_df,
+        xt,
+        links=links,
+        home_team_id=home_team_id,
+        method="spearman",
+        pitch_control_cache=pc_cache,
+    )
+
+    # Step 24: xCrossAttempt (bundled "default" public model; no network; shared cache).
+    # NaN for non-possessing-team action at the linked frame. actions_for_context supplies score_diff.
+    out = add_xcross_attempt(
+        out,
+        tracking_df,
+        model=None,
+        links=links,
+        home_team_id=home_team_id,
+        actions_for_context=actions_df,
+        pitch_control_cache=pc_cache,
+    )
+
     # Provenance: the persisted pitch-control-derived metrics on the tracking path use spearman;
     # ghost_gk_method records which KDE backend produced ghost_gk_* (scopes to ghost_gk_* only).
     out["pitch_control_method"] = "spearman"
@@ -385,8 +414,8 @@ def _enrich_sb360_match(
 
     Uses snapshot_to_tracking_frames to convert per-event freeze-frame snapshots into synthetic
     tracking frames, then runs every single-frame-supportable enrichment (ADR-039). Velocity- and
-    temporal-dependent features (DAS, cover_shadows, pre_shot_gk, off-ball, space-creation, elastic)
-    remain NULL. Pitch-control-dependent metrics use voronoi (position-only — freeze-frames have no
+    temporal-dependent features (DAS, cover_shadows, pre_shot_gk, off-ball, space-creation, elastic,
+    xcross_attempt) remain NULL. Pitch-control-dependent metrics use voronoi (position-only — freeze-frames have no
     velocity); pitch_control_method='voronoi' records the provenance. All partial/sparse.
     """
     from silly_kicks.spadl import add_game_state
@@ -399,11 +428,12 @@ def _enrich_sb360_match(
         add_pausa,
         add_pressure_on_actor,
         add_shape_graph,
+        add_structural_pass,
         add_team_shape,
         add_xshot_occurrence,
         snapshot_to_tracking_frames,
     )
-    from silly_kicks.tracking.features import add_ghost_gk, add_gk_influence
+    from silly_kicks.tracking.features import add_ghost_gk, add_gk_influence, add_player_influence
 
     # Step 0: Actions-only enrichments
     out = add_game_state(actions_df)
@@ -455,6 +485,15 @@ def _enrich_sb360_match(
     out = add_obso(out, frames, links=links, home_team_id=home_team_id, pitch_control_method="voronoi")
     out = add_pausa(out, frames, links=links, home_team_id=home_team_id, pitch_control_method="voronoi")
     out = add_xshot_occurrence(out, frames, model=None, links=links, home_team_id=home_team_id)
+
+    # Structural-pass (single-frame supportable; no pitch control / no velocity).
+    out = add_structural_pass(out, frames, links=links, home_team_id=home_team_id)
+    # Player influence — voronoi (freeze-frames have no velocity; spearman returns all-NaN).
+    out = add_player_influence(out, frames, xt, links=links, home_team_id=home_team_id, method="voronoi")
+    # NOTE: add_xcross_attempt is NOT run on SB360 — its extract_xcross_features hard-requires ball
+    # velocity (`vx`), which freeze-frames lack (raises KeyError, not honest-NaN). xcross is therefore
+    # velocity-dependent like DAS / cover_shadows / pre_shot_gk and stays NULL on SB360 (build_output
+    # fills it). It runs only on the full-tracking path.
 
     # Provenance: the persisted pitch-control-derived metrics on SB360 use voronoi (ADR-039);
     # ghost_gk_method records the ghost-GK KDE backend (scopes to ghost_gk_* only).

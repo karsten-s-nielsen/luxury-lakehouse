@@ -166,10 +166,24 @@ cleaned as (
         cast(shape_graph_density_defending as double) as shape_graph_density_defending,
         cast(shape_graph_n_edges_defending as bigint) as shape_graph_n_edges_defending,
         cast(shape_graph_mean_stability_defending as double) as shape_graph_mean_stability_defending,
-        -- Ghost GK
+        -- Ghost GK (spread renamed to density_spread; silly-kicks 4.14.0)
         cast(ghost_gk_x as double) as ghost_gk_x,
         cast(ghost_gk_y as double) as ghost_gk_y,
-        cast(ghost_gk_spread as double) as ghost_gk_spread,
+        cast(ghost_gk_density_spread as double) as ghost_gk_density_spread,
+        -- Structural pass (TF-45)
+        cast(structural_lbs as bigint) as structural_lbs,
+        cast(structural_sgm as double) as structural_sgm,
+        cast(structural_sdi as double) as structural_sdi,
+        -- Player influence
+        cast(actor_reachable_area_m2 as double) as actor_reachable_area_m2,
+        cast(off_ball_xt_team as double) as off_ball_xt_team,
+        cast(off_ball_xt_opponent as double) as off_ball_xt_opponent,
+        cast(off_ball_xt_diff as double) as off_ball_xt_diff,
+        cast(reachable_area_team as double) as reachable_area_team,
+        cast(reachable_area_opponent as double) as reachable_area_opponent,
+        cast(reachable_area_diff as double) as reachable_area_diff,
+        -- xCrossAttempt
+        cast(xcross_attempt as double) as xcross_attempt,
         -- xShotOccurrence + pitch-control provenance (ADR-039)
         cast(xshot_occurrence as double) as xshot_occurrence,
         cast(pitch_control_method as string) as pitch_control_method,

@@ -61,6 +61,19 @@ def test_sb360_supported_metrics_populate() -> None:
     assert set(df["pitch_control_method"].unique()) == {"voronoi"}
 
 
+def test_sb360_new_fields_present() -> None:
+    """The 11 new columns (structural/player-influence/xCross) must be present on the SB360
+    schema even where freeze-frame limitations leave them NaN (honest NULL, ADR-039)."""
+    df = _run()
+    for col in (
+        "structural_lbs", "structural_sgm", "structural_sdi",
+        "actor_reachable_area_m2", "off_ball_xt_team", "off_ball_xt_opponent",
+        "off_ball_xt_diff", "reachable_area_team", "reachable_area_opponent",
+        "reachable_area_diff", "xcross_attempt", "ghost_gk_density_spread",
+    ):  # fmt: skip
+        assert col in df.columns, f"{col} missing from SB360 output"
+
+
 def test_sb360_unsupported_metrics_null() -> None:
     df = _run()
     # Velocity / temporal — entirely NULL on freeze-frames

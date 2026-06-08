@@ -82,7 +82,25 @@ INVARIANT_ONLY: dict[str, tuple[str, float | None, float | None]] = {
     # x/y are LTR-normalized pitch metres (105x68); spread is a positive dispersion magnitude.
     "ghost_gk_x": ("float", 0.0, 105.0),
     "ghost_gk_y": ("float", 0.0, 68.0),
-    "ghost_gk_spread": ("float", 0.0, None),
+    "ghost_gk_density_spread": ("float", 0.0, None),
+    # Structural pass (TF-45; Karakus & Arkadas 2026): no legacy oracle. Range-check only.
+    # structural_lbs is Int64/bigint and NaN on non-pass/cross rows — the differential range-check
+    # dropna()s first (test_differential.py), so the "int" invariant tolerates <NA> (cf. elastic_frame_id).
+    "structural_lbs": ("int", 0.0, None),
+    # SGM (space gain) and SDI (structural disruption) are SIGNED — a pass can lose space / reduce
+    # disruption, so both go negative (observed on J03WMX_p1: sgm min -0.56, sdi min -14.36). Unbounded.
+    "structural_sgm": ("float", None, None),
+    "structural_sdi": ("float", None, None),
+    # Player influence (silly-kicks add_player_influence): areas non-negative; diffs may be negative.
+    "actor_reachable_area_m2": ("float", 0.0, None),
+    "off_ball_xt_team": ("float", 0.0, None),
+    "off_ball_xt_opponent": ("float", 0.0, None),
+    "off_ball_xt_diff": ("float", None, None),
+    "reachable_area_team": ("float", 0.0, None),
+    "reachable_area_opponent": ("float", 0.0, None),
+    "reachable_area_diff": ("float", None, None),
+    # xCrossAttempt (silly-kicks 4.18.0): probability in [0,1]. Range-check only.
+    "xcross_attempt": ("float", 0.0, 1.0),
     # ELASTIC sync (silly-kicks 3.25.0): legacy elastic_sync_results oracle has an IDSSE
     # frame-origin bug (see module docstring), so the correct AC-1 values are range-checked,
     # not oracle-compared. frame_id is a non-negative frame number; confidence is a [0,1]

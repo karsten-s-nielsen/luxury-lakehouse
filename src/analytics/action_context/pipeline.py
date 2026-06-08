@@ -252,6 +252,17 @@ def enrich_batch(
     frames["game_id"] = int(actions["game_id"].iloc[0])
 
     actions = _resolve_enrichment_identity(actions, provider=provider, match_id_native=native_match_id)
+
+    # ADR-019 dtype-contract pre-flight (4.15.0+): loud guard that the post-identity-resolve action
+    # ids + the converted frame ids share comparable dtypes before the enrich chain. With the GS
+    # Int64->native-str coercion in _convert_tracking_batch kept (its drop is unproven — the GS enrich
+    # fixture's absolute-clock time-base guard blocks an end-to-end seam-coverage test, so per
+    # Chesterton's fence the coercion is retained), every provider reaches here object/string-on-both
+    # so this passes; it fails LOUD if a future change drifts an id dtype (the silent-miss class).
+    from silly_kicks.tracking import validate_id_dtypes
+
+    validate_id_dtypes(actions, frames, home_team_id=meta.home_team_id, on_mismatch="raise")
+
     result = _enrich_tracking_match(
         actions_df=actions, tracking_df=frames, xt=xt, home_team_id=meta.home_team_id, kde_backend=kde_backend
     )

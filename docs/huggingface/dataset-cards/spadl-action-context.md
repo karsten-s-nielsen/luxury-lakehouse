@@ -36,7 +36,7 @@ pitch-control-derived metrics (OBSO, PAUSA, `gk_influence`/`gk_closing_time_*`):
 columns are therefore produced by different estimators and are **not directly comparable** —
 segment on `pitch_control_method`.
 
-The `ghost_gk_method` column records which ghost-GK **KDE backend** produced each row's `ghost_gk_x/y/spread`
+The `ghost_gk_method` column records which ghost-GK **KDE backend** produced each row's `ghost_gk_x/y/density_spread`
 (one of `scipy`, `vectorized`, `cpu-numba`, `fft`, `fft-cic`; `null` on event-only rows). The default is
 `fft-cic` (a ~95% mode-exact fast approximation); a run may select an exact backend for higher accuracy,
 which yields *different* `ghost_gk_*` values. This column scopes **only** to `ghost_gk_*` and is independent
@@ -83,6 +83,10 @@ print(df.columns.tolist())
 | Space Creation | space_created_m2, space_exploited |
 | ELASTIC Sync | elastic_sync_score, elastic_compactness |
 | Shape Graph | shape_graph_centrality, shape_graph_clustering |
+| Ghost-GK | ghost_gk_x, ghost_gk_y, ghost_gk_density_spread (served = boosted-HGBR mean; density_spread = conditional-density dispersion) |
+| Structural Pass | structural_lbs, structural_sgm, structural_sdi (Line Bypass Score / Space Gain / Disruption Index; Karakus & Arkadas 2026, arXiv:2603.28916; NaN for non-pass/cross) |
+| Player Influence | actor_reachable_area_m2, off_ball_xt_{team,opponent,diff}, reachable_area_{team,opponent,diff} (Spearman 2018 + Singh 2018) |
+| xCrossAttempt | xcross_attempt (P(cross attempt) for the in-possession team; Cao et al. 2025, arXiv:2505.11841; tracking-only — NaN on SB360) |
 | xShotOccurrence | xshot_occurrence (P(shot attempted); Pipping-Gamón, Feng & Sabin 2026, arXiv:2512.00203) |
 | Pitch-Control Provenance | pitch_control_method (spearman=tracking / voronoi=SB360 / null=event-only) |
 | Ghost-GK Backend Provenance | ghost_gk_method (scipy/vectorized/cpu-numba/fft/fft-cic; null=event-only) |

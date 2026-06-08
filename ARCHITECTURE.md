@@ -904,11 +904,13 @@ Consolidated list of academic citations referenced across UI pages and analytics
 | Bekkers & Dabadghao (2025) | "Flow Motifs in Soccer: How Teams Play." *arXiv:2506.23843* | Team Shape page |
 | Bourbousson, Sève & McGarry (2010) | "Space-time coordination dynamics in basketball." *Journal of Sports Sciences 28(3)* | Team Shape page |
 | Butcher et al. (2025) | "An Expected Goals On Target (xGOT) Model." *MDPI* (DOI: 10.1515/jqas-2024-0091) | Goalkeeper Analytics, `wf-goalkeeper`, `wf-import-psxg`, `wf-export-shots` |
+| Cao, Y. et al. (2025) | "Framing Causal Questions in Sports Analytics: A Case Study of Crossing in Soccer." *arXiv:2505.11841* | xCrossAttempt (`xcross_attempt`) in `fct_action_context`, `wf-action-context` (silly-kicks TF-17; state-anchored, inspired-by) |
 | Danesi, P. (2025) | "Football2Vec: Transformer-Based Player Embeddings." | Player Similarity, `src/analytics/football2vec_transformer.py`, `wf-football2vec-v2` |
 | Decroos, Bransen, Van Haaren & Davis (2019) | "Actions Speak Louder than Goals: Valuing Player Actions in Soccer." *KDD* | Action Values, Player Radar, Match Summary (Big Story VAEP ranking), `wf-vaep` |
 | Donnelly (2024) | "Systematic Approach to Performance Analysis." (course materials) | Conversion Funnel page |
 | Frencken, Lemmink, Delleman & Visscher (2011) | "Oscillations of centroid position and surface area of soccer teams in small-sided games." *Journal of Sports Sciences 29(14)* | Team Shape page |
 | Ganin et al. (2016) | "Domain-Adversarial Training of Neural Networks." *JMLR 17* | Player Similarity (gradient reversal for adversarial debiasing) |
+| Karakus, O. & Arkadas, H. (2026) | "Structural Pass Analysis in Football: Learning Pass Archetypes and Tactical Impact from Spatio-Temporal Tracking Data." *arXiv:2603.28916* | Structural pass (`structural_lbs`/`structural_sgm`/`structural_sdi`) in `fct_action_context`, `wf-action-context` |
 | Kim, H.S. et al. (2025) — ELASTIC | "ELASTIC: Event-Tracking Data Synchronization in Soccer Without Annotated Event Locations." *ECML-PKDD MLSA* (arXiv:2508.09238) | Pass Timing page, `wf-elastic-sync` |
 | Kim, H.S. et al. (2025) — DEFCON | "Better Prevent than Tackle: Valuing Defense in Soccer Based on Graph Neural Networks." *arXiv:2512.10355* | Defensive Valuation page, `wf-defcon`, `src/analytics/defcon_lite.py` |
 | Lamberts (2025) | Goalkeeper Distribution Value Model. DOI: 10.1007/978-3-031-31772-9_19 | Goalkeeper Analytics |

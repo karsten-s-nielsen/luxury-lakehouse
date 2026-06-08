@@ -72,6 +72,26 @@ The trained model ships bundled in the silly-kicks library
 (silly-kicks/xshot-occurrence-v1); the lakehouse consumes it via
 silly_kicks.tracking.add_xshot_occurrence (no in-repo training).
 
+The per-pass structural primitives (persisted as
+fct_action_context.structural_lbs / structural_sgm / structural_sdi) implement
+the methodology of: Karakus, O. & Arkadas, H. (2026). "Structural Pass Analysis
+in Football: Learning Pass Archetypes and Tactical Impact from Spatio-Temporal
+Tracking Data." arXiv:2603.28916. Consumed via silly_kicks.tracking.add_structural_pass.
+
+The xCrossAttempt cross-propensity model (persisted as
+fct_action_context.xcross_attempt) is a per-frame, state-anchored model INSPIRED
+BY: Cao, Y. et al. (2025). "Framing Causal Questions in Sports Analytics: A Case
+Study of Crossing in Soccer." arXiv:2505.11841. The bundled model ships in
+silly-kicks; the lakehouse consumes it via silly_kicks.tracking.add_xcross_attempt
+(no in-repo training).
+
+The per-player influence primitives (persisted as
+fct_action_context.actor_reachable_area_m2 / off_ball_xt_team / off_ball_xt_opponent /
+off_ball_xt_diff / reachable_area_team / reachable_area_opponent / reachable_area_diff)
+compose Spearman, W. (2018), "Beyond Expected Goals" (pitch control + TTI reachable
+area) and Singh, K. (2018), "Introducing Expected Threat (xT)" (off-ball xT weighting).
+Consumed via silly_kicks.tracking.add_player_influence.
+
 The line-breaking pass detection algorithm (src/analytics/line_breaking.py)
 is adapted from: parmacalcio1913/line-breaking-passes, licensed under the
 Apache License, Version 2.0. The implementation is rewritten from PyTorch

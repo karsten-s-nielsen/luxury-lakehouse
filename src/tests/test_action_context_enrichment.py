@@ -127,7 +127,7 @@ def test_enrich_event_only_game_state_values() -> None:
 
 
 def test_enrich_tracking_calls_all_steps_with_links() -> None:
-    """Tracking chain must call all 21 add_* steps and propagate links."""
+    """Tracking chain must call all 24 add_* steps and propagate links."""
     actions = _make_actions()
     tracking = _make_tracking()
     mock_links = _make_mock_links(actions)
@@ -171,6 +171,11 @@ def test_enrich_tracking_calls_all_steps_with_links() -> None:
         # xShotOccurrence (silly-kicks 4.9.0+, Step 21) — patched so the real bundled XGBoost
         # model isn't loaded and infer_ball_carrier doesn't run on the synthetic frames.
         patch("silly_kicks.tracking.add_xshot_occurrence", _PASSTHROUGH),
+        # silly-kicks 4.19.2 (ADR-042) Steps 22-24 — patched so the real geometry/model kernels
+        # don't run on the synthetic frames (add_structural_pass groupbys period_id/frame_id).
+        patch("silly_kicks.tracking.add_structural_pass", _PASSTHROUGH),
+        patch("silly_kicks.tracking.features.add_player_influence", _PASSTHROUGH),
+        patch("silly_kicks.tracking.add_xcross_attempt", _PASSTHROUGH),
     ]
     for p in patches:
         p.start()
@@ -235,6 +240,10 @@ def test_enrich_sb360_calls_snapshot_converter_and_positional_features() -> None
         patch("silly_kicks.tracking.add_obso", _PASSTHROUGH),
         patch("silly_kicks.tracking.add_pausa", _PASSTHROUGH),
         patch("silly_kicks.tracking.add_xshot_occurrence", _PASSTHROUGH),
+        # silly-kicks 4.19.2 (ADR-042) SB360 additions — structural_pass + player_influence run on
+        # SB360 (single-frame); add_xcross_attempt is NOT on SB360 (velocity-dependent).
+        patch("silly_kicks.tracking.add_structural_pass", _PASSTHROUGH),
+        patch("silly_kicks.tracking.features.add_player_influence", _PASSTHROUGH),
     ]
     for p in patches:
         p.start()

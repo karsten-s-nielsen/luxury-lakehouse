@@ -143,10 +143,24 @@ RESULT_COLUMNS: list[str] = [
     "shape_graph_density_defending",
     "shape_graph_n_edges_defending",
     "shape_graph_mean_stability_defending",
-    # Ghost-GK (3)
+    # Ghost-GK (3) — spread renamed to density_spread (silly-kicks 4.14.0; served value = boosted mean)
     "ghost_gk_x",
     "ghost_gk_y",
-    "ghost_gk_spread",
+    "ghost_gk_density_spread",
+    # Structural pass (TF-45; Karakus & Arkadas 2026, arXiv:2603.28916) (3)
+    "structural_lbs",
+    "structural_sgm",
+    "structural_sdi",
+    # Player influence (silly-kicks add_player_influence) (7)
+    "actor_reachable_area_m2",
+    "off_ball_xt_team",
+    "off_ball_xt_opponent",
+    "off_ball_xt_diff",
+    "reachable_area_team",
+    "reachable_area_opponent",
+    "reachable_area_diff",
+    # xCrossAttempt (silly-kicks 4.18.0 bundled public model) (1)
+    "xcross_attempt",
     # xShotOccurrence (Pipping-Gamón, Feng & Sabin 2026; arXiv:2512.00203) (1)
     "xshot_occurrence",
     # Pitch-control provenance for the persisted pitch-control-derived metrics (1)
@@ -210,7 +224,11 @@ ACTION_CONTEXT_DDL = (
     "shape_graph_mean_stability_attacking DOUBLE, "
     "shape_graph_density_defending DOUBLE, shape_graph_n_edges_defending BIGINT, "
     "shape_graph_mean_stability_defending DOUBLE, "
-    "ghost_gk_x DOUBLE, ghost_gk_y DOUBLE, ghost_gk_spread DOUBLE, "
+    "ghost_gk_x DOUBLE, ghost_gk_y DOUBLE, ghost_gk_density_spread DOUBLE, "
+    "structural_lbs BIGINT, structural_sgm DOUBLE, structural_sdi DOUBLE, "
+    "actor_reachable_area_m2 DOUBLE, off_ball_xt_team DOUBLE, off_ball_xt_opponent DOUBLE, "
+    "off_ball_xt_diff DOUBLE, reachable_area_team DOUBLE, reachable_area_opponent DOUBLE, "
+    "reachable_area_diff DOUBLE, xcross_attempt DOUBLE, "
     "xshot_occurrence DOUBLE, pitch_control_method STRING, ghost_gk_method STRING, "
     "_ingested_at TIMESTAMP"
 )
