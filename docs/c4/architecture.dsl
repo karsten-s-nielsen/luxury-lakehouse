@@ -43,7 +43,6 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             migrateSyncedTables = container "Synced Table Migration" "SDK-managed lifecycle: delete, CDF enable, create, wait (ADR-026). Replaces Terraform module." "Python, databricks-sdk"
             dbtRunner = container "dbt Runner" "python_wheel_task entry point. OAuth token exchange, warehouse start." "Python, dbt-core"
             evolveEngine = container "Evolve Engine" "LLM-guided architecture search. AST validation, restricted exec." "Python, OpenEvolve"
-            calibrationRunner = container "TC-3 Calibration Runner" "Optuna TPE sweep for silly-kicks defaults: carrier params, k3, off-ball runs. Databricks SQL + ThreadPool." "Python, Optuna, XGBoost"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models: xG, xT, VAEP, OBSO, pitch control, embeddings" "Python, PyTorch"
             execVisibility = container "Executor Visibility (exec_visibility)" "Driver PhaseHeartbeat + executor env-fingerprint / faulthandler / UC-Volume rendezvous markers. Spark-Connect-safe applyInPandas progress + hang diagnostics (ADR-031)." "Python"
             actionContextHexagon = container "Action Context Hexagon" "Pure-domain AC-1 enrichment to bronze.spadl_action_context (ADR-028): 5 ports + enrich_batch, same Spark UDF + local run_work_unit. 21-step enrich chain + per-work-unit time-base guard (ADR-040)." "Python, pandas, silly-kicks 4.13.0"
@@ -180,11 +179,6 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         extV2Gates -> goldSchema "Fetches action values" "Spark SQL"
         ciSentinels -> orchestratorScript "Validates config" "pytest"
         ciSentinels -> hfJobsTrainers "Validates trainer config" "pytest"
-
-        # Relationships - Calibration Runner
-        developer -> calibrationRunner "Runs calibration sweep" "CLI"
-        calibrationRunner -> bronzeSchema "Queries tracking + SPADL" "Databricks SQL"
-        calibrationRunner -> analyticsLibrary "Imports silly-kicks enrichment" ""
 
         # Relationships - Evolve Engine
         developer -> evolveEngine "Runs evolve CLI" "CLI"
