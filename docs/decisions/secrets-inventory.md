@@ -29,3 +29,4 @@ No manual rotation required for the foreseeable future. OAuth M2M credentials (7
 
 - **2026-04-02:** Initial inventory. PAT-based auth, M1 rotation planned.
 - **2026-04-09:** M2 complete — OAuth M2M deployed to both Spaces (staging + production). PAT removed. M1 superseded.
+- **2026-06-08:** Orphaned `DATABRICKS_TOKEN` PAT (comment "HF Spaces", created 2026-03-16, expiry 2026-06-14, last used 2026-04-09 — i.e. the OAuth M2M cutover, never touched since) deleted from Databricks following an expiry-warning email. It was superseded by OAuth M2M but never revoked. Token inventory is now OAuth-M2M-only for the Spaces; dashboards unaffected (service-principal OAuth, expires ~2028-04-09). Not renewed — an idle long-lived PAT on a personal account is a liability, not something to refresh.
