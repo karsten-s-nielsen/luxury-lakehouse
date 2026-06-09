@@ -41,6 +41,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             ingestionPipelines = container "Compute Pipelines" "38 @workflow-decorated Databricks ingestion/compute pipelines across 6 providers. GS bronze frame dedup keep-first (ADR-030); per-provider silly-kicks 4.x ET-direction derivers (ADR-029)." "Python, PySpark"
             refreshSyncedTables = container "Synced Table Refresh" "Triggers refresh on 42 synced tables; detect-only for checkpoint-broken TRIGGERED tables — flags + dispatches the heal, never deletes (ADR-041)" "Python, databricks-sdk"
             migrateSyncedTables = container "Synced Table Migration" "SDK-managed lifecycle: delete, CDF enable, create, wait (ADR-026). Replaces Terraform module." "Python, databricks-sdk"
+            rederiveSyncedMarts = container "Strand-safe Re-derive" "Operator re-derive of TRIGGERED synced marts (ADR-043): D MERGE-reprocess / T plain-rebuild / B delete+full-refresh+recreate. Pure planner + thin executor." "Python, databricks-sdk"
             dbtRunner = container "dbt Runner" "python_wheel_task entry point. OAuth token exchange, warehouse start." "Python, dbt-core"
             evolveEngine = container "Evolve Engine" "LLM-guided architecture search. AST validation, restricted exec." "Python, OpenEvolve"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models: xG, xT, VAEP, OBSO, pitch control, embeddings" "Python, PyTorch"
@@ -60,7 +61,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             telemetryTable = container "Telemetry Table" "Cycle log: items, smoke-gate pass/fail, cost tracking, heartbeat rows." "Delta Lake" "Database"
         }
 
-        dbtProject = softwareSystem "dbt Project" "Medallion transformation: 93 models (41 staging, 11 intermediate, 41 marts). Kimball dimensions, liquid clustering." {
+        dbtProject = softwareSystem "dbt Project" "Medallion transformation: 93 models (41 staging, 11 intermediate, 41 marts). Kimball dims, liquid clustering. on-run-start tripwire blocks --full-refresh of TRIGGERED synced marts (ADR-043)." {
             fctWorkflowCosts = container "fct_workflow_costs" "Gold-layer cost attribution with billing JOIN. 90-day rolling window." "SQL, dbt" "Database"
             goldModels = container "Gold Models" "37 fact + 4 dim tables. Enforced contracts, liquid clustering." "SQL, dbt" "Database"
         }
@@ -159,6 +160,10 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         refreshSyncedTables -> guardRegistry "Watermark check gold tables" ""
         refreshSyncedTables -> observabilitySchema "Records watermarks after refresh" "PySpark/Delta"
         dbtBuildAndRefresh -> refreshSyncedTables "Subprocess after dbt" "subprocess"
+        operator -> rederiveSyncedMarts "Strand-safe re-derive of TRIGGERED marts" "CLI"
+        rederiveSyncedMarts -> dbtProject "dbt build: D MERGE / T plain / B full-refresh" "subprocess"
+        rederiveSyncedMarts -> refreshSyncedTables "Triggers + waits synced refresh (D/T)" "subprocess"
+        rederiveSyncedMarts -> databricksApi "Delete/create synced; match-id query; daily-job guard" "HTTPS"
 
         # Relationships - SK3-MIG-B Orchestrator
         orchestratorScript -> hfInputPublishers "Publishes input datasets" ""
@@ -302,6 +307,8 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             include bronzeSchema
             include openRouter
             include developer
+            include operator
+            include dbtProject
             autoLayout
         }
 

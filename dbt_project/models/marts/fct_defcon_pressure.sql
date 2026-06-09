@@ -4,6 +4,7 @@
     liquid_clustered_by=['match_key'],
     incremental_strategy='merge',
     on_schema_change='append_new_columns',
+    pre_hook="{{ reprocess_delete_hook('match_id') }}",
     tags=['marts', 'output_mart'],
     tblproperties={
         'delta.enableChangeDataFeed': 'true',
@@ -44,7 +45,7 @@ with defcon as (
     from {{ ref('stg_defcon__results') }}
     where action_player_id is not null
     {% if is_incremental() %}
-    and match_id not in (select distinct match_id from {{ this }})
+    and (match_id not in (select distinct match_id from {{ this }}) {{ reprocess_predicate('match_id') }})
     {% endif %}
 
 ),

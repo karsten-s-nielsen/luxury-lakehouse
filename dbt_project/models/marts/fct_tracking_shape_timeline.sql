@@ -3,6 +3,7 @@
     incremental_strategy='merge',
     unique_key='shape_timeline_id',
     on_schema_change='append_new_columns',
+    pre_hook="{{ reprocess_delete_hook('match_id') }}",
     liquid_clustered_by=['match_key'],
     tags=['marts', 'output_mart'],
     tblproperties={
@@ -50,7 +51,7 @@ tracking as (
     from {{ ref('fct_tracking_frames') }}
     where player_id is not null
     {% if is_incremental() %}
-    and match_id not in (select match_id from existing_matches)
+    and (match_id not in (select match_id from existing_matches) {{ reprocess_predicate('match_id') }})
     {% endif %}
 
 ),

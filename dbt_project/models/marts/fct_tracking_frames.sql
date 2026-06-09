@@ -4,6 +4,7 @@
     liquid_clustered_by=['match_key'],
     incremental_strategy='merge',
     on_schema_change='append_new_columns',
+    pre_hook="{{ reprocess_delete_hook('match_id') }}",
     tags=['marts', 'input_mart'],
     tblproperties={
         'delta.enableChangeDataFeed': 'true',
@@ -51,7 +52,7 @@ tracking as (
         x, y, ball_x, ball_y
     from {{ ref('stg_metrica__tracking') }}
     {% if is_incremental() %}
-    where match_id not in (select match_id from existing_matches)
+    where (match_id not in (select match_id from existing_matches) {{ reprocess_predicate('match_id') }})
     {% endif %}
     union all
     select
@@ -60,7 +61,7 @@ tracking as (
         x, y, ball_x, ball_y
     from {{ ref('stg_idsse__tracking') }}
     {% if is_incremental() %}
-    where match_id not in (select match_id from existing_matches)
+    where (match_id not in (select match_id from existing_matches) {{ reprocess_predicate('match_id') }})
     {% endif %}
     union all
     select
@@ -69,7 +70,7 @@ tracking as (
         x, y, ball_x, ball_y
     from {{ ref('stg_skillcorner__tracking') }}
     {% if is_incremental() %}
-    where match_id not in (select match_id from existing_matches)
+    where (match_id not in (select match_id from existing_matches) {{ reprocess_predicate('match_id') }})
     {% endif %}
 
 ),
