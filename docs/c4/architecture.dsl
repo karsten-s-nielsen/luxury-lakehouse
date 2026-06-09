@@ -46,7 +46,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             evolveEngine = container "Evolve Engine" "LLM-guided architecture search. AST validation, restricted exec." "Python, OpenEvolve"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models: xG, xT, VAEP, OBSO, pitch control, embeddings" "Python, PyTorch"
             execVisibility = container "Executor Visibility (exec_visibility)" "Driver PhaseHeartbeat + executor env-fingerprint / faulthandler / UC-Volume rendezvous markers. Spark-Connect-safe applyInPandas progress + hang diagnostics (ADR-031)." "Python"
-            actionContextHexagon = container "Action Context Hexagon" "Pure-domain AC-1 enrichment to bronze.spadl_action_context (ADR-028): 5 ports + enrich_batch, same Spark UDF + local run_work_unit. 24-step enrich chain + time-base + id-dtype guards (ADR-040/042)." "Python, pandas, silly-kicks 4.19.2"
+            actionContextHexagon = container "Action Context Hexagon" "Pure-domain AC-1 enrichment to bronze.spadl_action_context (ADR-028): 5 ports + enrich_batch, same Spark UDF + local run_work_unit. 24-step enrich chain + time-base + id-dtype guards (ADR-040/042)." "Python, pandas, silly-kicks 4.20.1"
             sharedLibrary = container "Shared Library" "Cross-package constants. Zero external deps." "Python"
         }
 

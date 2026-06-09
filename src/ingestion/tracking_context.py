@@ -1215,6 +1215,14 @@ NOTE: ``home_team_id`` is consumed by the driver-side metadata resolution
 (not the converter), so it appears in the projection constant but NOT here.
 """
 
+# SkillCorner bronze ``timestamp`` is the CONTINUOUS broadcast clock (2nd half = 45:00+, ET = 90:00+/
+# 105:00+). silly-kicks 4.20.1 re-based SkillCorner SPADL ``time_seconds`` to PERIOD-RELATIVE
+# (skillcorner.py ``_PERIOD_START_SECONDS``). The action↔frame linker matches action ``time_seconds``
+# to frame ``time_seconds``, so the frames MUST share that period-relative base — otherwise 2nd-half+
+# linkage collapses (the mirror image of the GS absolute-clock class; see ADR-040). Offsets mirror
+# silly-kicks' nominal period starts exactly.
+_SKILLCORNER_PERIOD_START_SECONDS: dict[int, float] = {1: 0.0, 2: 45 * 60.0, 3: 90 * 60.0, 4: 105 * 60.0, 5: 120 * 60.0}
+
 
 def _bronze_skillcorner_to_frames(trk_pdf: pd.DataFrame, game_id: int) -> pd.DataFrame:
     """Convert SkillCorner bronze tracking (narrow) to silly-kicks frames.
@@ -1279,6 +1287,12 @@ def _bronze_skillcorner_to_frames(trk_pdf: pd.DataFrame, game_id: int) -> pd.Dat
     ball_src["game_id"] = game_id
 
     frames = pd.concat([players, ball_src], ignore_index=True)
+
+    # Re-base the continuous broadcast clock to PERIOD-RELATIVE time_seconds so frames align with
+    # silly-kicks 4.20.1's now-period-relative SkillCorner actions (see _SKILLCORNER_PERIOD_START_SECONDS).
+    frames["time_seconds"] = frames["time_seconds"] - frames["period_id"].map(_SKILLCORNER_PERIOD_START_SECONDS).fillna(
+        0.0
+    ).astype(float)
 
     # ── Add all required TRACKING_FRAMES_COLUMNS ────────────────────
     # link_actions_to_frames hard-selects source_provider → KeyError without it.
