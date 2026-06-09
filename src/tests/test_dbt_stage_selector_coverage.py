@@ -30,7 +30,10 @@ _WORKFLOWS_TF = _REPO / "terraform" / "modules" / "workflows" / "main.tf"
 
 _THREE_STAGE_TASKS = ("dbt_build_input_marts", "dbt_build_intermediate_marts", "dbt_build_output_marts")
 
-_CONFIG_BLOCK_RE = re.compile(r"\{\{\s*config\s*\((.+?)\)\s*\}\}", re.DOTALL)
+# Locates the `{{ config(...) }}` opening; the close is found by _config_body
+# (quote/paren-aware) so a macro pre_hook value containing `) }}` (ADR-043) does
+# not prematurely truncate the body before `tags=[...]`.
+_CONFIG_OPEN_RE = re.compile(r"\{\{\s*config\s*\(")
 _TAGS_KWARG_RE = re.compile(r"\btags\s*=\s*\[([^\]]*)\]", re.DOTALL)
 _TAG_LITERAL_RE = re.compile(r"['\"]([^'\"]+)['\"]")
 _REF_RE = re.compile(r"ref\s*\(\s*['\"]([^'\"]+)['\"]")
@@ -41,11 +44,41 @@ def _all_models() -> dict[str, Path]:
     return {p.stem: p for p in _MODELS.rglob("*.sql")}
 
 
-def _tags(path: Path) -> set[str]:
-    m = _CONFIG_BLOCK_RE.search(path.read_text(encoding="utf-8"))
+def _config_body(text: str) -> str | None:
+    """Kwargs body of `{{ config(...) }}`, via a quote/paren-aware scan (see
+    test_dbt_mart_classification._config_body). Robust to kwarg values that
+    contain `)`/`) }}` (macro pre_hooks, contract=(...))."""
+    m = _CONFIG_OPEN_RE.search(text)
     if not m:
+        return None
+    depth = 1
+    quote: str | None = None
+    out: list[str] = []
+    for ch in text[m.end() :]:
+        if quote is not None:
+            if ch == quote:
+                quote = None
+            out.append(ch)
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            out.append(ch)
+            continue
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return "".join(out)
+        out.append(ch)
+    return "".join(out)
+
+
+def _tags(path: Path) -> set[str]:
+    body = _config_body(path.read_text(encoding="utf-8"))
+    if body is None:
         return set()
-    t = _TAGS_KWARG_RE.search(m.group(1))
+    t = _TAGS_KWARG_RE.search(body)
     return set(_TAG_LITERAL_RE.findall(t.group(1))) if t else set()
 
 

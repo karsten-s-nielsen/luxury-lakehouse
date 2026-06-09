@@ -1193,8 +1193,16 @@ Expected: zero violations. (Note `scripts/` typing: match the existing scripts' 
 - [ ] **Step 2: Targeted + full unit suite**
 
 Run: `uv run pytest src/tests/test_rederive_planner.py src/tests/test_rederive_synced_marts_cli.py src/tests/test_strand_safe_rederive.py src/tests/test_synced_table_heal_e2e.py -q`
-Then a broad run to catch collection regressions: `uv run pytest src/tests -q -x`
+Then a **real full-suite execution** (NOT `--collect-only`): `uv run pytest src/tests -q`.
 Expected: all pass / pre-existing-only skips (e.g. the local SDK-0.77 `test_migrate_synced_tables` artifact noted in memory — `--ignore` it if it trips locally).
+
+> **POST-MERGE-CI FIX (learned the hard way):** the first push ran `--collect-only` here, which does NOT
+> execute `test_dbt_mart_classification` / `test_dbt_stage_selector_coverage` — two meta-tests that
+> **text-parse every mart's `config()` block**. Their naive `\{\{ config\((.+?)\)\s*\}\}` regex closed on the
+> FIRST `) }}`, and the new `pre_hook="{{ reprocess_delete_hook('match_id') }}"` is the first mart hook to put
+> a macro call (ending `) }}`) inside `config()` → the regex truncated the body before `tags=[...]` → both
+> failed in CI. Fix: replaced the lazy regex with a quote/paren-aware `_config_body` scan in both meta-tests
+> (dbt parsed fine — only the text guards were naive). **Always run the real suite for dbt-config edits.**
 
 - [ ] **Step 3: `_BRONZE_SCHEMA` — live-confirmed `bronze` (NOT `dev_bronze`)**
 
