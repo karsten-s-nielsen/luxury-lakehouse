@@ -306,6 +306,7 @@ def _make_action_context_udf(
         from analytics.action_context.schema import RESULT_COLUMNS as _RC
         from analytics.action_context.work_unit import MatchMeta as _MatchMeta
         from ingestion.exec_visibility import (
+            assert_executor_silly_kicks_sane,
             disarm_executor_faulthandler,
             executor_env_fingerprint,
             executor_marker,
@@ -335,6 +336,12 @@ def _make_action_context_udf(
         # hypotheses the instant the worker starts; echoed to the task log by the
         # driver heartbeat. See ingestion.exec_visibility.executor_env_fingerprint.
         executor_env_fingerprint(exec_rendezvous_dir, seq=f"{_batch_key}_envfp")
+        # Executor env-drift guard (ADR-044): fail loud NOW if this serverless UDF sandbox
+        # resolved a stale/split silly-kicks (the fingerprint above logs __version__, which a
+        # split install fools into reporting the healthy 4.20.1 while submodules run 4.12.0 —
+        # the 2026-06-09 GS dual-GK ghost-GK crash). Process-local one-shot; see
+        # exec_visibility.assert_executor_silly_kicks_sane.
+        assert_executor_silly_kicks_sane(batch_key=_batch_key)
         # Per-batch start marker (cheap progress signal + executor-write probe).
         executor_marker(
             exec_rendezvous_dir,
@@ -1415,6 +1422,28 @@ def _process_tracking_match(
     # converter then KeyErrors (latent until the upstream GS blockers were cleared).
     if provider == "gradientsports":
         trk_sdf = trk_sdf.withColumn("timestamp", F.col("period_elapsed_time"))
+
+    # Metrica (ADR-040): bronze.metrica_tracking.timestamp is the ABSOLUTE match clock
+    # (and Sample_Game_3's resets to 0 in P2 — the 3 open-data games are hand-curated and
+    # inconsistent). Re-base "timestamp" to PERIOD-RELATIVE via the CONTINUOUS frame number,
+    # keyed on each period's FIRST frame, so it aligns with the SPADL action time_seconds —
+    # which _convert_metrica_from_bronze re-bases off the SAME min(frame) per (match,period)
+    # from this same bronze.metrica_tracking. Frame-number based (NOT the timestamp) so
+    # Sample_Game_3's timestamp reset is irrelevant. Mirrors pipeline.run_work_unit, kept in
+    # lockstep by test_metrica_period_relative_time's sentinel.
+    if provider == "metrica":
+        from pyspark.sql import Window as _Window
+
+        _period_w = _Window.partitionBy("match_id", "period")
+        _fr_col = F.coalesce(F.col("frame_rate").cast("double"), F.lit(25.0))
+        trk_sdf = (
+            trk_sdf.withColumn("_period_min_frame", F.min("frame").over(_period_w))
+            .withColumn(
+                "timestamp",
+                (F.col("frame").cast("double") - F.col("_period_min_frame").cast("double")) / _fr_col,
+            )
+            .drop("_period_min_frame")
+        )
 
     # Work-unit time-base guard (ADR-040): assert the work unit's actions are period-relative
     # (not on an absolute match clock — the GS period-2 class) before the per-batch applyInPandas

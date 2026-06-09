@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import tempfile
 import threading
 import time
@@ -409,3 +410,102 @@ def executor_env_fingerprint(rendezvous_dir: str | None, *, seq: str) -> bool:
     payload = json.dumps(fp, indent=2, sort_keys=True)
     print(f"AC1_ENVFP {payload}", file=sys.stderr, flush=True)
     return executor_marker(rendezvous_dir, seq=seq, payload=payload)
+
+
+# ---------------------------------------------------------------------------
+# Executor env-drift guard (RC2/RC3, ADR-044)
+# ---------------------------------------------------------------------------
+#
+# WHY a hard guard rather than the fingerprint above: the serverless applyInPandas
+# UDF sandbox can layer the task's freshly-installed ``analytics`` env (silly-kicks
+# 4.20.1) over a warm/cached base that still carries an OLDER silly-kicks (e.g.
+# 4.12.0 from an earlier deploy). When that happens ``silly_kicks.__init__`` resolves
+# from the NEW layer — so ``silly_kicks.__version__`` reads 4.20.1 — while submodules
+# like ``silly_kicks.tracking._ghost_gk`` resolve from the STALE layer and execute old
+# code (the 2026-06-09 GS dual-GK ghost-GK crash: ``_ghost_gk.py:1827`` is 4.12.0, which
+# predates the 4.12.1 dual-GK dedup). The fingerprint logs ``silly_kicks_version`` via
+# ``__version__`` and is therefore FOOLED — it reports the healthy 4.20.1. So the guard
+# below does not trust ``__version__`` alone: it also asserts every load-bearing submodule
+# loads from the SAME install root as the package. None of our governance (floors, lock,
+# bump_wheel, terraform) controls sys.path layering inside the UDF sandbox, so this
+# executor-side assertion is the only thing that converts silent, intermittent
+# contamination into an immediate, debuggable failure.
+
+_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 20, 1)
+"""Minimum silly-kicks the AC executor must run. Keep in lockstep with the
+``silly-kicks`` floor in ``pyproject.toml`` — enforced by
+``src/tests/test_executor_env_guard.py::test_required_sk_min_matches_pyproject_floor``."""
+
+_SK_VERSION_RE: re.Pattern[str] = re.compile(r"^(\d+)\.(\d+)\.(\d+)")
+"""Parses the leading ``MAJOR.MINOR.PATCH`` of ``silly_kicks.__version__`` (ignores
+any pre-release/local suffix)."""
+
+# Load-bearing silly-kicks submodules the AC UDF executes. Each MUST resolve from the
+# same install root as ``silly_kicks`` itself; a split (e.g. ``tracking._ghost_gk`` from a
+# stale 4.12.0 layer while ``__init__`` is 4.20.1) is exactly the contamination class above.
+_SK_GUARD_SUBMODULES: tuple[str, ...] = (
+    "silly_kicks.tracking._ghost_gk",
+    "silly_kicks.tracking.features",
+    "silly_kicks.tracking.pitch_control",
+    "silly_kicks.xthreat",
+    "silly_kicks.spadl",
+)
+
+_sk_guard_checked = False
+"""Process-local short-circuit — the executor env is process-stable, so the guard runs
+once per executor process (on the first batch it handles) and is a no-op thereafter."""
+
+
+def reset_silly_kicks_guard() -> None:
+    """Reset the process-local guard short-circuit (test-only seam)."""
+    global _sk_guard_checked
+    _sk_guard_checked = False
+
+
+def assert_executor_silly_kicks_sane(*, batch_key: str) -> None:
+    """Fail loud, executor-side, if the ``applyInPandas`` sandbox's silly-kicks is stale
+    OR split across two installs. See the module-level rationale above (ADR-044).
+
+    Raises
+    ------
+    RuntimeError
+        If ``silly_kicks.__version__`` < :data:`_REQUIRED_SK_MIN` (uniformly-stale
+        sandbox), or if any submodule in :data:`_SK_GUARD_SUBMODULES` loads from a
+        different install root than ``silly_kicks`` itself (``__version__``-lying split).
+    """
+    global _sk_guard_checked
+    if _sk_guard_checked:
+        return
+
+    import importlib
+
+    import silly_kicks
+
+    pkg_dir = os.path.realpath(os.path.dirname(silly_kicks.__file__))
+
+    raw = str(getattr(silly_kicks, "__version__", "0.0.0"))
+    m = _SK_VERSION_RE.match(raw)
+    parsed = (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else (0, 0, 0)
+    if parsed < _REQUIRED_SK_MIN:
+        required = ".".join(map(str, _REQUIRED_SK_MIN))
+        msg = (
+            f"Executor silly-kicks {raw} < required {required} (stale serverless UDF "
+            f"sandbox; batch={batch_key}). The driver/task env is pinned correctly; the "
+            f"executor resolved an older build — rebuild the serverless executor "
+            f"environment clean (a warm-pool layer is carrying stale silly-kicks)."
+        )
+        raise RuntimeError(msg)
+
+    for name in _SK_GUARD_SUBMODULES:
+        mod = importlib.import_module(name)
+        mod_file = os.path.realpath(getattr(mod, "__file__", "") or "")
+        if not mod_file.startswith(pkg_dir + os.sep):
+            msg = (
+                f"silly-kicks split install on executor: {name} loads from {mod_file!r} but "
+                f"the package root is {pkg_dir!r} (batch={batch_key}). The UDF sandbox has two "
+                f"silly-kicks installs on sys.path — submodules run stale code while __version__ "
+                f"reads {raw}. Rebuild the serverless executor environment clean."
+            )
+            raise RuntimeError(msg)
+
+    _sk_guard_checked = True

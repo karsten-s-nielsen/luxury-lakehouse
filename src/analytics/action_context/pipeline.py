@@ -342,6 +342,15 @@ def run_work_unit(
     # and the converter KeyErrors. Mirrors the driver (action_context._process_tracking_match).
     if wu.provider == "gradientsports" and "period_elapsed_time" in f.columns:
         f["timestamp"] = f["period_elapsed_time"]
+    # Metrica (ADR-040): re-base bronze "timestamp" to PERIOD-RELATIVE via the CONTINUOUS
+    # frame number, keyed on each period's FIRST frame — aligns with the SPADL action
+    # time_seconds (which _convert_metrica_from_bronze re-bases off the SAME min(frame) per
+    # (match,period)) and is immune to Sample_Game_3's hand-curated P2 timestamp reset.
+    # Mirrors action_context._process_tracking_match; lockstep via test_metrica_period_relative_time.
+    if wu.provider == "metrica":
+        _fr = f["frame_rate"].astype("float64").fillna(25.0) if "frame_rate" in f.columns else 25.0
+        _period_min = f.groupby("period")["frame"].transform("min").astype("float64")
+        f["timestamp"] = (f["frame"].astype("float64") - _period_min) / _fr
     f["frame_batch_id"] = (f[frame_col] // _FRAME_BATCH_SIZE).astype("int64")
 
     parts: list[pd.DataFrame] = []

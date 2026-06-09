@@ -1486,6 +1486,52 @@ def _convert_metrica_from_bronze(
 
     new_events_sdf = events_sdf.filter(spark_fn.col("match_id").isin(new_match_ids))
 
+    # ADR-040 (Metrica time-base): bronze.metrica_events.start_time_s/end_time_s sit on the
+    # ABSOLUTE match clock (P2 ~2885s), not silly-kicks' canonical PERIOD-RELATIVE convention —
+    # neither silly-kicks' Metrica converter nor the lakehouse adapter re-bases them, so the
+    # AC-1 work-unit time-base guard correctly aborts every Metrica unit. Re-base the event
+    # time off the CONTINUOUS frame number, keyed on each period's FIRST tracking frame (read
+    # from bronze.metrica_tracking), so SPADL time_seconds resets per period AND aligns exactly
+    # with the AC frame "timestamp" — which action_context._process_tracking_match /
+    # pipeline.run_work_unit re-base off the SAME min(frame) per (match,period). Frame-number
+    # based so Sample_Game_3's hand-curated P2 timestamp reset is irrelevant. start_frame is
+    # always present; end_frame may be NULL on instantaneous events → coalesce to start_frame
+    # (zero-duration, never NULL).
+    tracking_table = f"{catalog}.{schema}.metrica_tracking"
+    period_ref = (
+        spark.table(tracking_table)
+        .filter(spark_fn.col("period").isNotNull() & spark_fn.col("match_id").isin(new_match_ids))
+        .groupBy("match_id", "period")
+        .agg(
+            spark_fn.min("frame").alias("_period_start_frame"),
+            spark_fn.first("frame_rate", ignorenulls=True).alias("_metrica_frame_rate"),
+        )
+    )
+    new_events_sdf = new_events_sdf.join(period_ref, on=["match_id", "period"], how="left")
+    # Fail loud (ADR-002 §5): Metrica is a tracking provider — a (match,period) with events but
+    # no tracking frames is a broken ingest, not a licence to emit an absolute-clock SPADL action.
+    _missing = (
+        new_events_sdf.filter(spark_fn.col("_period_start_frame").isNull())
+        .select("match_id", "period")
+        .distinct()
+        .collect()
+    )
+    if _missing:
+        pairs = ", ".join(f"{r['match_id']}:p{r['period']}" for r in _missing)
+        msg = f"Metrica SPADL time re-base: bronze.metrica_tracking has no frames for (match,period): {pairs}"
+        raise RuntimeError(msg)
+    _fr = spark_fn.coalesce(spark_fn.col("_metrica_frame_rate").cast("double"), spark_fn.lit(25.0))
+    _min_frame = spark_fn.col("_period_start_frame").cast("double")
+    new_events_sdf = (
+        new_events_sdf.withColumn("start_time_s", (spark_fn.col("start_frame").cast("double") - _min_frame) / _fr)
+        .withColumn(
+            "end_time_s",
+            (spark_fn.coalesce(spark_fn.col("end_frame"), spark_fn.col("start_frame")).cast("double") - _min_frame)
+            / _fr,
+        )
+        .drop("_period_start_frame", "_metrica_frame_rate")
+    )
+
     spadl_schema = StructType(
         [
             StructField("game_id", LongType()),
