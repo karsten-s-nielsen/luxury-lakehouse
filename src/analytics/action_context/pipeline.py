@@ -128,7 +128,18 @@ def _convert_tracking_batch(
         _gc.collect()
         frames, _report = _gs_convert_to_frames(
             converter_input,
-            home_team_id=int(meta.home_team_id),
+            # home_team_id MUST be the native STRING (matching converter_input.team_id, which
+            # gs_team_side_to_id maps to native-string ids). Passing int() here makes
+            # convert_to_frames' play_left_to_right `is_home` match ZERO players, so the
+            # per-period LTR flip is silently skipped — GS frames stay mis-oriented in
+            # switched-end periods (P2/P4), and structural_pass's away mirror then amplifies
+            # that into a ~1e8 SGM blow-up. (IDSSE/Sportec already passes the string and is
+            # correct.) meta.home_team_id is declared str; do NOT re-cast to int.
+            # silly-kicks' GS convert_to_frames annotates home_team_id: int (inconsistent with
+            # its own sportec converter, which takes str), but the RUNTIME contract requires the
+            # native-string id matching converter_input.team_id — passing the annotated int is
+            # exactly the orientation bug. Ignore the (wrong) upstream annotation.
+            home_team_id=meta.home_team_id,  # type: ignore[arg-type]  # see note above: upstream int annotation is wrong
             home_team_start_left=meta.home_start_left,
             home_team_start_left_extratime=meta.home_team_start_left_extratime,
             output_convention="ltr",

@@ -46,7 +46,7 @@ logger = logging.getLogger("ac1_oneshot")
 # Mirror terraform/modules/workflows/main.tf "analytics" environment spec exactly
 # so the one-shot executor env matches the daily job's. Keep in sync.
 _ANALYTICS_DEPENDENCIES: tuple[str, ...] = (
-    "silly-kicks>=4.19.2,<5",
+    "silly-kicks>=4.20.1,<5",
     "accessible-space>=2.0,<3",
     # numba: JITs silly-kicks pitch-control + ball-carrier kernels (else silent
     # numpy fallback). Added to the TF analytics env in PR #325; mirrored here.

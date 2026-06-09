@@ -227,7 +227,7 @@ def _extract_pep723_block(src: str) -> str:
 def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     """No trainer may pin `silly-kicks` in its PEP 723 deps.
 
-    The wheel's ``[spadl]`` extra (silly-kicks>=4.19.2,<5) is the single source
+    The wheel's ``[spadl]`` extra (silly-kicks>=4.20.1,<5) is the single source
     of truth. Trainers install ``luxury-lakehouse[spadl] @ ...wheel`` which
     resolves silly-kicks transitively. uv silently picks a conflicting
     top-level pin over the wheel's transitive pin (verified empirically
@@ -254,7 +254,7 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     )
 
 
-# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 19, 2) ──────────
+# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 20, 1) ──────────
 # Floor advanced 3.30.0 -> 4.0.0 (2026-05-30) to force silly-kicks 4.0.0 everywhere
 # (ET-direction symmetric guard via require_et_direction across all 5
 # per-period-absolute converters; breaking only for ET matches without the flag).
@@ -297,11 +297,14 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
 # cross + synthetic shot; nonEvent voided-event exclusion; is_synthetic provenance column) AND the
 # codebase-wide VAEP owngoal-label fix (own goals counted in scores/concedes/xG for all providers).
 # See silly-kicks ADR-018; lakehouse adoption tracked in project_silly_kicks_413_adoption.
-# Matches the pyproject [spadl] pin `silly-kicks>=4.19.2,<5`.
+# Floor advanced 4.19.2 -> 4.20.1 (2026-06-09) to adopt the SkillCorner converter fixes
+# (period-relative time_seconds; goalkick result via same_team_next), the sportec/IDSSE
+# play_evaluation-driven pass/set-piece results + cross-label fix, and the SGM eps-floor.
+# Matches the pyproject [spadl] pin `silly-kicks>=4.20.1,<5`.
 
 
 def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
-    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 19, 2)`.
+    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 20, 1)`.
 
     Per spec §2.10.5: the runtime check inside `main()` is not directly
     introspectable post-hoc, so we assert the constant. Code review covers
@@ -319,11 +322,11 @@ def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
         if not hasattr(trainer, "_REQUIRED_SK_MIN"):
             missing.append(item)
             continue
-        expected = (4, 19, 2)
+        expected = (4, 20, 1)
         actual = trainer._REQUIRED_SK_MIN
         if actual != expected:
             wrong_value[item] = actual
     assert not missing, (
-        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 19, 2)`: {missing}"
+        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 20, 1)`: {missing}"
     )
-    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 19, 2): {wrong_value}"
+    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 20, 1): {wrong_value}"

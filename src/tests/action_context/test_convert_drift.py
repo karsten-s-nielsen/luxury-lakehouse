@@ -53,4 +53,5 @@ def test_consumed_cols_constants_match() -> None:
     assert new._IDSSE_CONSUMED_COLS == tc_legacy._IDSSE_CONSUMED_COLS
     assert new._METRICA_CONSUMED_COLS == tc_legacy._METRICA_CONSUMED_COLS
     assert new._SKILLCORNER_CONSUMED_COLS == tc_legacy._SKILLCORNER_CONSUMED_COLS
+    assert new._SKILLCORNER_PERIOD_START_SECONDS == tc_legacy._SKILLCORNER_PERIOD_START_SECONDS
     assert new._GS_FRAME_RATE == ac_legacy._GS_FRAME_RATE

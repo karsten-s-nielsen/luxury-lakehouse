@@ -49,3 +49,29 @@ Two further facts surfaced in the Hyrum's-Law sweep:
 - **silly-kicks:** ADR-017 (period-relative `time_seconds` contract + per-period link-coverage guard + `validate_time_base`), shipped 4.12.0. Lakehouse-reviewed (3-round spec + plan review).
 - **ADRs:** ADR-018 (cross-table format contracts), ADR-028 (AC-1 hexagon), ADR-002 §5 (hard-fail-first), ADR-029/035/039 (prior silly-kicks adoptions).
 - **Tests:** `test_gradientsports_spadl.py::test_adapt_time_seconds_is_period_relative` (adapter convention lock — the GS coverage silly-kicks' library tests deliberately omit), `test_time_base_guard.py` (helper + source-level driver sentinel).
+
+## Amendment (2026-06-09): two more provider frame-orientation/time-base contracts (silly-kicks 4.20.1, wheel 0.5.25)
+
+The first post-clean-slate AC-1 test run (`max_units=4`, all providers) surfaced two further provider-frame contracts in the same family as the original GS-actions class. Both were root-caused with reproductions and are fixed in this release.
+
+### A. GradientSports frame ORIENTATION — `home_team_id` dtype contract
+
+**Symptom:** `structural_sgm` (silly-kicks 4.19.2 TF-45 structural pass) blew up to **−88,955,384** on GS data (~3.2% of GS pass/cross rows `|sgm|>1e4`; IDSSE only 0.2%). `structural_sgm = 1/rho_r − 1/rho_p` over a Gaussian defender density; a value ~1e8 means a point was ~90 m from every defender.
+
+**Root cause (reproduced to 0.002%):** the lakehouse passed `home_team_id=int(meta.home_team_id)` to silly-kicks `gradientsports.convert_to_frames(output_convention="ltr")`, while `converter_input.team_id` is a native **string** (`gs_team_side_to_id` maps to native-string ids). The dtype mismatch makes `play_left_to_right`'s `is_home` match **zero** players → every player is labelled `'ltr'` → the per-period LTR flip never fires → GS frames stay mis-oriented in switched-end periods (P2/P4: the *defending* home team sits at high x instead of being flipped to low x). `structural_pass` is the only metric that mirrors defenders into the action's attack-positive frame (`105−x` iff acting team is away); on the mis-oriented frame that mirror sends defenders ~90 m off → the SGM blow-up. (DAS/OBSO/etc. on the same frame are mis-oriented too, but silently — SGM merely *exploded* and made it visible.) Decisive test: `home_team_id=int(366)` → sgm −88,953,820 (matches prod); `home_team_id=str("366")` → sgm −0.1 (sane).
+
+**Decision:** pass `home_team_id` to GS `convert_to_frames` in the SAME dtype as the frame `team_id` — the native **string** (`meta.home_team_id`, declared `str`), identical to the IDSSE/Sportec branch, which was always correct. silly-kicks' GS `convert_to_frames` annotates `home_team_id: int` (inconsistent with its own sportec converter) — that annotation is wrong; a justified `# type: ignore[arg-type]` documents it. Regression test `test_gradientsports_frame_orientation.py` asserts home attacks +x in every period (fails on the `int()` cast).
+
+**Consequence:** **all GS tracking metrics** (not just SGM) were mis-oriented for switched-end periods (P2/P4) — re-validate + recompute GS AC after deploy. IDSSE/Metrica/SkillCorner were unaffected (they pass a string `home_team_id`). silly-kicks 4.20.1 also adds an SGM eps-floor (`_RHO_FLOOR`) as defense-in-depth (bounds `1/rho` regardless).
+
+### B. SkillCorner frame TIME-BASE — period-relative re-base (the mirror image of the original class)
+
+**Context:** silly-kicks 4.20.1 fixed a SkillCorner converter bug — its SPADL `time_seconds` was the continuous broadcast clock (2nd half = 45:00+), now re-based to PERIOD-RELATIVE (`skillcorner.py _PERIOD_START_SECONDS`). Our `bronze.skillcorner_tracking` frames carry the **absolute** broadcast clock (parsed from `HH:MM:SS`). With actions now period-relative and frames still absolute, the action↔frame linker would collapse in the 2nd half+ — the **mirror image** of the original GS class (there: actions absolute, frames period-relative; here: actions period-relative, frames absolute).
+
+**Decision:** `_bronze_skillcorner_to_frames` (BOTH the AC hexagon copy in `convert.py` and the legacy `tracking_context.py` copy, kept identical by `test_convert_drift.py`) subtracts the nominal period-start offset (`_SKILLCORNER_PERIOD_START_SECONDS`, mirroring silly-kicks exactly: `{1:0, 2:2700, 3:5400, 4:6300, 5:7200}`) from frame `time_seconds`. Velocity is unaffected (derived per-period from `dt = 1/frame_rate`, never from `time_seconds`). Regression test `test_skillcorner_frame_time_base.py` asserts P2 frames reset to ~0.
+
+**Consequence:** SkillCorner AC is now **unblocked** from the original ADR-040 work-unit guard (its actions are period-relative on 4.20.1, so the guard passes) once frames are re-based. SkillCorner SPADL also changed on 4.20.1 (period-relative time + goalkick result via `same_team_next`) → SkillCorner needs SPADL re-convert + VAEP re-score, alongside IDSSE (sportec `play_evaluation`-driven pass/set-piece results + cross-label fix). These drive a SPADL re-convert + **VAEP champion v8 retrain** (the corrected providers are intentionally in the training corpus) + full re-score, post-deploy.
+
+**Goldens:** the IDSSE J03WMX p1 full + mini goldens are **value- and byte-identical** under 4.20.1 (regenerated + diff-reviewed): healthy full-tracking IDSSE never triggers the SGM eps-floor, and the SPADL-layer changes don't touch the AC enrichment that runs on frozen actions.
+
+**Related:** the SGM blow-up root-cause + reproductions are in project memory `project_gs_home_team_id_orientation_bug`; silly-kicks 4.20.1 release (SkillCorner time/goalkick, sportec/IDSSE play_evaluation results + cross fix, SGM eps-floor).
