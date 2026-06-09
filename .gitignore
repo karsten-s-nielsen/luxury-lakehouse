@@ -40,6 +40,8 @@ artifacts/
 /phase*.pid
 /stage*_retrain.log
 /stage*_retrain.pid
+# dbt writes ./logs/dbt.log at repo root when run from here (standalone dbt CLI).
+/logs/
 
 # Local scratch directory for mocks, previews, and throwaway experiments.
 # Contents are intentionally untracked — nothing here ships.
