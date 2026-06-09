@@ -133,6 +133,7 @@ uv run pytest src/tests/ -v    # Unit tests
 - **Avoid `SELECT DISTINCT` on large tables**: Use recursive CTE "loose index scan" pattern instead. `SELECT DISTINCT` forces a full sequential scan; the recursive CTE performs O(k × log n) index lookups for k distinct values.
 - **Dimension tables don't need custom indexes**: Tables under ~50K rows with PK lookups perform well with sequential scans. Only index fact tables.
 - **Verify with EXPLAIN ANALYZE**: After creating indexes, confirm Index Scan (not Seq Scan) on all fact tables via `scripts/create_indexes.py --verify`.
+- **Re-deriving a TRIGGERED-synced mart ([ADR-043](docs/superpowers/adrs/ADR-043-strand-safe-synced-rederive.md))**: never `dbt --full-refresh` it directly (strands the synced table; the `on-run-start` tripwire now aborts any `--full-refresh` selecting a TRIGGERED mart — including the mega-job `dbt_full_refresh=true` parameter on stages 2/3). Use `uv run --extra sdk python scripts/rederive_synced_marts.py --select <sel> [--provider P | --match-ids …]` — D marts MERGE-reprocess (no downtime), `table` marts plain-rebuild (no downtime), other TRIGGERED marts delete→full-refresh→recreate; `--rebuild` full-rebuilds a D mart for a schema/contract change. The TRIGGERED set lives in BOTH `SYNCED_TABLES` (`src/ingestion/refresh_synced_tables.py`) and the `triggered_synced_marts` var in `dbt_project.yml` — parity enforced by `src/tests/test_strand_safe_rederive.py`.
 
 ### Databricks (PySpark / Delta Lake)
 

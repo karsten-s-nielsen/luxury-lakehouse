@@ -26,18 +26,52 @@ _MARTS_DIR = _REPO / "dbt_project" / "models" / "marts"
 # The 4-tag taxonomy. Every mart declares exactly one.
 _CLASSIFICATION_TAGS: frozenset[str] = frozenset({"dimension", "input_mart", "intermediate_mart", "output_mart"})
 
-# Matches the entire `{{ config(...) }}` block. Captures the body (kwargs).
-# Lazy-matches the body so the first `) }}` closes the block. Tolerates
-# nested braces inside kwargs (e.g. ``meta={'contains_pii': False}``).
-_CONFIG_BLOCK_RE = re.compile(
-    r"\{\{\s*config\s*\((.+?)\)\s*\}\}",
-    re.DOTALL,
-)
+# Locates the opening of the `{{ config(...) }}` block. The matching close is
+# found by _config_body (a quote/paren-aware scan), NOT a lazy regex: a kwarg
+# value may itself contain `) }}` — e.g. a macro pre_hook
+# `pre_hook="{{ reprocess_delete_hook('match_id') }}"` (ADR-043) — which a lazy
+# `\(.+?\)\s*}}` would wrongly treat as the block close, truncating the body
+# before `tags=[...]`.
+_CONFIG_OPEN_RE = re.compile(r"\{\{\s*config\s*\(")
 # Matches the `tags=[...]` kwarg inside the config body and captures the
 # list contents.
 _TAGS_KWARG_RE = re.compile(r"\btags\s*=\s*\[([^\]]*)\]", re.DOTALL)
 # Matches a quoted tag literal inside the captured tags list.
 _TAG_LITERAL_RE = re.compile(r"['\"]([^'\"]+)['\"]")
+
+
+def _config_body(text: str) -> str | None:
+    """Return the kwargs body of the `{{ config(...) }}` block, or None.
+
+    Quote- and paren-aware scan: tracks string literals and paren depth so the
+    `)` that closes `config(` is found at depth 0 outside any quote. This is
+    robust to kwarg values containing `)`/`) }}` (macro pre_hooks, `contract=(...)`),
+    which a naive lazy regex would mishandle.
+    """
+    m = _CONFIG_OPEN_RE.search(text)
+    if not m:
+        return None
+    depth = 1
+    quote: str | None = None
+    out: list[str] = []
+    for ch in text[m.end() :]:
+        if quote is not None:
+            if ch == quote:
+                quote = None
+            out.append(ch)
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            out.append(ch)
+            continue
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return "".join(out)
+        out.append(ch)
+    return "".join(out)
 
 
 def _extract_tags(sql_path: Path) -> set[str]:
@@ -47,11 +81,10 @@ def _extract_tags(sql_path: Path) -> set[str]:
     block has no `tags=` kwarg (either case is treated as a missing
     classification - the file fails the assertion).
     """
-    text = sql_path.read_text(encoding="utf-8")
-    config_match = _CONFIG_BLOCK_RE.search(text)
-    if not config_match:
+    body = _config_body(sql_path.read_text(encoding="utf-8"))
+    if body is None:
         return set()
-    tags_match = _TAGS_KWARG_RE.search(config_match.group(1))
+    tags_match = _TAGS_KWARG_RE.search(body)
     if not tags_match:
         return set()
     return set(_TAG_LITERAL_RE.findall(tags_match.group(1)))

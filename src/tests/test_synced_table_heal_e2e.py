@@ -183,3 +183,131 @@ def test_heal_resets_checkpoint_and_resumes_incremental_cdf() -> None:
         ports.writer.sdk_delete(fqn)
         ports.ghost.drop_pg_ghost(_SCHEMA, _SYNCED)
         sql(f"DROP TABLE IF EXISTS {src}")
+
+
+def test_d_mechanism_delete_insert_keeps_synced_online() -> None:
+    """Positive proof (ADR-043): the D re-derive mechanism — in-place DELETE + INSERT on the
+    SAME source table (no DROP, no CREATE OR REPLACE -> table id unchanged) followed by one
+    incremental CDF refresh — keeps the TRIGGERED synced table SYNCED_TABLE_ONLINE and converges
+    row counts. This is the data-plane guarantee that the D path cannot strand.
+
+    The negative half (a new-id source overwrite DOES strand) is locked by
+    test_heal_resets_checkpoint_and_resumes_incremental_cdf above. This harness never runs dbt,
+    so the on-run-start tripwire is not exercised here (it is proven in the offline dbt-compile
+    path); this test proves only the data-plane mechanism.
+    """
+    from databricks.sdk import WorkspaceClient
+
+    from ingestion.heal_synced_tables import _make_pg_connect, _make_sql_exec
+    from ingestion.refresh_synced_tables import SyncedTableConfig
+    from ingestion.synced_table_lifecycle import PsycopgGhostAdapter, SdkReaderAdapter, SdkWriterAdapter
+
+    ws = WorkspaceClient()
+    sql = _make_sql_exec(ws)
+    reader = SdkReaderAdapter(ws)
+    writer = SdkWriterAdapter(ws)
+    # m1: unique throwaway names so this test never collides with the heal test under pytest-xdist.
+    src_name = "fct_heal_e2e_d_src"
+    synced_name = "fct_heal_e2e_d_src_synced"
+    cfg = SyncedTableConfig(synced_name, src_name, ("id",), "TRIGGERED", schema_override=_SCHEMA)
+    fqn = f"{_CATALOG}.{_SCHEMA}.{synced_name}"
+    src = f"{_CATALOG}.{_SCHEMA}.{src_name}"
+
+    try:
+        sql(f"CREATE SCHEMA IF NOT EXISTS {_CATALOG}.{_SCHEMA}")
+        sql(f"CREATE OR REPLACE TABLE {src} (id BIGINT) TBLPROPERTIES ('delta.enableChangeDataFeed' = 'true')")
+        sql(f"INSERT INTO {src} VALUES (1), (2), (3)")
+        writer.create_synced_table(cfg, _CATALOG, _SCHEMA)
+        assert writer.wait_until_online(fqn, timeout_s=900) == "SYNCED_TABLE_ONLINE"
+
+        # Commit a streaming offset (the precondition that makes an overwrite strand).
+        pid = reader.get_pipeline_id(fqn)
+        sql(f"INSERT INTO {src} VALUES (4)")
+        writer.trigger_refresh(pid)
+        assert writer.wait_until_online(fqn, timeout_s=600) == "SYNCED_TABLE_ONLINE"
+
+        # D mechanism: in-place DELETE + re-INSERT on the SAME table (no DROP/REPLACE).
+        sql(f"DELETE FROM {src} WHERE id IN (2, 4)")
+        sql(f"INSERT INTO {src} VALUES (2), (4), (5)")
+        writer.trigger_refresh(reader.get_pipeline_id(fqn))
+        # Must stay ONLINE (no strand) — the table id never changed.
+        assert writer.wait_until_online(fqn, timeout_s=600) == "SYNCED_TABLE_ONLINE"
+
+        conn = _make_pg_connect(ws)()
+        try:
+            with conn.cursor() as cur:
+                # B-2 fix: query synced_name (this test's table), NOT the module _SYNCED (the heal test's).
+                cur.execute(f'SELECT count(*) FROM {_SCHEMA}."{synced_name}"')
+                row = cur.fetchone()
+                assert row is not None and row[0] == 5, "D-mechanism CDF did not converge row count (1,2,3,4,5)"
+        finally:
+            conn.close()
+    finally:
+        writer.sdk_delete(fqn)
+        PsycopgGhostAdapter(_make_pg_connect(ws)).drop_pg_ghost(_SCHEMA, synced_name)
+        sql(f"DROP TABLE IF EXISTS {src}")
+
+
+def test_t_mechanism_create_or_replace_keeps_synced_online() -> None:
+    """Positive proof (ADR-043, T action): a plain `CREATE OR REPLACE TABLE … AS SELECT` (what dbt's
+    `table` materialization emits for fct_pausa_values / fct_space_creation) — an atomic full replace
+    that keeps the Delta table id — followed by one incremental CDF refresh keeps the TRIGGERED synced
+    table SYNCED_TABLE_ONLINE and converges row counts. This regression-locks the load-bearing
+    "create-or-replace is strand-free" claim the T path rests on (symmetric with the D-mechanism proof
+    above; protects against a future DBR/adapter change silently re-stranding the table marts).
+
+    Contrast with test_heal_resets_checkpoint_and_resumes_incremental_cdf, which uses DROP+CREATE (a NEW
+    table id) to *reproduce* a strand — here a CREATE OR REPLACE (same id) must NOT strand.
+    """
+    from databricks.sdk import WorkspaceClient
+
+    from ingestion.heal_synced_tables import _make_pg_connect, _make_sql_exec
+    from ingestion.refresh_synced_tables import SyncedTableConfig
+    from ingestion.synced_table_lifecycle import PsycopgGhostAdapter, SdkReaderAdapter, SdkWriterAdapter
+
+    ws = WorkspaceClient()
+    sql = _make_sql_exec(ws)
+    reader = SdkReaderAdapter(ws)
+    writer = SdkWriterAdapter(ws)
+    src_name = "fct_heal_e2e_t_src"
+    synced_name = "fct_heal_e2e_t_src_synced"
+    cfg = SyncedTableConfig(synced_name, src_name, ("id",), "TRIGGERED", schema_override=_SCHEMA)
+    fqn = f"{_CATALOG}.{_SCHEMA}.{synced_name}"
+    src = f"{_CATALOG}.{_SCHEMA}.{src_name}"
+
+    try:
+        sql(f"CREATE SCHEMA IF NOT EXISTS {_CATALOG}.{_SCHEMA}")
+        sql(f"CREATE OR REPLACE TABLE {src} (id BIGINT) TBLPROPERTIES ('delta.enableChangeDataFeed' = 'true')")
+        sql(f"INSERT INTO {src} VALUES (1), (2), (3)")
+        writer.create_synced_table(cfg, _CATALOG, _SCHEMA)
+        assert writer.wait_until_online(fqn, timeout_s=900) == "SYNCED_TABLE_ONLINE"
+
+        # Commit a streaming offset (the precondition that makes a NEW-id overwrite strand).
+        pid = reader.get_pipeline_id(fqn)
+        sql(f"INSERT INTO {src} VALUES (4)")
+        writer.trigger_refresh(pid)
+        assert writer.wait_until_online(fqn, timeout_s=600) == "SYNCED_TABLE_ONLINE"
+
+        # T mechanism: atomic CREATE OR REPLACE TABLE ... AS SELECT (same id, full replace) — exactly
+        # what dbt's table materialization does for the 2 table marts. Must NOT strand.
+        sql(
+            f"CREATE OR REPLACE TABLE {src} TBLPROPERTIES ('delta.enableChangeDataFeed' = 'true') "
+            "AS SELECT * FROM VALUES (1),(2),(3),(4),(5) AS t(id)"
+        )
+        writer.trigger_refresh(reader.get_pipeline_id(fqn))
+        assert writer.wait_until_online(fqn, timeout_s=600) == "SYNCED_TABLE_ONLINE", (
+            "CREATE OR REPLACE stranded the synced table — the T path's strand-safe assumption no longer holds"
+        )
+
+        conn = _make_pg_connect(ws)()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(f'SELECT count(*) FROM {_SCHEMA}."{synced_name}"')
+                row = cur.fetchone()
+                assert row is not None and row[0] == 5, "T-mechanism CDF did not converge row count (1,2,3,4,5)"
+        finally:
+            conn.close()
+    finally:
+        writer.sdk_delete(fqn)
+        PsycopgGhostAdapter(_make_pg_connect(ws)).drop_pg_ghost(_SCHEMA, synced_name)
+        sql(f"DROP TABLE IF EXISTS {src}")

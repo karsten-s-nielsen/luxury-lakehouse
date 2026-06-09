@@ -7,6 +7,12 @@ flags:
 
 profile: databricks
 
+# ── Strand-safe re-derive tripwire (ADR-043) ──────────────────────────────
+# Aborts any `--full-refresh` that selects a TRIGGERED synced-table source mart
+# (it strands the Lakebase synced table). Operators use scripts/rederive_synced_marts.py.
+on-run-start:
+  - "{{ assert_no_triggered_full_refresh() }}"
+
 model-paths: ["models"]
 test-paths: ["tests"]
 macro-paths: ["macros"]
@@ -99,3 +105,23 @@ vars:
   frame_duration_seconds: 0.04       # 1/25fps — legacy Metrica-only tracking interval
   goal_width: 8                      # yards — standard goal width (IFAB Laws of the Game)
   minutes_per_match: 90              # standard match length for per-90 normalization
+  # ── Strand-safe re-derive registry (ADR-043) ───────────────────────────
+  # TRIGGERED synced-table source marts (dbt MODEL names, not the _synced names).
+  # The on-run-start tripwire (assert_no_triggered_full_refresh) refuses a
+  # --full-refresh that selects any of these unless scripts/rederive_synced_marts.py
+  # passes allow_triggered_full_refresh. Parity with SYNCED_TABLES is enforced by
+  # src/tests/test_strand_safe_rederive.py — add a TRIGGERED entry to BOTH places or CI fails.
+  triggered_synced_marts:
+    - fct_action_values
+    - fct_passes
+    - fct_player_embeddings
+    - fct_tracking_frames
+    - fct_defensive_values
+    - fct_defcon_actions
+    - fct_defcon_pressure
+    - fct_line_breaking_results
+    - fct_off_ball_xt
+    - fct_tracking_shape_timeline
+    - fct_action_context
+    - fct_space_creation
+    - fct_pausa_values

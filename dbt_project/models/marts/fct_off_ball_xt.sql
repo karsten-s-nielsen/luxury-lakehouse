@@ -3,6 +3,7 @@
     incremental_strategy='merge',
     unique_key='off_ball_xt_id',
     on_schema_change='append_new_columns',
+    pre_hook="{{ reprocess_delete_hook('match_id') }}",
     liquid_clustered_by=['match_key'],
     tags=['marts', 'output_mart'],
     tblproperties={
@@ -35,7 +36,7 @@ off_ball_xt as (
 
     select * from {{ ref('stg_off_ball_xt__results') }}
     {% if is_incremental() %}
-    where match_id not in (select match_id from existing_matches)
+    where (match_id not in (select match_id from existing_matches) {{ reprocess_predicate('match_id') }})
     {% endif %}
 
 ),
