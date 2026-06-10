@@ -15,7 +15,9 @@ uncaught. The mini-golden recompute closes that gap with a ~30s always-on test. 
 Slice
 -----
 Frames in ``[TS_LO, TS_HI]`` s; actions in ``[ACT_LO, ACT_HI]`` s (a 3-action block whose every
-action carries non-NaN DAS + ghost-GK, so a shift in either is caught). ~2-batch frame window
+action carries non-NaN DAS + ghost-GK, so a shift in either is caught). 426-frame window
+(2 batches at the original 250; a single batch since ADR-047's 2500 — the regen at 2500
+reproduced the frozen golden byte-identical, so the gate is batch-size-robust for this slice)
 with margin for actor-pre-window + DAS carrier hysteresis. The golden is frozen from the same
 slice, so it is self-consistent: window-edge truncation of cross-frame/cross-action deps is
 irrelevant — a library/algorithm change diverges the RECOMPUTE from the FROZEN golden.

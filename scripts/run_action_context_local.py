@@ -5,7 +5,7 @@ Databricks serverless (it hangs silently inside ``applyInPandas`` — see
 project memory ``ac1-serverless-hang-open``). The hexagonal architecture
 (ADR-028) lets us run the IDENTICAL pure-pandas enrichment locally: read bronze
 from Databricks via the SDK Statement Execution API, run ``run_work_unit`` (the
-same ``enrich_batch`` 250-frame loop production dispatches via Spark groupBy),
+same ``enrich_batch`` frame-batch loop production dispatches via Spark groupBy),
 and write the result back to the real ``bronze.spadl_action_context`` table.
 
 Two wins in one:

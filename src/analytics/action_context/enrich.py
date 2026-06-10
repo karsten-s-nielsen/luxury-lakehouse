@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 _GHOST_GK_MODEL_CACHE: dict[str, Any] = {}
 """Process-local Ghost-GK model singleton (ADR-045). Passing ``model="default"`` (a
 string) to silly-kicks ``add_ghost_gk`` makes it re-resolve + re-load the ~12 MB weights
-from disk on EVERY call — once per 250-frame batch, ~8% of measured per-half wall (plus
+from disk on EVERY call — once per frame batch, ~8% of measured per-half wall (plus
 one sklearn-provenance warning per batch). This is the databricks-serverless.md "Model
 loading on executors" convention: Spark reuses Python worker processes across groups,
 so the instance loads once per executor process and is reused by every batch."""
@@ -127,7 +127,7 @@ def _fill_possession_from_set_piece_actions(
 
     SPADL set-piece restart actions (throw-in, free-kick, corner, goal-kick,
     penalty) have unambiguous possession from ``action.team_id`` even when the
-    surrounding 250-frame window is entirely dead-ball and ``infer_ball_carrier``
+    surrounding frame-batch window is entirely dead-ball and ``infer_ball_carrier``
     returns no carrier. Without this fill, silly-kicks' ``add_das`` (3.30.0+)
     correctly returns NaN for dead-ball-linked actions — honest but
     information-poor. This helper supplies the missing possession signal so
@@ -228,7 +228,7 @@ def _enrich_tracking_match(
 
     # Step 1: Frame linkage — computed ONCE; links passed to every add_* call.
     # on_low_coverage="ignore": silly-kicks 4.12.0 (ADR-017) added a warn-by-default per-period
-    # low-coverage guard, but THIS call is per-250-frame batch — enrich_batch already pre-filters
+    # low-coverage guard, but THIS call is per-frame-batch — enrich_batch already pre-filters
     # actions to the batch's frame time-window and M13 drops cross-batch actions, so a sub-1.0
     # link rate here is expected and benign. The real time-base guard runs ONCE per work unit at
     # the driver entry (assert_work_unit_time_base, ADR-040); keep this bit-identical to pre-4.12.0

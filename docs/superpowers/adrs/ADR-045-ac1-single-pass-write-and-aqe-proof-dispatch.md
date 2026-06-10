@@ -108,7 +108,8 @@ Five value-neutral changes (goldens MUST stay byte-identical):
 
 - **ADRs:** ADR-037 (worker-drain fan-out), ADR-038 (commit retry — why post-write
   replaceWhere count is safe), ADR-035 (ghost-GK backend), ADR-031 (rendezvous markers —
-  the instrument that measured concurrency), ADR-044 (executor env-drift guard)
+  the instrument that measured concurrency), ADR-044 (executor env-drift guard),
+  ADR-047 (closes the deferred Tier C: `_FRAME_BATCH_SIZE` 250 → 2500)
 - **Code:** `ingestion/utils.py`, `ingestion/action_context.py`,
   `ingestion/exec_visibility.py`, `analytics/action_context/{enrich,pipeline}.py`
 - **Tests:** `src/tests/action_context/test_adr045_perf.py`,
