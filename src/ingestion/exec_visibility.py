@@ -340,6 +340,20 @@ def executor_marker(rendezvous_dir: str | None, *, seq: str, payload: str) -> bo
         return False
 
 
+_ENVFP_EMITTED = False
+"""Process-local one-shot latch for :func:`executor_env_fingerprint` (ADR-045). The
+docstring always promised "one-shot", but the function was called once per
+``applyInPandas`` batch with no guard — full env introspection + a socket probe + a
+UC-Volume FUSE write x ~300 batches per half. Spark reuses Python worker processes
+across groups, so one fingerprint per process retains the full diagnostic value."""
+
+
+def reset_executor_env_fingerprint() -> None:
+    """Reset the one-shot fingerprint latch (test-only seam)."""
+    global _ENVFP_EMITTED
+    _ENVFP_EMITTED = False
+
+
 def executor_env_fingerprint(rendezvous_dir: str | None, *, seq: str) -> bool:
     """Write a one-shot executor-environment fingerprint marker at UDF entry.
 
@@ -360,8 +374,10 @@ def executor_env_fingerprint(rendezvous_dir: str | None, *, seq: str) -> bool:
     proves or disproves). Best-effort: never raises. Returns True if the marker
     file was written.
     """
-    if not rendezvous_dir:
+    global _ENVFP_EMITTED
+    if _ENVFP_EMITTED or not rendezvous_dir:
         return False
+    _ENVFP_EMITTED = True
     import importlib
     import json
     import multiprocessing

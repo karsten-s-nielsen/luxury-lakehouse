@@ -75,5 +75,5 @@ exemptions:
     reason: "StatsBomb freeze-frame events from `stg_statsbomb__events` (~400K rows, filtered to Shot/GoalKeeper types). Bounded by StatsBomb event volume. Counterpart of PEP 723 `scripts/publish_freeze_frame_hf.py`."
 
   - file: src/ingestion/action_context.py
-    line: 1683
+    line: 1754
     reason: "`profile_action_context` observability path only (never the daily for_each job). `trk_sdf` is pre-filtered to ONE match_id upstream (per-provider branch in `_process_tracking_match`), so this pulls a single match's tracking (~150–300 MB; skillcorner ~1.3M rows, IDSSE ~1.5M rows) to the 16 GB driver for single-process cProfile. Bounded by one-match grain."

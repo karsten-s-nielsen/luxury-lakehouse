@@ -282,46 +282,79 @@ class TestValidateDataframe:
 
 
 class TestWriteDeltaTable:
-    """Tests for write_delta_table with mocked Spark."""
+    """Tests for write_delta_table with mocked Spark — single-pass contract (ADR-045).
 
-    @patch("ingestion.utils.add_audit_columns", side_effect=lambda df: df)
-    def test_write_with_default_mode(self, _mock_audit: MagicMock) -> None:
+    Counting the SOURCE DataFrame before the write executes the upstream DAG twice
+    (once for count(), once for saveAsTable()) — for the AC-1 applyInPandas chain that
+    doubled per-half wall-clock. The contract: when the written slice is identifiable
+    post-write (replaceWhere / full overwrite), count the MATERIALIZED Delta slice;
+    only bare-append without a caller row_count still pre-counts the source.
+    """
+
+    @staticmethod
+    def _make_mock_df(source_count: int = 999, written_count: int = 42) -> MagicMock:
         mock_df = MagicMock()
-        mock_df.count.return_value = 42
+        mock_df.count.return_value = source_count
         mock_writer = MagicMock()
         mock_df.write = mock_writer
         mock_writer.format.return_value = mock_writer
         mock_writer.option.return_value = mock_writer
         mock_writer.mode.return_value = mock_writer
+        post = mock_df.sparkSession.table.return_value
+        post.count.return_value = written_count
+        post.where.return_value.count.return_value = written_count
+        return mock_df
+
+    @patch("ingestion.utils.add_audit_columns", side_effect=lambda df: df)
+    def test_overwrite_counts_target_not_source(self, _mock_audit: MagicMock) -> None:
+        """Default mode (full overwrite): row count comes from the materialized table —
+        the source DataFrame is never counted (no double DAG execution)."""
+        mock_df = self._make_mock_df(written_count=42)
 
         row_count = write_delta_table(mock_df, "cat", "sch", "tbl")
         assert row_count == 42
-        mock_writer.mode.assert_called_with("overwrite")
-        mock_writer.saveAsTable.assert_called_with("cat.sch.tbl")
+        mock_df.count.assert_not_called()
+        mock_df.sparkSession.table.assert_called_once_with("cat.sch.tbl")
+        mock_df.write.mode.assert_called_with("overwrite")
+        mock_df.write.saveAsTable.assert_called_with("cat.sch.tbl")
 
     @patch("ingestion.utils.add_audit_columns", side_effect=lambda df: df)
-    def test_write_with_replace_where(self, _mock_audit: MagicMock) -> None:
-        mock_df = MagicMock()
-        mock_df.count.return_value = 10
-        mock_writer = MagicMock()
-        mock_df.write = mock_writer
-        mock_writer.format.return_value = mock_writer
-        mock_writer.option.return_value = mock_writer
-        mock_writer.mode.return_value = mock_writer
+    def test_replace_where_counts_target_slice(self, _mock_audit: MagicMock) -> None:
+        """replaceWhere: the predicate delimits exactly the written slice — count THAT
+        post-write, never the source."""
+        mock_df = self._make_mock_df(written_count=10)
 
         row_count = write_delta_table(mock_df, "cat", "sch", "tbl", replace_where="id = 1")
         assert row_count == 10
-        mock_writer.mode.assert_called_with("overwrite")
+        mock_df.count.assert_not_called()
+        mock_df.sparkSession.table.assert_called_once_with("cat.sch.tbl")
+        mock_df.sparkSession.table.return_value.where.assert_called_once_with("id = 1")
+        mock_df.write.mode.assert_called_with("overwrite")
+
+    @patch("ingestion.utils.add_audit_columns", side_effect=lambda df: df)
+    def test_append_without_row_count_precounts_source(self, _mock_audit: MagicMock) -> None:
+        """Bare append without a caller row_count: appended rows are not identifiable in
+        the target afterwards, so the legacy pre-write source count is unavoidable."""
+        mock_df = self._make_mock_df(source_count=7)
+
+        row_count = write_delta_table(mock_df, "cat", "sch", "tbl", mode="append")
+        assert row_count == 7
+        mock_df.count.assert_called_once()
+        mock_df.sparkSession.table.assert_not_called()
+
+    @patch("ingestion.utils.add_audit_columns", side_effect=lambda df: df)
+    def test_caller_row_count_skips_all_counts(self, _mock_audit: MagicMock) -> None:
+        """A caller-supplied row_count short-circuits BOTH count paths."""
+        mock_df = self._make_mock_df()
+
+        row_count = write_delta_table(mock_df, "cat", "sch", "tbl", replace_where="id = 1", row_count=5)
+        assert row_count == 5
+        mock_df.count.assert_not_called()
+        mock_df.sparkSession.table.assert_not_called()
 
     @patch("ingestion.utils.add_audit_columns", side_effect=lambda df: df)
     def test_logs_row_count(self, _mock_audit: MagicMock) -> None:
-        mock_df = MagicMock()
-        mock_df.count.return_value = 100
-        mock_writer = MagicMock()
-        mock_df.write = mock_writer
-        mock_writer.format.return_value = mock_writer
-        mock_writer.option.return_value = mock_writer
-        mock_writer.mode.return_value = mock_writer
+        mock_df = self._make_mock_df(written_count=100)
         mock_logger = MagicMock()
 
         write_delta_table(mock_df, "cat", "sch", "tbl", logger=mock_logger)

@@ -1,7 +1,8 @@
 """AC-1 — Unified action context pipeline.
 
 Reads SPADL actions + tracking data from bronze, runs the full silly-kicks
-enrichment chain in a single applyInPandas pass per match, writes results to
+enrichment chain in a single Spark UDF pass per match (mapInPandas streaming-group
+dispatch, ADR-045), writes results to
 bronze.spadl_action_context.
 
 Providers: ALL (StatsBomb, Wyscout, IDSSE, Metrica, SkillCorner, GradientSports).
@@ -15,7 +16,7 @@ from __future__ import annotations
 import argparse
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
@@ -61,6 +62,16 @@ _TABLE_NAME = "spadl_action_context"
 # IDSSE (match_id, period) groups are 1.5M-1.7M rows -- exceeds the 1 GB
 # Databricks serverless UDF group cap. Sub-batch by frame number.
 _FRAME_BATCH_SIZE = 250
+
+# ── UDF stage parallelism (ADR-045) ───────────────────────────────────
+# groupBy().applyInPandas lets AQE coalesce the shuffle by BYTES (~64 MB advisory),
+# blind to Python-UDF cost: a Metrica half (~286 groups, ~60 MB) coalesced to ONE
+# task — strictly serial enrichment (measured concurrency 1.00 from rendezvous
+# markers; GS's bigger rows got 3-4). repartition(N, keys) with an EXPLICIT N is
+# exempt from AQE coalescing, so the mapInPandas dispatch below gets deterministic
+# stage parallelism. 64 tasks ≈ 4-6 groups each at ~300 groups/half — small enough
+# for serverless autoscale to spread, large enough to amortize task overhead.
+_UDF_SHUFFLE_PARTITIONS = 64
 
 # Tolerance (seconds) for buffering actions at batch edges.
 _ACTION_TIME_BUFFER_SECONDS = 0.5
@@ -261,6 +272,57 @@ def _bronze_gradientsports_to_converter_input(
 # ── UDF factory ───────────────────────────────────────────────────────
 
 
+def _make_streaming_group_mapper(
+    udf_fn: Callable[[pd.DataFrame], pd.DataFrame],
+    key_cols: list[str],
+) -> Callable[[Iterator[pd.DataFrame]], Iterator[pd.DataFrame]]:
+    """Adapt a per-group pandas UDF to a ``mapInPandas`` iterator over key-sorted partitions.
+
+    ADR-045: the ``groupBy().applyInPandas`` shuffle is subject to AQE bytes-based
+    coalescing, which packed a Metrica half's ~286 Python-heavy groups into ONE task
+    (measured concurrency 1.00). The replacement dispatch is
+    ``repartition(_UDF_SHUFFLE_PARTITIONS, *keys).sortWithinPartitions(*keys)
+    .mapInPandas(this_mapper, schema)`` — the explicit partition count is exempt from
+    AQE coalescing, so stage parallelism is deterministic.
+
+    ``sortWithinPartitions`` guarantees each group's rows are CONTIGUOUS within the
+    partition, but Arrow chunking (``spark.sql.execution.arrow.maxRecordsPerBatch``,
+    default 10k rows) may split a group across consecutive chunks. The mapper streams
+    chunks, emits every complete group through ``udf_fn``, and carries the
+    possibly-incomplete tail group into the next chunk; the final carry flushes at
+    iterator exhaustion. Each ``udf_fn`` invocation receives exactly the rows
+    ``applyInPandas`` would have passed for that group (index reset, all columns).
+    """
+
+    def _mapper(chunks: Iterator[pd.DataFrame]) -> Iterator[pd.DataFrame]:
+        import pandas as _pd
+
+        carry: pd.DataFrame | None = None
+        for chunk in chunks:
+            if carry is not None and len(carry):
+                chunk = _pd.concat([carry, chunk], ignore_index=True)
+            carry = None
+            if not len(chunk):
+                continue
+            # Groups are contiguous (sortWithinPartitions); only the LAST group of the
+            # chunk may continue into the next chunk — hold it back as carry.
+            gids = chunk.groupby(key_cols, sort=False).ngroup().to_numpy()
+            tail_mask = gids == gids[-1]
+            carry = chunk[tail_mask].copy()
+            head = chunk[~tail_mask]
+            if len(head):
+                for _, group in head.groupby(key_cols, sort=False):
+                    out = udf_fn(group.reset_index(drop=True))
+                    if out is not None and len(out):
+                        yield out
+        if carry is not None and len(carry):
+            out = udf_fn(carry.reset_index(drop=True))
+            if out is not None and len(out):
+                yield out
+
+    return _mapper
+
+
 def _make_action_context_udf(
     provider: str,
     home_team_id: str,
@@ -278,7 +340,8 @@ def _make_action_context_udf(
     exec_rendezvous_dir: str | None = None,
     kde_backend: str = "fft-cic",
 ) -> Callable[[pd.DataFrame], pd.DataFrame]:
-    """Build the applyInPandas UDF closure for action context enrichment.
+    """Build the per-group pandas UDF closure for action context enrichment
+    (dispatched via ``_make_streaming_group_mapper`` + ``mapInPandas``, ADR-045).
 
     All arguments are Python scalar primitives or small serializable structures.
     GradientSports-specific args (gs_*) are only needed for that provider.
@@ -564,7 +627,9 @@ class _ActionContextGuard:
     MEMORY NOTE — per-unit isolation (why a worker can drain many units in one
     persistent driver): each unit runs a SEPARATE ``applyInPandas`` pass and frees
     memory between units (``_process_*`` loops one match at a time). Per-group memory
-    is bounded by ``_FRAME_BATCH_SIZE`` (250 frames, ~200 MB); concurrent executor
+    is bounded by ``_FRAME_BATCH_SIZE`` (250 frames x ~23 rows/frame = ~5,750 rows,
+    ~1-3 MB — measured 2026-06-09, ADR-045; the cap exists for legacy whole-period
+    groups, not these sub-batches); concurrent executor
     pressure is bounded by the for_each ``concurrency`` == ``_N_DRAIN_WORKERS``.
     """
 
@@ -1512,9 +1577,19 @@ def _process_tracking_match(
 
     # GradientSports uses "period" (not "period_id") in bronze
     hb.set_phase("applyInPandas_build_dag")
-    result_sdf = trk_sdf.groupBy("match_id", "period", "frame_batch_id").applyInPandas(
-        udf_fn,
-        schema=_get_result_schema(),
+    # ADR-045: repartition with an EXPLICIT N (exempt from AQE bytes-based coalescing) +
+    # sortWithinPartitions (groups contiguous) + mapInPandas (streaming per-group dispatch)
+    # replaces groupBy().applyInPandas, whose shuffle AQE coalesced to ~1 task for a whole
+    # Metrica half (measured concurrency 1.00 → strictly serial enrichment). Same udf_fn,
+    # same per-group inputs, same output schema — only the task topology changes.
+    _group_keys = ["match_id", "period", "frame_batch_id"]
+    result_sdf = (
+        trk_sdf.repartition(_UDF_SHUFFLE_PARTITIONS, *_group_keys)
+        .sortWithinPartitions(*_group_keys)
+        .mapInPandas(
+            _make_streaming_group_mapper(udf_fn, _group_keys),
+            schema=_get_result_schema(),
+        )
     )
 
     rw = _period_replace_where(match_id, period_filter)
