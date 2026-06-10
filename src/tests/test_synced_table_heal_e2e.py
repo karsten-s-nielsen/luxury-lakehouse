@@ -105,16 +105,22 @@ def _assert_replace_converges_healing_if_stranded(
     healed = False
     while True:
         elapsed = int(time.monotonic() - start)
-        state = reader.get_synced_table_status(fqn)
-        conn = pg_connect()
         try:
-            with conn.cursor() as cur:
-                cur.execute(f'SELECT id FROM {schema}."{table}" ORDER BY id')
-                ids: list[int] | str = [int(r[0]) for r in cur.fetchall()]
-        except Exception as exc:  # heal's delete->recreate window drops the PG relation; record + keep polling
+            state = reader.get_synced_table_status(fqn)
+        except Exception as exc:  # transient control-plane timeout (DeadlineExceeded) — keep polling
+            state = f"<unreadable: {type(exc).__name__}>"
+        ids: list[int] | str
+        try:
+            conn = pg_connect()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(f'SELECT id FROM {schema}."{table}" ORDER BY id')
+                    ids = [int(r[0]) for r in cur.fetchall()]
+            finally:
+                conn.close()
+        # heal's delete->recreate window drops the PG relation / transient connect — keep polling
+        except Exception as exc:
             ids = f"<unreadable: {type(exc).__name__}>"
-        finally:
-            conn.close()
         timeline.append(f"t+{elapsed}s state={state} healed={healed} pg_ids={ids}")
         if ids == expected_ids:
             mode = "via heal (current platform contract)" if healed else "WITHOUT heal"

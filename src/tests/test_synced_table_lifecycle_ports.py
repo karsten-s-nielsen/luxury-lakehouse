@@ -61,3 +61,27 @@ def test_wait_until_online_returns_online_on_settled_state(monkeypatch) -> None:
     adapter = SdkWriterAdapter.__new__(SdkWriterAdapter)
     monkeypatch.setattr(adapter, "_status", lambda fqn: "SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE", raising=False)
     assert adapter.wait_until_online("cat.sch.tbl", timeout_s=600) == "SYNCED_TABLE_ONLINE"
+
+
+def test_wait_until_online_survives_transient_status_errors(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """A poll loop with minutes of budget must NOT die because one poll failed.
+
+    2026-06-10: a single SDK DeadlineExceeded from the control-plane GET killed the heal e2e in
+    setup (and the same transient class failed the maintenance pipeline-id lookup earlier the same
+    day). The wait must record the unreadable poll and keep polling; timeout_s still bounds it.
+    """
+    from ingestion.synced_table_lifecycle import SdkWriterAdapter
+
+    adapter = SdkWriterAdapter.__new__(SdkWriterAdapter)
+    calls = {"n": 0}
+
+    def _flaky_status(fqn: str) -> str:
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise TimeoutError("request failed")  # stand-in for databricks DeadlineExceeded
+        return "SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE"
+
+    monkeypatch.setattr(adapter, "_status", _flaky_status, raising=False)
+    monkeypatch.setattr("ingestion.synced_table_lifecycle.time.sleep", lambda s: None)
+    assert adapter.wait_until_online("cat.sch.tbl", timeout_s=600) == "SYNCED_TABLE_ONLINE"
+    assert calls["n"] == 3  # two failed polls tolerated, third succeeded
