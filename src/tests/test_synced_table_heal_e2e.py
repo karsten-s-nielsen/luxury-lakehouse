@@ -58,6 +58,78 @@ _SYNCED = "fct_heal_e2e_src_synced"
 _UPDATE_COMPLETED = "COMPLETED"
 
 
+def _assert_replace_converges_without_strand(
+    *,
+    ws: Any,
+    reader: Any,
+    fqn: str,
+    pipeline_id: str,
+    schema: str,
+    table: str,
+    expected_ids: list[int],
+    deadline_s: int = 1800,
+    poll_s: int = 20,
+) -> None:
+    """Converge-or-strand wait for the T-mechanism (2026-06-10 re-design).
+
+    The load-bearing ADR-043 claim is "CREATE OR REPLACE does not STRAND the synced table" —
+    NOT "the table settles to NO_PENDING_UPDATE within an arbitrary budget". The 2026-06-10
+    Databricks rollout made post-replace reconciliation sit in
+    ``SYNCED_TABLE_ONLINE_UPDATING_PIPELINE_RESOURCES`` well past the old 600s strict-state
+    wait (2/2 repro: nightly + manual re-dispatch; the table stayed online and serving
+    throughout — no strand), so the old proxy assert cried "stranded" on a benign slowdown.
+
+    This asserts the invariant directly:
+      - FAIL FAST on the true strand signal — ``is_checkpoint_mismatch_failure`` (the heal's
+        own ~1-2 min preflight signal; the ``SYNCED_TABLE_ONLINE_PIPELINE_FAILED`` status lags
+        ~13 min behind it) — or on any terminal failure status;
+      - PASS as soon as the PG row set converges to the replaced source's rows (the
+        user-visible outcome the T path promises);
+      - on deadline, fail with the full state/row timeline so the next platform-behaviour
+        shift is diagnosable from the log instead of a bare timeout.
+    """
+    from ingestion.heal_synced_tables import _make_pg_connect
+    from ingestion.synced_table_heal import is_checkpoint_mismatch_failure
+
+    pg_connect = _make_pg_connect(ws)
+    start = time.monotonic()
+    timeline: list[str] = []
+    while True:
+        elapsed = int(time.monotonic() - start)
+        state = reader.get_synced_table_status(fqn)
+        conn = pg_connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(f'SELECT id FROM {schema}."{table}" ORDER BY id')
+                ids = [int(r[0]) for r in cur.fetchall()]
+        finally:
+            conn.close()
+        timeline.append(f"t+{elapsed}s state={state} pg_ids={ids}")
+        if ids == expected_ids:
+            print("T-mechanism converged:\n  " + "\n  ".join(timeline))  # settle-time record (visible with -rA)
+            return
+        if is_checkpoint_mismatch_failure(reader, pipeline_id):
+            pytest.fail(
+                "CREATE OR REPLACE STRANDED the synced table (checkpoint mismatch / XXKST) — the T path's "
+                "strand-safe assumption no longer holds.\n  " + "\n  ".join(timeline),
+                pytrace=False,
+            )
+        if state in ("SYNCED_TABLE_OFFLINE", "SYNCED_TABLE_OFFLINE_FAILED", "SYNCED_TABLE_ONLINE_PIPELINE_FAILED"):
+            pytest.fail(
+                f"synced table reached terminal failure state {state} after CREATE OR REPLACE.\n  "
+                + "\n  ".join(timeline),
+                pytrace=False,
+            )
+        if elapsed > deadline_s:
+            pytest.fail(
+                f"PG rows never converged to {expected_ids} within {deadline_s}s and no strand signal fired "
+                "(benign-but-unbounded reconciliation? raise the deadline only with evidence).\n  "
+                + "\n  ".join(timeline),
+                pytrace=False,
+            )
+        time.sleep(poll_s)
+
+
 def _start_update_and_id(ws: Any, pipeline_id: str) -> str:
     """Trigger a refresh and return the update_id. The production ``trigger_refresh`` port
     intentionally discards the id (it only needs fire-and-forget + active-update tolerance); the e2e
@@ -251,10 +323,11 @@ def test_d_mechanism_delete_insert_keeps_synced_online() -> None:
 def test_t_mechanism_create_or_replace_keeps_synced_online() -> None:
     """Positive proof (ADR-043, T action): a plain `CREATE OR REPLACE TABLE … AS SELECT` (what dbt's
     `table` materialization emits for fct_pausa_values / fct_space_creation) — an atomic full replace
-    that keeps the Delta table id — followed by one incremental CDF refresh keeps the TRIGGERED synced
-    table SYNCED_TABLE_ONLINE and converges row counts. This regression-locks the load-bearing
+    that keeps the Delta table id — followed by one incremental CDF refresh does NOT strand the
+    TRIGGERED synced table, and its rows converge. This regression-locks the load-bearing
     "create-or-replace is strand-free" claim the T path rests on (symmetric with the D-mechanism proof
     above; protects against a future DBR/adapter change silently re-stranding the table marts).
+    Asserted via _assert_replace_converges_without_strand, not a strict settle-state wait.
 
     Contrast with test_heal_resets_checkpoint_and_resumes_incremental_cdf, which uses DROP+CREATE (a NEW
     table id) to *reproduce* a strand — here a CREATE OR REPLACE (same id) must NOT strand.
@@ -290,23 +363,24 @@ def test_t_mechanism_create_or_replace_keeps_synced_online() -> None:
 
         # T mechanism: atomic CREATE OR REPLACE TABLE ... AS SELECT (same id, full replace) — exactly
         # what dbt's table materialization does for the 2 table marts. Must NOT strand.
+        # Asserted converge-or-strand (NOT strict settle-state): see
+        # _assert_replace_converges_without_strand — the 2026-06-10 platform rollout made the benign
+        # post-replace ONLINE_UPDATING_PIPELINE_RESOURCES phase outlast any fixed strict-state budget.
         sql(
             f"CREATE OR REPLACE TABLE {src} TBLPROPERTIES ('delta.enableChangeDataFeed' = 'true') "
             "AS SELECT * FROM VALUES (1),(2),(3),(4),(5) AS t(id)"
         )
-        writer.trigger_refresh(reader.get_pipeline_id(fqn))
-        assert writer.wait_until_online(fqn, timeout_s=600) == "SYNCED_TABLE_ONLINE", (
-            "CREATE OR REPLACE stranded the synced table — the T path's strand-safe assumption no longer holds"
+        pid_replace = reader.get_pipeline_id(fqn)
+        writer.trigger_refresh(pid_replace)
+        _assert_replace_converges_without_strand(
+            ws=ws,
+            reader=reader,
+            fqn=fqn,
+            pipeline_id=pid_replace,
+            schema=_SCHEMA,
+            table=synced_name,
+            expected_ids=[1, 2, 3, 4, 5],
         )
-
-        conn = _make_pg_connect(ws)()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(f'SELECT count(*) FROM {_SCHEMA}."{synced_name}"')
-                row = cur.fetchone()
-                assert row is not None and row[0] == 5, "T-mechanism CDF did not converge row count (1,2,3,4,5)"
-        finally:
-            conn.close()
     finally:
         writer.sdk_delete(fqn)
         PsycopgGhostAdapter(_make_pg_connect(ws)).drop_pg_ghost(_SCHEMA, synced_name)

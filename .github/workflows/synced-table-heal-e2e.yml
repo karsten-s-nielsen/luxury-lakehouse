@@ -4,9 +4,16 @@ name: Synced-Table Heal E2E (serverless)
 # checkpoint reset). The deterministic offline unit suite + the real-event classifier fixture are the
 # merge gates; this proves the destructive path end-to-end on a schedule.
 #
-# NOT a PR gate: it drives live Databricks DLT + Lakebase, mutates real infra, and takes ~5-8 min.
-# That makes it a poor per-PR blocking check. It runs nightly to catch drift and on-demand via
-# workflow_dispatch (run it manually on heal-core changes).
+# NOT a PR gate: it drives live Databricks DLT + Lakebase, mutates real infra, and takes ~6-30 min
+# (the 2026-06-10 Databricks rollout made post-CREATE-OR-REPLACE reconciliation sit in
+# ONLINE_UPDATING_PIPELINE_RESOURCES for 10+ min). That makes it a poor per-PR blocking check.
+# It runs nightly to catch drift and on-demand via workflow_dispatch (run it manually on
+# heal-core changes).
+#
+# T-mechanism semantics (2026-06-10 re-design): the CREATE-OR-REPLACE test asserts
+# converge-or-strand — fail FAST on is_checkpoint_mismatch_failure / terminal failure status,
+# pass on PG row convergence (deadline 1800s) — NOT a strict settle-state wait, which the
+# slower benign reconciliation outlasts.
 #
 # Re-characterised 2026-06-07: the checkpoint-mismatch strand reproduces only when the synced table
 # already has a COMMITTED streaming offset (the test does one incremental CDF sync before recreating
