@@ -61,3 +61,17 @@ def test_real_failure_dominates_first_strand() -> None:
 def test_complete_plus_first_strand_is_green() -> None:
     rc, summary = classify_and_exit_code({"a": "COMPLETE", "b": "FAILED"}, {"b"}, _FakeState(), now=_NOW)
     assert rc == 0 and "1/2 fresh" in summary
+
+
+def test_strict_strand_makes_first_strand_red() -> None:
+    """--fail-on-strand (operator mode): a first-strand is exit 1 with a stale-data warning —
+    the daily task's green-with-warning hid a strand behind rederive's success banner on 2026-06-10."""
+    state = _FakeState()
+    rc, summary = classify_and_exit_code({"a": "FAILED"}, {"a"}, state, now=_NOW, strict_strand=True)
+    assert rc == 1 and "STRANDED" in summary and "STALE" in summary
+    assert state.marked == ["a"]  # still recorded for the recurrence signal
+
+
+def test_strict_strand_leaves_all_fresh_green() -> None:
+    rc, _ = classify_and_exit_code({"a": "COMPLETE"}, set(), _FakeState(), now=_NOW, strict_strand=True)
+    assert rc == 0

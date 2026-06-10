@@ -646,6 +646,7 @@ def classify_and_exit_code(
     state: Any,
     *,
     now: datetime,
+    strict_strand: bool = False,
 ) -> tuple[int, str]:
     """Decide the refresh task's exit code + a freshness-honest summary (spec §1 / H3 / M7 / P1 / P6).
 
@@ -658,6 +659,14 @@ def classify_and_exit_code(
     a strand that was healed and then re-stranded weeks later reads as a NEW incident (green), not a
     failure (P1). The summary always distinguishes all-fresh from K-stranded so no downstream freshness
     consumer misreads green-with-warning as "everything fresh" (M7, Hyrum's Law).
+
+    ``strict_strand`` (operator mode, ``--fail-on-strand``): a first-strand is exit 1, not
+    green-with-warning. The daily task's green-with-warning is DELIBERATE (the heal recovers
+    autonomously; a red would page on now-routine platform behaviour — since the 2026-06-10
+    Databricks rollout a plain CREATE OR REPLACE strands TRIGGERED synced tables). But an
+    operator tool (rederive_synced_marts) promising "re-derive complete" must NOT exit 0 while
+    the synced table is stranded-stale — that hid a strand behind a success banner on
+    2026-06-10 (the supervised strand→heal cycle).
     """
     total = len(results)
     fresh = [t for t, s in results.items() if s == "COMPLETE"]
@@ -674,6 +683,12 @@ def classify_and_exit_code(
         return 1, (
             f"{len(fresh)}/{total} fresh; {len(recurrent)} STILL stranded after a prior heal "
             f"(recurrence — correlate with the maintenance heal-pass ERROR log): {recurrent}"
+        )
+    if strict_strand:
+        return 1, (
+            f"{len(fresh)}/{total} fresh; {len(stranded)} STRANDED (--fail-on-strand): the synced "
+            f"table(s) are serving STALE data until the heal recreates them — re-verify after the "
+            f"maintenance heal pass: {sorted(stranded)}"
         )
     return 0, (
         f"{len(fresh)}/{total} fresh; {len(stranded)} stranded "
@@ -791,6 +806,15 @@ def main() -> None:
             "the daily Lakebase Maintenance backstop will heal them on its next run)."
         ),
     )
+    parser.add_argument(
+        "--fail-on-strand",
+        action="store_true",
+        help=(
+            "Operator mode: exit 1 when any table strands (instead of the daily task's "
+            "green-with-warning + heal dispatch). Use from tools that promise a FRESH synced "
+            "table on success (rederive_synced_marts)."
+        ),
+    )
     args = parser.parse_args()
 
     # Validate identifiers per CLAUDE.md security rule (regex prevents SQL injection
@@ -901,7 +925,9 @@ def main() -> None:
             t for t, s in results.items() if s == "FAILED" and is_checkpoint_mismatch_failure(reader, pid_by_table[t])
         }
         state = _build_strand_state(spark, args.catalog)
-        rc, summary = classify_and_exit_code(results, stranded, state, now=datetime.now(tz=timezone.utc))
+        rc, summary = classify_and_exit_code(
+            results, stranded, state, now=datetime.now(tz=timezone.utc), strict_strand=args.fail_on_strand
+        )
         if errors:  # trigger-phase failures (event-log drift / trigger errors) are real, non-healable
             rc = 1
 

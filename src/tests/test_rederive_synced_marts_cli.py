@@ -25,7 +25,11 @@ def test_parse_model_names_strips_dbt_ls_noise() -> None:
 def test_downtime_estimate_flags_large_b_marts() -> None:
     assert "window" in mod._downtime_estimate("fct_action_context", "B").lower()
     assert mod._downtime_estimate("fct_action_values", "D") == "none (in-place MERGE)"
-    assert "none" in mod._downtime_estimate("fct_pausa_values", "T").lower()
+    # T is strand-and-heal since the 2026-06-10 platform change (ADR-043 amendment 2) — the
+    # estimate must say so, NOT "none" (the pre-amendment claim that hid a strand on 2026-06-10).
+    t_estimate = mod._downtime_estimate("fct_pausa_values", "T").lower()
+    assert "strand" in t_estimate and "heal" in t_estimate
+    assert "none" not in t_estimate
 
 
 def test_requires_match_ids_when_d_step_present() -> None:

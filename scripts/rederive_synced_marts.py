@@ -5,8 +5,11 @@ The ONLY operator entry point for re-deriving a mart whose Lakebase synced table
 scheduling_policy=TRIGGERED. Classifies each selected mart (pure planner) into:
   D  — incremental + match_id-filtered: `dbt build` with reprocess_match_ids (MERGE,
        CDF partial-update, no strand), then trigger+wait the synced table.
-  T  — `table` mart: plain `dbt build` (atomic create-or-replace, count-safe, strand-free —
-       the daily stage-3 path), then trigger+wait. Zero downtime, no synced delete.
+  T  — `table` mart: plain `dbt build` (atomic create-or-replace, count-safe — the daily
+       stage-3 path), then trigger+wait with --fail-on-strand. Since the 2026-06-10 platform
+       change the rebuild STRANDS the TRIGGERED synced table and the ADR-041 heal recreates
+       it (brief re-snapshot downtime; ADR-043 amendment 2) — this tool exits loud on the
+       strand so "success" always means a FRESH synced table.
   B  — merge-all incremental: delete synced -> `dbt build --full-refresh`
        (allow_triggered_full_refresh) -> recreate synced -> grants+indexes.
 
@@ -51,7 +54,10 @@ def _downtime_estimate(model: str, action: str) -> str:
     if action == "D":
         return "none (in-place MERGE)"
     if action == "T":
-        return "none (atomic create-or-replace + CDF refresh)"
+        return (
+            "brief (rebuild strands the synced table since the 2026-06-10 platform change; "
+            "the ADR-041 heal recreates it — re-snapshot downtime, ADR-043 amendment 2)"
+        )
     if model in _LARGE_B_MARTS:
         return "MINUTES — size a maintenance window (synced re-snapshot of a multi-million-row table)"
     return "seconds-to-minutes (small synced re-snapshot)"
@@ -151,15 +157,38 @@ def _run(cmd: list[str], *, cwd: str | None = None) -> None:
 def _execute_d(step: PlanStep) -> None:
     print(f"[D] {step.model} — MERGE reprocess (no downtime)")
     _run(["dbt", "build", "--select", step.model, "--vars", json.dumps(step.dbt_vars)], cwd=str(_DBT_PROJECT))
-    _run([sys.executable, "-m", "ingestion.refresh_synced_tables", "--tables", step.synced_table, "--wait"])
+    _run(
+        [
+            sys.executable,
+            "-m",
+            "ingestion.refresh_synced_tables",
+            "--tables",
+            step.synced_table,
+            "--wait",
+            "--fail-on-strand",
+        ]
+    )
 
 
 def _execute_t(step: PlanStep) -> None:
-    # Plain rebuild of a `table` mart: atomic create-or-replace (count-safe, same id, strand-free —
-    # the daily stage-3 does exactly this). No synced delete, no --full-refresh. Then pull CDF.
-    print(f"[T] {step.model} — plain rebuild (atomic create-or-replace, no downtime)")
+    # Plain rebuild of a `table` mart, then trigger+wait. Since the 2026-06-10 Databricks rollout a
+    # plain create-or-replace STRANDS the TRIGGERED synced table (XXKST — supervised cycle proof,
+    # ADR-043 amendment 2); the ADR-041 heal recreates it. --fail-on-strand makes THIS tool exit
+    # loud on the strand (the synced table serves STALE data until the heal lands) instead of the
+    # 2026-06-10 incident's "Done — synced tables online" false success banner.
+    print(f"[T] {step.model} — plain rebuild ({_downtime_estimate(step.model, 'T')})")
     _run(["dbt", "build", "--select", step.model], cwd=str(_DBT_PROJECT))
-    _run([sys.executable, "-m", "ingestion.refresh_synced_tables", "--tables", step.synced_table, "--wait"])
+    _run(
+        [
+            sys.executable,
+            "-m",
+            "ingestion.refresh_synced_tables",
+            "--tables",
+            step.synced_table,
+            "--wait",
+            "--fail-on-strand",
+        ]
+    )
 
 
 def _execute_b(step: PlanStep) -> None:
