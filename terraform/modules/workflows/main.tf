@@ -1354,6 +1354,15 @@ resource "databricks_job" "data_ingestion" {
 
   # ── Environment for SPADL/VAEP task (includes analytics extras) ─────────
   # No statsbombpy needed — pipeline reads from bronze, not the API.
+  #
+  # EXACT PINS (==), not floors: serverless rebuilds the env on every wheel bump and
+  # re-resolves floors against PyPI — prod silently ran THREE different silly-kicks
+  # versions in one day (4.21.0 → 4.21.1 → 4.21.2, none of them the lock-tested 4.20.1).
+  # Pins mirror uv.lock (enforced by test_tf_exact_pins_match_uv_lock); bumping a
+  # version here REQUIRES bumping pyproject + uv.lock first, so prod only ever runs
+  # what local tests + goldens validated. Do NOT "clean up" pins that look redundant
+  # with the serverless base image: env-version-1 ships numpy 1.23.5 / scipy 1.10.0 /
+  # matplotlib 3.7.0 — dropping a pin DOWNGRADES prod to those.
   environment {
     environment_key = "analytics"
 
@@ -1362,34 +1371,34 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path,
-        "silly-kicks>=4.20.1,<5",
-        "accessible-space>=2.0,<3",
+        "silly-kicks[das,ghost-gk]==4.20.1",
+        "accessible-space==2.0.15",
         # numba: silly-kicks ships @njit kernels for pitch control + ball-carrier
         # (tracking/pitch_control/_{spearman,fernandez_bornn}.py, tracking/_ball_carrier.py)
         # behind a `try: import numba / except: _HAS_NUMBA=False` fallback. numba is
         # only an OPTIONAL silly-kicks extra ([numba]), so without it pinned here the
         # serverless tracking enrichment silently runs the slow numpy fallback — a
         # latent footgun (correct output, no error, ~2x slower hot loops). Pinning it
-        # makes the deployed env match the code's design contract. silly-kicks' own
-        # floor is numba>=0.59.0. (DAS/accessible-space is pure numpy — numba does not
-        # accelerate it; see project memory ac1-numba-das-cost.)
-        "numba>=0.59.0",
-        "numpy<2.0",
+        # makes the deployed env match the code's design contract. (DAS/accessible-space
+        # is pure numpy — numba does not accelerate it; see project memory
+        # ac1-numba-das-cost.)
+        "numba==0.64.0",
+        "numpy==1.26.4",
         # xgboost-cpu: same version + API as xgboost, but without the
         # nvidia-nccl-cu12 core dep (300 MB GPU lib, useless on CPU-only
         # serverless). Cuts cold-start env build by ~60-90 s.
         "xgboost-cpu==3.2.0",
-        "rapidfuzz>=3.6.0",
-        "unidecode>=1.3.0",
-        "sparse-dot-topn>=1.1.0",
+        "rapidfuzz==3.14.3",
+        "unidecode==1.4.0",
+        "sparse-dot-topn==1.2.0",
         # mlflow-skinny: client-only mlflow (pyfunc + tracking). The analytics
         # path only loads models + uses MlflowClient; the server-side bundle
         # (flask/gunicorn/sqlalchemy/alembic/docker/...) is unused. ~30-50 MB
         # + ~11 fewer transitives off cold-start.
-        "mlflow-skinny>=2.19.0",
-        "mplsoccer>=1.1.3",
-        "matplotlib>=3.8.0",
-        "scipy>=1.11.0"
+        "mlflow-skinny==3.11.1",
+        "mplsoccer==1.6.1",
+        "matplotlib==3.10.8",
+        "scipy==1.15.3"
       ]
     }
   }
@@ -1406,8 +1415,8 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path,
-        "dbt-core>=1.10.0",
-        "dbt-databricks>=1.10.0",
+        "dbt-core==1.11.6",
+        "dbt-databricks==1.11.6",
       ]
     }
   }
@@ -1435,8 +1444,8 @@ resource "databricks_job" "data_ingestion" {
       dependencies = concat(
         [var.wheel_path],
         [
-          "gensim>=4.3.0",
-          "huggingface_hub>=1.5.0",
+          "gensim==4.4.0",
+          "huggingface_hub==1.6.0",
         ]
       )
     }
@@ -1454,7 +1463,7 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path,
-        "huggingface_hub>=1.5.0"
+        "huggingface_hub==1.6.0"
       ]
     }
   }
@@ -1488,7 +1497,9 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path,
-        "statsbombpy>=1.13.0"
+        # TF-only dep (not in pyproject/uv.lock — ingestion API client only used on
+        # serverless). Pinned to what the old >=1.13.0 floor resolved to on 2026-06-10.
+        "statsbombpy==1.19.0"
       ]
     }
   }
