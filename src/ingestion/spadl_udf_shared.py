@@ -103,6 +103,25 @@ def ensure_is_synthetic(actions: pd.DataFrame) -> pd.DataFrame:
     return actions
 
 
+def ensure_result_source(actions: pd.DataFrame) -> pd.DataFrame:
+    """Normalise the silly-kicks 4.21.0 SkillCorner ``result_source`` label tier (sk ADR-024).
+
+    Emitted natively only by the SkillCorner converter (``'native'`` / ``'inferred'`` /
+    ``'stopgap'`` — the per-row completion-label provenance behind the native ``result_id``
+    fix) and absent from the other 5 providers' output. Coerce to object where present;
+    manufacture NA where absent so ``bronze.spadl_actions`` carries the uniform
+    cross-provider column. Must mirror ``_spadl_cols`` + ``_SPADL_SCHEMA`` + the
+    applyInPandas StructType in each UDF (the LL1 class).
+    """
+    import pandas as _pd
+
+    if "result_source" in actions.columns:
+        actions["result_source"] = actions["result_source"].astype("object")
+    else:
+        actions["result_source"] = _pd.array([_pd.NA] * len(actions), dtype="object")
+    return actions
+
+
 def null_fill_tackle_qualifiers(
     actions: pd.DataFrame,
     *,

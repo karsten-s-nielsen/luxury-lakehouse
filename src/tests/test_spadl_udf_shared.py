@@ -63,6 +63,17 @@ _EXPECTED_COLUMNS = [
     # silly-kicks 4.13.0 (sk ADR-018): is_synthetic provenance flag (manufactured
     # False on these non-GS providers; native bool on GS).
     "is_synthetic",
+    # silly-kicks 4.21.0/4.22.0 (ADR-048): result_source (NA-manufactured on
+    # non-SkillCorner) + restart-coordinate enrichment columns.
+    "result_source",
+    "enriched_start_x",
+    "enriched_start_y",
+    "enriched_end_x",
+    "enriched_end_y",
+    "start_coord_source",
+    "end_coord_source",
+    "start_coord_confidence",
+    "end_coord_confidence",
 ]
 
 

@@ -133,3 +133,40 @@ def test_new_ac_fields_emit_and_nan_contracts() -> None:
     if result["type_name"].isin(_PASS_OR_CROSS).any():
         for col in _NEW_STRUCTURAL:
             assert result.loc[~non_pass, col].notna().any(), f"{col} all-NaN on pass/cross — emit drift?"
+
+
+_XT_GK_COLS = [
+    "xt_gk", "xt_gk_possession", "xt_gk_counter", "xt_gk_direct", "xt_gk_high_press",
+    "xt_gk_low_block", "xt_gk_base", "xt_gk_pev", "xt_gk_rav", "xt_gk_dzv", "xt_gk_pressure",
+    "xt_gk_origin_source", "xt_gk_dest_source", "xt_gk_origin_confidence",
+    "xt_gk_completion_variant", "xt_gk_completion_source", "gk_completion",
+]  # fmt: skip
+
+
+def test_xt_gk_fields_present_and_scope_contract() -> None:
+    """ADR-048 (silly-kicks 4.21.0/4.22.0): the 17 xT-GK + gk_completion columns.
+
+    The mini slice (3 IDSSE open-play actions) contains NO GK-distribution action, so the
+    scope contract here is all-NaN/None — a non-null value on an open-play row would mean the
+    upstream in-scope mask drifted. Presence is asserted column-by-column (build_output wiring);
+    EMIT coverage lives in test_full_golden_xt_gk_emits (the full anchor has 2 goalkicks).
+    """
+    result = _recompute()
+    for col in _XT_GK_COLS:
+        assert col in result.columns, f"{col} missing from enrich output"
+        assert result[col].isna().all(), f"{col} non-null on an open-play-only slice — xT-GK scope drift"
+
+
+def test_full_golden_xt_gk_emits() -> None:
+    """Emit-drift lock through the FROZEN full anchor (golden-reading, CI-cheap).
+
+    The J03WMX_p1 anchor owns 2 goalkicks; the frozen golden must carry non-null xT-GK values on
+    them (all five preset composites + completion provenance). An upstream emit-rename would
+    surface at golden-regen time as this going all-NaN — this assertion makes that loud instead
+    of silently freezing an empty feature family. (The 2-row count is NOT pinned — only non-empty.)
+    """
+    golden = pd.read_parquet(f"{_ROOT}/idsse/J03WMX_p1/golden.parquet")
+    gk_rows = golden[golden["type_name"] == "goalkick"]
+    assert len(gk_rows) > 0, "full anchor lost its goalkick rows — re-extract before trusting this gate"
+    for col in _XT_GK_COLS:
+        assert golden[col].notna().any(), f"{col} all-NaN in the full golden — emit drift at regen"

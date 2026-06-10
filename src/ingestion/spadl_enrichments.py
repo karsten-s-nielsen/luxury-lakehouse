@@ -53,10 +53,14 @@ def apply_spadl_enrichments(
             ``"metrica"``.
 
     Returns:
-        A copy of ``actions`` with 6 new columns appended:
+        A copy of ``actions`` with 14 new columns appended:
         ``possession_id_heuristic``, ``gk_role``, ``gk_was_distributing``,
         ``gk_was_engaged``, ``gk_actions_in_possession``,
-        ``defending_gk_player_id``.
+        ``defending_gk_player_id``, plus the 4.22.0 restart-coordinate
+        enrichment: ``enriched_start_x``, ``enriched_start_y``,
+        ``enriched_end_x``, ``enriched_end_y``, ``start_coord_source``,
+        ``end_coord_source``, ``start_coord_confidence``,
+        ``end_coord_confidence``.
 
     Raises:
         ValueError: If ``source`` is not in the valid set.
@@ -67,6 +71,7 @@ def apply_spadl_enrichments(
 
     # Imports inside function — silly-kicks is a heavy dep we don't want at
     # module-import time for tests of unrelated modules.
+    from silly_kicks.spadl import add_restart_coordinates
     from silly_kicks.spadl.utils import (
         add_gk_role,
         add_possessions,
@@ -76,6 +81,16 @@ def apply_spadl_enrichments(
     enriched = add_possessions(actions)
     enriched = add_gk_role(enriched)
     enriched = add_pre_shot_gk_context(enriched)
+
+    # silly-kicks 4.22.0 (upstream ADR-025): Law-fixed-spot restart coordinate imputation —
+    # 8 ADDITIVE provenance-tagged columns (enriched_start_x/_y, enriched_end_x/_y,
+    # start/end_coord_source, start/end_coord_confidence); canonical start_x/.../end_y are
+    # NEVER mutated (a canonical-coordinate change would be a VAEP/xT retrain trigger).
+    # Events-only mode here (frames=None): the bronze SPADL writer has no tracking frames in
+    # scope — native / rule-point / next-event tiers apply. NaN coords are a GS set-piece
+    # phenomenon (other providers ~0%), but the columns are emitted for every provider so the
+    # bronze schema is uniform (parity-tested via test_spadl_vaep_writer_parity).
+    enriched = add_restart_coordinates(enriched)
 
     # silly-kicks emits ``possession_id`` from add_possessions. Rename to
     # ``possession_id_heuristic`` to make provenance explicit at the bronze

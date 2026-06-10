@@ -5148,6 +5148,52 @@ models:
         data_type: double
       - name: xshot_occurrence
         data_type: double
+      - name: xt_gk
+        data_type: double
+        description: "xT-GK composite (Eyestone), library-default params; GK-distribution actions only, NULL elsewhere. Signed."
+      - name: xt_gk_possession
+        data_type: double
+        description: "xT-GK composite, 'possession' philosophy preset."
+      - name: xt_gk_counter
+        data_type: double
+        description: "xT-GK composite, 'counter' philosophy preset."
+      - name: xt_gk_direct
+        data_type: double
+        description: "xT-GK composite, 'direct' philosophy preset."
+      - name: xt_gk_high_press
+        data_type: double
+        description: "xT-GK composite, 'high_press' philosophy preset."
+      - name: xt_gk_low_block
+        data_type: double
+        description: "xT-GK composite, 'low_block' philosophy preset."
+      - name: xt_gk_base
+        data_type: double
+      - name: xt_gk_pev
+        data_type: double
+      - name: xt_gk_rav
+        data_type: double
+        description: "Risk-adjusted value component (signed: includes the delta-weighted counter term)."
+      - name: xt_gk_dzv
+        data_type: double
+      - name: xt_gk_pressure
+        data_type: double
+      - name: xt_gk_origin_source
+        data_type: string
+        description: "Origin-coordinate provenance: native / tracking / rule_point tiers."
+      - name: xt_gk_dest_source
+        data_type: string
+      - name: xt_gk_origin_confidence
+        data_type: double
+        description: "Origin-resolution confidence in [0,1]."
+      - name: xt_gk_completion_variant
+        data_type: string
+        description: "GK-completion model variant that scored RAV (gs / skillcorner / custom)."
+      - name: xt_gk_completion_source
+        data_type: string
+        description: "Per-type serve mode: model / base_rate (silly-kicks 4.21.4 honesty gate)."
+      - name: gk_completion
+        data_type: double
+        description: "P(success) for in-scope GK distributions — the exact probability xt_gk_rav consumes. [0,1]."
       - name: pitch_control_method
         data_type: string
       - name: ghost_gk_method
