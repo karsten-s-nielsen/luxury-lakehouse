@@ -44,6 +44,13 @@ if TYPE_CHECKING:
 # used by the Spark dispatch so prod and local batch the same way (H3).
 _FRAME_BATCH_SIZE = 250
 
+# Only run the explicit per-batch gc.collect() when the input group is actually large
+# (ADR-045). The collect exists to protect the 1 GB serverless UDF cap when a converter
+# briefly holds two copies of a BIG group — but a 250-frame batch is ~5,750 rows
+# (~1-3 MB), and an unconditional full collection per batch measured 9.5% of local
+# per-half wall. Gate keeps the protection where it matters, skips it where it can't.
+_GC_COLLECT_MIN_ROWS = 100_000
+
 # Tolerance (seconds) for buffering actions at batch edges.
 _ACTION_TIME_BUFFER_SECONDS = 0.5
 
@@ -83,7 +90,8 @@ def _convert_tracking_batch(
         from silly_kicks.tracking.sportec import convert_to_frames as _convert_to_frames
 
         sportec_input = _cv._bronze_idsse_to_sportec_input(pdf)
-        _gc.collect()
+        if len(pdf) > _GC_COLLECT_MIN_ROWS:
+            _gc.collect()
         frames, _report = _convert_to_frames(
             sportec_input,
             home_team_id=meta.home_team_id,
@@ -125,7 +133,8 @@ def _convert_tracking_batch(
             jersey_to_player_id=_gs_j2p,
             gk_player_ids=frozenset(meta.gs_gk_player_ids or []),
         )
-        _gc.collect()
+        if len(pdf) > _GC_COLLECT_MIN_ROWS:
+            _gc.collect()
         frames, _report = _gs_convert_to_frames(
             converter_input,
             # home_team_id MUST be the native STRING (matching converter_input.team_id, which

@@ -39,7 +39,7 @@ Short-form rules live in `CLAUDE.md`. Detailed mechanics below.
 - **UDF executor memory**: 1 GB hard cap per `applyInPandas` / `mapInPandas` group.
 - **No broadcast variables**: Use frozen dataclass closures for small config (<1 KB). Load larger artifacts (ML models, lookup tables) from UC Volume inside the UDF body.
 - **No `df.cache()` / `df.persist()`**: Write intermediate results to Delta temp tables if re-reads are needed.
-- **No internet in UDFs**: All data must come from Delta tables or UC Volumes. No HTTP calls inside UDF function bodies.
+- **No internet in UDFs (policy)**: All data must come from Delta tables or UC Volumes. No HTTP calls inside UDF function bodies. Factual nuance (measured 2026-06-09 via the executor env fingerprint): executor egress to `huggingface.co:443` was REACHABLE — the policy stands because egress is not contractual and may be cut at any time, not because it is technically blocked.
 - **Lazy closure capture**: Variables are captured at action time, not definition time. Use frozen dataclasses for all config passed to `applyInPandas`. Never mutate variables between function definition and the `.applyInPandas()` call.
 - **No local filesystem writes from Spark**: DBFS root is disabled and `file://` scheme is forbidden. Spark can write to UC Volumes (`/Volumes/...`) and Delta tables only. For file exports (e.g., Parquet for HF Hub upload), write to a UC Volume staging path, then read from the Volume path on the driver for upload.
 

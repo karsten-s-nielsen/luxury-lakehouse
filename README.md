@@ -114,7 +114,7 @@ luxury-lakehouse/
 
 ## Spark vs Python: Scale vs Simplicity
 
-All compute pipelines use `applyInPandas` to distribute work across Spark executors — the driver never touches raw data. This matters at enterprise scale (millions of rows per match, hundreds of matches) where driver-bound Python loops hit OOM walls.
+All compute pipelines use grouped pandas UDFs (`applyInPandas`; AC-1 uses an AQE-proof `mapInPandas` streaming-group dispatch, ADR-045) to distribute work across Spark executors — the driver never touches raw data. This matters at enterprise scale (millions of rows per match, hundreds of matches) where driver-bound Python loops hit OOM walls.
 
 For community/personal use on Databricks Community Edition or smaller datasets, the pure-Python analytics modules (`src/analytics/`) work standalone without Spark. The tradeoff:
 

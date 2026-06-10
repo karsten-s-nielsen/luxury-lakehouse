@@ -3,16 +3,36 @@
 Moved verbatim from ``ingestion.action_context`` (behavior-preserving). Three
 tiers — tracking (full ~21-step chain), SB360 (synthetic freeze-frames), and
 event-only — plus the mutate-then-restore identity resolver. No pyspark; runs
-identically on a Spark executor (inside the applyInPandas UDF) and locally.
+identically on a Spark executor (inside the per-group UDF, mapInPandas dispatch
+per ADR-045) and locally.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import pandas as pd
     from silly_kicks.xthreat import ExpectedThreat
+
+_GHOST_GK_MODEL_CACHE: dict[str, Any] = {}
+"""Process-local Ghost-GK model singleton (ADR-045). Passing ``model="default"`` (a
+string) to silly-kicks ``add_ghost_gk`` makes it re-resolve + re-load the ~12 MB weights
+from disk on EVERY call — once per 250-frame batch, ~8% of measured per-half wall (plus
+one sklearn-provenance warning per batch). This is the databricks-serverless.md "Model
+loading on executors" convention: Spark reuses Python worker processes across groups,
+so the instance loads once per executor process and is reused by every batch."""
+
+
+def _ghost_gk_model_cached(variant: str = "default") -> Any:
+    """Lazy-load + cache the Ghost-GK model instance for this process."""
+    model = _GHOST_GK_MODEL_CACHE.get(variant)
+    if model is None:
+        from silly_kicks.tracking import GhostGkModel
+
+        model = GhostGkModel.from_variant(variant)  # type: ignore[arg-type]  # "default"/"full" literals
+        _GHOST_GK_MODEL_CACHE[variant] = model
+    return model
 
 
 def _resolve_enrichment_identity(
@@ -306,7 +326,7 @@ def _enrich_tracking_match(
     out = add_ghost_gk(
         out,
         tracking_df,
-        model="default",
+        model=_ghost_gk_model_cached(),  # process-cached instance — NOT the "default" string (ADR-045)
         links=links,
         home_team_id=home_team_id,
         actions_for_context=actions_df,
@@ -467,7 +487,7 @@ def _enrich_sb360_match(
     out = add_ghost_gk(
         out,
         frames,
-        model="default",
+        model=_ghost_gk_model_cached(),  # process-cached instance — NOT the "default" string (ADR-045)
         links=links,
         home_team_id=home_team_id,
         actions_for_context=out,

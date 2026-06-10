@@ -353,7 +353,16 @@ def write_delta_table(
 
     full_table = f"{catalog}.{schema}.{table_name}"
     df = add_audit_columns(df)
-    if row_count is None:
+
+    # Single-pass write (ADR-045): counting the SOURCE DataFrame before the write executes
+    # the full upstream DAG twice — once for count(), once for saveAsTable(). For the AC-1
+    # applyInPandas enrichment chain this literally doubled per-half wall-clock (measured:
+    # Metrica half 2538s wall = 1230s/pass x 2). When the written slice is identifiable
+    # post-write (replaceWhere predicate, or a full overwrite), count the MATERIALIZED Delta
+    # slice instead — a cheap stats-backed scan, no UDF recompute. Only the bare-append path
+    # without a caller-supplied row_count still needs the pre-write count (the appended rows
+    # are not identifiable in the target afterwards).
+    if row_count is None and replace_where is None and mode != "overwrite":
         row_count = int(df.count())
 
     writer = df.write.format("delta")
@@ -366,6 +375,15 @@ def write_delta_table(
         writer = writer.option("mergeSchema", "true").mode(mode)
 
     _commit_with_retry(lambda: writer.saveAsTable(full_table), full_table, logger)
+
+    if row_count is None:
+        # Post-write count of exactly the rows just written: with replaceWhere the predicate
+        # delimits the replaced slice (ADR-038 guarantees concurrent writers touch disjoint
+        # slices); with a full overwrite the table IS the write.
+        written_sdf = df.sparkSession.table(full_table)
+        if replace_where is not None:
+            written_sdf = written_sdf.where(replace_where)
+        row_count = int(written_sdf.count())
 
     if logger:
         logger.info("Wrote %d rows to %s", row_count, full_table)
