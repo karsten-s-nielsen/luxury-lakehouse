@@ -18,9 +18,19 @@ call, and asserts one of:
    (`filter`, `where`, `limit`, `distinct`, `head`, `take`, `first`,
    `groupBy`/`groupby`, `agg`, `count`, `sum`, `mean`, `max`, `min`,
    `avg`).
-2. The (file, line) tuple is registered in
+2. The (file, enclosing-function qualname) tuple is registered in
    `src/tests/_topandas_exemptions.yml` with a `reason:` field
    explaining why driver memory can hold the result.
+
+Exemptions are keyed by ENCLOSING FUNCTION, not line number: line-pinned
+entries broke three times in two PRs (#359/#360) because ANY edit above
+the call site shifts the line. The function qualname survives unrelated
+edits and still pins the exemption to the code it justifies (the reason
+text describes the function's bound, not a specific line). Module-level
+calls key as ``<module>``; nested scopes join with ``.`` (e.g.
+``Outer.inner``). One entry covers every unbounded call inside that
+function — acceptable, because the articulated reason is a property of
+the function's data context.
 
 Why both forms are necessary: many call sites build their query as a SQL
 string passed to `spark.sql(...)`, which is opaque to AST analysis even
@@ -87,8 +97,8 @@ _BOUNDING_METHODS = frozenset(
 
 class _Violation(NamedTuple):
     file: str  # repo-relative posix path
-    line: int
-    reason: str
+    line: int  # display-only (error messages); NOT part of the exemption key
+    function: str  # enclosing function/class qualname, or "<module>"
 
 
 def _chain_method_names(call: ast.Call) -> list[str]:
@@ -111,13 +121,27 @@ def _chain_method_names(call: ast.Call) -> list[str]:
     return methods
 
 
-def _find_topandas_calls(tree: ast.Module) -> list[ast.Call]:
-    """Find every `.toPandas()` Call node in an AST."""
-    calls: list[ast.Call] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "toPandas":
-            calls.append(node)
-    return calls
+def _find_topandas_calls_with_scope(tree: ast.Module) -> list[tuple[ast.Call, str]]:
+    """Find every `.toPandas()` Call node in an AST, paired with the qualname of
+    its enclosing function/class scope (``"<module>"`` at module level).
+
+    Scope-aware replacement for a flat ``ast.walk``: line numbers shift on every
+    unrelated edit above the call site (this broke the allowlist three times in
+    PRs #359/#360); the enclosing-function qualname is stable.
+    """
+    results: list[tuple[ast.Call, str]] = []
+
+    def _visit(node: ast.AST, stack: list[str]) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                _visit(child, [*stack, child.name])
+                continue
+            if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute) and child.func.attr == "toPandas":
+                results.append((child, ".".join(stack) or "<module>"))
+            _visit(child, stack)
+
+    _visit(tree, [])
+    return results
 
 
 def _scan_repo() -> list[_Violation]:
@@ -133,22 +157,22 @@ def _scan_repo() -> list[_Violation]:
             tree = ast.parse(py_file.read_text(encoding="utf-8"))
         except SyntaxError:
             continue  # pragma: no cover — should not happen in this repo
-        for call in _find_topandas_calls(tree):
+        for call, scope in _find_topandas_calls_with_scope(tree):
             if any(m in _BOUNDING_METHODS for m in _chain_method_names(call)):
                 continue
             rel = py_file.relative_to(_REPO_ROOT).as_posix()
-            violations.append(_Violation(file=rel, line=call.lineno, reason=""))
+            violations.append(_Violation(file=rel, line=call.lineno, function=scope))
     return violations
 
 
-def _load_exemptions() -> dict[tuple[str, int], str]:
-    """Read the allowlist YAML; return {(file, line): reason}."""
+def _load_exemptions() -> dict[tuple[str, str], str]:
+    """Read the allowlist YAML; return {(file, function): reason}."""
     if not _EXEMPTIONS_PATH.exists():
         return {}
     raw = yaml.safe_load(_EXEMPTIONS_PATH.read_text(encoding="utf-8")) or {}
-    out: dict[tuple[str, int], str] = {}
+    out: dict[tuple[str, str], str] = {}
     for entry in raw.get("exemptions", []):
-        key = (entry["file"], int(entry["line"]))
+        key = (entry["file"], str(entry["function"]))
         out[key] = entry.get("reason", "").strip()
     return out
 
@@ -162,7 +186,7 @@ def test_every_topandas_call_is_bounded_or_allowlisted() -> None:
     """
     violations = _scan_repo()
     exemptions = _load_exemptions()
-    unjustified = [v for v in violations if (v.file, v.line) not in exemptions]
+    unjustified = [v for v in violations if (v.file, v.function) not in exemptions]
     if unjustified:
         msg_lines = [
             f"{len(unjustified)} unbounded `.toPandas()` call(s) found "
@@ -170,7 +194,7 @@ def test_every_topandas_call_is_bounded_or_allowlisted() -> None:
             "",
         ]
         for v in unjustified:
-            msg_lines.append(f"  {v.file}:{v.line}")
+            msg_lines.append(f"  {v.file}:{v.line}  (function: {v.function})")
         msg_lines += [
             "",
             "Two ways to fix:",
@@ -178,36 +202,39 @@ def test_every_topandas_call_is_bounded_or_allowlisted() -> None:
             "     .filter(), .where(), .limit(N), .distinct(), .groupBy(...).agg|count|sum|mean,",
             "     .head(N), .take(N), .first().",
             "  2. Add to _topandas_exemptions.yml with a reason explaining why driver",
-            "     memory can hold the result. Example:",
+            "     memory can hold the result. Keyed by ENCLOSING FUNCTION (stable across",
+            "     line shifts), not line number. Example:",
             "       - file: src/foo/bar.py",
-            "         line: 42",
+            "         function: _load_dimension_lookup",
             '         reason: "Per-match filter (~170 MB / match)"',
         ]
         raise AssertionError("\n".join(msg_lines))
 
 
 def test_no_stale_exemptions() -> None:
-    """Catch entries in the allowlist that no longer correspond to a
-    `.toPandas()` call at the recorded (file, line) — e.g. the call was
-    refactored or removed and the exemption was forgotten.
+    """Catch entries in the allowlist that no longer correspond to an unbounded
+    `.toPandas()` call inside the recorded (file, function) — e.g. the call was
+    refactored to a bounded chain, the function was renamed, or it was removed
+    and the exemption was forgotten.
     """
     exemptions = _load_exemptions()
     violations = _scan_repo()
-    actual_keys = {(v.file, v.line) for v in violations}
-    stale = [(file, line) for (file, line) in exemptions if (file, line) not in actual_keys]
+    actual_keys = {(v.file, v.function) for v in violations}
+    stale = [(file, fn) for (file, fn) in exemptions if (file, fn) not in actual_keys]
     if stale:
         msg_lines = [
             f"{len(stale)} stale entry(ies) in "
             f"{_EXEMPTIONS_PATH.relative_to(_REPO_ROOT)} — no unbounded "
-            f"`.toPandas()` call exists at the recorded (file, line):",
+            f"`.toPandas()` call exists inside the recorded (file, function):",
             "",
         ]
-        for file, line in stale:
-            msg_lines.append(f"  {file}:{line}")
+        for file, fn in stale:
+            msg_lines.append(f"  {file}  function: {fn}")
         msg_lines += [
             "",
             "Remove the stale entry. The call was likely refactored to use a bounded chain",
-            "(in which case the exemption is no longer needed) or deleted entirely.",
+            "(in which case the exemption is no longer needed), the function was renamed",
+            "(update the entry), or the call was deleted entirely.",
         ]
         raise AssertionError("\n".join(msg_lines))
 
@@ -217,7 +244,7 @@ def test_every_exemption_has_a_reason() -> None:
     exemptions = _load_exemptions()
     no_reason = [k for k, reason in exemptions.items() if not reason]
     if no_reason:
-        bullets = "\n".join(f"  {file}:{line}" for file, line in no_reason)
+        bullets = "\n".join(f"  {file}  function: {fn}" for file, fn in no_reason)
         raise AssertionError(
             f"{len(no_reason)} exemption(s) missing a non-empty `reason:` field:\n\n"
             f"{bullets}\n\n"

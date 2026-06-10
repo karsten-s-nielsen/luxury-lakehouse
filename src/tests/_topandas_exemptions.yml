@@ -7,73 +7,76 @@
 # result — `dim-table size`, `per-match filter`, `upstream
 # applyInPandas-bounded`, `explicit LIMIT in SQL`, etc.
 #
+# Entries are keyed by (file, ENCLOSING FUNCTION qualname) — NOT line
+# number. Line-pinned entries broke three times in two PRs (#359/#360):
+# any edit above the call site shifted the line and tripped CI. The
+# function qualname survives unrelated edits; module-level calls key as
+# "<module>"; nested scopes join with "." (e.g. "_StatsbombGuard.check").
+# One entry covers every unbounded call inside that function.
+#
 # Three failure modes the companion test catches:
 #   1. New unbounded `.toPandas()` call with no entry → fix or add entry.
-#   2. Stale entry pointing to a (file, line) that no longer has an
-#      unbounded call → remove the entry.
+#   2. Stale entry whose (file, function) no longer contains an
+#      unbounded call → remove (or update after a rename).
 #   3. Entry with empty `reason:` → fill it in.
 
 exemptions:
   - file: src/ingestion/entity_resolution.py
-    line: 82
+    function: _load_statsbomb_players
     reason: "StatsBomb player dimension (`statsbomb_lineups`); ~12K players for full league coverage. Bounded by source-table size, not row-by-row data."
 
   - file: src/ingestion/entity_resolution.py
-    line: 115
+    function: _load_wyscout_players
     reason: "Wyscout player dimension (`wyscout_players`); ~12K players. Bounded by source-table size."
 
   - file: src/ingestion/model_validation.py
-    line: 91
+    function: _load_scalar_baselines
     reason: "`model_baseline_scalars` is a small reference table holding per-metric scalar baselines (~10–30 rows). One row per (metric, group)."
 
   - file: src/ingestion/player_embeddings_common.py
-    line: 272
+    function: _load_events
     reason: "Test-compat wrapper (`_load_events`) — explicitly deprecated in docstring. Production code uses `_load_events_sdf` for distributed processing. Bounded by test fixture sizes."
 
   - file: src/ingestion/player_embeddings_v1.py
-    line: 317
-    reason: "Output of upstream `applyInPandas` (`behavioral_sdf`). Per docstring (line 314–316): O(players × matches_per_player) ≈ ~90K rows of short JSON strings. Bounded by player-match grain."
+    function: run_pipeline_v1
+    reason: "Output of upstream `applyInPandas` (`behavioral_sdf`): O(players × matches_per_player) ≈ ~90K rows of short JSON strings. Bounded by player-match grain."
 
   - file: src/ingestion/player_embeddings_v2.py
-    line: 156
+    function: _import_v2_embeddings
     reason: "`SELECT DISTINCT` over match-grain dimension columns from `fct_action_values`. Bounded to one row per match (~5,400 matches across 22 competitions)."
 
   - file: src/ingestion/player_embeddings_v2.py
-    line: 399
-    reason: "`SELECT DISTINCT` over match-grain dimension columns; bounded to ~5,400 matches. Same shape as line 156."
+    function: _import_embeddings_360
+    reason: "`SELECT DISTINCT` over match-grain dimension columns; bounded to ~5,400 matches. Same shape as `_import_v2_embeddings`."
 
   - file: src/ingestion/spadl_conversion.py
-    line: 327
+    function: _convert_statsbomb_from_bronze
     reason: "`statsbomb_matches` dimension table — one row per match (~3,000 matches across 5 competitions). Bounded by source-table size."
 
   - file: src/ingestion/spadl_conversion.py
-    line: 654
+    function: _convert_wyscout_from_bronze
     reason: "`wyscout_matches` dimension table — one row per match across 3 competitions. Bounded by source-table size."
 
   - file: src/ingestion/statsbomb.py
-    line: 109
-    reason: "`statsbomb_competitions` reference table — one row per (competition, season) pair (~20 pairs). Bounded by source-table size. Used in anti-join guard."
+    function: _StatsbombGuard.check
+    reason: "Covers BOTH calls in the guard: `statsbomb_competitions` reference table (~20 (competition, season) pairs) and `statsbomb_matches` match_id column (~3,000 matches). Bounded by source-table size. Used in anti-join guards."
 
   - file: src/ingestion/statsbomb.py
-    line: 137
-    reason: "`statsbomb_matches` reference table — match_id column only (~3,000 matches). Bounded by source-table size. Used in anti-join guard."
-
-  - file: src/ingestion/statsbomb.py
-    line: 238
+    function: ingest_competitions
     reason: "`statsbomb_competitions` reference table — one row per competition (~5 competitions). Bounded by source-table size."
 
   - file: src/ingestion/publish_spadl_vaep_hf.py
-    line: 82
+    function: run_pipeline
     reason: "Full `fct_action_values` mart (~8.8M rows, 26 narrow columns). Bounded by analytics scope (~5,400 matches). Counterpart of PEP 723 `scripts/publish_spadl_vaep_hf.py` which loads the same volume via `datasets.load_dataset`."
 
   - file: src/ingestion/publish_xg_shots_hf.py
-    line: 84
+    function: run_pipeline
     reason: "Full `fct_shots` mart (~131K rows). Bounded by analytics scope. Counterpart of PEP 723 `scripts/publish_xg_shots_hf.py`."
 
   - file: src/ingestion/publish_freeze_frame_hf.py
-    line: 112
+    function: run_pipeline
     reason: "StatsBomb freeze-frame events from `stg_statsbomb__events` (~400K rows, filtered to Shot/GoalKeeper types). Bounded by StatsBomb event volume. Counterpart of PEP 723 `scripts/publish_freeze_frame_hf.py`."
 
   - file: src/ingestion/action_context.py
-    line: 1754
+    function: _run_profile_on_driver
     reason: "`profile_action_context` observability path only (never the daily for_each job). `trk_sdf` is pre-filtered to ONE match_id upstream (per-provider branch in `_process_tracking_match`), so this pulls a single match's tracking (~150–300 MB; skillcorner ~1.3M rows, IDSSE ~1.5M rows) to the 16 GB driver for single-process cProfile. Bounded by one-match grain."
