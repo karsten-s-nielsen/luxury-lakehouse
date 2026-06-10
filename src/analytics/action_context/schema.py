@@ -309,11 +309,26 @@ def build_output(actions: pd.DataFrame, match_id_native: str, data_source: str) 
         out = out.rename(columns={"defending_gk_player_id": "defending_gk_player_id_native"})
 
     output_cols = [c for c in RESULT_COLUMNS if c != "_ingested_at"]
-    for col in output_cols:
-        if col not in out.columns:
-            # STRING columns get object/None (NOT np.nan -> float64, which Arrow cannot cast to
-            # StringType under an explicit schema — see _STRING_OUTPUT_COLUMNS note + ADR-033 §amend).
-            out[col] = None if col in _STRING_OUTPUT_COLUMNS else np.nan
+    missing_cols = [c for c in output_cols if c not in out.columns]
+    if missing_cols:
+        import pandas as _pd
+
+        # Single concat instead of up-to-~100 sequential per-column inserts — each insert
+        # copies the block manager (pandas "highly fragmented" PerformanceWarning, visible
+        # in the event-only driver path). Dtypes preserved EXACTLY as the old loop produced:
+        # STRING columns get object/None (NOT np.nan -> float64, which Arrow cannot cast to
+        # StringType under an explicit schema — see _STRING_OUTPUT_COLUMNS note + ADR-033
+        # §amend); everything else float64/NaN.
+        filler = _pd.DataFrame(
+            {
+                col: _pd.Series(None, index=out.index, dtype=object)
+                if col in _STRING_OUTPUT_COLUMNS
+                else _pd.Series(np.nan, index=out.index, dtype="float64")
+                for col in missing_cols
+            },
+            index=out.index,
+        )
+        out = _pd.concat([out, filler], axis=1)
 
     # STRINGIFY every STRING column (null -> None, numeric id -> str) so the explicit-schema Arrow
     # write always sees str/None, never a float (all-NULL float64 OR an object column with numeric
