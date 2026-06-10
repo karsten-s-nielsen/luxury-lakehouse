@@ -1,7 +1,7 @@
 """Profile the action-context enrichment chain LOCALLY against a committed fixture.
 
 No Spark, no Databricks, no env build, no log-bleed: runs the REAL
-``run_work_unit`` -> ``enrich_batch`` 250-frame loop in-process under cProfile and
+``run_work_unit`` -> ``enrich_batch`` frame-batch loop in-process under cProfile and
 prints the per-stage cumulative-time breakdown. This is the observable, seconds-
 to-minutes feedback loop for the "which enrichment stage dominates per-match
 wall-clock" question (e.g. ghost-GK vs DAS) — the serverless profiler answered

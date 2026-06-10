@@ -1,6 +1,6 @@
 """Unit tests for the M13 early-return short-circuit in ``enrich_batch``.
 
-When a 250-frame batch has zero owned actions (all buffer-windowed actions belong
+When a frame batch has zero owned actions (all buffer-windowed actions belong
 to adjacent batches per the M13 single-owner partition), ``enrich_batch`` must
 short-circuit BEFORE invoking the expensive 20-step enrich chain. The dead-ball
 fixtures (J03WN1, J03WOH per `test_dead_ball_batches.py`) exercise this in
@@ -20,15 +20,35 @@ import pytest
 from analytics.action_context import pipeline
 from analytics.action_context.work_unit import MatchMeta
 
+# Frame/timestamp geometry derived from the batch-size constant so a bump (e.g.
+# ADR-047's 250->2500) cannot silently break the boundary setup. The fixture is the
+# LAST 250 frames of batch 0 — the outside action must satisfy BOTH constraints:
+# inside the ±_ACTION_TIME_BUFFER_SECONDS window of the frames (else the empty-actions
+# path short-circuits first and M13 is never reached) AND owned by batch 1 per the
+# frame<->time line. Only near the batch boundary can both hold.
+_BS = pipeline._FRAME_BATCH_SIZE
+_FPS_DT = 0.04  # 25 fps
+
+# est_frame = _BS + 7.5 -> owning_batch = 1 (7.5-frame margin past the boundary beats
+# 0.04s float imprecision); 0.3s past the last frame -> inside the 0.5s buffer window.
+_OUTSIDE_BATCH_TIME_S = (_BS + 7.5) * _FPS_DT
+# est_frame = _BS - 50 -> owning_batch = 0 = this batch; inside the frame window.
+_OWNED_BATCH_TIME_S = (_BS - 50) * _FPS_DT
+
 
 def _make_frames_pdf() -> pd.DataFrame:
-    """250-frame IDSSE-bronze-shaped batch — minimal columns to drive the M13 path."""
+    """Last-250-frames-of-batch-0 IDSSE-bronze-shaped slice — minimal M13 columns.
+
+    250 rows suffice regardless of ``_FRAME_BATCH_SIZE``: ``_owned_action_ids`` only
+    needs >=2 (frame, timestamp) points to fit the linear frame<->time map.
+    """
+    frames = list(range(_BS - 250, _BS))
     return pd.DataFrame(
         {
             "match_id": ["M"] * 250,
-            "frame": list(range(250)),
+            "frame": frames,
             "period": [1] * 250,
-            "timestamp": [i * 0.04 for i in range(250)],
+            "timestamp": [f * _FPS_DT for f in frames],
             "frame_batch_id": [0] * 250,
         }
     )
@@ -39,14 +59,13 @@ def _make_actions_records_outside_batch() -> list[dict[str, object]]:
 
     Pulled into batch 0's enrich call via the ±buffer window but owned by batch 1,
     so the M13 filter would drop them post-enrich. Refactor short-circuits BEFORE
-    enrich. ``time_seconds=10.3`` → est_frame ≈ 257.5 → batch 1 (well past the
-    floating-point-edge at 10.0s where 0.04 imprecision can flip the floor).
+    enrich.
     """
     return [
         {
             "action_id": 99,
             "period_id": 1,
-            "time_seconds": 10.3,  # est_frame ~258, owning_batch=1, NOT this batch (0)
+            "time_seconds": _OUTSIDE_BATCH_TIME_S,  # est_frame ~ _BS+7.5 -> owning_batch=1, NOT this batch (0)
             "game_id": 1,
             "type_id": 0,
         }
@@ -101,8 +120,8 @@ def test_owned_batch_still_invokes_enrichment(monkeypatch: pytest.MonkeyPatch) -
     """Bit-identity guard: when this batch DOES own actions, enrichment runs as before.
 
     Catches over-eager refactors that accidentally short-circuit batches that
-    should produce output. The action's time_seconds=2.0 → est_frame ~50,
-    owning_batch = floor(50/250) = 0 = this batch.
+    should produce output. The action's est_frame = _BS - 50 →
+    owning_batch = floor((_BS - 50)/_BS) = 0 = this batch.
     """
     enrich_calls: list[object] = []
 
@@ -125,7 +144,7 @@ def test_owned_batch_still_invokes_enrichment(monkeypatch: pytest.MonkeyPatch) -
             {
                 "action_id": 1,
                 "period_id": 1,
-                "time_seconds": 2.0,  # frame ~50, owning_batch = 0 = this batch
+                "time_seconds": _OWNED_BATCH_TIME_S,  # est_frame = _BS-50, owning_batch = 0 = this batch
                 "game_id": 1,
                 "type_id": 0,
                 "team_id_native": "T",

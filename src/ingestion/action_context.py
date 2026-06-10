@@ -61,16 +61,21 @@ _TABLE_NAME = "spadl_action_context"
 # ── Frame batching ────────────────────────────────────────────────────
 # IDSSE (match_id, period) groups are 1.5M-1.7M rows -- exceeds the 1 GB
 # Databricks serverless UDF group cap. Sub-batch by frame number.
-_FRAME_BATCH_SIZE = 250
+# 2500 (ADR-047): ~57.5K rows (~10-30 MB) per IDSSE batch — far under the cap —
+# amortizing per-batch stage setup (-17% local per-half wall vs 250). MUST stay
+# identical to analytics.action_context.pipeline._FRAME_BATCH_SIZE (H3 lockstep).
+_FRAME_BATCH_SIZE = 2500
 
 # ── UDF stage parallelism (ADR-045) ───────────────────────────────────
 # groupBy().applyInPandas lets AQE coalesce the shuffle by BYTES (~64 MB advisory),
-# blind to Python-UDF cost: a Metrica half (~286 groups, ~60 MB) coalesced to ONE
-# task — strictly serial enrichment (measured concurrency 1.00 from rendezvous
-# markers; GS's bigger rows got 3-4). repartition(N, keys) with an EXPLICIT N is
-# exempt from AQE coalescing, so the mapInPandas dispatch below gets deterministic
-# stage parallelism. 64 tasks ≈ 4-6 groups each at ~300 groups/half — small enough
-# for serverless autoscale to spread, large enough to amortize task overhead.
+# blind to Python-UDF cost: a Metrica half (~286 groups at 250 frames, ~60 MB)
+# coalesced to ONE task — strictly serial enrichment (measured concurrency 1.00 from
+# rendezvous markers; GS's bigger rows got 3-4). repartition(N, keys) with an EXPLICIT
+# N is exempt from AQE coalescing, so the mapInPandas dispatch below gets deterministic
+# stage parallelism. At 2500-frame batches a half has ~30 groups → ~24 non-empty of the
+# 64 partitions (hash collisions put 2 groups in a few) — still ≥2 waves over the
+# observed 12-14 peak executor slots; empty partitions are near-free, so 64 stays
+# (one variable changed per ADR-047, not two).
 _UDF_SHUFFLE_PARTITIONS = 64
 
 # Tolerance (seconds) for buffering actions at batch edges.
@@ -627,8 +632,8 @@ class _ActionContextGuard:
     MEMORY NOTE — per-unit isolation (why a worker can drain many units in one
     persistent driver): each unit runs a SEPARATE ``applyInPandas`` pass and frees
     memory between units (``_process_*`` loops one match at a time). Per-group memory
-    is bounded by ``_FRAME_BATCH_SIZE`` (250 frames x ~23 rows/frame = ~5,750 rows,
-    ~1-3 MB — measured 2026-06-09, ADR-045; the cap exists for legacy whole-period
+    is bounded by ``_FRAME_BATCH_SIZE`` (2500 frames x ~23 rows/frame = ~57.5K rows,
+    ~10-30 MB — ADR-047; the cap exists for legacy whole-period
     groups, not these sub-batches); concurrent executor
     pressure is bounded by the for_each ``concurrency`` == ``_N_DRAIN_WORKERS``.
     """
@@ -1712,7 +1717,7 @@ def _run_profile_on_driver(
     max_batches: int = 0,
     kde_backend: str = "fft-cic",
 ) -> int:
-    """Pull the whole match to the driver, run ``enrich_batch`` per 250-frame
+    """Pull the whole match to the driver, run ``enrich_batch`` per frame
     batch under ``cProfile`` (single-process), and write the breakdown to the
     UC Volume rendezvous dir. Returns the number of enriched rows (NOT written
     to bronze — this is a measurement path).
@@ -1864,7 +1869,7 @@ def profile_action_context() -> None:
                 {
                     "type": int,
                     "default": 0,
-                    "help": "Profile only the first N 250-frame batches (representative sample; "
+                    "help": "Profile only the first N frame batches (representative sample; "
                     "0 = whole match, high fidelity but serial-slow).",
                 },
             ),

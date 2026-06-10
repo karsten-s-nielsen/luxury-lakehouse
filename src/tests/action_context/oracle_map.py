@@ -5,8 +5,11 @@ action-level join key:
 
   - ``tracking_context`` (``fct_tracking_context``): same-name feature columns;
     action-join on ``action_id``; providers idsse/skillcorner/metrica (NOT
-    gradientsports — 0 rows). This pipeline batched per 250 frames identically to
-    AC-1, so its features should match tightly.
+    gradientsports — 0 rows). This pipeline batched per 250 frames; AC-1 batched
+    identically until ADR-047 raised ``_FRAME_BATCH_SIZE`` to 2500, so
+    geometric/at-action features still match tightly but WINDOW-DEPENDENT
+    features (``_WINDOW_DEPENDENT_COLS``) legitimately diverge — their windows
+    are no longer truncated at 250-frame edges.
   - ``pausa`` (``fct_pausa_values``): OBSO + PAUSA, renamed; action-join on
     ``pass_id``; IDSSE only.
   - ``elastic`` (``elastic_sync_results``): NOT a usable oracle. The legacy
@@ -131,8 +134,28 @@ IDENTITY_PASSTHROUGH: frozenset[str] = frozenset({
 })  # fmt: skip
 
 # DAS columns: oracle infers ball-carrier on the WHOLE match (contiguous hysteresis);
-# AC-1's fix infers per-250-batch, so boundary actions can diverge -> looser tolerance.
+# AC-1's fix infers per-batch, so boundary actions can diverge -> looser tolerance.
 _DAS_COLS = frozenset({"das_team", "das_opponent", "das_diff"})
+
+# Window-dependent columns (ADR-047): the oracle batched at 250 frames; AC-1 batches at
+# 2500. pre_window features see windows that the oracle truncated at 250-frame batch
+# edges (NaN<->value flips + integer runner-count deltas up to 8 measured in the
+# 2026-06-10 batch-size A/B); pressure_on_actor__bekkers_pi is empirically
+# batch-window-sensitive in the same A/B (max delta 0.21); n_candidate_frames is the
+# elastic candidate-window size, batch-edge-clipped to 6-9 at 250 vs the full 10 at 2500
+# (drifts in lockstep with elastic_frame_id, which is already INVARIANT_ONLY). Fuller
+# windows are CLOSER to the metric intent — the oracle's truncated values are not a
+# valid target for them.
+_WINDOW_DEPENDENT_COLS = frozenset({
+    "n_off_ball_runners_pre_window",
+    "n_off_ball_runners_toward_goal_pre_window",
+    "max_off_ball_run_displacement_pre_window",
+    "mean_off_ball_run_speed_pre_window",
+    "actor_arc_length_pre_window",
+    "actor_displacement_pre_window",
+    "pressure_on_actor__bekkers_pi",
+    "n_candidate_frames",
+})  # fmt: skip
 
 # Threat-weighted columns: AC-1 uses the PERSISTED GLOBAL xT grid (expected_threat_grids,
 # competition_id='global', 12x8 — ADR-013 design), while the legacy tracking_context oracle
@@ -210,6 +233,18 @@ def build_oracle_specs(ac_columns: list[str], tracking_oracle_columns: list[str]
                         rtol=1e-2,
                         known_divergence=True,
                         note="threat-weighted: AC-1 global xT grid vs oracle fit-per-match xT",
+                    )
+                )
+            elif col in _WINDOW_DEPENDENT_COLS:
+                specs.append(
+                    OracleSpec(
+                        col,
+                        "tracking_context",
+                        col,
+                        PROVIDERS_TRACKING_CONTEXT,
+                        kind=kind,
+                        known_divergence=True,
+                        note="window-dependent: oracle batched at 250 frames, AC-1 at 2500 (ADR-047)",
                     )
                 )
             elif col in _DAS_COLS:

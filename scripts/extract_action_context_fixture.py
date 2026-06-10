@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 FIXTURE_ROOT = Path("src/tests/fixtures/action_context")
 
 # Frame batch size — MUST match ingestion.action_context._FRAME_BATCH_SIZE (L11 batch-alignment).
-_FRAME_BATCH_SIZE = 250
+_FRAME_BATCH_SIZE = 2500
 # Sub-chunk size (frames) for tracking pulls, to stay under the INLINE statement result cap.
 _SUBCHUNK_FRAMES = 1000
 
@@ -184,7 +184,7 @@ def _resolve_num_batches_range(
     bronze: str,
     warehouse_id: str,
 ) -> tuple[int, int]:
-    """Resolve a batch-aligned [start, end) frame window of ``num_batches`` 250-frame batches.
+    """Resolve a batch-aligned [start, end) frame window of ``num_batches`` ``_FRAME_BATCH_SIZE``-frame batches.
 
     Probes ``min(frame)`` for the (match, period) so the caller does not need to know the
     provider's frame-numbering offset (IDSSE period frames start at 10000 / 100000, not 0).
@@ -309,14 +309,25 @@ def _resolve_meta(
     elif provider == "gradientsports":
         from ingestion.spadl_adapter import extract_gradientsports_match_metadata
 
+        # Only the 4 columns extract_gradientsports_match_metadata reads — NOT SELECT *.
+        # The live table has a scan-planning defect on `possessionEvents.carrySuccessful`
+        # (any query touching it fails, including SELECT *; observed 2026-06-10, suspected
+        # PR #355 column-mapping migration fallout), and metadata needs none of the 260
+        # event columns anyway.
         events = _execute_query_to_df(
-            f"SELECT * FROM {catalog}.{bronze}.gradientsports_events WHERE match_id = '{_q(match_id)}'",  # noqa: S608
+            f"SELECT `gameEvents.homeTeam`, `gameEvents.teamId`, "  # noqa: S608
+            f"`stadiumMetadata.homeTeamStartLeft`, `stadiumMetadata.homeTeamStartLeftExtraTime` "
+            f"FROM {catalog}.{bronze}.gradientsports_events WHERE match_id = '{_q(match_id)}'",
             warehouse_id,
         )
         gs_meta = extract_gradientsports_match_metadata(events)
         home_tid = str(gs_meta["home_team_id"])
         meta["home_team_id"] = home_tid
         meta["home_start_left"] = bool(gs_meta["home_team_start_left"])
+        # ET direction flag (ADR-029): silly-kicks raises on period 3/4 conversion without it,
+        # so an extra-time fixture (e.g. 10517 p3) is unusable if this is dropped. None is safe
+        # for no-ET matches; ParquetMatchMetadataSource tolerates the missing/NaN column.
+        meta["home_team_start_left_extratime"] = gs_meta["home_team_start_left_extratime"]
 
         roster = _execute_query_to_df(
             f"SELECT * FROM {catalog}.{bronze}.gradientsports_roster WHERE match_id = '{_q(match_id)}'",  # noqa: S608
@@ -325,24 +336,18 @@ def _resolve_meta(
         if not roster.empty:
             import json
 
-            all_team_ids = roster["team_id"].dropna().unique()
-            away_tids = [str(t) for t in all_team_ids if str(t) != home_tid]
-            away_team_id = away_tids[0] if away_tids else home_tid
-            meta["gs_team_side_to_id_json"] = json.dumps({"home": home_tid, "away": away_team_id})
+            # Reuse production's roster-dict builder — the bronze roster uses pd.json_normalize
+            # dot-notation columns (`team.id`, `shirtNumber`, `player.id`, `positionGroupType`),
+            # and a snake_case reimplementation here KeyErrors (its docstring calls out exactly
+            # this bug class; bitten 2026-06-10 when this branch first ran against live data).
+            from ingestion.action_context import _build_gradientsports_roster_dicts
 
-            j2p: dict[str, str] = {}
-            for _, r in roster.iterrows():
-                tid = str(r.get("team_id", ""))
-                side = "home" if tid == home_tid else "away"
-                jersey = str(r.get("jersey_number", ""))
-                pid = str(r.get("player_id", ""))
-                if jersey and pid:
-                    j2p[f"{side}\t{jersey}"] = pid
-            meta["gs_jersey_to_player_id_json"] = json.dumps(j2p)
-
-            if "position" in roster.columns:
-                gk = roster[roster["position"].astype(str).str.upper() == "GK"]
-                meta["gs_gk_player_ids_json"] = json.dumps([str(r["player_id"]) for _, r in gk.iterrows()])
+            team_side_to_id, j2p_tuples, gk_player_ids = _build_gradientsports_roster_dicts(roster, home_tid)
+            meta["gs_team_side_to_id_json"] = json.dumps(team_side_to_id)
+            meta["gs_jersey_to_player_id_json"] = json.dumps(
+                {f"{side}\t{jersey}": pid for (side, jersey), pid in j2p_tuples.items()}
+            )
+            meta["gs_gk_player_ids_json"] = json.dumps(gk_player_ids)
 
     else:  # event-only: enrich_event_only ignores meta; home_team_id = first acting team
         teams = actions_pdf["team_id"].dropna().unique() if "team_id" in actions_pdf.columns else []
@@ -456,7 +461,7 @@ def main() -> None:
         "--num-batches",
         type=int,
         default=None,
-        help="Pull N 250-frame batches starting at the first frame (avoids provider frame-offset footgun).",
+        help="Pull N _FRAME_BATCH_SIZE-frame batches from the first frame (avoids provider frame-offset footgun).",
     )
     parser.add_argument("--catalog", default="soccer_analytics")
     parser.add_argument("--bronze-schema", default="bronze")

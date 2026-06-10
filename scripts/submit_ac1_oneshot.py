@@ -172,7 +172,7 @@ def main() -> int:
         "--max-batches",
         type=int,
         default=60,
-        help="With --profile: profile only the first N 250-frame batches (representative "
+        help="With --profile: profile only the first N frame batches (representative "
         "sample; 0 = whole match, high fidelity but serial-slow). Ignored without --profile.",
     )
     p.add_argument(

@@ -1,7 +1,7 @@
 """E2E + golden: regenerate the real pipeline on the IDSSE anchor and compare to the frozen golden.
 
 This is the slow pre-commit gate (#23) and the C.3 golden check in one: it runs the REAL
-``run_work_unit`` -> ``enrich_batch`` 250-frame loop on the committed IDSSE J03WMX fixture
+``run_work_unit`` -> ``enrich_batch`` frame-batch loop on the committed IDSSE J03WMX fixture
 (no Spark, no Databricks), then asserts the output reproduces ``golden.parquet`` and is
 boundary-dup-free. Takes ~5 min (DAS-dominated), so it is gated behind ``AC1_E2E=1`` to keep
 the default unit suite fast; CI regression is the fast ``test_differential.py`` (reads golden).
@@ -67,12 +67,13 @@ def test_gs_e2e_convert_and_enrich_does_not_crash() -> None:
     and asserts it COMPLETES and returns the result schema. Bug #4 raised here before returning,
     so this catches that crash class.
 
-    SCOPE: the committed `10517_p3` fixture is a ~15s period-3 FRAME slice paired with full-match
-    actions (and its meta has no roster dicts), so it produces 0 enriched rows by construction —
-    it cannot validate row counts or player RESOLUTION. Resolution is validated by the serverless
-    run (real bronze roster). A matched GS fixture (aligned frames+actions+roster-derived meta)
-    for a full resolution e2e is a tracked follow-up. See feedback_test_production_driver_entry_point
-    + project_gradientsports_player_id_space_bug.
+    SCOPE: the committed `10517_p3` fixture (re-extracted 2026-06-10, ADR-047 PR) is one
+    2500-frame period-3 batch with period-relative actions AND roster-derived meta (jersey
+    maps, GK ids, team sides, ET flag) — it enriches ~25 real rows, so this now also
+    exercises GS player RESOLUTION end-to-end (the pre-ADR-040 fixture had absolute-clock
+    actions + roster-less meta and produced 0 rows by construction). Row VALUES are not
+    golden-asserted here; only completion + schema. See
+    feedback_test_production_driver_entry_point + project_gradientsports_player_id_space_bug.
     """
     from analytics.action_context.schema import RESULT_COLUMNS
 
