@@ -40,6 +40,13 @@ class TestBuildRunsSubmitPayload:
         assert "new_cluster" not in task
         assert len(payload["environments"]) == 1
         assert payload["environments"][0]["environment_key"] == "Default"
+        # 2026-06-10 platform validation: runs/submit rejects an env spec carrying BOTH
+        # client AND environment_version ("Only one of them must be provided") — the pair
+        # broke the daily dbt-live-ci. Sentinel: exactly one of the two, ever.
+        spec = payload["environments"][0]["spec"]
+        assert ("client" in spec) ^ ("environment_version" in spec), (
+            f"env spec must carry exactly one of client/environment_version, got {sorted(spec)}"
+        )
 
 
 class TestSubmitRun:

@@ -85,8 +85,12 @@ def build_runs_submit_payload(
         "environments": [
             {
                 "environment_key": "Default",
+                # EXACTLY ONE of client / environment_version. Sending both worked from
+                # 2026-04-26 until 2026-06-09; the 2026-06-10 Databricks rollout rejects the
+                # pair at runs/submit with INVALID_PARAMETER_VALUE ("Only one of them must be
+                # provided for serverless environments") — broke the daily dbt-live-ci.
+                # environment_version is the current canonical field; client is its legacy alias.
                 "spec": {
-                    "client": "2",
                     "environment_version": "2",
                 },
             }
