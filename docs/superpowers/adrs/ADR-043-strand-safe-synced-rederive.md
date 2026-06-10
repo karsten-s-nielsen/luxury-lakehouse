@@ -92,6 +92,21 @@ No exception to a project-wide rule. A pointer is added under "Database Performa
 operators to `scripts/rederive_synced_marts.py` and noting that `--full-refresh` of a TRIGGERED mart (and
 `dbt_full_refresh=true` on stages 2/3) is now blocked by the tripwire.
 
+## Amendment (2026-06-10): T-proof asserts converge-or-strand, not a settle-state
+
+A Databricks rollout on 2026-06-10 (same window as the `runs/submit` validation change fixed in
+PR #363) made post-`CREATE OR REPLACE` reconciliation sit in
+`SYNCED_TABLE_ONLINE_UPDATING_PIPELINE_RESOURCES` for 10+ minutes (2/2 reproduced; the table stayed
+online and serving throughout — no strand). The e2e T-proof's original assertion ("settles to
+`SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE` within 600 s") was a *proxy* for the T-path claim and broke
+on the benign slowdown. The proof now asserts the claim itself
+(`_assert_replace_converges_without_strand` in `test_synced_table_heal_e2e.py`): fail fast on
+`is_checkpoint_mismatch_failure` (the heal's ~1–2 min preflight signal) or a terminal failure
+status; pass on PG row convergence (deadline 1800 s); dump the state/row timeline on deadline.
+`wait_until_online` also gained `SYNCED_TABLE_ONLINE_PIPELINE_FAILED` in its early-return set — a
+genuine strand previously burned the caller's whole timeout before being reported. The T-path
+strand-safety claim itself is unchanged and remains live-proven.
+
 ## Related
 
 - **Specs:** `docs/superpowers/specs/2026-06-09-strand-safe-synced-rederive-design.md` (rev 5)

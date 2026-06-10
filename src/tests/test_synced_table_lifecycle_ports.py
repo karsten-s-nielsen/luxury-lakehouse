@@ -35,3 +35,29 @@ def test_heal_ports_composition() -> None:
 
 def test_heal_outcome_members() -> None:
     assert {o.name for o in HealOutcome} == {"HEALED", "UNHEALABLE", "HEAL_FAILED", "SKIPPED_PREFLIGHT"}
+
+
+def test_wait_until_online_returns_early_on_terminal_failure_states(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """wait_until_online must return IMMEDIATELY on terminal failure states — including
+    SYNCED_TABLE_ONLINE_PIPELINE_FAILED, the strand signature (table still serving, DLT given up).
+    Before 2026-06-10 that state was missing from the early-return set, so a genuine strand burned
+    the caller's entire timeout (600-1800s) before being reported, even though DLT had already
+    settled on failure ~13 min in (ADR-041 re-characterisation)."""
+    from ingestion.synced_table_lifecycle import SdkWriterAdapter
+
+    for terminal in ("SYNCED_TABLE_OFFLINE", "SYNCED_TABLE_OFFLINE_FAILED", "SYNCED_TABLE_ONLINE_PIPELINE_FAILED"):
+        adapter = SdkWriterAdapter.__new__(SdkWriterAdapter)  # no real WorkspaceClient needed
+        monkeypatch.setattr(adapter, "_status", lambda fqn, s=terminal: s, raising=False)
+        sleeps: list[int] = []
+        monkeypatch.setattr("ingestion.synced_table_lifecycle.time.sleep", lambda s, _sink=sleeps: _sink.append(s))
+        assert adapter.wait_until_online("cat.sch.tbl", timeout_s=600) == terminal
+        assert sleeps == [], f"{terminal}: expected immediate return, but the wait slept {sleeps}"
+
+
+def test_wait_until_online_returns_online_on_settled_state(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """The settled state maps to the canonical SYNCED_TABLE_ONLINE return value."""
+    from ingestion.synced_table_lifecycle import SdkWriterAdapter
+
+    adapter = SdkWriterAdapter.__new__(SdkWriterAdapter)
+    monkeypatch.setattr(adapter, "_status", lambda fqn: "SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE", raising=False)
+    assert adapter.wait_until_online("cat.sch.tbl", timeout_s=600) == "SYNCED_TABLE_ONLINE"

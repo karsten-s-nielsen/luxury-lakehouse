@@ -33,7 +33,16 @@ _BRANCH = "projects/soccer-analytics-dev/branches/production"
 _PG_DATABASE = "databricks_postgres"
 SYNCED_TABLE_ONLINE_STATE = "SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE"
 _ONLINE_OK_STATE = "SYNCED_TABLE_ONLINE"
-_OFFLINE_STATES = ("SYNCED_TABLE_OFFLINE", "SYNCED_TABLE_OFFLINE_FAILED")
+# States wait_until_online returns from EARLY (no point polling out the full budget).
+# SYNCED_TABLE_ONLINE_PIPELINE_FAILED is the strand signature (table still serving, DLT
+# pipeline given up): before 2026-06-10 it was absent here, so a genuine strand silently
+# burned the whole timeout before being reported instead of returning the moment DLT
+# settled on failure (~13 min after the first failed update — ADR-041 re-characterisation).
+_TERMINAL_FAILURE_STATES = (
+    "SYNCED_TABLE_OFFLINE",
+    "SYNCED_TABLE_OFFLINE_FAILED",
+    "SYNCED_TABLE_ONLINE_PIPELINE_FAILED",
+)
 _NOT_FOUND_MARKERS = ("not found", "does not exist")
 # A freshly (re)created synced table auto-starts its initial sync, so an explicit start_update races
 # with it: "An active update '<id>' already exists for pipeline '<id>'." That in-flight update IS the
@@ -174,7 +183,7 @@ class SdkWriterAdapter:
             last = self._status(fqn)
             if last == SYNCED_TABLE_ONLINE_STATE:
                 return _ONLINE_OK_STATE
-            if last in _OFFLINE_STATES or time.monotonic() - start > timeout_s:
+            if last in _TERMINAL_FAILURE_STATES or time.monotonic() - start > timeout_s:
                 return last
             time.sleep(15)
 
