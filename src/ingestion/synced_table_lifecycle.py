@@ -20,9 +20,12 @@ Import-safe offline: databricks-sdk / psycopg2 are imported lazily inside method
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from databricks.sdk import WorkspaceClient
@@ -180,7 +183,15 @@ class SdkWriterAdapter:
         start = time.monotonic()
         last = "UNKNOWN"
         while True:
-            last = self._status(fqn)
+            # A poll loop with minutes of budget must not die because ONE poll failed: the
+            # control-plane GET intermittently times out (DeadlineExceeded after the SDK's own
+            # retries — bit the heal e2e setup AND the maintenance pipeline-id lookup on
+            # 2026-06-10). Record the unreadable poll and keep polling; the timeout still bounds.
+            try:
+                last = self._status(fqn)
+            except Exception as exc:  # noqa: BLE001 — transient control-plane read; loop is bounded by timeout_s
+                logger.error("wait_until_online: status poll for %s failed (%s) — retrying next cycle", fqn, exc)
+                last = f"UNREADABLE: {type(exc).__name__}"
             if last == SYNCED_TABLE_ONLINE_STATE:
                 return _ONLINE_OK_STATE
             if last in _TERMINAL_FAILURE_STATES or time.monotonic() - start > timeout_s:
