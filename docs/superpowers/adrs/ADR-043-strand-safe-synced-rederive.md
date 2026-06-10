@@ -92,7 +92,32 @@ No exception to a project-wide rule. A pointer is added under "Database Performa
 operators to `scripts/rederive_synced_marts.py` and noting that `--full-refresh` of a TRIGGERED mart (and
 `dbt_full_refresh=true` on stages 2/3) is now blocked by the tripwire.
 
-## Amendment (2026-06-10): T-proof asserts converge-or-strand, not a settle-state
+## Amendment 2 (2026-06-10, supersedes amendment 1's "no strand" reading): CREATE OR REPLACE now STRANDS — T is strand-and-heal
+
+Amendment 1 (below) concluded the e2e failures were a benign platform slowdown. The converge-or-strand
+re-design it shipped then DISPROVED that within hours: the fail-fast caught the **XXKST checkpoint
+mismatch 44 s after a plain `CREATE OR REPLACE`** (e2e run 27287508318), and a supervised production
+cycle the same afternoon confirmed it end-to-end on `fct_pausa_values` — rebuild → refresh **stranded**
+(`SYNCED_TABLE_ONLINE_PIPELINE_FAILED`) → Lakebase Maintenance heal → `checkpoint reset via recreate ->
+HEALED`, fresh sync 16:14Z. The Databricks rollout (same window as the `runs/submit` validation change,
+PR #363) changed the contract: **a plain create-or-replace of a CDF source now strands its TRIGGERED
+synced table, even though the Delta table id is preserved.**
+
+Consequences now in force:
+
+- **The T path is strand-and-heal, not strand-free.** "Zero downtime" is false: the synced table serves
+  stale rows from the strand until the heal's recreate finishes (brief re-snapshot downtime). The daily
+  mega-job's `table`-mart rebuilds will strand-and-heal every build until the platform reverts or the
+  marts change materialization — accepted for the 2 small T marts; revisit if heal churn grows.
+- `refresh_synced_tables` gains `--fail-on-strand` (operator mode: first-strand = exit 1 with a
+  stale-data warning). `rederive_synced_marts.py` uses it — its T/D paths no longer print a success
+  banner over a stranded table (the 2026-06-10 incident). The daily task keeps green-with-warning +
+  heal dispatch BY DESIGN (a red would page on now-routine behaviour).
+- The e2e T-proof asserts **converge-or-heal**: strand signal → run the real heal → assert HEALED →
+  converge. If it ever converges WITHOUT the heal, the platform reverted — the test passes and logs
+  loudly to re-characterise this amendment.
+
+## Amendment 1 (2026-06-10, superseded above): T-proof asserts converge-or-strand, not a settle-state
 
 A Databricks rollout on 2026-06-10 (same window as the `runs/submit` validation change fixed in
 PR #363) made post-`CREATE OR REPLACE` reconciliation sit in

@@ -58,42 +58,51 @@ _SYNCED = "fct_heal_e2e_src_synced"
 _UPDATE_COMPLETED = "COMPLETED"
 
 
-def _assert_replace_converges_without_strand(
+def _assert_replace_converges_healing_if_stranded(
     *,
     ws: Any,
     reader: Any,
     fqn: str,
     pipeline_id: str,
+    catalog: str,
     schema: str,
     table: str,
+    cfg: Any,
+    heal_ports: Any,
     expected_ids: list[int],
     deadline_s: int = 1800,
     poll_s: int = 20,
 ) -> None:
-    """Converge-or-strand wait for the T-mechanism (2026-06-10 re-design).
+    """Converge-or-heal contract for the T-mechanism (ADR-043 amendment 2, 2026-06-10).
 
-    The load-bearing ADR-043 claim is "CREATE OR REPLACE does not STRAND the synced table" —
-    NOT "the table settles to NO_PENDING_UPDATE within an arbitrary budget". The 2026-06-10
-    Databricks rollout made post-replace reconciliation sit in
-    ``SYNCED_TABLE_ONLINE_UPDATING_PIPELINE_RESOURCES`` well past the old 600s strict-state
-    wait (2/2 repro: nightly + manual re-dispatch; the table stayed online and serving
-    throughout — no strand), so the old proxy assert cried "stranded" on a benign slowdown.
+    The platform contract CHANGED on 2026-06-10 (Databricks rollout): a plain
+    ``CREATE OR REPLACE`` of a CDF source now STRANDS its TRIGGERED synced table with the
+    XXKST checkpoint mismatch (proven live: e2e run 27287508318 caught it in 44s; the
+    supervised production cycle on fct_pausa_values stranded + HEALED the same afternoon).
+    So "strand-free" is no longer the assertable claim. The durable invariant is:
 
-    This asserts the invariant directly:
-      - FAIL FAST on the true strand signal — ``is_checkpoint_mismatch_failure`` (the heal's
-        own ~1-2 min preflight signal; the ``SYNCED_TABLE_ONLINE_PIPELINE_FAILED`` status lags
-        ~13 min behind it) — or on any terminal failure status;
-      - PASS as soon as the PG row set converges to the replaced source's rows (the
-        user-visible outcome the T path promises);
-      - on deadline, fail with the full state/row timeline so the next platform-behaviour
-        shift is diagnosable from the log instead of a bare timeout.
+      a T-mart rebuild + refresh ends with a CONVERGED, ONLINE synced table,
+      with the ADR-041 heal as the sanctioned recovery mechanism.
+
+    Behaviour:
+      - strand signal fires (``is_checkpoint_mismatch_failure``, ~1-2 min) -> run the REAL
+        ``heal_synced_table`` and assert HEALED, then keep polling for convergence;
+      - PG row set converges to the replaced source's rows -> PASS. If it converged WITHOUT
+        needing the heal, print LOUDLY — that means the platform reverted to pre-2026-06-10
+        strand-free behaviour and ADR-043 amendment 2 should be re-characterised;
+      - terminal failure status without the strand signal, heal failure, or deadline -> FAIL
+        with the full state/row timeline.
+
+    The PG read tolerates a vanished relation mid-poll: the heal's delete->recreate window
+    briefly drops the PG table — that is the heal working, not a failure.
     """
     from ingestion.heal_synced_tables import _make_pg_connect
-    from ingestion.synced_table_heal import is_checkpoint_mismatch_failure
+    from ingestion.synced_table_heal import HealOutcome, heal_synced_table, is_checkpoint_mismatch_failure
 
     pg_connect = _make_pg_connect(ws)
     start = time.monotonic()
     timeline: list[str] = []
+    healed = False
     while True:
         elapsed = int(time.monotonic() - start)
         state = reader.get_synced_table_status(fqn)
@@ -101,29 +110,41 @@ def _assert_replace_converges_without_strand(
         try:
             with conn.cursor() as cur:
                 cur.execute(f'SELECT id FROM {schema}."{table}" ORDER BY id')
-                ids = [int(r[0]) for r in cur.fetchall()]
+                ids: list[int] | str = [int(r[0]) for r in cur.fetchall()]
+        except Exception as exc:  # heal's delete->recreate window drops the PG relation; record + keep polling
+            ids = f"<unreadable: {type(exc).__name__}>"
         finally:
             conn.close()
-        timeline.append(f"t+{elapsed}s state={state} pg_ids={ids}")
+        timeline.append(f"t+{elapsed}s state={state} healed={healed} pg_ids={ids}")
         if ids == expected_ids:
-            print("T-mechanism converged:\n  " + "\n  ".join(timeline))  # settle-time record (visible with -rA)
+            mode = "via heal (current platform contract)" if healed else "WITHOUT heal"
+            print(f"T-mechanism converged {mode}:\n  " + "\n  ".join(timeline))
+            if not healed:
+                print(
+                    "NOTE: CREATE OR REPLACE no longer stranded — the platform appears to have REVERTED "
+                    "to pre-2026-06-10 strand-free behaviour. Re-characterise ADR-043 amendment 2."
+                )
             return
-        if is_checkpoint_mismatch_failure(reader, pipeline_id):
+        if not healed and is_checkpoint_mismatch_failure(reader, pipeline_id):
+            timeline.append(f"t+{elapsed}s STRAND detected (XXKST) -> invoking heal_synced_table")
+            outcome = heal_synced_table(heal_ports, cfg, catalog, schema)
+            timeline.append(f"t+{int(time.monotonic() - start)}s heal outcome={outcome.name}")
+            if outcome is not HealOutcome.HEALED:
+                pytest.fail(
+                    f"strand detected but heal returned {outcome.name} — the ADR-041 recovery path is "
+                    "broken for the T-mechanism.\n  " + "\n  ".join(timeline),
+                    pytrace=False,
+                )
+            healed = True
+        elif not healed and state in ("SYNCED_TABLE_OFFLINE", "SYNCED_TABLE_OFFLINE_FAILED"):
             pytest.fail(
-                "CREATE OR REPLACE STRANDED the synced table (checkpoint mismatch / XXKST) — the T path's "
-                "strand-safe assumption no longer holds.\n  " + "\n  ".join(timeline),
-                pytrace=False,
-            )
-        if state in ("SYNCED_TABLE_OFFLINE", "SYNCED_TABLE_OFFLINE_FAILED", "SYNCED_TABLE_ONLINE_PIPELINE_FAILED"):
-            pytest.fail(
-                f"synced table reached terminal failure state {state} after CREATE OR REPLACE.\n  "
+                f"synced table reached terminal failure state {state} WITHOUT the strand signal.\n  "
                 + "\n  ".join(timeline),
                 pytrace=False,
             )
         if elapsed > deadline_s:
             pytest.fail(
-                f"PG rows never converged to {expected_ids} within {deadline_s}s and no strand signal fired "
-                "(benign-but-unbounded reconciliation? raise the deadline only with evidence).\n  "
+                f"PG rows never converged to {expected_ids} within {deadline_s}s (healed={healed}).\n  "
                 + "\n  ".join(timeline),
                 pytrace=False,
             )
@@ -320,23 +341,32 @@ def test_d_mechanism_delete_insert_keeps_synced_online() -> None:
         sql(f"DROP TABLE IF EXISTS {src}")
 
 
-def test_t_mechanism_create_or_replace_keeps_synced_online() -> None:
-    """Positive proof (ADR-043, T action): a plain `CREATE OR REPLACE TABLE … AS SELECT` (what dbt's
-    `table` materialization emits for fct_pausa_values / fct_space_creation) — an atomic full replace
-    that keeps the Delta table id — followed by one incremental CDF refresh does NOT strand the
-    TRIGGERED synced table, and its rows converge. This regression-locks the load-bearing
-    "create-or-replace is strand-free" claim the T path rests on (symmetric with the D-mechanism proof
-    above; protects against a future DBR/adapter change silently re-stranding the table marts).
-    Asserted via _assert_replace_converges_without_strand, not a strict settle-state wait.
+def test_t_mechanism_create_or_replace_converges_healing_if_stranded() -> None:
+    """T-mechanism contract (ADR-043 amendment 2): a plain `CREATE OR REPLACE TABLE … AS SELECT`
+    (what dbt's `table` materialization emits for fct_pausa_values / fct_space_creation) followed by a
+    triggered refresh ends with a CONVERGED, ONLINE synced table — with the ADR-041 heal as the
+    sanctioned recovery when the refresh strands.
 
-    Contrast with test_heal_resets_checkpoint_and_resumes_incremental_cdf, which uses DROP+CREATE (a NEW
-    table id) to *reproduce* a strand — here a CREATE OR REPLACE (same id) must NOT strand.
+    HISTORY: until 2026-06-10 this test asserted "create-or-replace is strand-free" (same Delta id →
+    stream survives). A Databricks rollout that day broke the assumption — the refresh now fails with
+    the XXKST checkpoint mismatch (e2e run 27287508318; supervised production cycle on
+    fct_pausa_values stranded + HEALED the same afternoon). The test now asserts the durable
+    invariant and LOUDLY reports if the platform reverts to strand-free (re-characterise the ADR).
+
+    Contrast with test_heal_resets_checkpoint_and_resumes_incremental_cdf, which uses DROP+CREATE (a
+    NEW table id) to reproduce the strand the heal was originally built for.
     """
     from databricks.sdk import WorkspaceClient
 
     from ingestion.heal_synced_tables import _make_pg_connect, _make_sql_exec
     from ingestion.refresh_synced_tables import SyncedTableConfig
-    from ingestion.synced_table_lifecycle import PsycopgGhostAdapter, SdkReaderAdapter, SdkWriterAdapter
+    from ingestion.synced_table_heal import HealPorts
+    from ingestion.synced_table_lifecycle import (
+        PsycopgGhostAdapter,
+        SdkReaderAdapter,
+        SdkWriterAdapter,
+        WarehouseCdfAdapter,
+    )
 
     ws = WorkspaceClient()
     sql = _make_sql_exec(ws)
@@ -362,23 +392,29 @@ def test_t_mechanism_create_or_replace_keeps_synced_online() -> None:
         assert writer.wait_until_online(fqn, timeout_s=600) == "SYNCED_TABLE_ONLINE"
 
         # T mechanism: atomic CREATE OR REPLACE TABLE ... AS SELECT (same id, full replace) — exactly
-        # what dbt's table materialization does for the 2 table marts. Must NOT strand.
-        # Asserted converge-or-strand (NOT strict settle-state): see
-        # _assert_replace_converges_without_strand — the 2026-06-10 platform rollout made the benign
-        # post-replace ONLINE_UPDATING_PIPELINE_RESOURCES phase outlast any fixed strict-state budget.
+        # what dbt's table materialization does for the 2 table marts. Contract: CONVERGE, healing if
+        # stranded (the current platform strands this — ADR-043 amendment 2).
         sql(
             f"CREATE OR REPLACE TABLE {src} TBLPROPERTIES ('delta.enableChangeDataFeed' = 'true') "
             "AS SELECT * FROM VALUES (1),(2),(3),(4),(5) AS t(id)"
         )
         pid_replace = reader.get_pipeline_id(fqn)
         writer.trigger_refresh(pid_replace)
-        _assert_replace_converges_without_strand(
+        _assert_replace_converges_healing_if_stranded(
             ws=ws,
             reader=reader,
             fqn=fqn,
             pipeline_id=pid_replace,
+            catalog=_CATALOG,
             schema=_SCHEMA,
             table=synced_name,
+            cfg=cfg,
+            heal_ports=HealPorts(
+                reader=reader,
+                writer=writer,
+                ghost=PsycopgGhostAdapter(_make_pg_connect(ws)),
+                warehouse=WarehouseCdfAdapter(sql),
+            ),
             expected_ids=[1, 2, 3, 4, 5],
         )
     finally:

@@ -24,8 +24,9 @@ def test_d_mart_plans_merge_reprocess_no_full_refresh() -> None:
 
 
 def test_table_mart_plans_plain_rebuild_t() -> None:
-    # The 2 `table` marts use the T (plain rebuild) action — zero downtime, no synced delete,
-    # no --full-refresh (matches the strand-free daily plain build). No vars (no enable-var
+    # The 2 `table` marts use the T (plain rebuild) action — no synced delete, no --full-refresh
+    # (the daily plain-build path; since the 2026-06-10 platform change the rebuild strands the
+    # synced table and the ADR-041 heal recreates it — ADR-043 amendment 2). No vars (no enable-var
     # injection; dbt_project.yml defaults match production — space_creation stays 0-row).
     for mart in ("fct_pausa_values", "fct_space_creation"):
         steps = plan_rederive({mart}, [])
