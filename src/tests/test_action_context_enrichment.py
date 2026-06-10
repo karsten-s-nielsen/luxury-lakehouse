@@ -176,6 +176,20 @@ def test_enrich_tracking_calls_all_steps_with_links() -> None:
         patch("silly_kicks.tracking.add_structural_pass", _PASSTHROUGH),
         patch("silly_kicks.tracking.features.add_player_influence", _PASSTHROUGH),
         patch("silly_kicks.tracking.add_xcross_attempt", _PASSTHROUGH),
+        # xT-GK (silly-kicks 4.21.0+/4.22.0, ADR-048) Steps 25/25b/26 — patched so the real
+        # valuation (which hard-requires a FITTED ExpectedThreat and loads the bundled
+        # completion model) doesn't run against the MagicMock xt / synthetic frames. The preset
+        # loop calls compute_xt_gk(...)["xt_gk"], so its stub returns an actions-indexed frame.
+        patch("silly_kicks.tracking.add_xt_gk", _PASSTHROUGH),
+        patch(
+            "silly_kicks.tracking.compute_xt_gk",
+            MagicMock(side_effect=lambda a, f, **kw: pd.DataFrame({"xt_gk": [float("nan")] * len(a)}, index=a.index)),
+        ),
+        patch("silly_kicks.tracking.add_gk_completion", _PASSTHROUGH),
+        patch(
+            "silly_kicks.tracking._xt_gk._resolve_completion_for_frames",
+            MagicMock(return_value=(MagicMock(), "gs")),
+        ),
     ]
     for p in patches:
         p.start()

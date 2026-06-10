@@ -125,6 +125,16 @@ def _build_two_team_fixture(n_actions: int = 100) -> pd.DataFrame:
     # genuine observed actions — all of this fixture), not part of the NA fill.
     df["is_synthetic"] = False
 
+    # silly-kicks 4.21.0/4.22.0 (ADR-048): result_source + restart-coordinate enrichment —
+    # present on every post-migration bronze row (the UDF's output reindex selects strictly).
+    df["result_source"] = pd.NA
+    for col in ("enriched_start_x", "enriched_start_y", "enriched_end_x", "enriched_end_y"):
+        df[col] = float("nan")
+    for col in ("start_coord_source", "end_coord_source"):
+        df[col] = pd.NA
+    for col in ("start_coord_confidence", "end_coord_confidence"):
+        df[col] = float("nan")
+
     # Populate team_id_native (realistic for tracking providers)
     df["team_id_native"] = df["team_id"].map({_HOME_TEAM_ID: _HOME_NATIVE, _AWAY_TEAM_ID: _AWAY_NATIVE})
 

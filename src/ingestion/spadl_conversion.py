@@ -167,6 +167,19 @@ def _make_sb_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
                 # synthesis there). Cross-provider column per the False-default
                 # decision — drops silently from the projection if omitted here.
                 "is_synthetic",
+                # silly-kicks 4.21.0/4.22.0: result_source (SkillCorner native-completion
+                # label tier; NULL on other providers) + restart-coordinate enrichment
+                # from apply_spadl_enrichments. Drops silently from the projection if
+                # omitted here (the LL1 class).
+                "result_source",
+                "enriched_start_x",
+                "enriched_start_y",
+                "enriched_end_x",
+                "enriched_end_y",
+                "start_coord_source",
+                "end_coord_source",
+                "start_coord_confidence",
+                "end_coord_confidence",
             ]
         )
 
@@ -267,8 +280,10 @@ def _make_sb_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
         # silly-kicks 4.13.0 is_synthetic (sk ADR-018): coerce native bool (GS) /
         # manufacture False (5 non-GS providers) — see ensure_is_synthetic.
         from ingestion.spadl_udf_shared import ensure_is_synthetic as _ensure_is_synthetic
+        from ingestion.spadl_udf_shared import ensure_result_source as _ensure_result_source
 
         actions = _ensure_is_synthetic(actions)
+        actions = _ensure_result_source(actions)
 
         return _pd.DataFrame(actions[_spadl_cols])
 
@@ -415,6 +430,16 @@ def _convert_statsbomb_from_bronze(
             # silly-kicks 4.13.0 is_synthetic provenance (sk ADR-018): native on GS,
             # manufactured False elsewhere. Must mirror _spadl_cols + _SPADL_SCHEMA.
             StructField("is_synthetic", BooleanType()),
+            # silly-kicks 4.21.0/4.22.0: result_source + restart-coordinate enrichment.
+            StructField("result_source", StringType()),
+            StructField("enriched_start_x", DoubleType()),
+            StructField("enriched_start_y", DoubleType()),
+            StructField("enriched_end_x", DoubleType()),
+            StructField("enriched_end_y", DoubleType()),
+            StructField("start_coord_source", StringType()),
+            StructField("end_coord_source", StringType()),
+            StructField("start_coord_confidence", DoubleType()),
+            StructField("end_coord_confidence", DoubleType()),
         ]
     )
 
@@ -524,6 +549,19 @@ def _make_ws_spadl_udf(goalkeeper_ids: set[int] | None = None) -> Callable[[pd.D
                 # synthesis there). Cross-provider column per the False-default
                 # decision — drops silently from the projection if omitted here.
                 "is_synthetic",
+                # silly-kicks 4.21.0/4.22.0: result_source (SkillCorner native-completion
+                # label tier; NULL on other providers) + restart-coordinate enrichment
+                # from apply_spadl_enrichments. Drops silently from the projection if
+                # omitted here (the LL1 class).
+                "result_source",
+                "enriched_start_x",
+                "enriched_start_y",
+                "enriched_end_x",
+                "enriched_end_y",
+                "start_coord_source",
+                "end_coord_source",
+                "start_coord_confidence",
+                "end_coord_confidence",
             ]
         )
 
@@ -587,8 +625,10 @@ def _make_ws_spadl_udf(goalkeeper_ids: set[int] | None = None) -> Callable[[pd.D
         # silly-kicks 4.13.0 is_synthetic (sk ADR-018): coerce native bool (GS) /
         # manufacture False (5 non-GS providers) — see ensure_is_synthetic.
         from ingestion.spadl_udf_shared import ensure_is_synthetic as _ensure_is_synthetic
+        from ingestion.spadl_udf_shared import ensure_result_source as _ensure_result_source
 
         actions = _ensure_is_synthetic(actions)
+        actions = _ensure_result_source(actions)
 
         return _pd.DataFrame(actions[_spadl_cols])
 
@@ -768,6 +808,16 @@ def _convert_wyscout_from_bronze(
             # silly-kicks 4.13.0 is_synthetic provenance (sk ADR-018): native on GS,
             # manufactured False elsewhere. Must mirror _spadl_cols + _SPADL_SCHEMA.
             StructField("is_synthetic", BooleanType()),
+            # silly-kicks 4.21.0/4.22.0: result_source + restart-coordinate enrichment.
+            StructField("result_source", StringType()),
+            StructField("enriched_start_x", DoubleType()),
+            StructField("enriched_start_y", DoubleType()),
+            StructField("enriched_end_x", DoubleType()),
+            StructField("enriched_end_y", DoubleType()),
+            StructField("start_coord_source", StringType()),
+            StructField("end_coord_source", StringType()),
+            StructField("start_coord_confidence", DoubleType()),
+            StructField("end_coord_confidence", DoubleType()),
         ]
     )
 
@@ -905,6 +955,19 @@ def _make_idsse_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
                 # synthesis there). Cross-provider column per the False-default
                 # decision — drops silently from the projection if omitted here.
                 "is_synthetic",
+                # silly-kicks 4.21.0/4.22.0: result_source (SkillCorner native-completion
+                # label tier; NULL on other providers) + restart-coordinate enrichment
+                # from apply_spadl_enrichments. Drops silently from the projection if
+                # omitted here (the LL1 class).
+                "result_source",
+                "enriched_start_x",
+                "enriched_start_y",
+                "enriched_end_x",
+                "enriched_end_y",
+                "start_coord_source",
+                "end_coord_source",
+                "start_coord_confidence",
+                "end_coord_confidence",
             ]
         )
 
@@ -1085,8 +1148,10 @@ def _make_idsse_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
         # silly-kicks 4.13.0 is_synthetic (sk ADR-018): coerce native bool (GS) /
         # manufacture False (5 non-GS providers) — see ensure_is_synthetic.
         from ingestion.spadl_udf_shared import ensure_is_synthetic as _ensure_is_synthetic
+        from ingestion.spadl_udf_shared import ensure_result_source as _ensure_result_source
 
         actions = _ensure_is_synthetic(actions)
+        actions = _ensure_result_source(actions)
 
         return _pd.DataFrame(actions[_spadl_cols])
 
@@ -1197,6 +1262,16 @@ def _convert_idsse_from_bronze(
             # silly-kicks 4.13.0 is_synthetic provenance (sk ADR-018): native on GS,
             # manufactured False elsewhere. Must mirror _spadl_cols + _SPADL_SCHEMA.
             StructField("is_synthetic", BooleanType()),
+            # silly-kicks 4.21.0/4.22.0: result_source + restart-coordinate enrichment.
+            StructField("result_source", StringType()),
+            StructField("enriched_start_x", DoubleType()),
+            StructField("enriched_start_y", DoubleType()),
+            StructField("enriched_end_x", DoubleType()),
+            StructField("enriched_end_y", DoubleType()),
+            StructField("start_coord_source", StringType()),
+            StructField("end_coord_source", StringType()),
+            StructField("start_coord_confidence", DoubleType()),
+            StructField("end_coord_confidence", DoubleType()),
         ]
     )
 
@@ -1316,6 +1391,19 @@ def _make_metrica_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
                 # synthesis there). Cross-provider column per the False-default
                 # decision — drops silently from the projection if omitted here.
                 "is_synthetic",
+                # silly-kicks 4.21.0/4.22.0: result_source (SkillCorner native-completion
+                # label tier; NULL on other providers) + restart-coordinate enrichment
+                # from apply_spadl_enrichments. Drops silently from the projection if
+                # omitted here (the LL1 class).
+                "result_source",
+                "enriched_start_x",
+                "enriched_start_y",
+                "enriched_end_x",
+                "enriched_end_y",
+                "start_coord_source",
+                "end_coord_source",
+                "start_coord_confidence",
+                "end_coord_confidence",
             ]
         )
 
@@ -1427,8 +1515,10 @@ def _make_metrica_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
         # silly-kicks 4.13.0 is_synthetic (sk ADR-018): coerce native bool (GS) /
         # manufacture False (5 non-GS providers) — see ensure_is_synthetic.
         from ingestion.spadl_udf_shared import ensure_is_synthetic as _ensure_is_synthetic
+        from ingestion.spadl_udf_shared import ensure_result_source as _ensure_result_source
 
         actions = _ensure_is_synthetic(actions)
+        actions = _ensure_result_source(actions)
 
         return _pd.DataFrame(actions[_spadl_cols])
 
@@ -1581,6 +1671,16 @@ def _convert_metrica_from_bronze(
             # silly-kicks 4.13.0 is_synthetic provenance (sk ADR-018): native on GS,
             # manufactured False elsewhere. Must mirror _spadl_cols + _SPADL_SCHEMA.
             StructField("is_synthetic", BooleanType()),
+            # silly-kicks 4.21.0/4.22.0: result_source + restart-coordinate enrichment.
+            StructField("result_source", StringType()),
+            StructField("enriched_start_x", DoubleType()),
+            StructField("enriched_start_y", DoubleType()),
+            StructField("enriched_end_x", DoubleType()),
+            StructField("enriched_end_y", DoubleType()),
+            StructField("start_coord_source", StringType()),
+            StructField("end_coord_source", StringType()),
+            StructField("start_coord_confidence", DoubleType()),
+            StructField("end_coord_confidence", DoubleType()),
         ]
     )
 
@@ -1698,6 +1798,19 @@ def _make_skillcorner_spadl_udf(*, match_metadata: dict[str, object]) -> Callabl
                 # synthesis there). Cross-provider column per the False-default
                 # decision — drops silently from the projection if omitted here.
                 "is_synthetic",
+                # silly-kicks 4.21.0/4.22.0: result_source (SkillCorner native-completion
+                # label tier; NULL on other providers) + restart-coordinate enrichment
+                # from apply_spadl_enrichments. Drops silently from the projection if
+                # omitted here (the LL1 class).
+                "result_source",
+                "enriched_start_x",
+                "enriched_start_y",
+                "enriched_end_x",
+                "enriched_end_y",
+                "start_coord_source",
+                "end_coord_source",
+                "start_coord_confidence",
+                "end_coord_confidence",
             ]
         )
 
@@ -1788,8 +1901,10 @@ def _make_skillcorner_spadl_udf(*, match_metadata: dict[str, object]) -> Callabl
         # silly-kicks 4.13.0 is_synthetic (sk ADR-018): coerce native bool (GS) /
         # manufacture False (5 non-GS providers) — see ensure_is_synthetic.
         from ingestion.spadl_udf_shared import ensure_is_synthetic as _ensure_is_synthetic
+        from ingestion.spadl_udf_shared import ensure_result_source as _ensure_result_source
 
         actions = _ensure_is_synthetic(actions)
+        actions = _ensure_result_source(actions)
 
         return _pd.DataFrame(actions[_spadl_cols])
 
@@ -1896,6 +2011,16 @@ def _convert_skillcorner_from_bronze(
             # silly-kicks 4.13.0 is_synthetic provenance (sk ADR-018): native on GS,
             # manufactured False elsewhere. Must mirror _spadl_cols + _SPADL_SCHEMA.
             StructField("is_synthetic", BooleanType()),
+            # silly-kicks 4.21.0/4.22.0: result_source + restart-coordinate enrichment.
+            StructField("result_source", StringType()),
+            StructField("enriched_start_x", DoubleType()),
+            StructField("enriched_start_y", DoubleType()),
+            StructField("enriched_end_x", DoubleType()),
+            StructField("enriched_end_y", DoubleType()),
+            StructField("start_coord_source", StringType()),
+            StructField("end_coord_source", StringType()),
+            StructField("start_coord_confidence", DoubleType()),
+            StructField("end_coord_confidence", DoubleType()),
         ]
     )
 
@@ -2068,6 +2193,19 @@ def _make_gradientsports_spadl_udf(
                 # synthesis there). Cross-provider column per the False-default
                 # decision — drops silently from the projection if omitted here.
                 "is_synthetic",
+                # silly-kicks 4.21.0/4.22.0: result_source (SkillCorner native-completion
+                # label tier; NULL on other providers) + restart-coordinate enrichment
+                # from apply_spadl_enrichments. Drops silently from the projection if
+                # omitted here (the LL1 class).
+                "result_source",
+                "enriched_start_x",
+                "enriched_start_y",
+                "enriched_end_x",
+                "enriched_end_y",
+                "start_coord_source",
+                "end_coord_source",
+                "start_coord_confidence",
+                "end_coord_confidence",
             ]
         )
 
@@ -2193,8 +2331,10 @@ def _make_gradientsports_spadl_udf(
         # silly-kicks 4.13.0 is_synthetic (sk ADR-018): coerce native bool (GS) /
         # manufacture False (5 non-GS providers) — see ensure_is_synthetic.
         from ingestion.spadl_udf_shared import ensure_is_synthetic as _ensure_is_synthetic
+        from ingestion.spadl_udf_shared import ensure_result_source as _ensure_result_source
 
         actions = _ensure_is_synthetic(actions)
+        actions = _ensure_result_source(actions)
 
         return _pd.DataFrame(actions[_spadl_cols])
 
@@ -2372,6 +2512,16 @@ def _convert_gradientsports_from_bronze(
             # silly-kicks 4.13.0 is_synthetic provenance (sk ADR-018): native on GS,
             # manufactured False elsewhere. Must mirror _spadl_cols + _SPADL_SCHEMA.
             StructField("is_synthetic", BooleanType()),
+            # silly-kicks 4.21.0/4.22.0: result_source + restart-coordinate enrichment.
+            StructField("result_source", StringType()),
+            StructField("enriched_start_x", DoubleType()),
+            StructField("enriched_start_y", DoubleType()),
+            StructField("enriched_end_x", DoubleType()),
+            StructField("enriched_end_y", DoubleType()),
+            StructField("start_coord_source", StringType()),
+            StructField("end_coord_source", StringType()),
+            StructField("start_coord_confidence", DoubleType()),
+            StructField("end_coord_confidence", DoubleType()),
         ]
     )
 

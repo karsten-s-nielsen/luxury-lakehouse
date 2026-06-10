@@ -197,6 +197,7 @@ def _enrich_tracking_match(
         add_das,
         add_defensive_line,
         add_elastic_sync,
+        add_gk_completion,
         add_gk_influence,
         add_line_break,
         add_obso,
@@ -212,6 +213,7 @@ def _enrich_tracking_match(
         add_team_shape,
         add_xcross_attempt,
         add_xshot_occurrence,
+        add_xt_gk,
         derive_team_in_possession,
         infer_ball_carrier,
         link_actions_to_frames,
@@ -414,6 +416,43 @@ def _enrich_tracking_match(
         actions_for_context=actions_df,
         pitch_control_cache=pc_cache,
     )
+
+    # Step 25: xT-GK (Eyestone; silly-kicks 4.21.0+/4.22.0, upstream ADR-024) — GK-distribution
+    # valuation. The wrapper auto-selects the completion variant from frames["source_provider"]
+    # (skillcorner → its own bundled weights; everything else → the native-completion GS
+    # "default") and emits the default-params composite `xt_gk`, the 5 raw components, and the
+    # 5 provenance columns. The baseline xT grid is the caller-injected pre-fitted GLOBAL grid
+    # (same `xt` the chain already uses — never self-fit, per the upstream no-leakage contract).
+    out = add_xt_gk(out, tracking_df, xt, links=links, home_team_id=home_team_id)
+
+    # Step 25b: the deck's five philosophy presets as NAMED composites. δ enters the stored
+    # rav term and η the (unstored) temporal factor, so other presets are NOT derivable
+    # client-side from the stored components — each is honestly re-valued (cheap: only
+    # GK-distribution actions are in scope). compute_xt_gk's completion default is the GS
+    # bundled model, so the provider-aware variant is resolved via the SAME private resolver
+    # add_xt_gk uses (defining-module import, the add_ghost_gk pattern) — a hand-rolled
+    # variant_key_for_provider + from_variant chain breaks: the mapper returns key "gs" but the
+    # bundled weights dir is "default" (from_variant("gs") → FileNotFoundError; the resolver owns
+    # that fallback). Reported upstream as an API-seam wrinkle.
+    from silly_kicks.tracking import compute_xt_gk
+    from silly_kicks.tracking._xt_gk import XtGkParams, _resolve_completion_for_frames
+
+    _completion, _variant_key = _resolve_completion_for_frames(tracking_df, None)
+    for _preset in ("possession", "counter", "direct", "high_press", "low_block"):
+        _vals = compute_xt_gk(
+            out,
+            tracking_df,
+            xt=xt,
+            params=XtGkParams.for_philosophy(_preset),
+            links=links,
+            completion=_completion,
+        )
+        out[f"xt_gk_{_preset}"] = _vals["xt_gk"]
+
+    # Step 26: GK-distribution completion probability — the exact P(success) RAV consumes
+    # (shared geometry + scoring path, masked to in-scope GK distributions; NaN out-of-scope).
+    # Same explicitly-resolved variant as the preset composites.
+    out = add_gk_completion(out, tracking_df, model=_completion, links=links)
 
     # Provenance: the persisted pitch-control-derived metrics on the tracking path use spearman;
     # ghost_gk_method records which KDE backend produced ghost_gk_* (scopes to ghost_gk_* only).

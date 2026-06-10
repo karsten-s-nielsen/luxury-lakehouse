@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     import pandas as pd
 
 # Identity (12) + game_state (1) + linkage (4) + GK (14) + features (76)
-# + xShotOccurrence (1) + provenance (2) + audit (1) = 111
+# + xShotOccurrence (1) + xT-GK (16) + gk_completion (1) + provenance (2) + audit (1) = 128
 RESULT_COLUMNS: list[str] = [
     # Identity (12)
     "data_source",
@@ -163,6 +163,29 @@ RESULT_COLUMNS: list[str] = [
     "xcross_attempt",
     # xShotOccurrence (Pipping-Gamón, Feng & Sabin 2026; arXiv:2512.00203) (1)
     "xshot_occurrence",
+    # xT-GK (Eyestone; silly-kicks 4.21.0/4.22.0, ADR-024 upstream) — GK-distribution
+    # valuation. Composite stored per philosophy preset (default = `xt_gk`; the deck's named
+    # presets as suffixed columns — δ/η enter the rav/temporal terms, so other presets are
+    # NOT client-side derivable from the stored components). Components + provenance stored
+    # once from the default-params run. (16)
+    "xt_gk",
+    "xt_gk_possession",
+    "xt_gk_counter",
+    "xt_gk_direct",
+    "xt_gk_high_press",
+    "xt_gk_low_block",
+    "xt_gk_base",
+    "xt_gk_pev",
+    "xt_gk_rav",
+    "xt_gk_dzv",
+    "xt_gk_pressure",
+    "xt_gk_origin_source",
+    "xt_gk_dest_source",
+    "xt_gk_origin_confidence",
+    "xt_gk_completion_variant",
+    "xt_gk_completion_source",
+    # GK-distribution completion probability — the exact P(success) RAV consumes (1)
+    "gk_completion",
     # Pitch-control provenance for the persisted pitch-control-derived metrics (1)
     "pitch_control_method",
     # Ghost-GK backend provenance — the resolved kde_backend per row (scopes to ghost_gk_* only) (1)
@@ -229,7 +252,15 @@ ACTION_CONTEXT_DDL = (
     "actor_reachable_area_m2 DOUBLE, off_ball_xt_team DOUBLE, off_ball_xt_opponent DOUBLE, "
     "off_ball_xt_diff DOUBLE, reachable_area_team DOUBLE, reachable_area_opponent DOUBLE, "
     "reachable_area_diff DOUBLE, xcross_attempt DOUBLE, "
-    "xshot_occurrence DOUBLE, pitch_control_method STRING, ghost_gk_method STRING, "
+    "xshot_occurrence DOUBLE, "
+    "xt_gk DOUBLE, xt_gk_possession DOUBLE, xt_gk_counter DOUBLE, xt_gk_direct DOUBLE, "
+    "xt_gk_high_press DOUBLE, xt_gk_low_block DOUBLE, "
+    "xt_gk_base DOUBLE, xt_gk_pev DOUBLE, xt_gk_rav DOUBLE, xt_gk_dzv DOUBLE, "
+    "xt_gk_pressure DOUBLE, "
+    "xt_gk_origin_source STRING, xt_gk_dest_source STRING, xt_gk_origin_confidence DOUBLE, "
+    "xt_gk_completion_variant STRING, xt_gk_completion_source STRING, "
+    "gk_completion DOUBLE, "
+    "pitch_control_method STRING, ghost_gk_method STRING, "
     "_ingested_at TIMESTAMP"
 )
 

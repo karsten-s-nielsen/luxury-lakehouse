@@ -80,6 +80,17 @@ def _build_synthetic_spadl_group(n_rows: int = 2711, *, random_state: int = 42) 
             # silly-kicks 4.13.0 (sk ADR-018): is_synthetic provenance flag. False on
             # genuine observed actions (all of this synthetic StatsBomb fixture).
             "is_synthetic": np.zeros(n_rows, dtype=bool),
+            # silly-kicks 4.21.0/4.22.0 (ADR-048): result_source (NULL on non-SkillCorner)
+            # + restart-coordinate enrichment columns (native-coord rows -> 'native'/conf 1.0).
+            "result_source": None,
+            "enriched_start_x": rng.uniform(0, 105, n_rows),
+            "enriched_start_y": rng.uniform(0, 68, n_rows),
+            "enriched_end_x": rng.uniform(0, 105, n_rows),
+            "enriched_end_y": rng.uniform(0, 68, n_rows),
+            "start_coord_source": "native",
+            "end_coord_source": "native",
+            "start_coord_confidence": np.ones(n_rows, dtype=float),
+            "end_coord_confidence": np.ones(n_rows, dtype=float),
         }
     )
 

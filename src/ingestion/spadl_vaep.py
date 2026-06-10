@@ -99,7 +99,21 @@ _SPADL_SCHEMA = (
     # silly-kicks 4.13.0 (sk ADR-018): is_synthetic provenance flag. True on GS
     # synthesized rows (foul restarts + cross-goal shots); False everywhere else
     # (native on GS, manufactured False on the other 5 providers). Non-NULL.
-    "is_synthetic BOOLEAN"
+    "is_synthetic BOOLEAN, "
+    # silly-kicks 4.21.0 (sk ADR-024): SkillCorner native-completion label tier —
+    # 'native' / 'inferred' / 'stopgap' per row, emitted by the SkillCorner converter
+    # only. NULL on the other 5 providers (provider-native passthrough, plain name per
+    # ADR-016 — the value IS the provenance).
+    "result_source STRING, "
+    # silly-kicks 4.22.0 (sk ADR-025): Law-fixed-spot restart-coordinate enrichment from
+    # apply_spadl_enrichments (events-only tiers at the bronze writer). ADDITIVE — canonical
+    # start_x/../end_y are never mutated; sources are categorical provenance
+    # (native/rule_point/next_event/tripwire_reverted), confidences in [0,1]. NaN coords are
+    # a GS set-piece phenomenon; columns uniform across providers.
+    "enriched_start_x DOUBLE, enriched_start_y DOUBLE, "
+    "enriched_end_x DOUBLE, enriched_end_y DOUBLE, "
+    "start_coord_source STRING, end_coord_source STRING, "
+    "start_coord_confidence DOUBLE, end_coord_confidence DOUBLE"
 )
 _VAEP_TABLE = "vaep_action_values"
 _VAEP_SCHEMA = (
@@ -135,7 +149,14 @@ _VAEP_SCHEMA = (
     "tackle_loser_team_id_native STRING, tackle_loser_team_key BIGINT, "
     # silly-kicks 4.13.0 (sk ADR-018): is_synthetic carried through from
     # spadl_actions to vaep_action_values. Same type as _SPADL_SCHEMA (BOOLEAN).
-    "is_synthetic BOOLEAN"
+    "is_synthetic BOOLEAN, "
+    # silly-kicks 4.21.0/4.22.0: result_source + restart-coordinate enrichment carried
+    # through from spadl_actions. See _SPADL_SCHEMA for full rationale.
+    "result_source STRING, "
+    "enriched_start_x DOUBLE, enriched_start_y DOUBLE, "
+    "enriched_end_x DOUBLE, enriched_end_y DOUBLE, "
+    "start_coord_source STRING, end_coord_source STRING, "
+    "start_coord_confidence DOUBLE, end_coord_confidence DOUBLE"
 )
 
 
@@ -559,6 +580,17 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                 "tackle_loser_team_key",
                 # silly-kicks 4.13.0: is_synthetic carried through from spadl_actions.
                 "is_synthetic",
+                # silly-kicks 4.21.0/4.22.0: result_source + restart-coordinate enrichment
+                # carried through from spadl_actions.
+                "result_source",
+                "enriched_start_x",
+                "enriched_start_y",
+                "enriched_end_x",
+                "enriched_end_y",
+                "start_coord_source",
+                "end_coord_source",
+                "start_coord_confidence",
+                "end_coord_confidence",
             ]
         )
 
@@ -693,6 +725,17 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                                 # silly-kicks 4.13.0: is_synthetic provenance
                                 # carried through to vaep_action_values.
                                 "is_synthetic",
+                                # silly-kicks 4.21.0/4.22.0: result_source +
+                                # restart-coordinate enrichment carried through.
+                                "result_source",
+                                "enriched_start_x",
+                                "enriched_start_y",
+                                "enriched_end_x",
+                                "enriched_end_y",
+                                "start_coord_source",
+                                "end_coord_source",
+                                "start_coord_confidence",
+                                "end_coord_confidence",
                             ]
                             if c in game_actions.columns
                         ]
@@ -933,6 +976,16 @@ def _vaep_output_schema() -> Any:
             StructField("tackle_loser_team_key", LongType()),
             # silly-kicks 4.13.0: is_synthetic carried through to vaep_action_values.
             StructField("is_synthetic", BooleanType()),
+            # silly-kicks 4.21.0/4.22.0: result_source + restart-coordinate enrichment.
+            StructField("result_source", StringType()),
+            StructField("enriched_start_x", DoubleType()),
+            StructField("enriched_start_y", DoubleType()),
+            StructField("enriched_end_x", DoubleType()),
+            StructField("enriched_end_y", DoubleType()),
+            StructField("start_coord_source", StringType()),
+            StructField("end_coord_source", StringType()),
+            StructField("start_coord_confidence", DoubleType()),
+            StructField("end_coord_confidence", DoubleType()),
         ]
     )
 

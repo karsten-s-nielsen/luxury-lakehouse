@@ -119,6 +119,26 @@ INVARIANT_ONLY: dict[str, tuple[str, float | None, float | None]] = {
     "gk_closing_time_min_s__far_post": ("float", 0.0, None),
     # xShotOccurrence (Pipping-Gamón, Feng & Sabin 2026): a probability in [0,1]. Range-check only.
     "xshot_occurrence": ("float", 0.0, 1.0),
+    # xT-GK (Eyestone; silly-kicks 4.21.0/4.22.0): no legacy oracle (new feature family).
+    # Composites and rav are SIGNED (rav = p*xT_dest - delta*(1-p)*xT_counter can go negative;
+    # the composite inherits it) — unbounded. Confidence + completion are probabilities.
+    "xt_gk": ("float", None, None),
+    "xt_gk_possession": ("float", None, None),
+    "xt_gk_counter": ("float", None, None),
+    "xt_gk_direct": ("float", None, None),
+    "xt_gk_high_press": ("float", None, None),
+    "xt_gk_low_block": ("float", None, None),
+    "xt_gk_base": ("float", None, None),
+    "xt_gk_pev": ("float", None, None),
+    "xt_gk_rav": ("float", None, None),
+    "xt_gk_dzv": ("float", None, None),
+    "xt_gk_pressure": ("float", None, None),
+    "xt_gk_origin_source": ("categorical", None, None),
+    "xt_gk_dest_source": ("categorical", None, None),
+    "xt_gk_origin_confidence": ("float", 0.0, 1.0),
+    "xt_gk_completion_variant": ("categorical", None, None),
+    "xt_gk_completion_source": ("categorical", None, None),
+    "gk_completion": ("float", 0.0, 1.0),
     # Pitch-control provenance (ADR-039): categorical {spearman, voronoi}; NULL on event-only rows.
     "pitch_control_method": ("categorical", None, None),
     # Ghost-GK backend provenance (ADR-035 amendment): categorical {scipy,vectorized,cpu-numba,fft,fft-cic};

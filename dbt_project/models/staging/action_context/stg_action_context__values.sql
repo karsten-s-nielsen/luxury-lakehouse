@@ -186,6 +186,24 @@ cleaned as (
         cast(xcross_attempt as double) as xcross_attempt,
         -- xShotOccurrence + pitch-control provenance (ADR-039)
         cast(xshot_occurrence as double) as xshot_occurrence,
+        -- xT-GK (Eyestone; silly-kicks 4.21.0/4.22.0, ADR-048) + gk_completion
+        cast(xt_gk as double) as xt_gk,
+        cast(xt_gk_possession as double) as xt_gk_possession,
+        cast(xt_gk_counter as double) as xt_gk_counter,
+        cast(xt_gk_direct as double) as xt_gk_direct,
+        cast(xt_gk_high_press as double) as xt_gk_high_press,
+        cast(xt_gk_low_block as double) as xt_gk_low_block,
+        cast(xt_gk_base as double) as xt_gk_base,
+        cast(xt_gk_pev as double) as xt_gk_pev,
+        cast(xt_gk_rav as double) as xt_gk_rav,
+        cast(xt_gk_dzv as double) as xt_gk_dzv,
+        cast(xt_gk_pressure as double) as xt_gk_pressure,
+        cast(xt_gk_origin_source as string) as xt_gk_origin_source,
+        cast(xt_gk_dest_source as string) as xt_gk_dest_source,
+        cast(xt_gk_origin_confidence as double) as xt_gk_origin_confidence,
+        cast(xt_gk_completion_variant as string) as xt_gk_completion_variant,
+        cast(xt_gk_completion_source as string) as xt_gk_completion_source,
+        cast(gk_completion as double) as gk_completion,
         cast(pitch_control_method as string) as pitch_control_method,
         -- ghost-GK backend provenance (ADR-035 amendment)
         cast(ghost_gk_method as string) as ghost_gk_method
