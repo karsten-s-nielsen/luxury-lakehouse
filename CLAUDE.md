@@ -40,7 +40,7 @@ These standards apply to ALL code in this repository. They are non-negotiable.
 - **Retry with backoff**: Exponential backoff on transient errors (429, 5xx). Max 3 retries.
 - **No dangerous builtins**: No `eval()`, `exec()`, `pickle.loads()`, or `subprocess.call(shell=True)`.
 - **Scoped exception — `src/evolve/`**: `exec()` is permitted in `src/evolve/targets/*/evaluator.py` and `src/evolve/remote_worker.py` under the defense-in-depth policy documented in [ADR-001](docs/superpowers/adrs/ADR-001-evolve-code-execution.md): AST allowlist (parse-time) + restricted globals with `__builtins__: {}` (runtime) + subprocess isolation (backends). Gated by `code_evolution=True`. All other code must continue to avoid `exec()`/`eval()`.
-- **Content validation**: Verify DataFrame schema and non-empty data before every Delta write.
+- **Content validation**: Verify DataFrame schema and non-empty data before every Delta write. `write_delta_table`/`merge_delta_table` auto-drop top-level `void` (NullType) columns with a loud log — an all-NULL inferred column schema-evolves into an unscannable Delta void column that bricks `SELECT *` on the whole table (2026-06-10 `gradientsports_events` incident; guard + tests in `ingestion/utils.py::_strip_void_columns`).
 - **Least privilege**: Scripts write only to the specified `{catalog}.{schema}.*` — never to arbitrary paths.
 
 ## AI Governance

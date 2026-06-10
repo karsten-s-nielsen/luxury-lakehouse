@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -294,6 +295,8 @@ class TestWriteDeltaTable:
     @staticmethod
     def _make_mock_df(source_count: int = 999, written_count: int = 42) -> MagicMock:
         mock_df = MagicMock()
+        # Iterable void-free schema so the _strip_void_columns guard passes through (no pyspark locally).
+        mock_df.schema = SimpleNamespace(fields=[])
         mock_df.count.return_value = source_count
         mock_writer = MagicMock()
         mock_df.write = mock_writer
@@ -497,10 +500,84 @@ def test_commit_with_retry_always_attempts_once_even_if_misconfigured(monkeypatc
     assert calls["n"] == 1  # attempted once despite the bad constant -- no silent no-op
 
 
+class NullType:
+    """Stand-in matching the guard's duck-typed class-name check (no local pyspark)."""
+
+
+class _LongType:
+    pass
+
+
+class _StringType:
+    pass
+
+
+class TestStripVoidColumns:
+    """_strip_void_columns: the write-boundary guard against unscannable Delta void columns.
+
+    2026-06-10 incident: two all-NULL provider fields in the 2026-05-30 GS re-ingest were
+    inferred as NullType and schema-evolved into bronze.gradientsports_events as Delta
+    `void` — every query touching them (incl. SELECT *) failed scan-planning for 11 days.
+    The guard drops top-level NullType columns (information-lossless: void holds nothing)
+    with a loud log, on EVERY write_delta_table / merge_delta_table call. Duck-typed
+    stand-ins here because the offline suite has no pyspark.
+    """
+
+    @staticmethod
+    def _df_with_schema(fields: list[tuple[str, object]]) -> MagicMock:
+        df = MagicMock()
+        df.schema = SimpleNamespace(fields=[SimpleNamespace(name=name, dataType=dtype) for name, dtype in fields])
+        df.columns = [name for name, _ in fields]
+        return df
+
+    def test_void_free_df_passes_through_untouched(self) -> None:
+        df = self._df_with_schema([("id", _LongType()), ("name", _StringType())])
+        out = utils_mod._strip_void_columns(df, "cat.bronze.t", None)
+        assert out is df  # no select, no copy — identity passthrough
+        df.select.assert_not_called()
+
+    def test_void_columns_dropped_with_backticked_select_and_loud_log(self) -> None:
+        # Literal dotted names, exactly the GS bronze shape that bricked SELECT *.
+        df = self._df_with_schema(
+            [
+                ("gameId", _LongType()),
+                ("possessionEvents.carrySuccessful", NullType()),
+                ("possessionEvents.passType", _StringType()),
+                ("possessionEvents.betterOptionTime", NullType()),
+            ]
+        )
+        logger = MagicMock()
+        out = utils_mod._strip_void_columns(df, "cat.bronze.gradientsports_events", logger)
+        assert out is df.select.return_value
+        df.select.assert_called_once_with("`gameId`", "`possessionEvents.passType`")
+        assert logger.warning.call_count == 1
+        logged = logger.warning.call_args.args
+        assert "possessionEvents.carrySuccessful" in str(logged) and "betterOptionTime" in str(logged)
+
+    @patch("ingestion.utils.add_audit_columns", side_effect=lambda df: df)
+    def test_write_delta_table_invokes_guard(self, _mock_audit: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The guard runs on the real write path — a void column never reaches saveAsTable."""
+        df = MagicMock()
+        df.schema = SimpleNamespace(
+            fields=[
+                SimpleNamespace(name="id", dataType=_LongType()),
+                SimpleNamespace(name="ghost", dataType=NullType()),
+            ]
+        )
+        df.columns = ["id", "ghost"]
+        stripped = df.select.return_value
+        stripped.write.format.return_value.option.return_value.mode.return_value = stripped.write
+        monkeypatch.setattr(utils_mod, "_commit_with_retry", lambda fn, table, logger: fn())
+
+        write_delta_table(df, "cat", "sch", "tbl", mode="append", row_count=1)
+        df.select.assert_called_once_with("`id`")  # void column stripped before the write chain
+
+
 def test_write_delta_table_routes_commit_through_retry(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(utils_mod, "add_audit_columns", lambda df: df)
     writer = MagicMock()
     df = MagicMock()
+    df.schema = SimpleNamespace(fields=[])  # void-free: strip guard passes through
     df.write.format.return_value.option.return_value.option.return_value.mode.return_value = writer
 
     captured: dict[str, object] = {}

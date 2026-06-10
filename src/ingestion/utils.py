@@ -317,6 +317,40 @@ def _commit_with_retry(commit_fn: Callable[[], None], table: str, logger: loggin
             time.sleep(sleep_s)
 
 
+def _strip_void_columns(df: DataFrame, full_table: str, logger: logging.Logger | None) -> DataFrame:
+    """Drop top-level NullType (``void``) columns before any Delta write (2026-06-10 incident).
+
+    pandas->Spark inference of an all-NULL column yields ``NullType``; with ``mergeSchema``
+    it evolves into the target as Delta ``void`` — which Spark CANNOT scan afterwards: every
+    query touching the column (including ``SELECT *``) fails scan-planning with "Cannot find
+    column index for attribute". Two all-NULL provider fields in the 2026-05-30 GS re-ingest
+    (``possessionEvents.carrySuccessful`` / ``.betterOptionTime``) bricked ``SELECT *`` on
+    ``bronze.gradientsports_events`` for 11 days before anything read the table broadly.
+
+    Dropping is information-lossless: a void column can hold literally nothing. When the
+    provider starts populating the field, schema evolution re-adds it WITH a real type.
+    Column names are backtick-selected (GS bronze uses literal dotted names). Limitation:
+    only TOP-LEVEL fields are checked — a void nested inside a struct is not handled (no
+    current writer produces one).
+
+    The NullType check is duck-typed by class name (not ``isinstance``): this module keeps
+    pyspark imports out of runtime paths so the offline test suite (no local pyspark) can
+    exercise the write contract with mocks.
+    """
+    void_cols = [f.name for f in df.schema.fields if type(f.dataType).__name__ == "NullType"]
+    if not void_cols:
+        return df
+    (logger or logging.getLogger(__name__)).warning(
+        "Dropping %d void (NullType) column(s) before write to %s — an all-NULL inferred column "
+        "schema-evolves into an unscannable Delta void column (2026-06-10 GS incident): %s",
+        len(void_cols),
+        full_table,
+        void_cols,
+    )
+    keep = [c for c in df.columns if c not in set(void_cols)]
+    return df.select(*[f"`{c}`" for c in keep])
+
+
 def write_delta_table(
     df: DataFrame,
     catalog: str,
@@ -352,6 +386,7 @@ def write_delta_table(
         raise ValueError(msg)
 
     full_table = f"{catalog}.{schema}.{table_name}"
+    df = _strip_void_columns(df, full_table, logger)
     df = add_audit_columns(df)
 
     # Single-pass write (ADR-045): counting the SOURCE DataFrame before the write executes
@@ -431,6 +466,7 @@ def merge_delta_table(
     # NOTE: single-writer today, so no concurrent-commit retry. If a concurrent merge writer is ever
     # added, wrap the merge/commit in _commit_with_retry (ADR-038) -- same S3-400 contention class.
     full_table = f"{catalog}.{schema}.{table_name}"
+    df = _strip_void_columns(df, full_table, logger)
     df = add_audit_columns(df)
     if row_count is None:
         row_count = int(df.count())

@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import types
 from collections.abc import Iterator
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,6 +17,8 @@ def _mock_df(columns: list[str], count: int = 5) -> MagicMock:
     """Create a mock Spark DataFrame with given columns."""
     df = MagicMock()
     df.columns = columns
+    # Iterable void-free schema so the _strip_void_columns write guard passes through (no pyspark locally).
+    df.schema = SimpleNamespace(fields=[])
     df.count.return_value = count
     df.alias.return_value = df
     # add_audit_columns returns a new df with _ingested_at
