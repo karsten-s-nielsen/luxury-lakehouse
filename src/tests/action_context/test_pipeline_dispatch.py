@@ -62,9 +62,12 @@ def test_event_only_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_tracking_tier_loops_one_call_per_batch(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Frames spanning exactly 2 batches -> floor(frame/_FRAME_BATCH_SIZE) = batches
-    # {0, 1} -> 2 enrich_batch calls. Derived from the constant so a batch-size bump
-    # (e.g. ADR-047's 250->2500) does not silently turn this into a 1-batch test.
+    # Frames spanning exactly 2 batches -> floor(frame/size) = batches
+    # {0, 1} -> 2 enrich_batch calls. Derived from the resolved provider size so a
+    # default change (250<->2500, ADR-047 + amendment 2) does not silently turn
+    # this into a 1-batch test.
+    from analytics.action_context.batching import resolve_frame_batch_size
+
     calls: list[tuple[str, int]] = []
 
     def _stub(**kw: object) -> pd.DataFrame:
@@ -73,7 +76,7 @@ def test_tracking_tier_loops_one_call_per_batch(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(pipeline, "enrich_batch", _stub)
 
-    n_frames = 2 * pipeline._FRAME_BATCH_SIZE
+    n_frames = 2 * resolve_frame_batch_size("idsse")
     frames_df = pd.DataFrame(
         {
             "frame": list(range(n_frames)),
@@ -95,22 +98,36 @@ def test_tracking_tier_loops_one_call_per_batch(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_frame_batch_size_lockstep() -> None:
-    """H3 lockstep sentinel (ADR-047): the batch size is part of the domain contract.
+    """H3 lockstep sentinel (ADR-047 + amendment 2): the batch size is part of the
+    domain contract — per-provider, resolved through ONE module.
 
     Prod (Spark dispatch), local (run_work_unit), and the fixture extractor MUST batch
     identically — a drifted copy silently changes window-dependent feature values for
-    whichever path runs it. ingestion.tracking_context is deliberately NOT included:
-    it is a separate, deprecating pipeline pinned at 250 (see test_tracking_context_udf).
+    whichever path runs it. Since amendment 2 the lockstep is BY SHARED IMPORT: both
+    sides call analytics.action_context.batching.resolve_frame_batch_size (asserted by
+    identity below), so there is no per-module constant left to drift. The fixture
+    extractor must import the same resolver (source-level assert — it is a PEP 723
+    script, not importable here). ingestion.tracking_context is deliberately NOT
+    included: a separate, deprecating pipeline pinned at 250 (test_tracking_context_udf).
     """
     import re
     from pathlib import Path
 
+    from analytics.action_context import batching
     from ingestion import action_context as ingestion_ac
 
-    assert pipeline._FRAME_BATCH_SIZE == 2500
-    assert ingestion_ac._FRAME_BATCH_SIZE == pipeline._FRAME_BATCH_SIZE
+    # One resolver, imported by both sides (identity, not equality — a copy would drift).
+    assert ingestion_ac.resolve_frame_batch_size is batching.resolve_frame_batch_size
+    assert pipeline.resolve_frame_batch_size is batching.resolve_frame_batch_size
+
+    # Neither side declares a local size constant any more.
+    for mod in (pipeline, ingestion_ac):
+        assert not hasattr(mod, "_FRAME_BATCH_SIZE"), f"{mod.__name__} regrew a local _FRAME_BATCH_SIZE"
 
     extractor_src = Path("scripts/extract_action_context_fixture.py").read_text(encoding="utf-8")
-    m = re.search(r"^_FRAME_BATCH_SIZE = (\d+)$", extractor_src, re.MULTILINE)
-    assert m, "extract_action_context_fixture.py no longer declares _FRAME_BATCH_SIZE"
-    assert int(m.group(1)) == pipeline._FRAME_BATCH_SIZE
+    assert re.search(r"from analytics\.action_context\.batching import .*resolve_frame_batch_size", extractor_src), (
+        "extract_action_context_fixture.py must resolve its batch size via analytics.action_context.batching"
+    )
+    assert not re.search(r"^_FRAME_BATCH_SIZE = \d+$", extractor_src, re.MULTILINE), (
+        "extract_action_context_fixture.py regrew a local _FRAME_BATCH_SIZE constant"
+    )

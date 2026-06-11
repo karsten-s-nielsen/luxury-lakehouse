@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import re
 from collections.abc import Callable, Iterator
 from dataclasses import replace
@@ -22,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from analytics.action_context.batching import resolve_frame_batch_size
 from analytics.action_context.drain import WATCHDOG_BUDGET_S, assign_workers, drain_worker
 from analytics.action_context.enrich import (
     _enrich_event_only_match,
@@ -60,11 +62,14 @@ _TABLE_NAME = "spadl_action_context"
 
 # ── Frame batching ────────────────────────────────────────────────────
 # IDSSE (match_id, period) groups are 1.5M-1.7M rows -- exceeds the 1 GB
-# Databricks serverless UDF group cap. Sub-batch by frame number.
-# 2500 (ADR-047): ~57.5K rows (~10-30 MB) per IDSSE batch — far under the cap —
-# amortizing per-batch stage setup (-17% local per-half wall vs 250). MUST stay
-# identical to analytics.action_context.pipeline._FRAME_BATCH_SIZE (H3 lockstep).
-_FRAME_BATCH_SIZE = 2500
+# Databricks serverless UDF group cap. Sub-batch by frame number. The size is
+# PER-PROVIDER + run-overridable (ADR-047 amendment 2: the fixed 2500 OOMed
+# idsse:J03WMX:1 in prod once the 4.22 column families landed), resolved via
+# analytics.action_context.batching.resolve_frame_batch_size — the SAME module
+# the local hexagon resolves through (H3 lockstep by shared import, enforced by
+# test_pipeline_dispatch). The run-scoped override arrives as the
+# ``frame_batch_size`` job parameter → drain worker ``--frame-batch-size`` →
+# driver env AC_FRAME_BATCH_SIZE (resolve_frame_batch_size's env hook).
 
 # ── UDF stage parallelism (ADR-045) ───────────────────────────────────
 # groupBy().applyInPandas lets AQE coalesce the shuffle by BYTES (~64 MB advisory),
@@ -344,6 +349,7 @@ def _make_action_context_udf(
     gs_gk_player_ids: list[str] | None = None,
     exec_rendezvous_dir: str | None = None,
     kde_backend: str = "fft-cic",
+    frame_batch_size: int | None = None,
 ) -> Callable[[pd.DataFrame], pd.DataFrame]:
     """Build the per-group pandas UDF closure for action context enrichment
     (dispatched via ``_make_streaming_group_mapper`` + ``mapInPandas``, ADR-045).
@@ -352,6 +358,9 @@ def _make_action_context_udf(
     GradientSports-specific args (gs_*) are only needed for that provider.
     ``exec_rendezvous_dir`` is a pre-created UC Volume dir for executor progress
     markers (see ingestion.exec_visibility); ``None`` disables markers.
+    ``frame_batch_size`` MUST be the size the driver used to assign
+    ``frame_batch_id`` (H3) — the resolved int travels in the closure because the
+    executor cannot see the driver's AC_FRAME_BATCH_SIZE env override.
     """
 
     def _udf(pdf: pd.DataFrame) -> pd.DataFrame:
@@ -450,6 +459,7 @@ def _make_action_context_udf(
                 meta=_meta,
                 native_match_id=native_match_id,
                 kde_backend=kde_backend,
+                frame_batch_size=frame_batch_size,
             )
             # Executor-side per-batch progress log: serverless / Spark Connect
             # forbids driver-side accumulators (PySparkAttributeError on
@@ -632,9 +642,9 @@ class _ActionContextGuard:
     MEMORY NOTE — per-unit isolation (why a worker can drain many units in one
     persistent driver): each unit runs a SEPARATE ``applyInPandas`` pass and frees
     memory between units (``_process_*`` loops one match at a time). Per-group memory
-    is bounded by ``_FRAME_BATCH_SIZE`` (2500 frames x ~23 rows/frame = ~57.5K rows,
-    ~10-30 MB — ADR-047; the cap exists for legacy whole-period
-    groups, not these sub-batches); concurrent executor
+    is bounded by the per-provider frame batch size (ADR-047 amendment 2: 250 for the
+    dense 25 fps providers after the 2500 IDSSE OOM, 2500 where prod-proven — see
+    ``analytics.action_context.batching``); concurrent executor
     pressure is bounded by the for_each ``concurrency`` == ``_N_DRAIN_WORKERS``.
     """
 
@@ -1148,6 +1158,15 @@ def main_drain_worker() -> None:
                     "Raise for slower exact ghost-GK backends.",
                 },
             ),
+            (
+                "--frame-batch-size",
+                {
+                    "type": str,
+                    "default": None,
+                    "help": "Run-scoped frame batch size override (default/empty -> per-provider defaults "
+                    "in analytics.action_context.batching). Set for memory-envelope A/Bs without a release.",
+                },
+            ),
         ],
     )
     task_logger = configure_logging("action_context_drain")
@@ -1177,6 +1196,23 @@ def main_drain_worker() -> None:
             raise SystemExit(f"--watchdog-budget-s must be > 0, got {budget_s}")
     else:
         budget_s = WATCHDOG_BUDGET_S
+
+    # Run-scoped frame-batch-size override (ADR-047 amendment 2): validate loud at
+    # startup, then publish via the driver env hook resolve_frame_batch_size reads —
+    # _process_tracking_match resolves per unit and bakes the int into the UDF
+    # closure, so executors never need the env var.
+    raw_fbs = (getattr(args, "frame_batch_size", None) or "").strip()
+    if raw_fbs:
+        from analytics.action_context.batching import ENV_VAR as _FBS_ENV_VAR
+
+        try:
+            fbs = int(raw_fbs)
+        except ValueError as exc:
+            raise SystemExit(f"--frame-batch-size must be an integer, got {raw_fbs!r}") from exc
+        if fbs <= 0:
+            raise SystemExit(f"--frame-batch-size must be > 0, got {fbs}")
+        os.environ[_FBS_ENV_VAR] = str(fbs)
+        task_logger.info("Frame-batch-size override active for this run: %d", fbs)
 
     from ingestion.action_context_queue import DeltaWorkQueue, SparkGameProcessor, SparkInterruptWatchdog
 
@@ -1480,10 +1516,14 @@ def _process_tracking_match(
 
     # ── Frame batching + UDF dispatch ──
     # Use "frame" for most providers; GradientSports uses "frame_num"
+    # Per-provider size, run-overridable via AC_FRAME_BATCH_SIZE (ADR-047 am. 2).
+    # The SAME resolved value travels into the UDF closure below so the M13
+    # single-owner action math batches identically (H3).
+    frame_batch_size = resolve_frame_batch_size(provider)
     frame_col = "frame_num" if provider == "gradientsports" else "frame"
     trk_sdf = trk_sdf.withColumn(
         "frame_batch_id",
-        F.floor(F.col(frame_col) / F.lit(_FRAME_BATCH_SIZE)),
+        F.floor(F.col(frame_col) / F.lit(frame_batch_size)),
     )
 
     # GradientSports: the frame-batch / link / owned-action logic needs a "timestamp" column,
@@ -1554,6 +1594,7 @@ def _process_tracking_match(
                 task_logger=task_logger,
                 max_batches=profile_max_batches,
                 kde_backend=kde_backend,
+                frame_batch_size=frame_batch_size,
             )
         finally:
             hb.stop()
@@ -1578,6 +1619,7 @@ def _process_tracking_match(
         gs_gk_player_ids=gs_gk_player_ids,
         exec_rendezvous_dir=exec_rendezvous_dir,
         kde_backend=kde_backend,
+        frame_batch_size=frame_batch_size,
     )
 
     # GradientSports uses "period" (not "period_id") in bronze
@@ -1716,11 +1758,13 @@ def _run_profile_on_driver(
     task_logger: logging.Logger,
     max_batches: int = 0,
     kde_backend: str = "fft-cic",
+    frame_batch_size: int | None = None,
 ) -> int:
     """Pull the whole match to the driver, run ``enrich_batch`` per frame
     batch under ``cProfile`` (single-process), and write the breakdown to the
     UC Volume rendezvous dir. Returns the number of enriched rows (NOT written
-    to bronze — this is a measurement path).
+    to bronze — this is a measurement path). ``frame_batch_size`` must match the
+    size the caller used to assign ``frame_batch_id`` on ``trk_sdf`` (H3).
 
     ``max_batches`` > 0 profiles only the first N (period, frame_batch_id) groups
     — a representative sample for the relative stage breakdown at a fraction of
@@ -1807,6 +1851,7 @@ def _run_profile_on_driver(
             meta=meta,
             native_match_id=native_match_id,
             kde_backend=kde_backend,
+            frame_batch_size=frame_batch_size,
         )
         n_rows += len(result)
         for _c in _health_cols:

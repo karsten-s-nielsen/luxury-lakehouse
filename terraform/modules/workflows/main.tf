@@ -94,6 +94,14 @@ resource "databricks_job" "data_ingestion" {
     name    = "watchdog_budget_s"
     default = var.watchdog_budget_s
   }
+  # Run-scoped frame-batch-size override for action-context (ADR-047 amendment 2).
+  # Empty => per-provider defaults in analytics.action_context.batching
+  # (250 dense 25fps providers, 2500 where prod-proven). Set for memory-envelope
+  # A/Bs, e.g. {"frame_batch_size":"1000"}.
+  parameter {
+    name    = "frame_batch_size"
+    default = ""
+  }
 
   # ── Schedule: Daily at 6am UTC ───────────────────────────────────────────
   schedule {
@@ -201,6 +209,8 @@ resource "databricks_job" "data_ingestion" {
             "--run-id", "{{tasks.preflight_action_context.values.action_context_run_id}}",
             # Per-game watchdog override (ADR-037 amendment); empty => in-code WATCHDOG_BUDGET_S=2700.
             "--watchdog-budget-s", "{{job.parameters.watchdog_budget_s}}",
+            # Frame-batch-size override (ADR-047 amendment 2); empty => per-provider defaults.
+            "--frame-batch-size", "{{job.parameters.frame_batch_size}}",
           ]
         }
 
