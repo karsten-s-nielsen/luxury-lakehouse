@@ -77,5 +77,5 @@ def test_sb360_new_fields_present() -> None:
 def test_sb360_unsupported_metrics_null() -> None:
     df = _run()
     # Velocity / temporal — entirely NULL on freeze-frames
-    for c in ("das_diff", "blocking_score", "space_created_m2_team", "elastic_confidence"):
+    for c in ("das_diff", "blocking_score", "space_created_m2", "elastic_confidence"):
         assert _nn(df, c) == 0, f"{c} unexpectedly populated on SB360"

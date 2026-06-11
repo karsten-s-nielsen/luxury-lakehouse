@@ -80,7 +80,7 @@ print(df.columns.tolist())
 | Sync Score | sync_score_min, sync_score_mean, sync_score_high_quality_frac |
 | OBSO | obso_value, obso_total_threat |
 | PAUSA | pausa_value, pausa_added_threat |
-| Space Creation | space_created_m2, space_exploited |
+| Space Creation | space_created_m2, space_denied_m2_opponent (attacking LOO + rest-defense LOO; both m², >=0) |
 | ELASTIC Sync | elastic_sync_score, elastic_compactness |
 | Shape Graph | shape_graph_centrality, shape_graph_clustering |
 | Ghost-GK | ghost_gk_x, ghost_gk_y, ghost_gk_density_spread (served = boosted-HGBR mean; density_spread = conditional-density dispersion) |

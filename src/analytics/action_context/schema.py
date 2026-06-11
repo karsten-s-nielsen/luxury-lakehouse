@@ -129,9 +129,12 @@ RESULT_COLUMNS: list[str] = [
     "pausa_temporal",
     "pausa_spatial",
     "pausa_composite",
-    # Space creation (2)
-    "space_created_m2_team",
-    "space_created_m2_opponent",
+    # Space creation (2) — silly-kicks 4.24.0 lean contract: `space_created_m2` (attacking LOO,
+    # >=0) + `space_denied_m2_opponent` (rest-defense LOO on the mirrored opponent surface, >=0).
+    # Renamed from `space_created_m2_team`; the structurally-zero `space_created_m2_opponent` was
+    # retired upstream (removal-based LOO makes opponent-created mathematically 0). See ADR-026.
+    "space_created_m2",
+    "space_denied_m2_opponent",
     # ELASTIC sync (3)
     "elastic_frame_id",
     "elastic_confidence",
@@ -241,7 +244,7 @@ ACTION_CONTEXT_DDL = (
     "sync_score_min DOUBLE, sync_score_mean DOUBLE, sync_score_high_quality_frac DOUBLE, "
     "obso_actual DOUBLE, obso_peak DOUBLE, obso_optimal DOUBLE, "
     "pausa_temporal DOUBLE, pausa_spatial DOUBLE, pausa_composite DOUBLE, "
-    "space_created_m2_team DOUBLE, space_created_m2_opponent DOUBLE, "
+    "space_created_m2 DOUBLE, space_denied_m2_opponent DOUBLE, "
     "elastic_frame_id BIGINT, elastic_confidence DOUBLE, elastic_error_seconds DOUBLE, "
     "shape_graph_density_attacking DOUBLE, shape_graph_n_edges_attacking BIGINT, "
     "shape_graph_mean_stability_attacking DOUBLE, "

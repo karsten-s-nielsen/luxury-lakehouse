@@ -152,9 +152,9 @@ cleaned as (
         cast(pausa_temporal as double)      as pausa_temporal,
         cast(pausa_spatial as double)       as pausa_spatial,
         cast(pausa_composite as double)     as pausa_composite,
-        -- Space created
-        cast(space_created_m2_team as double) as space_created_m2_team,
-        cast(space_created_m2_opponent as double) as space_created_m2_opponent,
+        -- Space creation (silly-kicks 4.24.0 lean contract: attacking LOO + rest-defense LOO)
+        cast(space_created_m2 as double) as space_created_m2,
+        cast(space_denied_m2_opponent as double) as space_denied_m2_opponent,
         -- Elastic frame linkage
         cast(elastic_frame_id as bigint)    as elastic_frame_id,
         cast(elastic_confidence as double)  as elastic_confidence,
