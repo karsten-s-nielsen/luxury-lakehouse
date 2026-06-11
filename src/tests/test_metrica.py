@@ -479,27 +479,29 @@ class TestParseEPTSEvents:
 
 
 class TestGKIdentificationEPTS:
-    """Tests for GK identification in EPTS metadata and tracking (Game 3)."""
+    """GK identification in EPTS metadata and tracking (Game 3).
 
-    def test_epts_metadata_gk_heuristic_shirt_1(self) -> None:
-        """Player P1 (shirt #1) is identified as GK via jersey heuristic."""
+    Contract since the 2026-06-11 audit: native ``PlayingPosition`` (GK/TW) is the
+    ONLY metadata-level source; the former "shirt #1" fallback is GONE — it was
+    empirically wrong on the real Game 3 (shirt 1 = midfield, mean x 0.584; real
+    GKs are shirts 11/28). With no positions in the XML, ``gk_player_ids`` stays
+    empty and ``_parse_epts_tracking`` derives the GKs from PERIOD-1 depth.
+    """
+
+    def test_epts_metadata_no_positions_means_no_gk_ids(self) -> None:
+        """No PlayingPosition anywhere -> EMPTY gk_player_ids (shirt-1 guess retired)."""
         meta = _parse_epts_metadata(_MINIMAL_EPTS_XML)
-        assert "P1" in meta.gk_player_ids
-        # P2 (shirt 2) should NOT be GK
-        assert "P2" not in meta.gk_player_ids
+        assert meta.gk_player_ids == frozenset()
+        assert "P1" not in meta.gk_player_ids  # the old heuristic's wrong pick
 
     def test_epts_metadata_gk_playing_position_attribute(self) -> None:
-        """PlayingPosition='GK' takes precedence over jersey heuristic."""
+        """PlayingPosition='GK' is the native metadata source."""
         xml_with_position = _MINIMAL_EPTS_XML.replace(
             '<Player id="P3" teamId="TMB">',
             '<Player id="P3" teamId="TMB" PlayingPosition="GK">',
         )
         meta = _parse_epts_metadata(xml_with_position)
-        # P3 is GK via PlayingPosition
-        assert "P3" in meta.gk_player_ids
-        # P1 is still GK via shirt #1 heuristic
-        assert "P1" in meta.gk_player_ids
-        assert len(meta.gk_player_ids) == 2
+        assert meta.gk_player_ids == frozenset({"P3"})
 
     def test_epts_metadata_gk_tw_position(self) -> None:
         """PlayingPosition='TW' (German: Torwart) is recognized as GK."""
@@ -510,31 +512,44 @@ class TestGKIdentificationEPTS:
         meta = _parse_epts_metadata(xml_with_tw)
         assert "P4" in meta.gk_player_ids
 
-    def test_epts_metadata_gk_heuristic_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Jersey #1 heuristic logs a warning for shirt #1 fallback."""
-        with caplog.at_level(logging.WARNING, logger="metrica"):
-            _parse_epts_metadata(_MINIMAL_EPTS_XML)
-        gk_warnings = [r for r in caplog.records if "GK heuristic" in r.message]
-        assert len(gk_warnings) == 1
-        assert "P1" in gk_warnings[0].message
+    def test_epts_tracking_derives_gk_empirically_when_no_positions(self, caplog: pytest.LogCaptureFixture) -> None:
+        """No-positions XML -> per-team period-1 depth picks, one per team, with a warning.
 
-    def test_epts_tracking_includes_gk_jersey_numbers(self) -> None:
-        """Game 3 tracking rows include gk_jersey_numbers JSON column."""
+        Tracking line: P1=(0.5,·) dev 0.0, P2=(0.3,·) dev 0.2 -> home pick shirt "2";
+        P3=(0.7,·) dev 0.2, P4=(0.8,·) dev 0.3 -> away pick shirt "4". The retired
+        shirt-1 guess (P1) must NOT appear.
+        """
         meta = _parse_epts_metadata(_MINIMAL_EPTS_XML)
+        tracking = "1:0.5,0.4;0.3,0.6;0.7,0.2;0.8,0.3:0.5,0.5\n"
+        with caplog.at_level(logging.WARNING, logger="metrica"):
+            rows = _parse_epts_tracking(tracking, meta, "Game_3")
+        gk_jerseys = json.loads(rows[0]["gk_jersey_numbers"])  # type: ignore[arg-type]
+        assert gk_jerseys == ["2", "4"]
+        assert "1" not in gk_jerseys
+        empirical_warnings = [r for r in caplog.records if "derived empirically" in r.message]
+        assert len(empirical_warnings) == 1 and "Game_3" in empirical_warnings[0].message
+
+    def test_epts_tracking_uses_native_positions_when_present(self) -> None:
+        """With PlayingPosition in the XML, the empirical fallback must NOT override it."""
+        xml_with_position = _MINIMAL_EPTS_XML.replace(
+            '<Player id="P3" teamId="TMB">',
+            '<Player id="P3" teamId="TMB" PlayingPosition="GK">',
+        )
+        meta = _parse_epts_metadata(xml_with_position)
         tracking = "1:0.5,0.4;0.3,0.6;0.7,0.2;0.8,0.3:0.5,0.5\n"
         rows = _parse_epts_tracking(tracking, meta, "Game_3")
         gk_jerseys = json.loads(rows[0]["gk_jersey_numbers"])  # type: ignore[arg-type]
-        # P1 has shirt "1" and is the GK
-        assert "1" in gk_jerseys
+        assert gk_jerseys == ["3"]  # P3's shirt — native metadata wins outright
 
     def test_epts_gk_jersey_numbers_consistent_across_frames(self) -> None:
-        """All frames in Game 3 should have the same gk_jersey_numbers."""
+        """All frames carry the same (empirically derived) gk_jersey_numbers."""
         meta = _parse_epts_metadata(_MINIMAL_EPTS_XML)
         tracking = "1:0.5,0.4;0.3,0.6;0.7,0.2;0.8,0.3:0.5,0.5\n2:0.51,0.41;0.31,0.59;0.71,0.21;0.81,0.31:0.52,0.48\n"
         rows = _parse_epts_tracking(tracking, meta, "Game_3")
         gk0 = rows[0]["gk_jersey_numbers"]
         gk1 = rows[1]["gk_jersey_numbers"]
         assert gk0 == gk1
+        assert json.loads(gk0) == ["2", "4"]  # type: ignore[arg-type]
 
 
 class TestGKIdentificationCSV:

@@ -173,17 +173,51 @@ def _convert_tracking_batch(
     raise ValueError(msg)
 
 
+def compute_ownership_anchors(
+    frames: pd.DataFrame, frame_col: str, period_col: str = "period"
+) -> dict[int, tuple[float, float, float]]:
+    """Per-period GLOBAL frame↔time anchors ``{period: (t0, f0, slope)}`` for M13 ownership.
+
+    Computed ONCE over the whole unit by the dispatcher (post-rebase) so every batch
+    evaluates the IDENTICAL ``est_frame`` line. The per-batch fit it replaces derived
+    (t0, f0, t1, f1) from each batch's own rows — with gappy tracking (SkillCorner
+    broadcast: ~30% of frames missing) adjacent batches fit slightly different lines,
+    and an action within ~1 frame of a batch boundary was claimed by BOTH (duplicate
+    action rows 346/365 on 1899585 P1, runs v2+v3) — or potentially by neither.
+    Periods with <2 distinct timestamps are omitted (ownership falls back to None →
+    no de-dup, matching the legacy degenerate case).
+    """
+    anchors: dict[int, tuple[float, float, float]] = {}
+    fr = frames.dropna(subset=[frame_col, "timestamp"]) if "timestamp" in frames.columns else frames.iloc[0:0]
+    for period, g in fr.groupby(period_col):
+        ts = g["timestamp"].to_numpy(dtype=float)
+        fn = g[frame_col].to_numpy(dtype=float)
+        lo, hi = int(ts.argmin()), int(ts.argmax())
+        t0, f0, t1, f1 = ts[lo], fn[lo], ts[hi], fn[hi]
+        if t1 == t0:
+            continue
+        anchors[int(period)] = (float(t0), float(f0), float((f1 - f0) / (t1 - t0)))  # type: ignore[arg-type]  # period is the int groupby key
+    return anchors
+
+
 def _owned_action_ids(
-    provider: str, frames_pdf: pd.DataFrame, actions: pd.DataFrame, frame_batch_size: int
+    provider: str,
+    frames_pdf: pd.DataFrame,
+    actions: pd.DataFrame,
+    frame_batch_size: int,
+    anchor: tuple[float, float, float] | None = None,
 ) -> set[Any] | None:
     """Action ids owned by THIS batch (M13 single-owner de-dup).
 
     Owner = batch whose ``frame_batch_size``-frame window contains the action's frame. The frame
-    for an action time ``t`` is recovered from this batch's exact linear ``frame = slope·t + c``
-    relationship (tracking fps is constant), so every batch computes the same global frame
-    for a given ``t`` and exactly one batch claims each action. ``frame_batch_size`` MUST be the
-    same size the dispatcher used to assign ``frame_batch_id`` (H3). Returns ``None`` (no de-dup)
-    when the batch lacks the columns to fit the map.
+    for an action time ``t`` is recovered from the linear ``frame = f0 + (t - t0)·slope``
+    relationship (tracking fps is constant). ``anchor`` is the dispatcher's GLOBAL per-period
+    ``(t0, f0, slope)`` (see ``compute_ownership_anchors``) — every batch then computes the
+    IDENTICAL global frame for a given ``t`` and exactly one batch claims each action even on
+    gappy tracking. Without an anchor, falls back to the legacy per-batch fit (direct callers
+    only — the dispatchers always pass one; lockstep-tested). ``frame_batch_size`` MUST be the
+    same size the dispatcher used to assign ``frame_batch_id`` (H3). Returns ``None`` (no
+    de-dup) when the batch lacks the columns to evaluate the map.
     """
     frame_col = "frame_num" if provider == "gradientsports" else "frame"
     if not {"frame_batch_id", "timestamp"}.issubset(frames_pdf.columns) or frame_col not in frames_pdf.columns:
@@ -193,16 +227,19 @@ def _owned_action_ids(
     import numpy as np
 
     this_batch_id = int(frames_pdf["frame_batch_id"].iloc[0])
-    fr = frames_pdf[[frame_col, "timestamp"]].dropna()
-    if len(fr) < 2:
-        return None
-    ts_frames = fr["timestamp"].to_numpy(dtype=float)
-    frame_nums = fr[frame_col].to_numpy(dtype=float)
-    lo, hi = int(ts_frames.argmin()), int(ts_frames.argmax())
-    t0, f0, t1, f1 = ts_frames[lo], frame_nums[lo], ts_frames[hi], frame_nums[hi]
-    if t1 == t0:
-        return None
-    slope = (f1 - f0) / (t1 - t0)
+    if anchor is not None:
+        t0, f0, slope = anchor
+    else:
+        fr = frames_pdf[[frame_col, "timestamp"]].dropna()
+        if len(fr) < 2:
+            return None
+        ts_frames = fr["timestamp"].to_numpy(dtype=float)
+        frame_nums = fr[frame_col].to_numpy(dtype=float)
+        lo, hi = int(ts_frames.argmin()), int(ts_frames.argmax())
+        t0, f0, t1, f1 = ts_frames[lo], frame_nums[lo], ts_frames[hi], frame_nums[hi]
+        if t1 == t0:
+            return None
+        slope = (f1 - f0) / (t1 - t0)
     est_frame = f0 + (actions["time_seconds"].to_numpy(dtype=float) - t0) * slope
     owning_batch = np.floor(est_frame / frame_batch_size).astype("int64")
     action_ids = actions["action_id"].to_numpy()
@@ -223,6 +260,7 @@ def enrich_batch(
     native_match_id: str,
     kde_backend: str = "fft-cic",
     frame_batch_size: int | None = None,
+    ownership_anchors: dict[int, tuple[float, float, float]] | None = None,
 ) -> pd.DataFrame:
     """Enrich ONE unit of work — the shared contract called identically by prod + local.
 
@@ -231,8 +269,10 @@ def enrich_batch(
     full chain. ``frame_batch_size`` MUST equal the size the dispatcher used to
     assign ``frame_batch_id`` (H3 — ``None`` resolves the provider default, which
     is only correct when the dispatcher used the default too; explicit callers
-    pass it through). sb360: ``frames_pdf`` is the synthetic freeze-frames for
-    the match. event_only: ``frames_pdf`` is ignored.
+    pass it through). ``ownership_anchors`` is the dispatcher's GLOBAL per-period
+    M13 map (``compute_ownership_anchors``) — without it, boundary actions on gappy
+    tracking can be double-claimed by adjacent batches. sb360: ``frames_pdf`` is
+    the synthetic freeze-frames for the match. event_only: ``frames_pdf`` is ignored.
     """
     import pandas as pd
 
@@ -275,7 +315,8 @@ def enrich_batch(
     # action's frame — via the global linear frame↔timestamp map (constant fps), computed
     # from this batch's frames. Identical in Spark + local since both call enrich_batch.
     resolved_batch_size = frame_batch_size if frame_batch_size is not None else resolve_frame_batch_size(provider)
-    owned_action_ids = _owned_action_ids(provider, frames_pdf, actions, resolved_batch_size)
+    _anchor = ownership_anchors.get(int(period)) if ownership_anchors is not None and period is not None else None
+    owned_action_ids = _owned_action_ids(provider, frames_pdf, actions, resolved_batch_size, anchor=_anchor)
 
     # M13 EARLY-RETURN: if this batch owns zero actions (all buffer-windowed actions belong
     # to adjacent batches), short-circuit before the expensive 20-step enrich chain.
@@ -411,6 +452,12 @@ def run_work_unit(
             }
         )
     f["frame_batch_id"] = (f[frame_col] // frame_batch_size).astype("int64")
+
+    # M13 GLOBAL ownership anchors (ADR-040 amendment 2 follow-up): one per-period
+    # frame↔time line for the WHOLE unit, so every batch claims actions identically —
+    # per-batch fits drift on gappy tracking and double-claim boundary actions.
+    # Mirrors the Spark driver; lockstep via test_m13_global_anchor.
+    common["ownership_anchors"] = compute_ownership_anchors(f, frame_col)
 
     parts: list[pd.DataFrame] = []
     for (period_val, _batch_id), group in f.groupby(["period", "frame_batch_id"], sort=True):

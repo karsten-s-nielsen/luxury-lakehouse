@@ -35,6 +35,56 @@ _EPTS_URLS: dict[str, dict[str, str]] = {
 
 
 # ---------------------------------------------------------------------------
+# GK identification (shared by the CSV and EPTS paths)
+# ---------------------------------------------------------------------------
+
+# Below this depth separation the empirical pick is suspicious: a real GK's
+# period-1 mean x sits far from the pitch centre (sample data: 0.125 / 0.917),
+# never near halfway.
+_GK_DEPTH_WEAK_SEPARATION = 0.15
+
+
+def _pick_gk_shirts_by_depth(team_shirt_mean_x: dict[str, dict[str, float]]) -> list[str]:
+    """Pick each team's GK shirt as the PERIOD-1 positional outlier from the pitch centre.
+
+    Shared by both ingestion paths when no native position metadata exists (the CSV
+    games carry none; Game 3's EPTS XML carries no ``PlayingPosition`` either — the
+    former "jersey/shirt 1" fallbacks were empirically WRONG on every game: jersey 1
+    is an outfield player, the real GKs are 11/25 (Games 1-2) and 11/28 (Game 3),
+    2026-06-11 AC value audit). Input means must be computed over PERIOD-1 frames
+    only — averaging across halves cancels the depth signal (teams swap ends).
+
+    Args:
+        team_shirt_mean_x: ``{team_side: {shirt: period1_mean_x}}`` in Metrica's
+            normalized [0, 1] x coordinates.
+
+    Returns:
+        One shirt per team (sorted). Logs a warning on weak separation.
+    """
+    logger = logging.getLogger("metrica")
+    gk_shirts: list[str] = []
+    for team, means in team_shirt_mean_x.items():
+        best_shirt: str | None = None
+        best_dev = -1.0
+        for shirt, mean_x in means.items():
+            dev = abs(mean_x - 0.5)
+            if dev > best_dev:
+                best_dev, best_shirt = dev, shirt
+        if best_shirt is None:
+            continue
+        if best_dev < _GK_DEPTH_WEAK_SEPARATION:
+            logger.warning(
+                "Metrica GK derivation: weak depth separation for %s team (best |mean_x-0.5|=%.3f, "
+                "shirt %s) — review the pick before trusting GK metrics for this match.",
+                team,
+                best_dev,
+                best_shirt,
+            )
+        gk_shirts.append(best_shirt)
+    return sorted(gk_shirts)
+
+
+# ---------------------------------------------------------------------------
 # EPTS metadata and parser types
 # ---------------------------------------------------------------------------
 
@@ -112,7 +162,6 @@ def _parse_epts_metadata(xml_text: str) -> _EPTSMetadata:
         team_id_to_side[tid] = "home" if tid == local_team_id else "away"
 
     # --- Players: build player_id -> shirt number and team side, identify GKs ---
-    logger = logging.getLogger("metrica")
     player_id_to_shirt: dict[str, str] = {}
     player_id_to_side: dict[str, str] = {}
     player_id_to_position: dict[str, str] = {}
@@ -127,12 +176,11 @@ def _parse_epts_metadata(xml_text: str) -> _EPTSMetadata:
         player_id_to_position[pid] = position  # Retain raw string for bronze (CB / LB / RM / TW / etc.)
         if position in ("TW", "GK"):
             gk_ids.add(pid)
-        elif shirt == "1" and not position:
-            gk_ids.add(pid)
-            logger.warning(
-                "GK heuristic: assuming player %s (shirt #1) is GK (no PlayingPosition in EPTS XML)",
-                pid,
-            )
+        # NO shirt-number fallback: the former "shirt #1" guess was empirically WRONG
+        # on Game 3 (shirt 1 = midfield, mean x 0.584; the real GKs are 11/28 — it
+        # shipped gk_jersey_numbers=["1"] to bronze, 2026-06-11 audit). When the XML
+        # carries no PlayingPosition at all, gk_player_ids stays EMPTY and
+        # _parse_epts_tracking derives the GKs empirically from period-1 depth.
 
     # --- Pitch dimensions: from <FieldSize> element ---
     # EPTS source typically exposes `Width` + `Length` attributes in meters.
@@ -221,11 +269,16 @@ def _parse_epts_tracking(
     """
     rows: list[dict[str, object]] = []
 
-    # Pre-compute GK shirt numbers from metadata player IDs
+    # Pre-compute GK shirt numbers from metadata player IDs (PlayingPosition-derived).
+    # When the XML carries no positions (Game 3), this is EMPTY and the GKs are
+    # derived empirically from period-1 depth after the parse loop below.
     gk_shirts: list[str] = sorted(
         metadata.player_id_to_shirt[pid] for pid in metadata.gk_player_ids if pid in metadata.player_id_to_shirt
     )
     gk_json = json.dumps(gk_shirts)
+
+    # Period-1 x accumulators for the empirical GK fallback: {side: {shirt: [sum, n]}}.
+    _p1_x_acc: dict[str, dict[str, list[float]]] = {"home": {}, "away": {}}
 
     # Denormalize match-level pitch dims onto every row so a single consumer
     # query can access them without joining to a separate metadata table.
@@ -293,6 +346,10 @@ def _parse_epts_tracking(
                 home_players[shirt] = player_data
             else:
                 away_players[shirt] = player_data
+            if period == 1 and x_val is not None and not gk_shirts:
+                acc = _p1_x_acc["home" if side == "home" else "away"].setdefault(shirt, [0.0, 0.0])
+                acc[0] += x_val
+                acc[1] += 1.0
 
         # Parse ball coordinates
         ball_coords = parts[2].split(",")
@@ -314,6 +371,25 @@ def _parse_epts_tracking(
                 "pitch_width_m": pitch_width_m_val,
             }
         )
+
+    # Empirical GK fallback (no PlayingPosition in the XML — Game 3's real shape):
+    # derive each team's GK from period-1 depth and restamp every row. Mirrors the
+    # CSV path's derivation; shared picker = shared semantics + warning.
+    if not gk_shirts and rows:
+        means = {
+            side: {shirt: acc[0] / acc[1] for shirt, acc in shirts.items() if acc[1] > 0}
+            for side, shirts in _p1_x_acc.items()
+            if shirts
+        }
+        gk_shirts = _pick_gk_shirts_by_depth(means)
+        logging.getLogger("metrica").warning(
+            "EPTS metadata carries no PlayingPosition for %s — GKs derived empirically from period-1 depth: %s",
+            match_id,
+            gk_shirts,
+        )
+        gk_json = json.dumps(gk_shirts)
+        for row in rows:
+            row["gk_jersey_numbers"] = gk_json
 
     return rows
 

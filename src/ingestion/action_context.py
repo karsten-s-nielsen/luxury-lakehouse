@@ -350,6 +350,7 @@ def _make_action_context_udf(
     exec_rendezvous_dir: str | None = None,
     kde_backend: str = "fft-cic",
     frame_batch_size: int | None = None,
+    ownership_anchors: dict[int, tuple[float, float, float]] | None = None,
 ) -> Callable[[pd.DataFrame], pd.DataFrame]:
     """Build the per-group pandas UDF closure for action context enrichment
     (dispatched via ``_make_streaming_group_mapper`` + ``mapInPandas``, ADR-045).
@@ -460,6 +461,7 @@ def _make_action_context_udf(
                 native_match_id=native_match_id,
                 kde_backend=kde_backend,
                 frame_batch_size=frame_batch_size,
+                ownership_anchors=ownership_anchors,
             )
             # Executor-side per-batch progress log: serverless / Spark Connect
             # forbids driver-side accumulators (PySparkAttributeError on
@@ -1590,19 +1592,36 @@ def _process_tracking_match(
     # Frames-side time-base guard (ADR-040 amendment, two-sided): after ALL provider re-bases,
     # each period's earliest frame time must be near its own kickoff — a frames-side absolute
     # clock silently empties the per-batch action window (the SkillCorner P2 class the
-    # actions-side guard above cannot see). One tiny 2-col agg per unit; min-based so sparse
-    # frame coverage never false-fires. Mirrors pipeline.run_work_unit (same lockstep sentinel).
-    # The per-period (min, max) windows also feed the post-write completeness invariant below.
+    # actions-side guard above cannot see). One tiny per-period agg per unit; min-based so
+    # sparse frame coverage never false-fires. Mirrors pipeline.run_work_unit (same lockstep
+    # sentinel). The same agg also yields: (a) the (min, max) windows for the post-write
+    # completeness invariant below, and (b) the M13 GLOBAL ownership anchors — the frame at
+    # each period's earliest/latest timestamp — so every UDF batch claims actions off the
+    # IDENTICAL frame↔time line (per-batch fits drift on gappy tracking and double-claim
+    # boundary actions; lockstep via test_m13_global_anchor).
     _frame_windows: dict[int, tuple[float, float]] = {}
+    _ownership_anchors: dict[int, tuple[float, float, float]] = {}
+    _anchor_frame_col = "frame_num" if provider == "gradientsports" else "frame"
     if "timestamp" in trk_sdf.columns:
         _ts_rows = (
             trk_sdf.groupBy("period")
-            .agg(F.min("timestamp").alias("_ts_min"), F.max("timestamp").alias("_ts_max"))
+            .agg(
+                F.min("timestamp").alias("_ts_min"),
+                F.max("timestamp").alias("_ts_max"),
+                F.min_by(_anchor_frame_col, "timestamp").alias("_f_at_min"),
+                F.max_by(_anchor_frame_col, "timestamp").alias("_f_at_max"),
+            )
             .collect()
         )
         _frame_windows = {
             int(r["period"]): (float(r["_ts_min"]), float(r["_ts_max"])) for r in _ts_rows if r["_ts_min"] is not None
         }
+        for r in _ts_rows:
+            if r["_ts_min"] is None or r["_f_at_min"] is None or r["_ts_max"] == r["_ts_min"]:
+                continue
+            _t0, _t1 = float(r["_ts_min"]), float(r["_ts_max"])
+            _f0, _f1 = float(r["_f_at_min"]), float(r["_f_at_max"])
+            _ownership_anchors[int(r["period"])] = (_t0, _f0, (_f1 - _f0) / (_t1 - _t0))
         assert_frames_time_base({p: w[0] for p, w in _frame_windows.items()})
 
     # Observability branch: single-process cProfile on the driver instead of the
@@ -1631,6 +1650,7 @@ def _process_tracking_match(
                 max_batches=profile_max_batches,
                 kde_backend=kde_backend,
                 frame_batch_size=frame_batch_size,
+                ownership_anchors=_ownership_anchors,
             )
         finally:
             hb.stop()
@@ -1656,6 +1676,7 @@ def _process_tracking_match(
         exec_rendezvous_dir=exec_rendezvous_dir,
         kde_backend=kde_backend,
         frame_batch_size=frame_batch_size,
+        ownership_anchors=_ownership_anchors,
     )
 
     # GradientSports uses "period" (not "period_id") in bronze
@@ -1816,6 +1837,7 @@ def _run_profile_on_driver(
     max_batches: int = 0,
     kde_backend: str = "fft-cic",
     frame_batch_size: int | None = None,
+    ownership_anchors: dict[int, tuple[float, float, float]] | None = None,
 ) -> int:
     """Pull the whole match to the driver, run ``enrich_batch`` per frame
     batch under ``cProfile`` (single-process), and write the breakdown to the
@@ -1909,6 +1931,7 @@ def _run_profile_on_driver(
             native_match_id=native_match_id,
             kde_backend=kde_backend,
             frame_batch_size=frame_batch_size,
+            ownership_anchors=ownership_anchors,
         )
         n_rows += len(result)
         for _c in _health_cols:

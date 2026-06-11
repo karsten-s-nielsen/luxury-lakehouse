@@ -25,6 +25,7 @@ from ingestion.metrica_common import (
     _EPTS_URLS,
     _parse_epts_metadata,
     _parse_epts_tracking,
+    _pick_gk_shirts_by_depth,
 )
 from ingestion.utils import (
     fetch_url,
@@ -141,30 +142,18 @@ def _derive_gk_jerseys_empirically(
     if not bool(p1_mask.any()):
         p1_mask = period_s.notna()
 
-    gk_jerseys: list[str] = []
+    means: dict[str, dict[str, float]] = {}
     for team, groups in player_groups.items():
-        best_pid: str | None = None
-        best_dev = -1.0
+        team_means: dict[str, float] = {}
         for pid, x_col, _y_col in groups:
-            x = pd.to_numeric(df[x_col], errors="coerce")[p1_mask]
-            mean_x = x.mean()
-            if pd.isna(mean_x):
-                continue
-            dev = abs(float(mean_x) - 0.5)
-            if dev > best_dev:
-                best_dev, best_pid = dev, pid
-        if best_pid is None:
-            continue
-        if best_dev < 0.15:
-            logging.getLogger(__name__).warning(
-                "Metrica GK derivation: weak depth separation for %s team (best |mean_x-0.5|=%.3f, "
-                "jersey %s) — review the pick before trusting GK metrics for this match.",
-                team,
-                best_dev,
-                best_pid,
-            )
-        gk_jerseys.append(best_pid)
-    return sorted(gk_jerseys)
+            mean_x = pd.to_numeric(df[x_col], errors="coerce")[p1_mask].mean()
+            if pd.notna(mean_x):
+                team_means[pid] = float(mean_x)
+        if team_means:
+            means[team] = team_means
+    # Shared picker (metrica_common): same outlier rule + weak-separation warning as
+    # the EPTS empirical fallback — one source of GK-derivation semantics.
+    return _pick_gk_shirts_by_depth(means)
 
 
 def _reshape_tracking_to_narrow(
