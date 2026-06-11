@@ -80,6 +80,11 @@ INVARIANT_ONLY: dict[str, tuple[str, float | None, float | None]] = {
     "shape_graph_mean_stability_attacking": ("float", 0.0, None),
     "shape_graph_mean_stability_defending": ("float", 0.0, None),
     "space_created_m2_team": ("float", 0.0, None),
+    # KNOWN-DEGENERATE (accepted 2026-06-11): silly-kicks 4.23.0 computes the opponent
+    # perspective as the exact complement of the team surface under spearman → structurally 0.0
+    # everywhere (rejection report tmp/silly_kicks_rejection_4230_opponent_mirror_20260611.md,
+    # fix in flight upstream). Column kept; real values arrive with the next complete AC
+    # recalculation after the upstream fix.
     "space_created_m2_opponent": ("float", 0.0, None),
     # Ghost-GK (silly-kicks 3.24.0+): no legacy oracle exists (new column). Range-check only.
     # x/y are LTR-normalized pitch metres (105x68); spread is a positive dispersion magnitude.
