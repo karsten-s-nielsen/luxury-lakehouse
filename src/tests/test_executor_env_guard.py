@@ -41,7 +41,7 @@ def test_stale_version_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     import silly_kicks
 
     monkeypatch.setattr(silly_kicks, "__version__", "4.11.0", raising=False)
-    with pytest.raises(RuntimeError, match=r"silly-kicks 4\.11\.0 < required 4\.22\.0.*stale"):
+    with pytest.raises(RuntimeError, match=r"silly-kicks 4\.11\.0 < required 4\.22\.1.*stale"):
         ev.assert_executor_silly_kicks_sane(batch_key="m10504_p1_b277")
 
 
@@ -50,7 +50,7 @@ def test_split_install_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     import silly_kicks
     import silly_kicks.tracking._ghost_gk as ghost
 
-    monkeypatch.setattr(silly_kicks, "__version__", "4.22.0", raising=False)
+    monkeypatch.setattr(silly_kicks, "__version__", "4.22.1", raising=False)
     # Simulate the stale layer: _ghost_gk resolves from a DIFFERENT install root.
     monkeypatch.setattr(ghost, "__file__", "/stale/pythonEnv-5f055717/silly_kicks/tracking/_ghost_gk.py")
     with pytest.raises(RuntimeError, match=r"split install on executor.*_ghost_gk"):
@@ -61,7 +61,7 @@ def test_idempotent_short_circuit(monkeypatch: pytest.MonkeyPatch) -> None:
     """After a clean pass, a subsequently-poisoned version is NOT re-checked (process-stable)."""
     import silly_kicks
 
-    monkeypatch.setattr(silly_kicks, "__version__", "4.22.0", raising=False)
+    monkeypatch.setattr(silly_kicks, "__version__", "4.22.1", raising=False)
     ev.assert_executor_silly_kicks_sane(batch_key="first")  # marks checked
     monkeypatch.setattr(silly_kicks, "__version__", "4.11.0", raising=False)
     ev.assert_executor_silly_kicks_sane(batch_key="second")  # no-op — must NOT raise

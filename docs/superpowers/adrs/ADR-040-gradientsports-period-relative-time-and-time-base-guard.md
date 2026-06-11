@@ -52,6 +52,18 @@ count, so 88% data loss terminated as `processed`.
 5. **M13 uniqueness net**: the local driver raises on duplicate `action_id`s pre-write;
    the dbt singular test `assert_action_context_action_unique` covers the distributed
    path where per-batch UDFs cannot see each other's output.
+6. **M13 GLOBAL ownership anchors** (follow-up, same day): the net in (5) immediately
+   caught a SECOND, distinct M13 bug — 2 duplicate P1 `action_id`s (346/365 on
+   1899585) that persisted after the time-base fix. Root cause: ownership fitted the
+   frame↔time line PER BATCH from each batch's own rows; on gappy tracking
+   (SkillCorner broadcast: ~30% of frames missing) adjacent batches fit slightly
+   different lines, and an action whose estimated frame lands within ~1 frame of a
+   batch boundary is claimed by BOTH (or potentially neither). Fix: the dispatcher
+   computes ONE per-period `(t0, f0, slope)` anchor over the whole unit
+   (`pipeline.compute_ownership_anchors`; Spark side via a `min_by`/`max_by` extension
+   of the existing per-period agg) and passes it into every batch — single ownership
+   holds by construction, gap-invariant. Bug reproduced + fix proven in
+   `test_m13_global_anchor`; lockstep sentinel covers both dispatchers.
 
 All historical SkillCorner action-context data (any table or export computed before
 this amendment) under-covers period ≥ 2 and must be recomputed.
