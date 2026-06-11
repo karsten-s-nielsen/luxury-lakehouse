@@ -44,7 +44,9 @@ _EXPECTED_DATASET_CARDS: frozenset[str] = frozenset(
         "psxg-predictions.md",
         "scoutgpt-training-data.md",
         "space-creation-values.md",
+        "spadl-action-context-restricted.md",
         "spadl-vaep-action-values.md",
+        "spadl-vaep-action-values-restricted.md",
         "statsbomb-shots-on-target.md",
         "xg-freeze-frame-data.md",
         "xg-shot-data.md",
@@ -59,6 +61,7 @@ _EXPECTED_DATASET_CARDS: frozenset[str] = frozenset(
 _DUAL_COLUMN_CARDS: frozenset[str] = frozenset(
     {
         "spadl-vaep-action-values.md",
+        "spadl-vaep-action-values-restricted.md",
         "statsbomb-shots-on-target.md",
         "xg-shot-data.md",
     }
@@ -405,6 +408,70 @@ class TestGetHfCardPath:
         )
         resolved = hf_publish.get_hf_card_path("wheel-model.md", kind="model")
         assert resolved == card
+
+
+# ---------------------------------------------------------------------------
+# Restricted-data publishing helpers (ADR-049)
+# ---------------------------------------------------------------------------
+
+
+class TestRestrictedPublishing:
+    """ADR-049: restricted split helpers + publisher/trainer lockstep guards."""
+
+    def test_restricted_repo_id_naming_convention(self) -> None:
+        assert hf_publish.restricted_repo_id("luxury-lakehouse/spadl-vaep-action-values") == (
+            "luxury-lakehouse/spadl-vaep-action-values-restricted"
+        )
+
+    def test_restricted_providers_is_frozenset_of_known_sources(self) -> None:
+        # The set may legitimately be EMPTY (all data public) — but every
+        # member must be a known data_source partition value, lowercase.
+        assert isinstance(hf_publish.RESTRICTED_HF_PROVIDERS, frozenset)
+        for provider in hf_publish.RESTRICTED_HF_PROVIDERS:
+            assert provider == provider.lower(), f"provider {provider!r} must be lowercase"
+            assert "/" not in provider and " " not in provider
+
+    def test_split_restricted_partitions_rows_disjointly(self) -> None:
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "action_value_id": ["a", "b", "c", "d"],
+                "data_source": ["statsbomb", "gradientsports", "wyscout", "gradientsports"],
+            }
+        )
+        with patch.object(hf_publish, "RESTRICTED_HF_PROVIDERS", frozenset({"gradientsports"})):
+            public_df, restricted_df = hf_publish.split_restricted(df)
+
+        assert set(public_df["data_source"]) == {"statsbomb", "wyscout"}
+        assert set(restricted_df["data_source"]) == {"gradientsports"}
+        # Disjoint and complete — no row dropped, no row duplicated.
+        assert len(public_df) + len(restricted_df) == len(df)
+        assert set(public_df["action_value_id"]).isdisjoint(set(restricted_df["action_value_id"]))
+
+    def test_split_restricted_empty_set_sends_everything_public(self) -> None:
+        # The empty-set state is HEALTHY (ADR-049): all rows go public, the
+        # restricted side is an empty frame (drives the sweep-only publish).
+        import pandas as pd
+
+        df = pd.DataFrame({"data_source": ["statsbomb", "gradientsports"]})
+        with patch.object(hf_publish, "RESTRICTED_HF_PROVIDERS", frozenset()):
+            public_df, restricted_df = hf_publish.split_restricted(df)
+
+        assert len(public_df) == len(df)
+        assert restricted_df.empty
+
+    def test_split_restricted_custom_column(self) -> None:
+        # FUTURE row-level seam: the column parameter is how access_tier
+        # splits will plug in without changing call sites.
+        import pandas as pd
+
+        df = pd.DataFrame({"source": ["gradientsports", "metrica"]})
+        with patch.object(hf_publish, "RESTRICTED_HF_PROVIDERS", frozenset({"gradientsports"})):
+            public_df, restricted_df = hf_publish.split_restricted(df, column="source")
+
+        assert list(public_df["source"]) == ["metrica"]
+        assert list(restricted_df["source"]) == ["gradientsports"]
 
 
 # ---------------------------------------------------------------------------

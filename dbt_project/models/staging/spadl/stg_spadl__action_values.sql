@@ -98,6 +98,10 @@ cleaned as (
         action_type,
         cast(result_id as int)                          as result_id,
         action_result,
+        -- silly-kicks 4.21+: provenance tier of action_result ('native' /
+        -- 'inferred' / 'stopgap'). NULL on synthesized dribbles by design and
+        -- on bronze rows scored before the 4.22 re-conversion.
+        result_source,
         cast(bodypart_id as int)                        as bodypart_id,
         bodypart,
 

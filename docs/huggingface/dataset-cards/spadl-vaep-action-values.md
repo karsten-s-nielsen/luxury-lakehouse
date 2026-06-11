@@ -2,13 +2,13 @@
 language: [en]
 license: mit
 task_categories: [tabular-classification, tabular-regression]
-tags: [sports-analytics, soccer, football, spadl, vaep, action-valuation, statsbomb, wyscout]
+tags: [sports-analytics, soccer, football, spadl, vaep, action-valuation, statsbomb, wyscout, metrica, skillcorner, bundesliga]
 size_categories: [1M-10M]
 configs:
   - config_name: default
     data_files:
       - split: train
-        path: "data/*.parquet"
+        path: "data/*/data.parquet"
 ---
 
 # SPADL/VAEP Action Values
@@ -74,11 +74,12 @@ top_players = df.groupby("player_id")["vaep_value"].sum().nlargest(10)
 | `end_y` | `double` | Action end y-coordinate (meters, 0&ndash;68) |
 | `action_type` | `string` | SPADL action type (see vocabulary below) |
 | `action_result` | `string` | Action outcome (success, fail, offside, owngoal, yellow_card, red_card) |
+| `result_source` | `string` | Provenance tier of `action_result` (silly-kicks 4.21+): `native` (provider-flagged), `inferred` (derived from follow-on events), `stopgap` (heuristic fallback). NULL on synthesized dribbles. |
 | `bodypart` | `string` | Body part used (foot, head, other, head/other) |
 | `offensive_value` | `double` | VAEP offensive value &mdash; change in scoring probability |
 | `defensive_value` | `double` | VAEP defensive value &mdash; change in conceding probability |
 | `vaep_value` | `double` | Net VAEP value (offensive_value + defensive_value) |
-| `data_source` | `string` | Origin data provider (`statsbomb` or `wyscout`) |
+| `data_source` | `string` | Origin data provider — partition key (`statsbomb`, `wyscout`, `idsse`, `metrica`, `skillcorner`) |
 | `original_event_id` | `string` | Event ID from the source provider |
 
 ### Coordinate System
@@ -93,19 +94,24 @@ SPADL defines 23 canonical action types:
 
 ## Data Sources
 
+Partitioned by `data_source` (`data/data_source=<provider>/data.parquet`):
+
 | Source | Matches | License |
 |--------|---------|---------|
-| [StatsBomb Open Data](https://github.com/statsbomb/open-data) | ~3,000 | CC-BY 4.0 |
-| [Wyscout Public Dataset](https://figshare.com/collections/Soccer_match_event_dataset/4415000) | ~1,900 | CC-BY-NC 4.0 |
+| [StatsBomb Open Data](https://github.com/statsbomb/open-data) | ~3,460 | CC-BY 4.0 |
+| [Wyscout Public Dataset](https://figshare.com/collections/Soccer_match_event_dataset/4415000) | ~1,940 | CC-BY-NC 4.0 |
+| IDSSE (DFL / Bundesliga open research dataset) | 7 | Research use |
+| [Metrica Sports Sample Data](https://github.com/metrica-sports/sample-data) | 3 | Open sample |
+| [SkillCorner Open Data](https://github.com/SkillCorner/opendata) (A-League) | 10 | Research use |
 
-Coverage includes the Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Champions League, World Cup, and more.
+Coverage includes the Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Champions League, World Cup, and more. One additional provider (GradientSports / PFF FC, FIFA World Cup 2022) is computed internally but license-restricted and therefore not included in this public dataset.
 
 ## Limitations
 
-- **Open data only**: Trained on publicly available StatsBomb and Wyscout data. Commercial datasets with richer event annotations may yield different VAEP scores.
+- **Open data only**: Built from publicly available event data. Commercial datasets with richer event annotations may yield different VAEP scores.
 - **No tracking data**: VAEP is event-based. Off-ball positioning, pressing intensity, and space creation are not captured.
 - **Competition-agnostic model**: The underlying XGBoost model is trained across all competitions jointly. League-specific models may produce more calibrated probabilities.
-- **Cross-source alignment**: StatsBomb and Wyscout use different event taxonomies. The SPADL adapter normalizes them, but subtle differences in event definitions (e.g., duel classification) remain.
+- **Cross-source alignment**: Providers use different event taxonomies. The SPADL adapter normalizes them, but subtle differences in event definitions (e.g., duel classification) remain.
 
 ## Citation
 
@@ -143,6 +149,10 @@ And the silly-kicks library:
 ## More Information
 
 > **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
+
+## ADR-049 changelog (2026-06-10)
+
+The dataset is now published via the restricted-split mechanism (lakehouse ADR-049): the publisher pulls **all** providers from the gold mart and routes license-restricted partitions (currently GradientSports) to a private companion repo, with everything else published here. The partition layout is `data/data_source=<provider>/data.parquet`; legacy stray Parquet files inside partition directories were swept in the same change — glob `data/*/data.parquet`, not `**/*.parquet`. The schema also gains `result_source` (provenance tier of `action_result`, silly-kicks 4.21+; see Data Fields).
 
 ## PR 7 changelog (2026-04-27)
 

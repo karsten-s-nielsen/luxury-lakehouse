@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import pytest
 
@@ -53,6 +53,12 @@ _DATASET_CARD_EXEMPT: frozenset[str] = frozenset()
 _DATASET_CARD_ORPHAN_EXEMPT: frozenset[str] = frozenset(
     {
         "spadl-action-context",  # AC-1 — created in this PR, publisher not yet run
+        # ADR-049 — private companion repos; auto-created by each publisher's
+        # first run after the ADR-049 PR. Remove each once that run completes
+        # (org-scoped tokens DO list private repos, so parity enforcement
+        # picks them up the moment they exist).
+        "spadl-vaep-action-values-restricted",
+        "spadl-action-context-restricted",
     }
 )
 
@@ -235,3 +241,110 @@ def test_every_publisher_script_calls_upload_hf_readme() -> None:
         + "\n  ".join(missing_call)
         + "\nAdd `from ingestion.hf_publish import upload_hf_readme` and call it post-upload."
     )
+
+
+# ---------------------------------------------------------------------------
+# ADR-049 — restricted-data lockstep guards
+# ---------------------------------------------------------------------------
+
+_REPO_SCRIPTS_DIR = _REPO_ROOT / "scripts"
+
+
+def _imported_names_from_hf_publish(py_file: Path) -> set[str]:
+    """Names a script imports from ingestion.hf_publish (AST, no execution)."""
+    import ast
+
+    tree = ast.parse(py_file.read_text(encoding="utf-8"))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "ingestion.hf_publish":
+            names.update(alias.name for alias in node.names)
+    return names
+
+
+# Publishers migrated to the ADR-049 restricted split, with the in-repo card
+# of each one's PRIVATE companion repo. Mode membership (split vs legacy SQL
+# exclusion) is canonically enforced by test_gradientsports_hf_exclusion.py;
+# this list pins the ADR-049 mechanics of each split publisher.
+_ADR049_SPLIT_PUBLISHER_CARDS: dict[str, str] = {
+    "publish_action_context_hf.py": "spadl-action-context-restricted.md",
+    "publish_spadl_vaep_hf.py": "spadl-vaep-action-values-restricted.md",
+}
+
+
+class TestRestrictedPublishLockstep:
+    """ADR-049: the publish split and the training-corpus expectation derive
+    from the SAME constant in ingestion.hf_publish. These guards fail the
+    moment either side reverts to a local filter (the Champion-v10 corpus
+    bug: the trainer silently inherited a SQL-side publish filter).
+    """
+
+    _TRAINER: ClassVar[Path] = _REPO_SCRIPTS_DIR / "train_vaep_model_hf.py"
+
+    @pytest.mark.parametrize("publisher", sorted(_ADR049_SPLIT_PUBLISHER_CARDS))
+    def test_publisher_imports_shared_split_helpers(self, publisher: str) -> None:
+        names = _imported_names_from_hf_publish(_REPO_SCRIPTS_DIR / publisher)
+        missing = {"RESTRICTED_HF_PROVIDERS", "restricted_repo_id", "split_restricted"} - names
+        assert not missing, (
+            f"{publisher} must import {sorted(missing)} from ingestion.hf_publish "
+            "(ADR-049 single source of truth — no local restriction filters)."
+        )
+
+    def test_trainer_imports_shared_restriction_constants(self) -> None:
+        names = _imported_names_from_hf_publish(self._TRAINER)
+        missing = {"RESTRICTED_HF_PROVIDERS", "restricted_repo_id"} - names
+        assert not missing, (
+            f"{self._TRAINER.name} must import {sorted(missing)} from ingestion.hf_publish "
+            "(ADR-049: the corpus expectation derives from the publish-split constant)."
+        )
+
+    @pytest.mark.parametrize("publisher", sorted(_ADR049_SPLIT_PUBLISHER_CARDS))
+    def test_publisher_sql_does_not_filter_providers(self, publisher: str) -> None:
+        # The license gate lives at the PUBLISH split, never in the SQL — a
+        # SQL-side filter is exactly what the trainer inherited unnoticed.
+        source = (_REPO_SCRIPTS_DIR / publisher).read_text(encoding="utf-8")
+        assert "data_source !=" not in source and "data_source <>" not in source, (
+            f"{publisher} filters providers in SQL — move the gate to split_restricted (ADR-049)."
+        )
+
+    @pytest.mark.parametrize("publisher", sorted(_ADR049_SPLIT_PUBLISHER_CARDS))
+    def test_publisher_delete_patterns_are_recursive(self, publisher: str) -> None:
+        # "data/*" is NOT recursive under fnmatch — it left legacy Spark
+        # part-files inside partition dirs for months (double-count hazard).
+        import ast
+
+        tree = ast.parse((_REPO_SCRIPTS_DIR / publisher).read_text(encoding="utf-8"))
+        delete_patterns: list[list[str]] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                for kw in node.keywords:
+                    if kw.arg == "delete_patterns" and isinstance(kw.value, ast.List):
+                        delete_patterns.append(
+                            [
+                                el.value
+                                for el in kw.value.elts
+                                if isinstance(el, ast.Constant) and isinstance(el.value, str)
+                            ]
+                        )
+        assert delete_patterns, f"{publisher}: no upload_folder(delete_patterns=...) found"
+        for patterns in delete_patterns:
+            for pattern in patterns:
+                assert pattern.endswith("/**"), (
+                    f"delete_patterns entry {pattern!r} is not recursive — use 'data/**' "
+                    "(fnmatch '*' does not cross directory levels; ADR-049)."
+                )
+
+    @pytest.mark.parametrize("card", sorted(_ADR049_SPLIT_PUBLISHER_CARDS.values()))
+    def test_restricted_card_exists_for_restricted_repo(self, card: str) -> None:
+        # The private companion repo rides the same ADR-014 card mechanism.
+        assert (_DATASET_CARDS_DIR / card).is_file(), (
+            f"ADR-049 restricted companion repo is missing its dataset card: {card}"
+        )
+
+    @pytest.mark.parametrize("publisher", sorted(_ADR049_SPLIT_PUBLISHER_CARDS))
+    def test_publisher_uploads_restricted_card(self, publisher: str) -> None:
+        # The restricted card must actually ride with the publish (ADR-014):
+        # the publisher source must reference its restricted card filename.
+        source = (_REPO_SCRIPTS_DIR / publisher).read_text(encoding="utf-8")
+        card = _ADR049_SPLIT_PUBLISHER_CARDS[publisher]
+        assert card in source, f"{publisher} does not upload its restricted card {card!r} (ADR-014/ADR-049)."

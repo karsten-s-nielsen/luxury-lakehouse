@@ -471,13 +471,25 @@ class TestGuardIntegration:
 
 
 class TestHfLicenseGate:
-    def test_publish_spadl_vaep_excludes_gs(self) -> None:
-        """publish_spadl_vaep_hf.py SQL must exclude gradientsports."""
+    def test_publish_spadl_vaep_gates_gs_via_restricted_split(self) -> None:
+        """publish_spadl_vaep_hf.py gates GS via the ADR-049 restricted split.
+
+        The SQL pulls ALL providers; the license gate is
+        ``ingestion.hf_publish.split_restricted`` (GS rows go to the PRIVATE
+        companion repo, never the public dataset). The canonical two-mode
+        guard lives in test_gradientsports_hf_exclusion.py — this assertion
+        only pins THIS publisher's mode.
+        """
         from pathlib import Path
 
         script = Path("scripts/publish_spadl_vaep_hf.py").read_text()
-        assert "gradientsports" in script, "HF gate missing -- SQL must filter out gradientsports"
-        assert "!= 'gradientsports'" in script or "!= \\'gradientsports\\'" in script
+        assert "split_restricted" in script, (
+            "HF gate missing -- publisher must split via ingestion.hf_publish.split_restricted (ADR-049)"
+        )
+        assert "!= 'gradientsports'" not in script, (
+            "SQL-side GS filter alongside the ADR-049 split silently empties the restricted repo "
+            "(and thus the VAEP training corpus) -- split_restricted is the only gate"
+        )
 
     def test_publish_tracking_context_excludes_gs(self) -> None:
         """publish_tracking_context_hf.py SQL must exclude gradientsports."""

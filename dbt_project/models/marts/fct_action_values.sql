@@ -56,6 +56,7 @@ with action_values as (
         action_type,
         result_id,
         action_result,
+        result_source,
         bodypart_id,
         bodypart,
         offensive_value,
@@ -175,6 +176,9 @@ actions_with_score as (
         -- Action classification
         av.action_type,
         av.action_result,
+        -- silly-kicks 4.21+: provenance tier of action_result
+        -- ('native'/'inferred'/'stopgap'; NULL on synthesized dribbles).
+        av.result_source,
         av.bodypart,
 
         -- VAEP scores
@@ -307,6 +311,7 @@ final as (
         end_y,
         action_type,
         action_result,
+        result_source,
         bodypart,
         offensive_value,
         defensive_value,
