@@ -23,7 +23,8 @@ action-level join key:
     so elastic is INVARIANT_ONLY (range-checked).
 
 Columns with no usable action-grain oracle (``game_state``, ``shape_graph_*``,
-``space_created_*``, ``ghost_gk_*``, ``elastic_*``) are INVARIANT_ONLY: range-checked only.
+``space_created_m2``, ``space_denied_m2_opponent``, ``ghost_gk_*``, ``elastic_*``) are
+INVARIANT_ONLY: range-checked only.
 """
 
 from __future__ import annotations
@@ -79,13 +80,13 @@ INVARIANT_ONLY: dict[str, tuple[str, float | None, float | None]] = {
     "shape_graph_n_edges_defending": ("int", 0.0, None),
     "shape_graph_mean_stability_attacking": ("float", 0.0, None),
     "shape_graph_mean_stability_defending": ("float", 0.0, None),
-    "space_created_m2_team": ("float", 0.0, None),
-    # KNOWN-DEGENERATE (accepted 2026-06-11): silly-kicks 4.23.0 computes the opponent
-    # perspective as the exact complement of the team surface under spearman → structurally 0.0
-    # everywhere (rejection report tmp/silly_kicks_rejection_4230_opponent_mirror_20260611.md,
-    # fix in flight upstream). Column kept; real values arrive with the next complete AC
-    # recalculation after the upstream fix.
-    "space_created_m2_opponent": ("float", 0.0, None),
+    # Space creation (silly-kicks 4.24.0 lean contract): `space_created_m2` (attacking LOO on own
+    # team's OBSO surface, >=0) renamed from `space_created_m2_team`; `space_denied_m2_opponent`
+    # (rest-defense LOO on the mirrored opponent surface, >=0) replaces the retired structurally-
+    # zero `space_created_m2_opponent`. Both range-checked only (no legacy oracle). The 4.24.0
+    # mirrored-multiplier fix means the opponent column now carries real, non-constant values.
+    "space_created_m2": ("float", 0.0, None),
+    "space_denied_m2_opponent": ("float", 0.0, None),
     # Ghost-GK (silly-kicks 3.24.0+): no legacy oracle exists (new column). Range-check only.
     # x/y are LTR-normalized pitch metres (105x68); spread is a positive dispersion magnitude.
     "ghost_gk_x": ("float", 0.0, 105.0),

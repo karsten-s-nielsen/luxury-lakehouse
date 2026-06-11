@@ -460,7 +460,7 @@ def _step_0_preflight(state: CycleState) -> None:
 
     sk_version = getattr(silly_kicks, "__version__", "unknown")
     sk_tuple = tuple(int(x) for x in sk_version.split(".")[:3])
-    if sk_tuple < (4, 23, 0):
+    if sk_tuple < (4, 25, 0):
         raise RuntimeError(f"silly-kicks {sk_version} < 4.22.0")
     _emit_status(state, step="0", phase="running", msg=f"silly-kicks {sk_version} OK")
 

@@ -5107,10 +5107,12 @@ models:
         data_type: double
       - name: pausa_composite
         data_type: double
-      - name: space_created_m2_team
+      - name: space_created_m2
         data_type: double
-      - name: space_created_m2_opponent
+        description: "Space created (m²) by the actor's movement on their own team's OBSO surface (leave-one-out, >=0; attacking value). silly-kicks 4.24.0 lean contract."
+      - name: space_denied_m2_opponent
         data_type: double
+        description: "Space denied (m²) to the opponent — the actor's leave-one-out on the mirrored opponent OBSO surface (>=0; rest-defense value). silly-kicks 4.24.0 lean contract."
       - name: elastic_frame_id
         data_type: bigint
       - name: elastic_confidence
