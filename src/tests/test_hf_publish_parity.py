@@ -308,9 +308,13 @@ class TestRestrictedPublishLockstep:
         )
 
     @pytest.mark.parametrize("publisher", sorted(_ADR049_SPLIT_PUBLISHER_CARDS))
-    def test_publisher_delete_patterns_are_recursive(self, publisher: str) -> None:
-        # "data/*" is NOT recursive under fnmatch — it left legacy Spark
-        # part-files inside partition dirs for months (double-count hazard).
+    def test_publisher_delete_patterns_sweep_whole_path_in_repo(self, publisher: str) -> None:
+        # hf_hub matches delete_patterns against paths RELATIVE to path_in_repo
+        # (_prepare_folder_deletions strips the prefix before filtering), so a
+        # "data/"-prefixed pattern matches NOTHING and silently no-ops — that
+        # no-op left legacy Spark part-files inside partition dirs for months
+        # (double-count hazard). The only correct sweep pattern is "**".
+        # Re-uploaded files are pruned from the delete set by upload_folder.
         import ast
 
         tree = ast.parse((_REPO_SCRIPTS_DIR / publisher).read_text(encoding="utf-8"))
@@ -328,11 +332,11 @@ class TestRestrictedPublishLockstep:
                         )
         assert delete_patterns, f"{publisher}: no upload_folder(delete_patterns=...) found"
         for patterns in delete_patterns:
-            for pattern in patterns:
-                assert pattern.endswith("/**"), (
-                    f"delete_patterns entry {pattern!r} is not recursive — use 'data/**' "
-                    "(fnmatch '*' does not cross directory levels; ADR-049)."
-                )
+            assert patterns == ["**"], (
+                f"delete_patterns {patterns!r} must be ['**'] — patterns are matched "
+                "RELATIVE to path_in_repo, so any 'data/'-prefixed pattern silently "
+                "no-ops and stale files survive (ADR-049, verified 2026-06-10)."
+            )
 
     @pytest.mark.parametrize("card", sorted(_ADR049_SPLIT_PUBLISHER_CARDS.values()))
     def test_restricted_card_exists_for_restricted_repo(self, card: str) -> None:
