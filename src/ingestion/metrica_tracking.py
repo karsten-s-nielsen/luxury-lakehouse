@@ -121,6 +121,52 @@ def _build_player_columns(
     return columns
 
 
+def _derive_gk_jerseys_empirically(
+    df: pd.DataFrame,
+    player_groups: dict[str, list[tuple[str, str, str]]],
+    period_s: pd.Series,  # type: ignore[type-arg]
+) -> list[str]:
+    """Derive each team's GK jersey from PERIOD-1 positional depth (CSV games carry no positions).
+
+    The GK is the team's positional outlier: the player whose period-1 mean x lies
+    farthest from the pitch centre (0.5 in Metrica's normalized coordinates). On the
+    sample data the separation is unambiguous (home GK jersey 11 at mean x 0.125 vs the
+    next-deepest outfielder at 0.397). Falls back to ALL rows if no period-1 rows exist,
+    and logs a warning when the separation is weak (< 0.15 from centre — a GK never
+    averages near halfway; weak separation means the derivation should be reviewed).
+
+    Returns one jersey per team, sorted. NEVER silently returns the old "jersey 1" guess.
+    """
+    p1_mask = period_s == 1
+    if not bool(p1_mask.any()):
+        p1_mask = period_s.notna()
+
+    gk_jerseys: list[str] = []
+    for team, groups in player_groups.items():
+        best_pid: str | None = None
+        best_dev = -1.0
+        for pid, x_col, _y_col in groups:
+            x = pd.to_numeric(df[x_col], errors="coerce")[p1_mask]
+            mean_x = x.mean()
+            if pd.isna(mean_x):
+                continue
+            dev = abs(float(mean_x) - 0.5)
+            if dev > best_dev:
+                best_dev, best_pid = dev, pid
+        if best_pid is None:
+            continue
+        if best_dev < 0.15:
+            logging.getLogger(__name__).warning(
+                "Metrica GK derivation: weak depth separation for %s team (best |mean_x-0.5|=%.3f, "
+                "jersey %s) — review the pick before trusting GK metrics for this match.",
+                team,
+                best_dev,
+                best_pid,
+            )
+        gk_jerseys.append(best_pid)
+    return sorted(gk_jerseys)
+
+
 def _reshape_tracking_to_narrow(
     df: pd.DataFrame,
     match_id: str,
@@ -210,9 +256,17 @@ def _reshape_tracking_to_narrow(
     home_json = _build_player_json_column(player_groups["Home"])
     away_json = _build_player_json_column(player_groups["Away"])
 
-    # Identify GK jersey numbers: jersey "1" heuristic for CSV games
-    all_pids = [pid for team_pids in player_groups.values() for pid, _, _ in team_pids]
-    gk_jerseys = sorted(pid for pid in all_pids if pid == "1")
+    # Identify GK jersey numbers EMPIRICALLY (one per team): the Metrica CSVs carry no
+    # position metadata, and the former "jersey 1" heuristic was simply wrong — in the
+    # sample data jersey 1 is an outfield player (P1 mean x 0.442) while the home GK is
+    # jersey 11 (P1 mean x 0.125) — so every frame's is_goalkeeper was false/misassigned,
+    # which broke team_shape (11 "outfield" players) and the GK metric family for metrica
+    # (2026-06-11 AC value audit). A goalkeeper is the team's positional outlier: the
+    # player whose PERIOD-1 mean x sits farthest from the pitch centre (0.5 in Metrica's
+    # normalized coords). Period 1 only — averaging across halves cancels the depth signal
+    # (teams swap ends). Jersey namespaces are global in Metrica data (home 1-14, away
+    # 15-28), so the two per-team picks union safely into one set.
+    gk_jerseys = _derive_gk_jerseys_empirically(df, player_groups, period_s)
     gk_json = json.dumps(gk_jerseys)
 
     # CSV path has no pitch-dim source (EPTS <FieldSize>); emit NaN for schema

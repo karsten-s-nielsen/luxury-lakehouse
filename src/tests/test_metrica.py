@@ -549,27 +549,27 @@ class TestGKIdentificationCSV:
         result = _reshape_tracking_to_narrow(df, "test_match")
         assert "gk_jersey_numbers" in result.columns
 
-    def test_csv_gk_identifies_jersey_1(self) -> None:
-        """When jersey '1' exists in CSV columns, it appears in gk_jersey_numbers.
+    def test_csv_gk_identified_empirically_not_by_jersey_1(self) -> None:
+        """CSV GKs come from PERIOD-1 positional depth, NOT the retired jersey-1 guess.
 
-        Note: the test fixture uses 'Player1' and 'Player11' as jersey labels,
-        not plain numbers. Jersey '1' heuristic matches exact '1' only,
-        so with these fixture labels gk_jersey_numbers is empty.
-        Real Metrica data uses plain numbers ('1', '11', etc.).
+        The former "jersey 1" heuristic was empirically wrong on the real sample data
+        (jersey 1 is an outfield player; the home GK is jersey 11 — 2026-06-11 AC value
+        audit). This synthetic frame puts jersey 1 MIDFIELD and the deepest players at
+        jerseys 11 (home) / 25 (away): the derivation must pick the deep players and
+        must NOT pick jersey 1. Full derivation coverage in test_metrica_gk_derivation.
         """
-        # Build a synthetic DataFrame with jersey "1" to test the real path
         df = pd.DataFrame(
             {
                 "Period": [1, 1],
                 "Frame": [1, 2],
                 "Time [s]": [0.04, 0.08],
-                "Home_1_x": [0.1, 0.11],
+                "Home_1_x": [0.45, 0.46],  # midfield — the old heuristic's wrong pick
                 "Home_1_y": [0.5, 0.51],
-                "Home_11_x": [0.3, 0.31],
+                "Home_11_x": [0.1, 0.11],  # deepest home player = the GK
                 "Home_11_y": [0.4, 0.41],
-                "Away_1_x": [0.9, 0.89],
-                "Away_1_y": [0.5, 0.49],
-                "Away_7_x": [0.7, 0.71],
+                "Away_25_x": [0.9, 0.89],  # deepest away player = the GK
+                "Away_25_y": [0.5, 0.49],
+                "Away_7_x": [0.6, 0.61],
                 "Away_7_y": [0.6, 0.59],
                 "Ball_x": [0.5, 0.52],
                 "Ball_y": [0.5, 0.48],
@@ -577,8 +577,5 @@ class TestGKIdentificationCSV:
         )
         result = _reshape_tracking_to_narrow(df, "test_gk")
         gk_jerseys = json.loads(result["gk_jersey_numbers"].iloc[0])
-        # Both home and away jersey "1" are identified as GK
-        assert "1" in gk_jerseys
-        # Jersey "11" and "7" are NOT GK
-        assert "11" not in gk_jerseys
-        assert "7" not in gk_jerseys
+        assert gk_jerseys == ["11", "25"]
+        assert "1" not in gk_jerseys

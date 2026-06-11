@@ -2,10 +2,59 @@
 
 | Field | Value |
 |---|---|
-| **Status** | Accepted |
+| **Status** | Accepted; **amended 2026-06-11 (SkillCorner dispatch re-base + two-sided guard + completeness invariant)** |
 | **Date** | 2026-06-04 |
 | **Deciders** | Karsten S. Nielsen, Claude Opus 4.8 (1M) |
-| **Tags** | cross-table-format-contract (ADR-018), silly-kicks-adoption, AC-1, GradientSports |
+| **Tags** | cross-table-format-contract (ADR-018), silly-kicks-adoption, AC-1, GradientSports, SkillCorner |
+
+## Amendment (2026-06-11): the third member of the class — and why it must be the last
+
+The original Hyrum's-Law sweep below states "IDSSE/Metrica/SkillCorner/StatsBomb are
+unaffected (period-relative on both sides)". **That claim was wrong for SkillCorner**:
+SC bronze tracking `timestamp` is the ABSOLUTE broadcast clock (P2 = 2700 s+). The
+4.20.1 cycle re-based SC's *converter* output (`_bronze_skillcorner_to_frames`,
+unit-tested by `test_skillcorner_frame_time_base`) — but the time base has TWO
+consumers, and the *dispatch* layer (per-batch action-window filter + M13 ownership
+in `enrich_batch`) reads the bronze column BEFORE conversion. Result, measured in the
+scoped prod run `1020873732479562`: SC P2 emitted 65/536 (12.1%) and 50/573 (8.7%)
+actions as "successful" units, plus 2 duplicate P1 `action_id`s from the de-aligned
+ownership map. The mirror image of the GS bug, one layer up.
+
+Why every defense missed it: no SkillCorner fixture existed at all; the only fixtures
+with period ≥ 2 were GS (which is how GS's fix was proven); the time-base guard asserts
+only the ACTIONS side; and nothing compared emitted rows to the unit's SPADL action
+count, so 88% data loss terminated as `processed`.
+
+**Amendment decisions (all shipped together):**
+
+1. **SkillCorner dispatch re-base** in BOTH drivers (Spark `_process_tracking_match` +
+   local `run_work_unit`), subtracting `_SKILLCORNER_PERIOD_START_SECONDS` — one
+   imported constant, no second copy. Lockstep sentinel:
+   `test_skillcorner_dispatch_time_base`. **Exactly ONE layer owns the re-base**: with
+   the dispatch re-base in place, the converter's own 4.20.1 subtraction
+   (`_bronze_skillcorner_to_frames`) double-subtracted — converted frames landed at
+   ≈ −2700 s and the linker found nothing for P2 while rows still emitted (caught by
+   the new e2e's linking assertion). The converter is now pass-through on the time
+   base; the e2e resolution tests assert `frame_id` actually links, not just that
+   rows exist.
+2. **Two-sided time-base guard**: new `assert_frames_time_base` (same module, same
+   1800 s min-based floor — sparse-coverage-safe) runs in both drivers AFTER all
+   provider re-bases. The next provider with an absolute frames clock fails loud at
+   dispatch instead of silently filtering.
+3. **Per-unit action-completeness invariant** (`analytics.action_context.completeness`):
+   emitted rows vs the actions the frames COVER (per-period frame window, ±buffer) —
+   below 95% the unit RAISES. This is the deepest net: any future variant of "a filter
+   quietly dropped rows" becomes a failed unit, not silent loss.
+4. **Fixture parity rule** (`test_fixture_period_coverage`): every tracking provider
+   must have a committed period ≥ 2 fixture (time-base bugs are invisible in period 1).
+   SkillCorner `1886347_p2` and Metrica `Sample_Game_1_p2` fixtures added, with gated
+   e2e resolution tests.
+5. **M13 uniqueness net**: the local driver raises on duplicate `action_id`s pre-write;
+   the dbt singular test `assert_action_context_action_unique` covers the distributed
+   path where per-batch UDFs cannot see each other's output.
+
+All historical SkillCorner action-context data (any table or export computed before
+this amendment) under-covers period ≥ 2 and must be recomputed.
 
 ## Context
 

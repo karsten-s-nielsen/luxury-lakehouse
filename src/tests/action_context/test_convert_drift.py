@@ -35,8 +35,48 @@ def test_metrica_converter_no_drift() -> None:
     assert _ast_of(new._bronze_metrica_to_frames) == _ast_of(tc_legacy._bronze_metrica_to_frames)
 
 
-def test_skillcorner_converter_no_drift() -> None:
-    assert _ast_of(new._bronze_skillcorner_to_frames) == _ast_of(tc_legacy._bronze_skillcorner_to_frames)
+def _strip_sc_rebase_statements(tree: ast.AST) -> ast.AST:
+    """Drop any statement referencing _SKILLCORNER_PERIOD_START_SECONDS (the documented divergence)."""
+
+    class _Strip(ast.NodeTransformer):
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
+            node.body = [
+                stmt
+                for stmt in node.body
+                if not any(
+                    isinstance(n, ast.Name) and n.id == "_SKILLCORNER_PERIOD_START_SECONDS" for n in ast.walk(stmt)
+                )
+            ]
+            return node
+
+    return ast.fix_missing_locations(_Strip().visit(tree))
+
+
+def test_skillcorner_converter_documented_divergence_only() -> None:
+    """The SC copies deliberately diverge by EXACTLY one statement (ADR-040 amendment).
+
+    AC-1 moved the SkillCorner period re-base to the DISPATCH layer (the per-batch action
+    window + M13 ownership consume the same clock), so its converter is pass-through; the
+    LEGACY tracking_context pipeline has no dispatch re-base and keeps the subtraction in
+    its converter (one layer subtracts in each pipeline — different layers). This test
+    pins the divergence to precisely that statement: re-growing a subtraction in the AC-1
+    copy (the double-subtraction class), or ANY other drift between the copies, fails here.
+    """
+    new_tree = ast.parse(textwrap.dedent(inspect.getsource(new._bronze_skillcorner_to_frames)))
+    legacy_tree = ast.parse(textwrap.dedent(inspect.getsource(tc_legacy._bronze_skillcorner_to_frames)))
+
+    # The AC-1 copy must NOT subtract (the dispatcher owns the re-base)...
+    assert not any(
+        isinstance(n, ast.Name) and n.id == "_SKILLCORNER_PERIOD_START_SECONDS" for n in ast.walk(new_tree)
+    ), "AC-1 SC converter re-grew the offset subtraction (double-subtraction class)"
+    # ...the legacy copy MUST (its pipeline has no dispatch re-base)...
+    assert any(
+        isinstance(n, ast.Name) and n.id == "_SKILLCORNER_PERIOD_START_SECONDS" for n in ast.walk(legacy_tree)
+    ), "legacy SC converter lost its re-base — if tracking_context retired, restore verbatim equality"
+    # ...and with that one statement stripped, the copies are otherwise identical.
+    assert ast.dump(_strip_sc_rebase_statements(legacy_tree)) == ast.dump(new_tree), (
+        "SC copies diverged beyond the documented re-base statement"
+    )
 
 
 def test_velocity_helper_no_drift() -> None:

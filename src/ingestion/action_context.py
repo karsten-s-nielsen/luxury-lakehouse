@@ -1555,11 +1555,29 @@ def _process_tracking_match(
             .drop("_period_min_frame")
         )
 
+    # SkillCorner (ADR-040 amendment): bronze "timestamp" is the ABSOLUTE broadcast clock
+    # (P2 = 2700s+) while SPADL actions are period-relative. The CONVERTER already re-bases
+    # the converted frames (_bronze_skillcorner_to_frames), but THIS dispatch layer's batch
+    # window filter + M13 ownership read the bronze column directly and silently dropped
+    # ~90% of P2 actions (2026-06-11 scoped-run census: 65/536 and 50/573 emitted). Subtract
+    # the SAME nominal offsets the converter uses — one imported constant, no second copy.
+    # Mirrors pipeline.run_work_unit; lockstep via test_skillcorner_dispatch_time_base.
+    if provider == "skillcorner":
+        from analytics.action_context.convert import _SKILLCORNER_PERIOD_START_SECONDS
+
+        _sc_offset = F.coalesce(
+            F.create_map(*[F.lit(x) for kv in sorted(_SKILLCORNER_PERIOD_START_SECONDS.items()) for x in kv])[
+                F.col("period")
+            ],
+            F.lit(0.0),
+        )
+        trk_sdf = trk_sdf.withColumn("timestamp", F.col("timestamp").cast("double") - _sc_offset)
+
     # Work-unit time-base guard (ADR-040): assert the work unit's actions are period-relative
     # (not on an absolute match clock — the GS period-2 class) before the per-batch applyInPandas
     # dispatch. Frame-independent (action min per period from the in-driver actions_pdf); mirrors
     # the local hexagon (pipeline.run_work_unit), kept in lockstep by test_time_base_guard's sentinel.
-    from analytics.action_context.time_base_guard import assert_work_unit_time_base
+    from analytics.action_context.time_base_guard import assert_frames_time_base, assert_work_unit_time_base
 
     if "time_seconds" in actions_pdf.columns:
         assert_work_unit_time_base(
@@ -1568,6 +1586,24 @@ def _process_tracking_match(
                 for p, s in actions_pdf.dropna(subset=["time_seconds"]).groupby("period_id")["time_seconds"]
             }
         )
+
+    # Frames-side time-base guard (ADR-040 amendment, two-sided): after ALL provider re-bases,
+    # each period's earliest frame time must be near its own kickoff — a frames-side absolute
+    # clock silently empties the per-batch action window (the SkillCorner P2 class the
+    # actions-side guard above cannot see). One tiny 2-col agg per unit; min-based so sparse
+    # frame coverage never false-fires. Mirrors pipeline.run_work_unit (same lockstep sentinel).
+    # The per-period (min, max) windows also feed the post-write completeness invariant below.
+    _frame_windows: dict[int, tuple[float, float]] = {}
+    if "timestamp" in trk_sdf.columns:
+        _ts_rows = (
+            trk_sdf.groupBy("period")
+            .agg(F.min("timestamp").alias("_ts_min"), F.max("timestamp").alias("_ts_max"))
+            .collect()
+        )
+        _frame_windows = {
+            int(r["period"]): (float(r["_ts_min"]), float(r["_ts_max"])) for r in _ts_rows if r["_ts_min"] is not None
+        }
+        assert_frames_time_base({p: w[0] for p, w in _frame_windows.items()})
 
     # Observability branch: single-process cProfile on the driver instead of the
     # distributed applyInPandas write. trk_sdf is already shaped exactly like the
@@ -1657,6 +1693,27 @@ def _process_tracking_match(
         )
     finally:
         hb.stop()
+
+    # Per-unit completeness invariant (ADR-040 amendment): emitted rows vs the actions the
+    # frames COVER (per-period frame window, post-rebase) — converts silent data loss into a
+    # loud unit failure (the SkillCorner P2 class shipped 12% of a half as a "successful"
+    # unit). Window-relative so partial broadcast coverage stays valid. Mirrors
+    # pipeline.run_work_unit (lockstep via test_skillcorner_dispatch_time_base).
+    from analytics.action_context.completeness import (
+        assert_unit_action_completeness,
+        expected_actions_within_coverage,
+    )
+
+    if _frame_windows and "time_seconds" in actions_pdf.columns:
+        _act_pdf = actions_pdf.dropna(subset=["time_seconds"])
+        if period_filter is not None and "period_id" in _act_pdf.columns:
+            _act_pdf = _act_pdf[_act_pdf["period_id"] == int(period_filter)]
+        _times = {int(p): s.tolist() for p, s in _act_pdf.groupby("period_id")["time_seconds"]}
+        assert_unit_action_completeness(
+            emitted=written,
+            expected=expected_actions_within_coverage(_times, _frame_windows, buffer_s=_ACTION_TIME_BUFFER_SECONDS),
+            unit_desc=f"{provider}:{match_id}:{period_filter}",
+        )
     del actions_pdf, actions_records
     return written
 

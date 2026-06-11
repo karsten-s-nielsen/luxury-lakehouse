@@ -217,6 +217,24 @@ def _pull_actions(*, provider: str, match_id: str, catalog: str, bronze: str, wa
     return _execute_query_to_df(sql, warehouse_id)
 
 
+def _attach_skillcorner_roster(
+    frames: pd.DataFrame, *, match_id: str, catalog: str, bronze: str, warehouse_id: str
+) -> pd.DataFrame:
+    """Attach ``team`` + ``is_goalkeeper`` to SkillCorner tracking rows.
+
+    Mirrors the production driver EXACTLY (ingestion.action_context._process_tracking_match's
+    broadcast join with bronze.skillcorner_matches): the tracking JSONL has no team/GK fields,
+    so the fixture must carry the post-join shape or the local converter KeyErrors on
+    ['team', 'is_goalkeeper'] (bit the first 1886347_p2 extract, 2026-06-11).
+    """
+    roster = _execute_query_to_df(
+        f"SELECT player_id, CAST(team_id AS STRING) AS team, position_acronym = 'GK' AS is_goalkeeper "  # noqa: S608
+        f"FROM {catalog}.{bronze}.skillcorner_matches WHERE match_id = '{_q(match_id)}'",
+        warehouse_id,
+    )
+    return frames.merge(roster, on="player_id", how="left")
+
+
 def _pull_sb360_snapshots(
     *, match_id: str, actions_pdf: pd.DataFrame, catalog: str, bronze: str, warehouse_id: str
 ) -> pd.DataFrame:
@@ -552,6 +570,10 @@ def main() -> None:
         )
         if frames.empty:
             raise SystemExit(f"No tracking rows for {provider}/{match_id} in the requested range.")
+        if provider == "skillcorner":
+            frames = _attach_skillcorner_roster(
+                frames, match_id=match_id, catalog=catalog, bronze=bronze, warehouse_id=warehouse_id
+            )
         frames.to_parquet(out_dir / "frames.parquet", index=False)
         logger.info("frames: %d rows", len(frames))
 

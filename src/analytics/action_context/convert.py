@@ -54,10 +54,12 @@ _SKILLCORNER_CONSUMED_COLS = frozenset(
 )
 # SkillCorner bronze ``timestamp`` is the CONTINUOUS broadcast clock (2nd half = 45:00+, ET = 90:00+/
 # 105:00+). silly-kicks 4.20.1 re-based SkillCorner SPADL ``time_seconds`` to PERIOD-RELATIVE
-# (skillcorner.py ``_PERIOD_START_SECONDS``). The action↔frame linker matches action ``time_seconds``
-# to frame ``time_seconds``, so the frames MUST share that period-relative base — otherwise 2nd-half+
-# linkage collapses (the mirror image of the GS absolute-clock class; see ADR-040). Offsets mirror
-# silly-kicks' nominal period starts exactly.
+# (skillcorner.py ``_PERIOD_START_SECONDS``), so the frame clock must be re-based identically —
+# otherwise the per-batch action window AND the action↔frame linker collapse for period >= 2 (the
+# mirror image of the GS absolute-clock class; see ADR-040 + amendment). Offsets mirror silly-kicks'
+# nominal period starts exactly. CONSUMER: the DISPATCH layer (ingestion.action_context.
+# _process_tracking_match + pipeline.run_work_unit) — exactly ONE layer subtracts; the converter
+# below is pass-through (a 2026-06-11 double-subtraction put converted frames at ≈ -2700 s).
 _SKILLCORNER_PERIOD_START_SECONDS: dict[int, float] = {1: 0.0, 2: 45 * 60.0, 3: 90 * 60.0, 4: 105 * 60.0, 5: 120 * 60.0}
 _GS_FRAME_RATE = 30
 
@@ -449,11 +451,15 @@ def _bronze_skillcorner_to_frames(trk_pdf: pd.DataFrame, game_id: int) -> pd.Dat
 
     frames = pd.concat([players, ball_src], ignore_index=True)
 
-    # Re-base the continuous broadcast clock to PERIOD-RELATIVE time_seconds so frames align with
-    # silly-kicks 4.20.1's now-period-relative SkillCorner actions (see _SKILLCORNER_PERIOD_START_SECONDS).
-    frames["time_seconds"] = frames["time_seconds"] - frames["period_id"].map(_SKILLCORNER_PERIOD_START_SECONDS).fillna(
-        0.0
-    ).astype(float)
+    # Time-base contract (ADR-040 amendment, 2026-06-11): the input "timestamp" is ALREADY
+    # period-relative — the DISPATCH layer (Spark _process_tracking_match / local
+    # run_work_unit) subtracts _SKILLCORNER_PERIOD_START_SECONDS before batching, because
+    # the per-batch action-window filter + M13 ownership consume the same clock. This
+    # converter previously subtracted the offset itself (the 4.20.1 fix); doing it in BOTH
+    # layers double-subtracted (converted frames at ≈ -2700 s → linker found nothing for
+    # P2). Exactly ONE layer owns the re-base: the dispatcher. Enforced upstream by
+    # assert_frames_time_base + the dispatch lockstep sentinel; pass-through asserted by
+    # test_skillcorner_frame_time_base.
 
     # ── Add all required TRACKING_FRAMES_COLUMNS ────────────────────
     # link_actions_to_frames hard-selects source_provider → KeyError without it.
