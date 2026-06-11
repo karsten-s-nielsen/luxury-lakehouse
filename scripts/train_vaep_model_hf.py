@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.30-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.31-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -95,6 +95,15 @@ logging.basicConfig(
 # ---------------------------------------------------------------------------
 HF_ORG = "luxury-lakehouse"
 SPADL_DATASET = f"{HF_ORG}/spadl-vaep-action-values"
+# PRIVATE companion repo carrying the license-gated partitions (ADR-049). Name + the
+# expectation of WHICH providers live there derive from ingestion.hf_publish (the wheel
+# is a PEP 723 dependency above) — single source of truth with the publisher's split, so
+# the training corpus can never silently diverge from the publish policy again
+# (Champions v10-and-earlier trained WITHOUT gradientsports because the trainer
+# inherited the old SQL-side publishing filter unnoticed).
+from ingestion.hf_publish import RESTRICTED_HF_PROVIDERS, restricted_repo_id  # noqa: E402
+
+RESTRICTED_DATASET = restricted_repo_id(SPADL_DATASET)
 MODEL_REPO = f"{HF_ORG}/vaep-model"
 
 # VAEP feature extraction (matches src/ingestion/spadl_vaep.py)
@@ -323,6 +332,55 @@ def main() -> None:
 
     all_actions = pd.concat(dfs, ignore_index=True)
 
+    # ------------------------------------------------------------------
+    # 1b. Restricted-corpus supplement — PRIVATE HF dataset (ADR-049)
+    # ------------------------------------------------------------------
+    # License-gated providers are absent from the PUBLIC dataset but 100% in
+    # the training corpus: the publisher writes their partitions to the
+    # PRIVATE companion repo, keeping full publish->version->train lineage
+    # (commit hash recorded below, same as the public repo). The expectation
+    # derives from the SAME constant the publisher splits on:
+    #   - RESTRICTED_HF_PROVIDERS non-empty -> partitions for those providers
+    #     are REQUIRED (fail-loud: a silent skip is exactly how Champions
+    #     v10-and-earlier trained WITHOUT gradientsports unnoticed);
+    #   - empty -> the full corpus is public; skip with a log line.
+    restricted_commit_hash = "unrequired-empty-policy"
+    if RESTRICTED_HF_PROVIDERS:
+        logger.info(
+            "=== Loading restricted partitions %s from %s ===",
+            sorted(RESTRICTED_HF_PROVIDERS),
+            RESTRICTED_DATASET,
+        )
+        restricted_items = list(api.list_repo_tree(RESTRICTED_DATASET, repo_type="dataset", recursive=True))
+        restricted_files = [f.path for f in restricted_items if hasattr(f, "size") and f.path.endswith("/data.parquet")]
+        if not restricted_files:
+            raise RuntimeError(
+                f"No data.parquet partitions in {RESTRICTED_DATASET} but the policy expects "
+                f"{sorted(RESTRICTED_HF_PROVIDERS)} — refusing a silently-shrunk training corpus. "
+                "Run publish_spadl_vaep_hf.py first."
+            )
+        gs_dfs: list[pd.DataFrame] = []
+        for pf in restricted_files:
+            local = hf_hub_download(RESTRICTED_DATASET, pf, repo_type="dataset", token=hf_token)
+            df = pd.read_parquet(local)
+            if "data_source" not in df.columns and "data_source=" in pf:
+                df["data_source"] = pf.split("data_source=")[1].split("/")[0]
+            gs_dfs.append(df)
+            logger.info("  %s: %s rows", pf, f"{len(df):,}")
+        restricted_actions = pd.concat(gs_dfs, ignore_index=True)
+        if restricted_actions.empty:
+            raise RuntimeError(f"{RESTRICTED_DATASET} partitions are empty — refusing a shrunk training corpus.")
+        missing = RESTRICTED_HF_PROVIDERS - set(restricted_actions["data_source"].unique())
+        if missing:
+            raise RuntimeError(f"Restricted dataset lacks expected provider partition(s): {sorted(missing)}")
+        restricted_commit_hash = api.repo_info(RESTRICTED_DATASET, repo_type="dataset").sha or "unknown"
+        logger.info(
+            "Restricted supplement: %s rows (commit %s)", f"{len(restricted_actions):,}", restricted_commit_hash
+        )
+        all_actions = pd.concat([all_actions, restricted_actions], ignore_index=True)
+    else:
+        logger.info("RESTRICTED_HF_PROVIDERS is empty — full corpus is public; no restricted supplement.")
+
     # Deduplicate in case of overlapping exports
     if "action_value_id" in all_actions.columns:
         before = len(all_actions)
@@ -535,6 +593,7 @@ def main() -> None:
                 "n_features": x_train.shape[1],
                 "training_env": "hf_jobs_cpu",
                 "hf_dataset_commit": dataset_commit_hash,
+                "hf_restricted_dataset_commit": restricted_commit_hash,
             }
         )
         for name, value in scores_metrics.items():

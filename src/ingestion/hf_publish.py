@@ -29,7 +29,10 @@ import hashlib
 import logging
 import re
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 from huggingface_hub import HfApi
 
@@ -60,6 +63,50 @@ _KIND_TO_SUBDIR: dict[str, str] = {
 # resolution. Exposed as a private module-level attribute so tests can
 # monkeypatch it to simulate a site-packages layout.
 _WHEEL_INGESTION_FILE: Path = Path(_ingestion.__file__).resolve()
+
+# ── Restricted-data publishing convention (ADR-049) ─────────────────────────
+#
+# Providers whose data is license-gated off PUBLIC HF datasets. Each affected
+# dataset has a PERMANENT private companion repo (``restricted_repo_id``); the
+# publisher splits rows via ``split_restricted`` and writes each side to its
+# repo on EVERY run — including when this set is EMPTY (the empty restricted
+# publish sweeps previously-restricted partitions out of the private repo
+# while the same run's public publish carries them, so granting a provider
+# full permission is exactly one edit here: remove it from this set).
+#
+# SINGLE SOURCE OF TRUTH: publishers AND trainers import from here (trainers
+# install the wheel), so the publish split and the training-corpus expectation
+# can never drift.
+#
+# Current policy (user, 2026-06-10): gradientsports is computed internally but
+# not publicly published until the license is secured.
+RESTRICTED_HF_PROVIDERS: frozenset[str] = frozenset({"gradientsports"})
+
+
+def restricted_repo_id(repo_id: str) -> str:
+    """The private companion repo for a public dataset repo (ADR-049 naming convention)."""
+    return f"{repo_id}-restricted"
+
+
+def split_restricted(df: pd.DataFrame, column: str = "data_source") -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Split a publish DataFrame into ``(public_df, restricted_df)`` (ADR-049).
+
+    The split CRITERION lives only here — call sites depend on this function,
+    not on ``RESTRICTED_HF_PROVIDERS`` directly. Today the mask is
+    provider-level (``column ∈ RESTRICTED_HF_PROVIDERS``).
+
+    FUTURE — row-level access tiers (designed-in, not yet implemented): when a
+    provider has BOTH public and restricted data (e.g. a restricted SkillCorner
+    feed alongside the open one), ingestion modules will stamp an
+    ``access_tier`` column on bronze at retrieval ('public'/'restricted',
+    defaulting per source module) and carry it through SPADL → marts (the
+    result_source/LL1 passthrough template). The mask here then becomes
+    ``access_tier == 'restricted'`` with the provider set as the NULL
+    fallback — call sites unchanged. Both repos may then hold partitions for
+    the SAME provider; consumers already concat + dedup.
+    """
+    mask = df[column].isin(RESTRICTED_HF_PROVIDERS)
+    return df[~mask], df[mask]
 
 
 def get_hf_card_path(

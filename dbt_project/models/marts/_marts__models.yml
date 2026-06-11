@@ -825,6 +825,17 @@ models:
           - accepted_values:
               arguments:
                 values: ['success', 'fail', 'offside', 'owngoal', 'yellow_card', 'red_card']
+      - name: result_source
+        data_type: string
+        description: >
+          Provenance tier of action_result (silly-kicks 4.21+): 'native' (provider-flagged),
+          'inferred' (derived from follow-on events), 'stopgap' (heuristic fallback).
+          NULL on synthesized dribbles (no provider event exists, by design) and on rows
+          scored before the 4.22 re-conversion (backfilled by the next full re-score).
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['native', 'inferred', 'stopgap']
       - name: bodypart
         data_type: string
         description: Body part used for the action

@@ -15,7 +15,7 @@ size_categories:
 
 # SPADL Action Context Features
 
-Unified per-action context features for football matches from the [luxury-lakehouse](https://github.com/karsten-s-nielsen/luxury-lakehouse) analytics platform. One row per SPADL action, with ~111 columns for tracking providers and ~5 for event-only providers. Covers all 6 data sources.
+Unified per-action context features for football matches from the [luxury-lakehouse](https://github.com/karsten-s-nielsen/luxury-lakehouse) analytics platform. One row per SPADL action, with ~123 columns for tracking providers and ~5 for event-only providers. Covers all 6 data sources.
 
 ## Provider Tiers
 
@@ -23,9 +23,9 @@ Unified per-action context features for football matches from the [luxury-lakeho
 |------|-----------|-----------------|
 | Event-only | StatsBomb, Wyscout | Identity + game state (~5 columns) |
 | SB360 | StatsBomb (with 360 freeze-frames) | Event-only + freeze-frame-derived context |
-| Tracking | IDSSE, Metrica, SkillCorner | Full ~111 columns including pitch control, team shape, line-breaking, OBSO, PAUSA, gk_influence zones, xShotOccurrence |
+| Tracking | IDSSE, Metrica, SkillCorner, GradientSports | Full ~123 columns including pitch control, team shape, line-breaking, OBSO, PAUSA, gk_influence zones, xShotOccurrence, structural context, xCross, player influence, GK pass-completion (`gk_completion_*`), and the xT-GK goalkeeper distribution family (`xt_gk_*`, five philosophy presets) |
 
-GradientSports data is computed but excluded from HF publication per licensing restrictions.
+GradientSports partitions are license-restricted: they are published to a private org-members-only companion repo (`spadl-action-context-restricted`) rather than this public dataset, per lakehouse ADR-049. The partition migrates here automatically once the license permits publication.
 
 ## Pitch-control method provenance & SB360 coverage
 

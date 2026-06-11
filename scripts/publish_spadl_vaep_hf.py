@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.30-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.31-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -40,7 +40,13 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
+from ingestion.hf_publish import (
+    RESTRICTED_HF_PROVIDERS,
+    get_hf_card_path,
+    restricted_repo_id,
+    split_restricted,
+    upload_hf_readme,
+)
 
 # ---------------------------------------------------------------------------
 # Structured logging
@@ -57,6 +63,12 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 HF_ORG = "luxury-lakehouse"
 DATASET_REPO = f"{HF_ORG}/spadl-vaep-action-values"
+# PRIVATE companion repo for license-gated partitions (ADR-049; org-members only). The
+# split criterion + naming convention are owned by ingestion.hf_publish (single source of
+# truth — the VAEP trainer imports the same constants, so the publish split and the
+# training-corpus expectation can never drift). The pair is PERMANENT infrastructure:
+# both repos are ensured on every run, even when the restricted set is empty.
+RESTRICTED_DATASET_REPO = restricted_repo_id(DATASET_REPO)
 
 # SQL to extract action values from the gold-layer fact table.
 # Excludes _loaded_at (internal audit column) — all other columns are published.
@@ -87,6 +99,7 @@ SELECT
     end_y,
     action_type,
     action_result,
+    result_source,               -- new: provenance tier of action_result (silly-kicks 4.21+)
     bodypart,
     offensive_value,
     defensive_value,
@@ -94,10 +107,12 @@ SELECT
     original_event_id,
     data_source
 FROM soccer_analytics.dev_gold.fct_action_values
-    -- HF license gate: GS data computed internally but not published
-    -- until license secured. Remove this filter when license is in place.
-WHERE data_source != 'gradientsports'
 """
+# NOTE: the SQL pulls ALL providers; the HF license gate is applied at the PUBLISH split
+# (ingestion.hf_publish.split_restricted — ADR-049): restricted rows go to the PRIVATE
+# RESTRICTED_DATASET_REPO, the rest to the public DATASET_REPO. Granting a provider full
+# permission = remove it from RESTRICTED_HF_PROVIDERS; the next publish migrates its
+# partition to the public repo and sweeps it from the restricted one automatically.
 
 # Databricks SQL Statement Execution API polling interval (seconds)
 _POLL_INTERVAL_S = 2.0
@@ -224,10 +239,17 @@ def normalize_dtypes(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         DataFrame with enforced dtypes matching the HF Hub schema contract.
     """
-    # String columns
+    # String columns (non-null by contract)
     for col in ("action_value_id", "action_type", "action_result", "bodypart", "original_event_id", "data_source"):
         if col in df.columns:
             df[col] = df[col].astype(str)
+
+    # NULLABLE string columns — pandas "string" dtype preserves <NA>;
+    # plain astype(str) would coerce NULLs into literal "nan"/"None" strings.
+    # result_source is NULL on synthesized dribbles by design.
+    for col in ("result_source",):
+        if col in df.columns:
+            df[col] = df[col].astype("string")
 
     # Integer columns (Kimball surrogates + legacy + other IDs)
     for col in (
@@ -267,7 +289,7 @@ def normalize_dtypes(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-def publish_to_hf_hub(df: pd.DataFrame, hf_token: str) -> str:
+def publish_to_hf_hub(df: pd.DataFrame, hf_token: str, *, repo_id: str = DATASET_REPO, private: bool = False) -> str:
     """Write action value data as partitioned Parquet and upload to HF Hub.
 
     Data is partitioned by ``data_source`` (``data_source=statsbomb``,
@@ -277,6 +299,10 @@ def publish_to_hf_hub(df: pd.DataFrame, hf_token: str) -> str:
     Args:
         df: Action values DataFrame to publish.
         hf_token: HuggingFace API token.
+        repo_id: Target dataset repo (default: the public DATASET_REPO; the
+            restricted companion passes RESTRICTED_DATASET_REPO).
+        private: Create the repo private (org-members only) if it does not
+            exist yet. Does NOT flip an existing repo's visibility.
 
     Returns:
         URL of the published dataset.
@@ -286,16 +312,23 @@ def publish_to_hf_hub(df: pd.DataFrame, hf_token: str) -> str:
     api = HfApi(token=hf_token)
 
     api.create_repo(
-        DATASET_REPO,
+        repo_id,
         exist_ok=True,
         repo_type="dataset",
         token=hf_token,
+        private=private,
     )
-    logger.info("Ensured dataset repo exists: %s", DATASET_REPO)
+    logger.info("Ensured dataset repo exists: %s (private=%s)", repo_id, private)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         staging_dir = Path(tmpdir) / "data"
         staging_dir.mkdir(parents=True, exist_ok=True)
+
+        if df.empty:
+            # Sweep-only publish (ADR-049): an empty restricted set uploads zero partitions;
+            # the recursive delete_patterns below removes any previously-restricted
+            # partitions from the repo — the migration-to-public mechanic.
+            logger.info("0 partitions for %s — sweep-only publish (delete_patterns clears stale data/)", repo_id)
 
         for source, source_df in df.groupby("data_source"):
             partition_dir = staging_dir / f"data_source={source}"
@@ -312,17 +345,22 @@ def publish_to_hf_hub(df: pd.DataFrame, hf_token: str) -> str:
                 f"{out_path.stat().st_size:,}",
             )
 
-        # Upload the entire data/ directory (replaces existing partitions)
+        # Upload the entire data/ directory, deleting EVERYTHING under data/ that this
+        # publish did not write. "data/**" (recursive) — the previous "data/*" did not
+        # match files nested inside partition dirs (fnmatch is not recursive), which left
+        # legacy raw Spark part-*.snappy.parquet files alongside data.parquet in the
+        # statsbomb/wyscout partitions for months: any consumer globbing *.parquet
+        # double-counted those providers (found 2026-06-10).
         api.upload_folder(
             folder_path=str(staging_dir),
             path_in_repo="data",
-            repo_id=DATASET_REPO,
+            repo_id=repo_id,
             repo_type="dataset",
             token=hf_token,
-            delete_patterns=["data/*"],
+            delete_patterns=["data/**"],
         )
 
-    dataset_url = f"https://huggingface.co/datasets/{DATASET_REPO}"
+    dataset_url = f"https://huggingface.co/datasets/{repo_id}"
     logger.info("Published dataset to %s", dataset_url)
     return dataset_url
 
@@ -404,24 +442,50 @@ def main() -> None:
     )
 
     # ------------------------------------------------------------------
-    # 4. Publish to HF Hub
+    # 4. Publish to HF Hub — license-gate split (ADR-049)
     # ------------------------------------------------------------------
-    logger.info("Publishing action values to HF Hub: %s", DATASET_REPO)
-    dataset_url = publish_to_hf_hub(actions_df, hf_token)
+    public_df, restricted_df = split_restricted(actions_df)
+
+    logger.info("Publishing PUBLIC action values to HF Hub: %s", DATASET_REPO)
+    dataset_url = publish_to_hf_hub(public_df, hf_token)
+
+    # Fail-loud ONLY when the restricted set expects data the mart doesn't have — that is
+    # the silent-corpus-shrink class (Champions v10-and-earlier trained without GS because
+    # the trainer inherited the old SQL-side filter unnoticed). An EMPTY restricted set is
+    # a healthy state: the (always-run) restricted publish below then sweeps any
+    # previously-restricted partitions out of the private repo while this run's public
+    # publish carries them — the migration-to-public mechanic.
+    if RESTRICTED_HF_PROVIDERS and restricted_df.empty:
+        raise RuntimeError(
+            f"No rows for restricted providers {sorted(RESTRICTED_HF_PROVIDERS)} in fct_action_values — "
+            "refusing to publish an empty restricted dataset while the policy expects data "
+            "(VAEP training depends on it)."
+        )
+    logger.info(
+        "Publishing RESTRICTED action values (%s rows) to PRIVATE repo: %s",
+        f"{len(restricted_df):,}",
+        RESTRICTED_DATASET_REPO,
+    )
+    publish_to_hf_hub(restricted_df, hf_token, repo_id=RESTRICTED_DATASET_REPO, private=True)
 
     # ------------------------------------------------------------------
-    # 5. Publish README alongside data (PR 4c)
+    # 5. Publish READMEs alongside data (PR 4c / ADR-014)
     # ------------------------------------------------------------------
-    readme_result = upload_hf_readme(
-        repo_id=DATASET_REPO,
-        readme_path=get_hf_card_path("spadl-vaep-action-values.md", kind="dataset"),
-        hf_token=hf_token,
-    )
-    logger.info(
-        "Uploaded README: %s (sha256=%s)",
-        readme_result["commit_url"],
-        readme_result["sha256"][:8],
-    )
+    for repo, card in (
+        (DATASET_REPO, "spadl-vaep-action-values.md"),
+        (RESTRICTED_DATASET_REPO, "spadl-vaep-action-values-restricted.md"),
+    ):
+        readme_result = upload_hf_readme(
+            repo_id=repo,
+            readme_path=get_hf_card_path(card, kind="dataset"),
+            hf_token=hf_token,
+        )
+        logger.info(
+            "Uploaded README to %s: %s (sha256=%s)",
+            repo,
+            readme_result["commit_url"],
+            readme_result["sha256"][:8],
+        )
 
     logger.info("Pipeline complete. Dataset: %s", dataset_url)
     logger.info(
