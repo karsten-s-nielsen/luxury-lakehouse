@@ -142,16 +142,18 @@ def publish_to_hf_hub(df: pd.DataFrame, hf_token: str, *, repo_id: str = DATASET
                 index=False,
                 engine="pyarrow",
             )
-        # "data/**" (recursive) — "data/*" does not match files nested inside
-        # partition dirs (fnmatch is not recursive), which leaves stale files
-        # alongside data.parquet (ADR-049; bit spadl-vaep for months).
+        # delete_patterns match paths RELATIVE to path_in_repo ("data/"), so the
+        # pattern must be "**" — a "data/"-prefixed pattern matches nothing and
+        # silently no-ops (ADR-049; the no-op left stale Spark part-files in
+        # spadl-vaep partitions for months). Re-uploaded files are pruned from
+        # the delete set by upload_folder itself.
         api.upload_folder(
             folder_path=str(staging_dir),
             path_in_repo="data",
             repo_id=repo_id,
             repo_type="dataset",
             token=hf_token,
-            delete_patterns=["data/**"],
+            delete_patterns=["**"],
         )
     return f"https://huggingface.co/datasets/{repo_id}"
 

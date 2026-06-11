@@ -346,18 +346,21 @@ def publish_to_hf_hub(df: pd.DataFrame, hf_token: str, *, repo_id: str = DATASET
             )
 
         # Upload the entire data/ directory, deleting EVERYTHING under data/ that this
-        # publish did not write. "data/**" (recursive) — the previous "data/*" did not
-        # match files nested inside partition dirs (fnmatch is not recursive), which left
+        # publish did not write. delete_patterns match paths RELATIVE to path_in_repo
+        # ("data/"), so the pattern must be "**" — a "data/"-prefixed pattern matches
+        # nothing and silently no-ops (verified against hf_hub's
+        # _prepare_folder_deletions 2026-06-10; the historical "data/*" no-op left
         # legacy raw Spark part-*.snappy.parquet files alongside data.parquet in the
-        # statsbomb/wyscout partitions for months: any consumer globbing *.parquet
-        # double-counted those providers (found 2026-06-10).
+        # statsbomb/wyscout partitions for months — any consumer globbing *.parquet
+        # double-counted those providers). Files re-uploaded by this publish are
+        # pruned from the delete set by upload_folder itself.
         api.upload_folder(
             folder_path=str(staging_dir),
             path_in_repo="data",
             repo_id=repo_id,
             repo_type="dataset",
             token=hf_token,
-            delete_patterns=["data/**"],
+            delete_patterns=["**"],
         )
 
     dataset_url = f"https://huggingface.co/datasets/{repo_id}"

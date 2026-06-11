@@ -24,8 +24,8 @@ Every HF dataset that carries provider data gets a **permanent private companion
 owned by `ingestion.hf_publish` — `RESTRICTED_HF_PROVIDERS` (single source of truth),
 `split_restricted(df)` (the criterion lives ONLY here), `restricted_repo_id(repo)` (naming).
 Publishers ensure BOTH repos on every run and publish each side — including a **sweep-only
-publish** of the restricted repo when the set is empty (recursive `delete_patterns=["data/**"]`
-removes departed partitions; the same run's public publish carries them — migration is one
+publish** of the restricted repo when the set is empty (`delete_patterns=["**"]` removes
+departed partitions; the same run's public publish carries them — migration is one
 constant edit). Trainers import the same constant: set non-empty → restricted partitions
 REQUIRED (fail-loud), set empty → skip gracefully; both repos' commit hashes are recorded in
 MLflow for full corpus lineage.
@@ -46,9 +46,14 @@ MLflow for full corpus lineage.
 - Model lineage covers the restricted slice (`hf_restricted_dataset_commit` MLflow tag).
 - Granting a provider permission is ONE edit (`RESTRICTED_HF_PROVIDERS`); the next publish
   migrates the partition publicly and sweeps the private repo, which remains standing.
-- The recursive `delete_patterns` fix also retired a latent publisher bug: `"data/*"` is not
-  recursive under fnmatch, which had let legacy raw Spark part-files survive inside
-  statsbomb/wyscout partition dirs for months (any `*.parquet` glob double-counted them).
+- The `delete_patterns` fix also retired a latent publisher bug: hf_hub matches delete
+  patterns against paths RELATIVE to `path_in_repo` (`"data/"`), so the historical
+  `"data/*"` pattern matched nothing and silently no-opped — legacy raw Spark part-files
+  survived inside statsbomb/wyscout partition dirs for months (any `*.parquet` glob
+  double-counted them). The correct sweep pattern is `"**"`; `upload_folder` itself keeps
+  files re-uploaded by the same run. (Amendment 2026-06-10: the first cut of this ADR
+  shipped `"data/**"`, which no-ops for the same anchoring reason — caught on the first
+  live publish and corrected to `"**"`.)
 
 ### Negative
 - One more repo + card per dataset; private repos are invisible to public consumers (by design).
