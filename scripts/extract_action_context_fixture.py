@@ -44,12 +44,15 @@ from typing import Any
 
 import pandas as pd
 
+# Frame batch size — resolved per provider via the SAME module prod + local resolve
+# through (L11 batch-alignment; ADR-047 amendment 2). analytics.action_context.batching
+# is stdlib-only, so importing it here does NOT pull pyspark.
+from analytics.action_context.batching import resolve_frame_batch_size
+
 logger = logging.getLogger(__name__)
 
 FIXTURE_ROOT = Path("src/tests/fixtures/action_context")
 
-# Frame batch size — MUST match ingestion.action_context._FRAME_BATCH_SIZE (L11 batch-alignment).
-_FRAME_BATCH_SIZE = 2500
 # Sub-chunk size (frames) for tracking pulls, to stay under the INLINE statement result cap.
 _SUBCHUNK_FRAMES = 1000
 
@@ -183,8 +186,9 @@ def _resolve_num_batches_range(
     catalog: str,
     bronze: str,
     warehouse_id: str,
+    frame_batch_size: int,
 ) -> tuple[int, int]:
-    """Resolve a batch-aligned [start, end) frame window of ``num_batches`` ``_FRAME_BATCH_SIZE``-frame batches.
+    """Resolve a batch-aligned [start, end) frame window of ``num_batches`` ``frame_batch_size``-frame batches.
 
     Probes ``min(frame)`` for the (match, period) so the caller does not need to know the
     provider's frame-numbering offset (IDSSE period frames start at 10000 / 100000, not 0).
@@ -198,8 +202,8 @@ def _resolve_num_batches_range(
     if mn_df.empty or pd.isna(mn_df["mn"].iloc[0]):
         raise SystemExit(f"No tracking rows to resolve --num-batches for {provider}/{match_id}")
     raw_min = int(mn_df["mn"].iloc[0])
-    start = (raw_min // _FRAME_BATCH_SIZE) * _FRAME_BATCH_SIZE
-    end = start + num_batches * _FRAME_BATCH_SIZE
+    start = (raw_min // frame_batch_size) * frame_batch_size
+    end = start + num_batches * frame_batch_size
     logger.info("Resolved --num-batches %d -> frames [%d, %d) (min frame %d)", num_batches, start, end, raw_min)
     return start, end
 
@@ -427,21 +431,23 @@ def _pull_oracles(
 # ── CLI ────────────────────────────────────────────────────────────────
 
 
-def _validate_frame_range(frame_start: int | None, frame_end: int | None) -> tuple[int | None, int | None]:
-    """Enforce batch alignment (L11): start multiple of 250, span a multiple of 250."""
+def _validate_frame_range(
+    frame_start: int | None, frame_end: int | None, frame_batch_size: int
+) -> tuple[int | None, int | None]:
+    """Enforce batch alignment (L11): start + span both multiples of the provider's batch size."""
     if frame_start is None and frame_end is None:
         return None, None
     if frame_start is None or frame_end is None:
         raise SystemExit("--frame-start and --frame-end must be given together")
-    if frame_start % _FRAME_BATCH_SIZE != 0 or (frame_end - frame_start) % _FRAME_BATCH_SIZE != 0:
-        rounded_start = (frame_start // _FRAME_BATCH_SIZE) * _FRAME_BATCH_SIZE
+    if frame_start % frame_batch_size != 0 or (frame_end - frame_start) % frame_batch_size != 0:
+        rounded_start = (frame_start // frame_batch_size) * frame_batch_size
         span = frame_end - rounded_start
-        rounded_end = rounded_start + ((span + _FRAME_BATCH_SIZE - 1) // _FRAME_BATCH_SIZE) * _FRAME_BATCH_SIZE
+        rounded_end = rounded_start + ((span + frame_batch_size - 1) // frame_batch_size) * frame_batch_size
         logger.warning(
             "Frame range [%d, %d) not batch-aligned to %d; rounding to [%d, %d)",
             frame_start,
             frame_end,
-            _FRAME_BATCH_SIZE,
+            frame_batch_size,
             rounded_start,
             rounded_end,
         )
@@ -461,7 +467,8 @@ def main() -> None:
         "--num-batches",
         type=int,
         default=None,
-        help="Pull N _FRAME_BATCH_SIZE-frame batches from the first frame (avoids provider frame-offset footgun).",
+        help="Pull N frame batches (provider's resolved batch size) from the first frame "
+        "(avoids provider frame-offset footgun).",
     )
     parser.add_argument("--catalog", default="soccer_analytics")
     parser.add_argument("--bronze-schema", default="bronze")
@@ -482,6 +489,9 @@ def main() -> None:
 
     provider, match_id, period = args.provider, args.match_id, args.period
     catalog, bronze, gold = args.catalog, args.bronze_schema, args.gold_schema
+    # Per-provider size (ADR-047 amendment 2) — MUST match what prod's dispatcher uses
+    # for this provider so the fixture's frame windows align to prod batch boundaries (L11).
+    frame_batch_size = resolve_frame_batch_size(provider)
 
     if args.num_batches is not None:
         if args.frame_start is not None or args.frame_end is not None:
@@ -496,9 +506,10 @@ def main() -> None:
             catalog=catalog,
             bronze=bronze,
             warehouse_id=warehouse_id,
+            frame_batch_size=frame_batch_size,
         )
     else:
-        frame_start, frame_end = _validate_frame_range(args.frame_start, args.frame_end)
+        frame_start, frame_end = _validate_frame_range(args.frame_start, args.frame_end, frame_batch_size)
 
     out_dir = _unit_dir(provider, match_id, period)
     out_dir.mkdir(parents=True, exist_ok=True)

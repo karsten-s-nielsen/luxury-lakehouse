@@ -18,15 +18,19 @@ import pandas as pd
 import pytest
 
 from analytics.action_context import pipeline
+
+# Frame/timestamp geometry derived from the resolved provider batch size so a
+# default change (250<->2500, ADR-047 + amendment 2) cannot silently break the
+# boundary setup. The fixture is the LAST 250 frames of batch 0 — the outside
+# action must satisfy BOTH constraints: inside the ±_ACTION_TIME_BUFFER_SECONDS
+# window of the frames (else the empty-actions path short-circuits first and M13
+# is never reached) AND owned by batch 1 per the frame<->time line. Only near the
+# batch boundary can both hold. The tests pass provider="idsse" to enrich_batch,
+# so resolve for idsse here (H3: same size on both sides).
+from analytics.action_context.batching import resolve_frame_batch_size
 from analytics.action_context.work_unit import MatchMeta
 
-# Frame/timestamp geometry derived from the batch-size constant so a bump (e.g.
-# ADR-047's 250->2500) cannot silently break the boundary setup. The fixture is the
-# LAST 250 frames of batch 0 — the outside action must satisfy BOTH constraints:
-# inside the ±_ACTION_TIME_BUFFER_SECONDS window of the frames (else the empty-actions
-# path short-circuits first and M13 is never reached) AND owned by batch 1 per the
-# frame<->time line. Only near the batch boundary can both hold.
-_BS = pipeline._FRAME_BATCH_SIZE
+_BS = resolve_frame_batch_size("idsse")
 _FPS_DT = 0.04  # 25 fps
 
 # est_frame = _BS + 7.5 -> owning_batch = 1 (7.5-frame margin past the boundary beats

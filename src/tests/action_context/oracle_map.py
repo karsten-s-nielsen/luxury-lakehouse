@@ -157,15 +157,17 @@ IDENTITY_PASSTHROUGH: frozenset[str] = frozenset({
 # AC-1's fix infers per-batch, so boundary actions can diverge -> looser tolerance.
 _DAS_COLS = frozenset({"das_team", "das_opponent", "das_diff"})
 
-# Window-dependent columns (ADR-047): the oracle batched at 250 frames; AC-1 batches at
-# 2500. pre_window features see windows that the oracle truncated at 250-frame batch
-# edges (NaN<->value flips + integer runner-count deltas up to 8 measured in the
-# 2026-06-10 batch-size A/B); pressure_on_actor__bekkers_pi is empirically
-# batch-window-sensitive in the same A/B (max delta 0.21); n_candidate_frames is the
-# elastic candidate-window size, batch-edge-clipped to 6-9 at 250 vs the full 10 at 2500
-# (drifts in lockstep with elastic_frame_id, which is already INVARIANT_ONLY). Fuller
-# windows are CLOSER to the metric intent — the oracle's truncated values are not a
-# valid target for them.
+# Window-dependent columns (ADR-047 + amendment 2): the legacy oracle batched at 250
+# frames; AC-1's batch size is now PER-PROVIDER (resolve_frame_batch_size). For a
+# provider batching at 250 the oracle is a valid target again (windows truncate at the
+# SAME edges — coverage restored by amendment 2); for a provider batching larger
+# (metrica/skillcorner at 2500), pre_window features see windows the oracle truncated
+# (NaN<->value flips + integer runner-count deltas up to 8 measured in the 2026-06-10
+# batch-size A/B), pressure_on_actor__bekkers_pi is batch-window-sensitive (max delta
+# 0.21), and n_candidate_frames is the elastic candidate window, batch-edge-clipped at
+# 250 — known_divergence for those providers. build_oracle_specs splits the spec by
+# resolved size, so coverage tracks the per-provider defaults automatically.
+_ORACLE_BATCH_SIZE = 250  # what the legacy fct_tracking_context pipeline batched at
 _WINDOW_DEPENDENT_COLS = frozenset({
     "n_off_ball_runners_pre_window",
     "n_off_ball_runners_toward_goal_pre_window",
@@ -256,17 +258,39 @@ def build_oracle_specs(ac_columns: list[str], tracking_oracle_columns: list[str]
                     )
                 )
             elif col in _WINDOW_DEPENDENT_COLS:
-                specs.append(
-                    OracleSpec(
-                        col,
-                        "tracking_context",
-                        col,
-                        PROVIDERS_TRACKING_CONTEXT,
-                        kind=kind,
-                        known_divergence=True,
-                        note="window-dependent: oracle batched at 250 frames, AC-1 at 2500 (ADR-047)",
-                    )
+                # Split by the provider's RESOLVED batch size (ADR-047 amendment 2):
+                # providers batching at the oracle's 250 get asserted coverage back;
+                # providers batching larger keep known_divergence. Tracks the
+                # per-provider defaults automatically.
+                from analytics.action_context.batching import resolve_frame_batch_size
+
+                at_oracle_size = frozenset(
+                    p for p in PROVIDERS_TRACKING_CONTEXT if resolve_frame_batch_size(p) == _ORACLE_BATCH_SIZE
                 )
+                if at_oracle_size:
+                    specs.append(
+                        OracleSpec(
+                            col,
+                            "tracking_context",
+                            col,
+                            at_oracle_size,
+                            kind=kind,
+                            note="window-dependent; provider batches at the oracle's 250 -> valid target",
+                        )
+                    )
+                diverging = PROVIDERS_TRACKING_CONTEXT - at_oracle_size
+                if diverging:
+                    specs.append(
+                        OracleSpec(
+                            col,
+                            "tracking_context",
+                            col,
+                            diverging,
+                            kind=kind,
+                            known_divergence=True,
+                            note="window-dependent: oracle batched at 250 frames, provider batches larger (ADR-047)",
+                        )
+                    )
             elif col in _DAS_COLS:
                 specs.append(
                     OracleSpec(

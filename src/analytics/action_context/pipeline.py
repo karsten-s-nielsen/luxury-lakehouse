@@ -1,13 +1,15 @@
 """Action-context orchestration: the per-frame-batch contract + work-unit loop.
 
 H3 (load-bearing): the shared unit of compute is ``enrich_batch`` over ONE
-``_FRAME_BATCH_SIZE``-frame batch — NOT the whole work unit. Production runs
-``enrich_batch`` once per Spark ``groupBy(match_id, period, frame_batch_id)``
-group; the local ``run_work_unit`` runs the IDENTICAL ``enrich_batch`` in a
-``floor(frame/_FRAME_BATCH_SIZE)`` loop and concatenates. Window-dependent
-features (elastic_sync, OBSO peak, sync_score) differ between a batch and a
-whole slice, so the batch size is part of the domain contract, not a Spark
-dispatch detail (250→2500 was a metric-definition change — ADR-047).
+frame batch — NOT the whole work unit. Production runs ``enrich_batch`` once
+per Spark ``groupBy(match_id, period, frame_batch_id)`` group; the local
+``run_work_unit`` runs the IDENTICAL ``enrich_batch`` in a
+``floor(frame/size)`` loop and concatenates. Window-dependent features
+(elastic_sync, OBSO peak, sync_score) differ between a batch and a whole
+slice, so the batch size is part of the domain contract, not a Spark dispatch
+detail (250→2500 was a metric-definition change — ADR-047; per-provider sizes
++ run override after the 2500 IDSSE OOM — ADR-047 amendment 2, resolved via
+``analytics.action_context.batching.resolve_frame_batch_size``).
 
 M6/M11: tier dispatch (tracking / sb360 / event_only) is by the explicit ``tier``
 argument, since ``provider == "statsbomb"`` resolves to sb360 vs event_only only
@@ -19,6 +21,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any
 
+from analytics.action_context.batching import resolve_frame_batch_size
 from analytics.action_context.enrich import (
     _enrich_event_only_match,
     _enrich_sb360_match,
@@ -40,14 +43,13 @@ if TYPE_CHECKING:
     )
     from analytics.action_context.work_unit import MatchMeta, WorkUnit
 
-# Frame batch size — IDSSE (match_id, period) groups are 1.5M+ rows, exceeding the
-# 1 GB serverless UDF group cap; sub-batch by frame number. Identical to the value
-# used by the Spark dispatch so prod and local batch the same way (H3).
-# 2500 (ADR-047): a 2500-frame IDSSE batch is ~57.5K rows (~10-30 MB) — far under the
-# 1 GB cap — and amortizes per-batch stage setup measured at ~0.6 s/batch (-17% local
-# per-half wall vs 250). Window-dependent features (pre_window, elastic_sync, pressure)
-# see FULLER windows at 2500 — closer to metric intent, but a metric-definition change.
-_FRAME_BATCH_SIZE = 2500
+# Frame batch sizing — IDSSE (match_id, period) groups are 1.5M+ rows, exceeding
+# the 1 GB serverless UDF group cap; sub-batch by frame number. The size is
+# PER-PROVIDER + run-overridable (ADR-047 amendment 2: 2500 OOMed the densest
+# provider in prod once the 4.22 column families landed) and MUST resolve
+# identically on the Spark driver, inside the executor UDF, and in the local
+# loop (H3) — all three import resolve_frame_batch_size from
+# analytics.action_context.batching (imported above).
 
 # Only run the explicit per-batch gc.collect() when the input group is actually large
 # (ADR-045). The collect exists to protect the 1 GB serverless UDF cap when a converter
@@ -167,13 +169,16 @@ def _convert_tracking_batch(
     raise ValueError(msg)
 
 
-def _owned_action_ids(provider: str, frames_pdf: pd.DataFrame, actions: pd.DataFrame) -> set[Any] | None:
+def _owned_action_ids(
+    provider: str, frames_pdf: pd.DataFrame, actions: pd.DataFrame, frame_batch_size: int
+) -> set[Any] | None:
     """Action ids owned by THIS batch (M13 single-owner de-dup).
 
-    Owner = batch whose ``_FRAME_BATCH_SIZE``-frame window contains the action's frame. The frame for an
-    action time ``t`` is recovered from this batch's exact linear ``frame = slope·t + c``
+    Owner = batch whose ``frame_batch_size``-frame window contains the action's frame. The frame
+    for an action time ``t`` is recovered from this batch's exact linear ``frame = slope·t + c``
     relationship (tracking fps is constant), so every batch computes the same global frame
-    for a given ``t`` and exactly one batch claims each action. Returns ``None`` (no de-dup)
+    for a given ``t`` and exactly one batch claims each action. ``frame_batch_size`` MUST be the
+    same size the dispatcher used to assign ``frame_batch_id`` (H3). Returns ``None`` (no de-dup)
     when the batch lacks the columns to fit the map.
     """
     frame_col = "frame_num" if provider == "gradientsports" else "frame"
@@ -195,7 +200,7 @@ def _owned_action_ids(provider: str, frames_pdf: pd.DataFrame, actions: pd.DataF
         return None
     slope = (f1 - f0) / (t1 - t0)
     est_frame = f0 + (actions["time_seconds"].to_numpy(dtype=float) - t0) * slope
-    owning_batch = np.floor(est_frame / _FRAME_BATCH_SIZE).astype("int64")
+    owning_batch = np.floor(est_frame / frame_batch_size).astype("int64")
     action_ids = actions["action_id"].to_numpy()
     return set(action_ids[owning_batch == this_batch_id].tolist())
 
@@ -213,13 +218,17 @@ def enrich_batch(
     meta: MatchMeta,
     native_match_id: str,
     kde_backend: str = "fft-cic",
+    frame_batch_size: int | None = None,
 ) -> pd.DataFrame:
     """Enrich ONE unit of work — the shared contract called identically by prod + local.
 
-    tracking: ``frames_pdf`` is ONE ``_FRAME_BATCH_SIZE``-frame batch; filter actions to the batch's
+    tracking: ``frames_pdf`` is ONE frame batch; filter actions to the batch's
     time window (±_ACTION_TIME_BUFFER_SECONDS), convert, resolve identity, run the
-    full chain. sb360: ``frames_pdf`` is the synthetic freeze-frames for the match.
-    event_only: ``frames_pdf`` is ignored.
+    full chain. ``frame_batch_size`` MUST equal the size the dispatcher used to
+    assign ``frame_batch_id`` (H3 — ``None`` resolves the provider default, which
+    is only correct when the dispatcher used the default too; explicit callers
+    pass it through). sb360: ``frames_pdf`` is the synthetic freeze-frames for
+    the match. event_only: ``frames_pdf`` is ignored.
     """
     import pandas as pd
 
@@ -258,10 +267,11 @@ def enrich_batch(
 
     # M13 single-owner de-dup: the ±buffer window above pulls boundary actions into BOTH
     # adjacent batches (they would each emit the action → duplicate (match_id, action_id)).
-    # Assign each action to exactly ONE batch — the one whose _FRAME_BATCH_SIZE-frame window contains the
+    # Assign each action to exactly ONE batch — the one whose frame-batch window contains the
     # action's frame — via the global linear frame↔timestamp map (constant fps), computed
     # from this batch's frames. Identical in Spark + local since both call enrich_batch.
-    owned_action_ids = _owned_action_ids(provider, frames_pdf, actions)
+    resolved_batch_size = frame_batch_size if frame_batch_size is not None else resolve_frame_batch_size(provider)
+    owned_action_ids = _owned_action_ids(provider, frames_pdf, actions, resolved_batch_size)
 
     # M13 EARLY-RETURN: if this batch owns zero actions (all buffer-windowed actions belong
     # to adjacent batches), short-circuit before the expensive 20-step enrich chain.
@@ -308,9 +318,10 @@ def run_work_unit(
 ) -> int:
     """Pull a work unit's inputs via ports, run the tier-appropriate enrichment, write.
 
-    Tracking tier loops ``floor(frame/_FRAME_BATCH_SIZE)`` batches calling ``enrich_batch`` per
-    batch (replicating production's Spark groupBy dispatch — H3) and concatenates.
-    sb360/event_only run a single ``enrich_batch`` (no frame batching).
+    Tracking tier loops ``floor(frame/size)`` batches — size resolved per provider
+    via ``resolve_frame_batch_size`` (env-overridable) — calling ``enrich_batch``
+    per batch (replicating production's Spark groupBy dispatch — H3) and
+    concatenates. sb360/event_only run a single ``enrich_batch`` (no frame batching).
     """
     import pandas as pd
 
@@ -333,6 +344,8 @@ def run_work_unit(
     xt_grid_data, xt_l, xt_w = xt.grid()
     m = meta.metadata(wu)
 
+    frame_batch_size = resolve_frame_batch_size(wu.provider)
+
     common = {
         "provider": wu.provider,
         "actions_records": actions_records,
@@ -342,13 +355,14 @@ def run_work_unit(
         "meta": m,
         "native_match_id": wu.match_id,
         "kde_backend": wu.kde_backend,
+        "frame_batch_size": frame_batch_size,
     }
 
     if bundle.tier != "tracking":
         result = enrich_batch(tier=bundle.tier, frames_pdf=bundle.frames, period=wu.period, **common)
         return sink.write(wu, result)
 
-    # tracking tier: batch by floor(frame/_FRAME_BATCH_SIZE) and concat — identical to Spark dispatch.
+    # tracking tier: batch by floor(frame/size) and concat — identical to Spark dispatch.
     f = bundle.frames.copy()
     frame_col = "frame_num" if wu.provider == "gradientsports" else "frame"
     # ADD a "timestamp" alias (batch/link/owned-action logic needs it) but KEEP
@@ -365,7 +379,7 @@ def run_work_unit(
         _fr = f["frame_rate"].astype("float64").fillna(25.0) if "frame_rate" in f.columns else 25.0
         _period_min = f.groupby("period")["frame"].transform("min").astype("float64")
         f["timestamp"] = (f["frame"].astype("float64") - _period_min) / _fr
-    f["frame_batch_id"] = (f[frame_col] // _FRAME_BATCH_SIZE).astype("int64")
+    f["frame_batch_id"] = (f[frame_col] // frame_batch_size).astype("int64")
 
     parts: list[pd.DataFrame] = []
     for (period_val, _batch_id), group in f.groupby(["period", "frame_batch_id"], sort=True):

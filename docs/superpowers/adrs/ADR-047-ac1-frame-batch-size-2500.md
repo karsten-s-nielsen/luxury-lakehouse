@@ -3,8 +3,39 @@
 | Field | Value |
 |---|---|
 | **Date** | 2026-06-10 |
-| **Status** | Accepted |
+| **Status** | Accepted; **amended 2026-06-11 (amendment 2: per-provider sizes + run override)** |
 | **Deciders** | Karsten Nielsen, Claude |
+
+## Amendment 2 (2026-06-11): per-provider sizes + run-scoped override
+
+The fixed 2500 failed its first production contact: in the scoped max-units=4 test
+(run 883267532931612, 24 units), **13 of 16 tracking units died with
+`UDF_PYSPARK_ERROR.OOM`** against the 1 GB serverless UDF cap — gradientsports 4/4,
+idsse 4/4, metrica 3/4, skillcorner 2/4 (the run still reported SUCCESS — the known
+drain not-fail-loud gap). The local A/B above measured **throughput**, not the memory
+envelope — and the envelope grew between the A/B and prod: PR #368 landed the 4.22
+column families (xT-GK incl. five philosophy presets, gk_completion) whose per-batch
+allocations the A/B never saw.
+
+**Decision:** the batch size becomes per-provider + run-overridable, resolved through ONE
+module — `analytics.action_context.batching.resolve_frame_batch_size` — imported by the
+Spark driver, the executor UDF closure (the resolved int travels in the closure), the
+local hexagon, and the fixture extractor (H3 lockstep is now BY SHARED IMPORT; the
+lockstep sentinel asserts function identity instead of constant equality). Per the OOM
+census, EVERY provider defaults back to 250 (the universally prod-proven value); the
+per-provider map ships EMPTY as the documented seam — an entry requires a passing scoped
+prod run at that size on the current column set, cited in a comment. Override precedence:
+`frame_batch_size` job parameter → drain worker `--frame-batch-size` → driver env
+`AC_FRAME_BATCH_SIZE` → per-provider map → 250.
+
+**Consequences:** goldens regenerate again (the J03WMX golden returns to 250 semantics;
+the mini is byte-identical across sizes), and the 8 window-dependent oracle columns
+regain differential coverage for 250-providers (provider-conditional split in
+oracle_map). The −17% wall win is forfeited everywhere until re-earned with evidence —
+the override is the instrument: scoped runs walking the envelope up per provider
+(e.g. `{"provider":"metrica","max_units":"4","frame_batch_size":"1000"}`), then a
+one-line map edit. The "future batch-size change after data exists requires a full
+recompute" caveat below now applies PER PROVIDER.
 
 ## Context
 
