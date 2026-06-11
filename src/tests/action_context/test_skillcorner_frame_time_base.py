@@ -1,15 +1,19 @@
-"""Regression: SkillCorner frames must be PERIOD-RELATIVE on time_seconds.
+"""SkillCorner frame time-base: the CONVERTER is pass-through; the DISPATCHER re-bases.
 
-silly-kicks 4.20.1 re-based SkillCorner SPADL ``time_seconds`` to period-relative
-(subtracting the nominal period-start offset). SkillCorner bronze tracking ``timestamp``
-is the continuous broadcast clock (2nd half = 45:00+), so ``_bronze_skillcorner_to_frames``
-must subtract the same offset — otherwise the action↔frame linker (which matches on
-``time_seconds``) silently collapses in the 2nd half and beyond (the mirror image of the
-GS absolute-clock class, ADR-040).
+History (two incidents, one contract):
 
-This test feeds an absolute-clock bronze slice (P1 ≈ 0 s, P2 ≈ 2700 s) through the real
-converter and asserts the emitted frames reset to ~0 each period. It fails on the pre-4.20.1
-behaviour (P2 frames at ≈ 2700 s).
+- silly-kicks 4.20.1 re-based SkillCorner SPADL ``time_seconds`` to period-relative, and the
+  converter (``_bronze_skillcorner_to_frames``) gained its own offset subtraction so converted
+  frames matched. That fixed the LINKER — but the DISPATCH layer (per-batch action window +
+  M13 ownership) reads the bronze ``timestamp`` BEFORE conversion, so period >= 2 still silently
+  dropped ~90% of actions (2026-06-11 census, run 1020873732479562).
+- The ADR-040 amendment moved the re-base to the DISPATCH layer (both drivers, importing
+  ``_SKILLCORNER_PERIOD_START_SECONDS``; see test_skillcorner_dispatch_time_base). With the
+  converter ALSO subtracting, frames came out at ≈ -2700 s (double subtraction; linker found
+  nothing for P2) — so the converter is now PASS-THROUGH on the time base.
+
+Exactly ONE layer owns the re-base: the dispatcher. This test pins the converter side of that
+contract: period-relative input (what the dispatcher hands it) emerges unchanged.
 """
 
 from __future__ import annotations
@@ -44,23 +48,22 @@ def _rows(period: int, base_frame: int, base_ts: float) -> list[dict]:
     return rows
 
 
-def _bronze() -> pd.DataFrame:
-    rows = _rows(period=1, base_frame=0, base_ts=0.0)  # P1: absolute ≈ [0.0, 0.5]
-    rows += _rows(period=2, base_frame=100, base_ts=45 * 60.0)  # P2: absolute ≈ [2700.0, 2700.5]
+def _bronze_period_relative() -> pd.DataFrame:
+    """Post-dispatch shape: BOTH periods period-relative (≈ [0, 0.5] each)."""
+    rows = _rows(period=1, base_frame=0, base_ts=0.0)
+    rows += _rows(period=2, base_frame=100, base_ts=0.0)
     return pd.DataFrame(rows)
 
 
-def test_skillcorner_frames_time_seconds_are_period_relative() -> None:
-    frames = _bronze_skillcorner_to_frames(_bronze(), game_id=1886347)
+def test_skillcorner_converter_passes_period_relative_time_through() -> None:
+    frames = _bronze_skillcorner_to_frames(_bronze_period_relative(), game_id=1886347)
 
     p1 = frames[frames["period_id"] == 1]["time_seconds"]
     p2 = frames[frames["period_id"] == 2]["time_seconds"]
     assert len(p1) > 0 and len(p2) > 0
 
-    # P1 already period-relative (offset 0): unchanged ~ [0, 0.5].
+    # Pass-through: both periods stay ≈ [0, 0.5]. A re-grown converter subtraction would
+    # push P2 NEGATIVE (≈ -2700) — the double-subtraction class.
     assert p1.min() >= 0.0 and p1.max() < 1.0, f"P1 time_seconds drifted: [{p1.min()}, {p1.max()}]"
-    # P2 MUST be re-based to ~0 (absolute 2700 - 2700 offset), NOT ~ 2700.
-    assert p2.max() < 1.0, (
-        f"P2 time_seconds not period-relative: [{p2.min()}, {p2.max()}] - expected ~0, "
-        f"got absolute clock (SkillCorner frame re-base missing)"
-    )
+    assert p2.min() >= 0.0, f"P2 time_seconds went negative (double subtraction): min={p2.min()}"
+    assert p2.max() < 1.0, f"P2 time_seconds not pass-through: [{p2.min()}, {p2.max()}]"

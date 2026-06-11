@@ -22,6 +22,10 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from analytics.action_context.batching import resolve_frame_batch_size
+from analytics.action_context.completeness import (
+    assert_unit_action_completeness,
+    expected_actions_within_coverage,
+)
 from analytics.action_context.enrich import (
     _enrich_event_only_match,
     _enrich_sb360_match,
@@ -29,7 +33,7 @@ from analytics.action_context.enrich import (
     _resolve_enrichment_identity,
 )
 from analytics.action_context.schema import RESULT_COLUMNS, build_output
-from analytics.action_context.time_base_guard import assert_work_unit_time_base
+from analytics.action_context.time_base_guard import assert_frames_time_base, assert_work_unit_time_base
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -379,6 +383,33 @@ def run_work_unit(
         _fr = f["frame_rate"].astype("float64").fillna(25.0) if "frame_rate" in f.columns else 25.0
         _period_min = f.groupby("period")["frame"].transform("min").astype("float64")
         f["timestamp"] = (f["frame"].astype("float64") - _period_min) / _fr
+    # SkillCorner (ADR-040 amendment): bronze "timestamp" is the ABSOLUTE broadcast clock
+    # (P2 = 2700s+), while SPADL action time_seconds is period-relative — the converter
+    # (_bronze_skillcorner_to_frames) already re-bases the CONVERTED frames, but the
+    # DISPATCH layer (this batch window filter + M13 ownership) reads the bronze column
+    # directly and silently dropped ~90% of P2 actions (2026-06-11 scoped-run census).
+    # Subtract the SAME nominal offsets the converter uses (single imported constant).
+    # Mirrors action_context._process_tracking_match; lockstep via
+    # test_skillcorner_dispatch_time_base.
+    if wu.provider == "skillcorner":
+        from analytics.action_context.convert import _SKILLCORNER_PERIOD_START_SECONDS
+
+        f["timestamp"] = f["timestamp"].astype("float64") - f["period"].map(_SKILLCORNER_PERIOD_START_SECONDS).fillna(
+            0.0
+        )
+    # Frames-side time-base guard (ADR-040 amendment, two-sided): after ALL provider
+    # re-bases, every period's earliest frame time must be near its own kickoff. A
+    # frames-side absolute clock silently empties the per-batch action window — the
+    # exact SkillCorner P2 class the actions-side guard above cannot see. Min-based,
+    # so sparse/partial frame coverage never false-fires (unlike the rejected
+    # overlap-metric draft — see time_base_guard docstring).
+    if "timestamp" in f.columns:
+        assert_frames_time_base(
+            {
+                int(p): float(s.min())  # type: ignore[arg-type]  # p is the int period groupby key
+                for p, s in f.dropna(subset=["timestamp"]).groupby("period")["timestamp"]
+            }
+        )
     f["frame_batch_id"] = (f[frame_col] // frame_batch_size).astype("int64")
 
     parts: list[pd.DataFrame] = []
@@ -386,4 +417,41 @@ def run_work_unit(
         parts.append(enrich_batch(tier="tracking", frames_pdf=group, period=int(period_val), **common))  # type: ignore[arg-type]  # period_val is the int `period` groupby key; pandas types it as Hashable
 
     result = pd.concat(parts, ignore_index=True) if parts else _empty_result()
-    return sink.write(wu, result)
+
+    # M13 single-owner invariant: each action is owned by exactly one batch, so the
+    # concatenated unit output must be action-unique. Duplicates mean the ownership
+    # map de-aligned (e.g. a frames-side clock skew) — fail loud, never write dupes.
+    if "action_id" in result.columns and not result.empty:
+        _dupes = result["action_id"][result["action_id"].duplicated()].unique()
+        if len(_dupes) > 0:
+            msg = (
+                f"M13 single-owner violated for {wu.provider}:{wu.match_id}:{wu.period} — "
+                f"duplicate action_ids {sorted(_dupes.tolist())[:10]}"
+            )
+            raise RuntimeError(msg)
+
+    written = sink.write(wu, result)
+
+    # Per-unit completeness invariant (ADR-040 amendment): emitted rows vs the actions
+    # the frames COVER (per-period frame window, post-rebase — same clock). Converts
+    # silent data loss (a mis-based clock, an over-eager filter) into a loud unit
+    # failure instead of a "processed" unit with 12% of rows. Window-relative so slice
+    # fixtures and partial broadcast coverage stay valid. Mirrors the Spark driver.
+    if "time_seconds" in actions_df.columns and "timestamp" in f.columns:
+        _act = actions_df.dropna(subset=["time_seconds"])
+        if wu.period is not None and "period_id" in _act.columns:
+            _act = _act[_act["period_id"] == int(wu.period)]
+        _windows = {
+            int(p): (float(s.min()), float(s.max()))  # type: ignore[arg-type]  # p is the int period groupby key
+            for p, s in f.dropna(subset=["timestamp"]).groupby("period")["timestamp"]
+        }
+        _times = {
+            int(p): s.tolist()  # type: ignore[arg-type]  # p is the int period_id groupby key
+            for p, s in _act.groupby("period_id")["time_seconds"]
+        }
+        assert_unit_action_completeness(
+            emitted=written,
+            expected=expected_actions_within_coverage(_times, _windows, buffer_s=_ACTION_TIME_BUFFER_SECONDS),
+            unit_desc=f"{wu.provider}:{wu.match_id}:{wu.period}",
+        )
+    return written

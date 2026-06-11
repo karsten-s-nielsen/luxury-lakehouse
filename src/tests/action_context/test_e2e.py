@@ -84,6 +84,44 @@ def test_gs_e2e_convert_and_enrich_does_not_crash() -> None:
     assert set(result.columns) == expected, "result schema drifted from RESULT_COLUMNS"
 
 
+def test_skillcorner_p2_e2e_resolves_actions() -> None:
+    """SkillCorner PERIOD-2 dispatch coverage (ADR-040 amendment, 2026-06-11).
+
+    The fixture's bronze frames carry the ABSOLUTE broadcast clock (P2 = 2700s+)
+    while its actions are period-relative — exactly the production shape that
+    silently dropped ~90% of P2 actions when the dispatch layer lacked the
+    SkillCorner re-base. Pre-fix this raises (the frames-side guard fires, or the
+    completeness invariant catches the drop); post-fix the slice's actions
+    resolve. Values are not golden-asserted; resolution + dup-freedom are.
+    """
+    result = _run("skillcorner", "1886347", 2)
+    assert len(result) > 0, "SC P2 slice resolved zero actions — dispatch time-base regressed"
+    dupes = result.groupby(["match_id", "action_id", "period_id"]).size()
+    assert dupes[dupes > 1].empty, f"duplicate action rows: {dupes[dupes > 1].to_dict()}"
+    # LINKING must resolve too — rows can emit with a dead linker (every frame-derived
+    # feature NaN), which is exactly what the converter double-subtraction produced
+    # (frames at ≈ -2700 s; rows present, links zero). frame_id non-null proves the
+    # action↔frame linker found frames on the SAME clock.
+    assert result["frame_id"].notna().any(), (
+        "SC P2 rows emitted but ZERO actions linked to frames — frames/actions clock mismatch "
+        "(dispatch vs converter re-base; exactly one layer must subtract)"
+    )
+
+
+def test_metrica_p2_e2e_resolves_actions() -> None:
+    """Metrica PERIOD-2 dispatch coverage — same parity rule as SkillCorner: the
+    metrica frame-number re-base (ADR-040) previously had no committed period>=2
+    fixture, so a regression would have been invisible to the suite."""
+    result = _run("metrica", "Sample_Game_1", 2)
+    assert len(result) > 0, "Metrica P2 slice resolved zero actions — frame re-base regressed"
+    dupes = result.groupby(["match_id", "action_id", "period_id"]).size()
+    assert dupes[dupes > 1].empty, f"duplicate action rows: {dupes[dupes > 1].to_dict()}"
+    # Same linking proof as the SC test: emitted rows with a dead linker are not coverage.
+    assert result["frame_id"].notna().any(), (
+        "Metrica P2 rows emitted but ZERO actions linked to frames — frames/actions clock mismatch"
+    )
+
+
 def test_e2e_reproduces_golden_and_is_dup_free(golden_df: pd.DataFrame) -> None:
     result = _run("idsse", "J03WMX", 1)
 
