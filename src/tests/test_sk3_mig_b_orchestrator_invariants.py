@@ -227,7 +227,7 @@ def _extract_pep723_block(src: str) -> str:
 def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     """No trainer may pin `silly-kicks` in its PEP 723 deps.
 
-    The wheel's ``[spadl]`` extra (silly-kicks>=4.20.1,<5) is the single source
+    The wheel's ``[spadl]`` extra (silly-kicks>=4.25.0,<5) is the single source
     of truth. Trainers install ``luxury-lakehouse[spadl] @ ...wheel`` which
     resolves silly-kicks transitively. uv silently picks a conflicting
     top-level pin over the wheel's transitive pin (verified empirically
@@ -300,7 +300,7 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
 # Floor advanced 4.19.2 -> 4.20.1 (2026-06-09) to adopt the SkillCorner converter fixes
 # (period-relative time_seconds; goalkick result via same_team_next), the sportec/IDSSE
 # play_evaluation-driven pass/set-piece results + cross-label fix, and the SGM eps-floor.
-# Matches the pyproject [spadl] pin `silly-kicks>=4.20.1,<5`.
+# Matches the pyproject [spadl] pin `silly-kicks>=4.25.0,<5`.
 
 
 def test_all_trainers_assert_silly_kicks_runtime_min() -> None:

@@ -113,6 +113,31 @@
 - **Next review:** 2026-07-24.
 - **Status:** Active, passive watch (no near-term action; own-footage pipeline trigger).
 
+### T7 — Structural Pass Analysis / Tactical Impact Value (Karakuş & Arkadaş 2026)
+
+- **Paper:** Karakuş O, Arkadaş H (2026) "Structural Pass Analysis in Football: Learning Pass Archetypes and Tactical Impact from Spatio-Temporal Tracking Data." [arXiv:2603.28916](https://arxiv.org/abs/2603.28916). Newer companion to the same authors' line-breaking paper (arXiv:2506.06666), already shipped as silly-kicks TF-32 (Ward clustering).
+- **Surfaced:** Cross-session research-PDF audit, 2026-06-05.
+- **What it is:** Per-pass structural metrics from synchronised tracking + event data — **LBS** (Line Bypass Score: defenders between passer and receiver along attack direction), **SGM** (Space Gain Metric: Δ local inverse-Gaussian defender density, receiver vs passer), **SDI** (Structural Disruption Index: Δ ball distance from defensive centroid) — composed into **TIV** (Tactical Impact Value: z-normalized equal-weight sum). K-means (K=4) on (LBS,SGM,SDI) yields four pass archetypes (circulatory / destabilising / line-breaking / space-expanding). Validated on 41,078 WC2022 open-play passes; TIV correlates with final-third and box entry; centre-backs dominate cumulative TIV; weak correlation to shots/goals.
+- **Why the lakehouse cares:** Structure-aware (not outcome-anchored) pass valuation that complements VAEP/xT. Reproducible **today** on data already ingested (GS/PFF WC2022, 64 matches). Strongest as a human-interpretable **scouting** metric; marginal *new* ML signal over existing pitch-control / cover-shadows / defensive-line is modest (value ~4/5 for scouting).
+- **Division of labour (decided 2026-06-05 with silly-kicks session):**
+  - **silly-kicks (TF-45, in progress upstream):** deterministic per-pass primitives ONLY — raw `lbs`/`sgm`/`sdi` + VAEP xfn factory + atomic mirror. These reach the lakehouse via the normal weekly silly-kicks absorption.
+  - **Lakehouse owns the corpus-level half (does NOT arrive via absorption — must be built):** (1) the **TIV composite**; (2) a **pinned corpus z-norm reference** (mean/std over a frozen snapshot) for train/serve consistency — precedent FrozenXt / ADR-009, warrants its own ADR; (3) the **K-means(K=4) archetype model** as an ADR-013 inference artifact (Python writer → bronze → staging → gold mart on pass identity, versioned per ADR-012), not an inline recompute; (4) **scouting marts** — passer–receiver ΔTIV dyad rankings, cumulative-TIV player rankings, per-team archetype mix → gold mart + Taipy page.
+- **Overlap (cite-don't-duplicate):** LBS ≈ shipped line-breaking (silly-kicks TF-32); SGM ≈ space-created (Fernández-Bornn); SDI centroid reuses defensive-line. *Related correction:* Link, Lang & Seidenschwarz 2016 "Dangerousity" is only **partially** in-stack — only its Pressure leg ships, as `link_zones` (alongside `andrienko_oval`, `bekkers_pi`); the full surface (Zone × Control × Pressure × Density → Action-Value/Dominance) is unimplemented and low-priority vs existing VAEP + xT + OBSO + DAS. Do not re-flag full Dangerousity as "missing."
+- **Mechanism:** Watch silly-kicks releases for TF-45 landing (the absorption trigger). When TF-45 ships, promote to ROADMAP (corpus-half build) + an ADR for the z-norm reference. No lakehouse action until then.
+- **Last reviewed:** 2026-06-05 (initial).
+- **Next review:** 2026-07-24 (or when TF-45 releases).
+- **Status:** Active. Lakehouse backlog has no structural-pass/TIV item as of 2026-06-05; blocked on TF-45 upstream.
+
+### T8 — Off-the-ball behaviour taxonomy (Esposito et al. 2026) — reference only
+
+- **Paper:** Esposito F, Bertollo M, Pompa D, Angonese M, Beato M (2026) "Classifying the invisible game: Towards a structured taxonomy of off-the-ball behaviors in football." Int J Sports Sci Coaching, DOI [10.1177/17479541261427153](https://doi.org/10.1177/17479541261427153). (Reviewed by H. Sotudeh — see shape-graph methodology / silly-kicks TF-39.)
+- **What it is:** A conceptual 4-axis taxonomy (Possession-Function × Unit-of-Analysis × Performance-Dimension × Behavioral-Type) with taxonomic-string codes. No formulas, metrics, or thresholds — a shared vocabulary for organising off-ball research.
+- **Why tracked (low):** Possible future use as a feature-catalog / data-dictionary framing — tagging existing off-ball features (OBSO, off-ball xT, space creation, runs) by tactical function (the in-/out-of-possession axis is a grouping not surfaced today). silly-kicks session is folding the vocabulary into an existing item; nothing for the lakehouse to build.
+- **Mechanism:** None active — reference vocabulary. Revisit only if a feature-catalog / data-dictionary effort is scoped.
+- **Last reviewed:** 2026-06-05 (initial).
+- **Next review:** quarterly (passive).
+- **Status:** Active, reference-only. No build trigger.
+
 ---
 
 ## Promotion log

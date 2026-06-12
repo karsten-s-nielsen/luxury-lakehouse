@@ -41,9 +41,9 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 | **Ingestion** | Databricks Serverless Workflows | Fetch data from StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner, Gradient Sports |
 | **Storage** | Delta Lake on Unity Catalog | Medallion architecture (Bronze → Silver → Gold) |
 | **Transformation** | dbt-databricks on Serverless SQL | Flatten nested JSON, compute xG/xT metrics |
-| **Synchronization** | Lakeflow Synced Tables | Zero-ETL continuous sync from Gold → Lakebase (40 tables) |
+| **Synchronization** | Lakeflow Synced Tables | Zero-ETL continuous sync from Gold → Lakebase (44 tables) |
 | **Serving** | Lakebase PostgreSQL 17 (Autoscaling) | Sub-10ms OLTP queries, native pgvector, scale-to-zero |
-| **Application** | [Taipy on Hugging Face Spaces](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) | 17-page interactive dashboard (Docker SDK, Lakebase PostgreSQL) |
+| **Application** | [Taipy on Hugging Face Spaces](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) | 18-page interactive dashboard (Docker SDK, Lakebase PostgreSQL; 1 page staging-gated) |
 | **ML Artifacts** | [Hugging Face Hub](https://huggingface.co/luxury-lakehouse) | Publish [16 models](https://huggingface.co/luxury-lakehouse) + [20 datasets](https://huggingface.co/luxury-lakehouse), GPU training on HF Jobs. Every artifact's README is auto-uploaded from the in-repo source of truth by `ingestion.hf_publish` (ADR-014). |
 | **Security** | OAuth M2M + OIDC Federation + KMS | Zero-secret CI, least-privilege SPs, encrypted state |
 | **Infrastructure** | Terraform + Databricks Provider | Everything as code |

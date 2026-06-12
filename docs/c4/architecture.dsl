@@ -6,12 +6,13 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         developer = person "Developer" "Deploys updates, triggers pipeline runs, monitors costs"
         operator = person "Platform Operator" "Triggers retrain cycles, reviews job runs, manages synced tables"
 
-        taipyApp = softwareSystem "Taipy Dashboard" "17-page interactive analytics app on HF Spaces. Shot maps, player comparisons, defensive impact, workflow monitoring." {
+        taipyApp = softwareSystem "Taipy Dashboard" "18-page interactive analytics app on HF Spaces (1 page staging-gated via env flag, ADR-051). Shot maps, player comparisons, goalkeeper tracking, defensive impact, workflow monitoring." {
             guiLayer = container "Taipy GUI" "Root template with sidebar nav, glossary panels, page routing. CSP defense-in-depth via Flask after_request." "Python, Taipy 4.1"
             adminApi = container "Admin API" "Flask blueprint for cache clear and synced table refresh. HF org membership auth." "Python, Flask"
             templateEngine = container "Template Engine" "Three layout builders (standard, sub-view, dashboard). Typed PageConfig dataclasses." "Python"
             sidebarWidgets = container "Sidebar Widgets" "Filter cascade with progressive disclosure, debounce, help tooltips" "Python, Taipy"
             stateModules = container "State Modules" "Per-page state, callbacks, chart rendering. SQL-free; delegates to Query Layer." "Python, Plotly"
+            ghostGridService = container "Ghost Grid Service" "Hexagonal port for ghost-GK density grids: pure adapters (stored-spread v1; model adapter fast-follow), caller supplies frame data, loud stored-fallback (ADR-051)." "Python, numpy"
             queryLayer = container "Query Layer" "12 SQL modules with TTL cache. All parameterized queries." "Python, psycopg2"
             filterLayer = container "Filter Layer" "Shared filter queries, scope labels, embedding player search" "Python, psycopg2"
             dbLayer = container "DB Layer" "OAuth tokens, connection pooling, /health endpoint" "Python, psycopg2"
@@ -61,15 +62,15 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             telemetryTable = container "Telemetry Table" "Cycle log: items, smoke-gate pass/fail, cost tracking, heartbeat rows." "Delta Lake" "Database"
         }
 
-        dbtProject = softwareSystem "dbt Project" "Medallion transformation: 93 models (41 staging, 11 intermediate, 41 marts). Kimball dims, liquid clustering. on-run-start tripwire blocks --full-refresh of TRIGGERED synced marts (ADR-043)." {
+        dbtProject = softwareSystem "dbt Project" "Medallion transformation: 95 models (41 staging, 11 intermediate, 43 marts). Kimball dims, liquid clustering. on-run-start tripwire blocks --full-refresh of TRIGGERED synced marts (ADR-043)." {
             fctWorkflowCosts = container "fct_workflow_costs" "Gold-layer cost attribution with billing JOIN. 90-day rolling window." "SQL, dbt" "Database"
-            goldModels = container "Gold Models" "37 fact + 4 dim tables. Enforced contracts, liquid clustering." "SQL, dbt" "Database"
+            goldModels = container "Gold Models" "39 fact + 4 dim tables. Enforced contracts, liquid clustering." "SQL, dbt" "Database"
         }
 
         # Data stores
         unityCatalog = softwareSystem "Unity Catalog" "Governed Delta Lake: bronze (raw), gold (analytics), observability (metadata)" "External" {
             bronzeSchema = container "Bronze Schema" "Raw events, tracking, SPADL actions, VAEP scores, compute results" "Delta Lake" "Database"
-            goldSchema = container "Gold Schema" "37 fact + 4 dim tables. Analytics-ready." "Delta Lake" "Database"
+            goldSchema = container "Gold Schema" "39 fact + 4 dim tables. Analytics-ready." "Delta Lake" "Database"
             observabilitySchema = container "Observability Schema" "workflow_cost_live, workflow_import_checksums, workflow_watermarks, definer's-rights views" "Delta Lake" "Database"
         }
 
@@ -108,6 +109,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         guiLayer -> stateModules "Binds state and callbacks" ""
         templateEngine -> stateModules "References state variables" ""
         stateModules -> queryLayer "Fetches page data" ""
+        stateModules -> ghostGridService "Renders ghost-GK density grids (frame data passed in)" ""
         stateModules -> filterLayer "Fetches filter options" ""
         queryLayer -> dbLayer "Executes SQL" "SQL"
         filterLayer -> dbLayer "Queries dimensions" "SQL"

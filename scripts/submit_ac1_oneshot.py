@@ -46,20 +46,24 @@ logger = logging.getLogger("ac1_oneshot")
 # Mirror terraform/modules/workflows/main.tf "analytics" environment spec exactly
 # so the one-shot executor env matches the daily job's. Keep in sync.
 _ANALYTICS_DEPENDENCIES: tuple[str, ...] = (
-    "silly-kicks>=4.22.0,<5",
-    "accessible-space>=2.0,<3",
+    # EXACT pins mirroring terraform/modules/workflows/main.tf "analytics" env (ADR-046
+    # serverless exact-pin lockstep). The 4.25.0 adoption (2026-06-11) updated terraform but
+    # missed this mirror — caught in the GK-page cycle; the floors that lived here were the
+    # exact divergence class ADR-046 exists to prevent.
+    "silly-kicks[das,ghost-gk]==4.25.0",
+    "accessible-space==2.0.15",
     # numba: JITs silly-kicks pitch-control + ball-carrier kernels (else silent
     # numpy fallback). Added to the TF analytics env in PR #325; mirrored here.
-    "numba>=0.59.0",
-    "numpy<2.0",
+    "numba==0.64.0",
+    "numpy==1.26.4",
     "xgboost-cpu==3.2.0",
-    "rapidfuzz>=3.6.0",
-    "unidecode>=1.3.0",
-    "sparse-dot-topn>=1.1.0",
-    "mlflow-skinny>=2.19.0",
-    "mplsoccer>=1.1.3",
-    "matplotlib>=3.8.0",
-    "scipy>=1.11.0",
+    "rapidfuzz==3.14.3",
+    "unidecode==1.4.0",
+    "sparse-dot-topn==1.2.0",
+    "mlflow-skinny==3.11.1",
+    "mplsoccer==1.6.1",
+    "matplotlib==3.10.8",
+    "scipy==1.15.3",
 )
 
 _POLL_SECONDS = 20

@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.36-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.37-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -30,9 +30,9 @@ Usage (HF Jobs CLI):
     hf jobs uv run scripts/train_vaep_model_hf.py \
         --flavor cpu-basic --timeout 60m \
         --secrets HF_TOKEN=$HF_TOKEN \
+        --secrets DATABRICKS_TOKEN=$DATABRICKS_TOKEN \
         --env MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI \
-        --env DATABRICKS_HOST=$DATABRICKS_HOST \
-        --env DATABRICKS_TOKEN=$DATABRICKS_TOKEN
+        --env DATABRICKS_HOST=$DATABRICKS_HOST
 """
 
 from __future__ import annotations
