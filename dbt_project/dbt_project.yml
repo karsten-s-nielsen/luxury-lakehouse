@@ -123,5 +123,7 @@ vars:
     - fct_off_ball_xt
     - fct_tracking_shape_timeline
     - fct_action_context
+    - fct_gk_tracking_actions
+    - fct_gk_tracking_stats
     - fct_space_creation
     - fct_pausa_values

@@ -209,6 +209,22 @@ The "Power of Three" coaching framework and game state context layer
 analysis practice (Thomson, Sfeir, Gronnemark). These are practitioner
 methodologies, not peer-reviewed publications.
 
+Goalkeeper Tracking Analytics (ADR-051)
+The Goalkeeper Tracking page's distribution-valuation framework (xT-GK: base
+xT + Pressure Escape Value + Risk-Adjusted Value + Defensive Zone Value, with
+team-philosophy presets) follows Eyestone, J., "xT-GK: Expected Threat for
+Goalkeepers" (practitioner presentation / course materials; implemented
+upstream in silly-kicks, lakehouse ADR-048). The goalkeeper-profile framing
+(defending: lead organization / starting position / control space / control
+box / protect goal; attacking: read pressure / initiate build-up / support
+positioning) follows Poole, P. (2022), "USWNT Goalkeeper Profile," IGCC
+classroom session (course materials). The Ghost-GK positional baseline is a
+conditional-density model (silly-kicks ghost-gk-v1) in the lineage of
+data-driven ghosting (Le et al. 2017) and conditional-density defender
+evaluation; GK influence zones (closing times, reachable area, pitch-control
+share) build on Spearman's pitch-control framework (already credited above).
+These practitioner methodologies are cited on-page via PageConfig citations.
+
 AI Governance Framework
 -----------------------
 

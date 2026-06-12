@@ -163,6 +163,12 @@ outputs:
     - id: "{catalog}.dev_gold.fct_tracking_context"
       destination: delta-table
       dbt_model: fct_tracking_context
+    - id: "{catalog}.dev_gold.fct_gk_tracking_actions"
+      destination: delta-table
+      dbt_model: fct_gk_tracking_actions
+    - id: "{catalog}.dev_gold.fct_gk_tracking_stats"
+      destination: delta-table
+      dbt_model: fct_gk_tracking_stats
     - id: "{catalog}.dev_gold.fct_xg_predictions_v2"
       destination: delta-table
       dbt_model: fct_xg_predictions_v2

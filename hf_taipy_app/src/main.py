@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -128,6 +129,21 @@ PAGE_REGISTRY: list[PageEntry] = [
     # Operations
     PageEntry("AI-ML-Workflows", workflows_config, workflows_page),
 ]
+
+# Goalkeeper Tracking (ADR-051): staging-gated side-by-side page. Registers ONLY when
+# LL_GK_TRACKING_PAGE=1 (set on the staging Space; absent in production), so production
+# stays bit-identical until final sign-off. Imports are inside the gate on purpose —
+# without the flag, none of the new modules load at all.
+if os.environ.get("LL_GK_TRACKING_PAGE") == "1":
+    import state.gk_tracking as _gkt_state  # registers the page refresher
+    from pages.gk_tracking import page_config as gk_tracking_config
+    from pages.gk_tracking import page_md as gk_tracking_page
+
+    # Taipy binds page variables from THIS module's globals (the state star-imports above).
+    # `from ... import *` is illegal inside a conditional, so inject __all__ explicitly —
+    # same effect, same surface, flag-gated.
+    globals().update({name: getattr(_gkt_state, name) for name in _gkt_state.__all__})
+    PAGE_REGISTRY.append(PageEntry("Goalkeeper-Tracking", gk_tracking_config, gk_tracking_page))
 
 # Generate nav and root page
 _nav_md = build_nav(PAGE_REGISTRY)

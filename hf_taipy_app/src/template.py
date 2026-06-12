@@ -35,6 +35,32 @@ Use **Glossary** for terms.
 """
 
 GLOSSARY: dict[str, str] = {
+    "xT-GK": (
+        "Expected Threat for Goalkeepers (Eyestone): values each GK distribution as base xT plus "
+        "pressure-escape, risk-adjusted, and defensive-zone components. Roughly -0.05 to +0.10 "
+        "per pass; higher = more attacking value created."
+    ),
+    "Game-Model Preset": (
+        "A named xT-GK parameter set (Possession, Counter, Direct, High Press, Low Block) that "
+        "re-values the same passes under a different team philosophy. All presets are "
+        "precomputed columns — switching is instant."
+    ),
+    "Ghost GK": (
+        "A model of where a league-average goalkeeper would stand in the same situation, "
+        "conditioned on the full tracking frame. Deviation is the distance (m) between the "
+        "actual and model-optimal position; lower = more orthodox."
+    ),
+    "Closing Time": (
+        "Minimum time (seconds) the goalkeeper needs to reach a zone (six-yard box, near post, "
+        "far post) from his current position; lower = better box command."
+    ),
+    "Reachable Area": (
+        "The area (m²) the goalkeeper can reach before any opponent, around his current position; higher = better."
+    ),
+    "Line Height": (
+        "Distance (m) of the defending team's back line from its own goal at the moment of "
+        "an action; higher = a higher line and more space behind to sweep."
+    ),
     "Bubble Map": (
         "Action density visualization where bubble area at each pitch zone represents "
         "the number of actions. Spatial binning approach per Anzer & Bauer (2021)."
@@ -326,6 +352,15 @@ PAGE_TERMS: dict[str, list[str]] = {
         "Decision Value",
     ],
     "Player-Similarity": ["Cosine Distance", "Behavioral Vector", "Statistical Vector"],
+    "Goalkeeper-Tracking": [
+        "xT-GK",
+        "Game-Model Preset",
+        "Ghost GK",
+        "Closing Time",
+        "Reachable Area",
+        "Line Height",
+        "Pitch Control",
+    ],
     "Goalkeeper-Analytics": [
         "PSxG (Post-Shot Expected Goals)",
         "Goals Prevented",
@@ -422,8 +457,9 @@ _XG_MODEL_PAGES = ("Shot-Map",)
 _MIN_PASSES_PAGES = ("Pass-Network",)
 _MIN_MINUTES_PAGES = ("Player-Impact", "Player-Comparison")
 _GK_PAGES = ("Goalkeeper-Analytics",)
+_GKT_PAGES = ("Goalkeeper-Tracking",)  # ADR-051 staging-gated page (flag-registered)
 _TRACKING_PROVIDER_PAGES = ("Pitch-Control",)
-_SUB_VIEW_PAGES = ("Player-Impact", "Movement-Pressing", "Team-Shape", "Goalkeeper-Analytics", "Tactical-Positions")
+_SUB_VIEW_PAGES = ("Player-Impact", "Movement-Pressing", "Team-Shape", "Goalkeeper-Analytics", "Tactical-Positions", "Goalkeeper-Tracking")
 _PASS_OVERLAY_PAGES = ("Pass-Map",)
 _SIMILARITY_PAGES = ("Player-Similarity",)
 _PASS_TIMING_PAGES = ("Pass-Timing",)
@@ -436,7 +472,8 @@ _CONVERSION_FUNNEL_PAGES = ("Conversion-Funnel",)
 _FILTER_HEADER_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary",
                         "Player-Impact", "Player-Comparison", "Goalkeeper-Analytics", "Movement-Pressing",
                         "Pitch-Control", "Team-Shape", "Tactical-Positions", "Pass-Timing",
-                        "Defensive-Impact", "AI-ML-Workflows", "Conversion-Funnel")
+                        "Defensive-Impact", "AI-ML-Workflows", "Conversion-Funnel",
+                        "Goalkeeper-Tracking")
 # fmt: on
 
 # ---------------------------------------------------------------------------
@@ -620,6 +657,24 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         on_search_change="gk_on_gk_player_search_change",
         search_label="Search goalkeepers",
         help="Select a goalkeeper to view their shot stopping and distribution. Only goalkeepers with GK stats are listed.",
+    ),
+    SidebarWidget(
+        "dropdown",
+        "gkt_selected_player",
+        "Goalkeeper",
+        "gkt_on_player_change",
+        condition=f"current_page in {_GKT_PAGES}",
+        lov="gkt_player_lov",
+        help="Select a goalkeeper from the tracking-data providers (GradientSports, IDSSE, SkillCorner). Only GKs with tracked actions are listed.",
+    ),
+    SidebarWidget(
+        "dropdown",
+        "gkt_selected_preset",
+        "Game-Model Preset",
+        "gkt_on_preset_change",
+        condition=f"current_page in {_GKT_PAGES}",
+        lov="gkt_preset_lov",
+        help="xT-GK philosophy preset (Eyestone): re-values every distribution under a different team game model. Switching is instant — all presets are precomputed.",
     ),
     SidebarWidget(
         "slider",

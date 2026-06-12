@@ -5212,3 +5212,255 @@ models:
       - name: ghost_gk_method
         data_type: string
         description: "Ghost-GK KDE backend that produced this row's ghost_gk_* values (scopes to ghost_gk_* only; orthogonal to pitch_control_method). NULL on event-only rows."
+
+  - name: fct_gk_tracking_actions
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Action-grain GK analytics projection of action-context, tracking providers only
+      (ADR-051, side-by-side with the legacy GK marts). Grain: one row per
+      (match_key, action_id). Carries the xT-GK distribution family, the ghost-GK /
+      box-command defensive family, pre-shot geometry, and the STORED orientation
+      reconciliation (gk_actual_x/y, gk_frame_mirrored) so no consumer re-derives it.
+    columns:
+      - name: gk_action_id
+        data_type: string
+        description: Surrogate key derived from (match_key, action_id).
+        data_tests:
+          - unique
+          - not_null
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches.
+        data_tests:
+          - not_null
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams (acting team).
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players (actor).
+      - name: defending_gk_player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players for the defending GK.
+      - name: data_source
+        data_type: string
+        description: "Tracking provider: gradientsports, idsse, skillcorner, or metrica (metrica excluded in the UI, ADR-051 section 5)."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['gradientsports', 'idsse', 'skillcorner', 'metrica']
+      - name: action_id
+        data_type: bigint
+        description: SPADL action index within match.
+        data_tests:
+          - not_null
+      - name: period_id
+        data_type: bigint
+      - name: time_seconds
+        data_type: double
+      - name: type_name
+        data_type: string
+      - name: game_state
+        data_type: string
+        description: "Game state at the time of the action: winning, losing, or drawing."
+      - name: start_x
+        data_type: double
+      - name: start_y
+        data_type: double
+      - name: end_x
+        data_type: double
+      - name: end_y
+        data_type: double
+      - name: frame_id
+        data_type: bigint
+      - name: action_result
+        data_type: string
+        description: "SPADL action result from fct_action_values (LEFT JOIN; nullable). 'success' on a shot row = goal; own goals carry 'owngoal' and never count as goals conceded."
+      - name: gk_was_distributing
+        data_type: boolean
+      - name: xt_gk
+        data_type: double
+        description: "xT-GK composite, default preset (Eyestone). GK distributions only; NULL off-domain."
+      - name: xt_gk_possession
+        data_type: double
+      - name: xt_gk_counter
+        data_type: double
+      - name: xt_gk_direct
+        data_type: double
+      - name: xt_gk_high_press
+        data_type: double
+      - name: xt_gk_low_block
+        data_type: double
+      - name: xt_gk_base
+        data_type: double
+      - name: xt_gk_pev
+        data_type: double
+        description: "Pressure Escape Value component. NOTE: =0 on unpressured restarts BY CONSTRUCTION (silly-kicks verdict 2026-06-11) — any display must caption this."
+      - name: xt_gk_rav
+        data_type: double
+      - name: xt_gk_dzv
+        data_type: double
+      - name: xt_gk_pressure
+        data_type: double
+      - name: gk_completion
+        data_type: double
+        description: "P(success) of the distribution. Populated on a SUPERSET of xt_gk rows (GS carries completion-only rows — review C1)."
+      - name: pressure_on_actor__andrienko_oval
+        data_type: double
+      - name: ghost_gk_x
+        data_type: double
+        description: Ghost-GK optimum x, canonical frame (defended goal at x~0).
+      - name: ghost_gk_y
+        data_type: double
+      - name: ghost_gk_density_spread
+        data_type: double
+      - name: ghost_gk_method
+        data_type: string
+      - name: gk_pitch_control_share_weighted
+        data_type: double
+      - name: gk_reachable_area_m2
+        data_type: double
+      - name: gk_closing_time_mean_s__six_yard_box
+        data_type: double
+      - name: gk_closing_time_min_s__six_yard_box
+        data_type: double
+      - name: gk_closing_time_mean_s__near_post
+        data_type: double
+      - name: gk_closing_time_min_s__near_post
+        data_type: double
+      - name: gk_closing_time_mean_s__far_post
+        data_type: double
+      - name: gk_closing_time_min_s__far_post
+        data_type: double
+      - name: defensive_line_x
+        data_type: double
+        description: Defending team's line x in FRAME orientation (use line_height_m for the normalized value).
+      - name: pitch_control_method
+        data_type: string
+      - name: pre_shot_gk_x
+        data_type: double
+        description: Defending GK x at the linked pre-shot frame, FRAME orientation (use gk_actual_x for canonical).
+      - name: pre_shot_gk_y
+        data_type: double
+      - name: pre_shot_gk_distance_to_goal
+        data_type: double
+        description: Stored GK distance to the defended goal — the ANCHOR for the orientation reconciliation (ADR-051 section 4).
+      - name: pre_shot_gk_distance_to_shot
+        data_type: double
+      - name: pre_shot_gk_angle_to_shot_trajectory
+        data_type: double
+      - name: pre_shot_gk_angle_off_goal_line
+        data_type: double
+      - name: gk_frame_mirrored
+        data_type: boolean
+        description: Whether the frame-oriented pre-shot values were mirrored into the canonical frame (shot rows only).
+      - name: gk_actual_x
+        data_type: double
+        description: Actual GK x at the pre-shot frame, CANONICAL frame (defended goal at x~0) — comparable with ghost_gk_x.
+      - name: gk_actual_y
+        data_type: double
+      - name: ghost_deviation_m
+        data_type: double
+        description: "Distance between actual and ghost-optimal GK position, meters (shot rows only; lower = more orthodox)."
+      - name: line_height_m
+        data_type: double
+        description: "Defensive line distance from the defended goal, meters (orientation-normalized; shot rows only)."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - match_key
+              - action_id
+
+  - name: fct_gk_tracking_stats
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      GK x match aggregates over fct_gk_tracking_actions (ADR-051). Grain: one row per
+      (gk_player_key, match_key). distribution_* aggregates cover the GK as actor;
+      defense_* aggregates cover the GK as defending_gk. Incremental merge with a
+      full-recompute body + orphan-sweep post_hook (review H1/R2).
+    columns:
+      - name: gk_match_stat_id
+        data_type: string
+        description: Surrogate key derived from (gk_player_key, match_key).
+        data_tests:
+          - unique
+          - not_null
+      - name: gk_player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players (the goalkeeper).
+        data_tests:
+          - not_null
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches.
+        data_tests:
+          - not_null
+      - name: data_source
+        data_type: string
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['gradientsports', 'idsse', 'skillcorner', 'metrica']
+      - name: n_distributions
+        data_type: bigint
+        description: GK distributions with xT-GK in this match (NULL when the GK has none).
+      - name: dist_xt_gk_mean
+        data_type: double
+        description: "Mean xT-GK per distribution, default preset. Typical -0.05..0.10; higher = better."
+      - name: dist_xt_gk_possession_mean
+        data_type: double
+      - name: dist_xt_gk_counter_mean
+        data_type: double
+      - name: dist_xt_gk_direct_mean
+        data_type: double
+      - name: dist_xt_gk_high_press_mean
+        data_type: double
+      - name: dist_xt_gk_low_block_mean
+        data_type: double
+      - name: dist_completion_mean
+        data_type: double
+        description: "Mean P(completion) of attempted distributions [0,1]; lower = riskier selection."
+      - name: dist_pressure_mean
+        data_type: double
+      - name: n_defended_actions
+        data_type: bigint
+        description: Actions defended by this GK in this match (weighting denominator for pool aggregates — review N1).
+      - name: shots_faced
+        data_type: bigint
+      - name: goals_conceded
+        data_type: bigint
+      - name: ghost_deviation_mean_m
+        data_type: double
+        description: "Mean deviation from the ghost optimum on shots faced, meters; lower = more orthodox."
+      - name: closing_min_six_yard_mean_s
+        data_type: double
+        description: "Mean minimum closing time to the six-yard box, seconds; lower = better."
+      - name: closing_min_near_post_mean_s
+        data_type: double
+      - name: closing_min_far_post_mean_s
+        data_type: double
+      - name: reachable_area_mean_m2
+        data_type: double
+        description: "Mean reachable area, m2; higher = better."
+      - name: pc_share_mean
+        data_type: double
+        description: "Mean weighted pitch-control share in the box [0,1]; higher = better."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - gk_player_key
+              - match_key
