@@ -6,7 +6,9 @@ from {{ ref('fct_gk_tracking_stats') }} s
 left join (
     select player_key, match_key, count(*) as n
     from {{ ref('fct_gk_tracking_actions') }}
-    where gk_was_distributing and xt_gk is not null and player_key is not null
+    -- MUST mirror the stats mart's distribution CTE predicate (xt_gk domain marker, NOT the
+    -- disjoint pre-shot gk_was_distributing flag) or reconciliation fails by construction.
+    where xt_gk is not null and player_key is not null
     group by player_key, match_key
 ) a on a.player_key = s.gk_player_key and a.match_key = s.match_key
 where s.n_distributions is not null and s.n_distributions != coalesce(a.n, 0)

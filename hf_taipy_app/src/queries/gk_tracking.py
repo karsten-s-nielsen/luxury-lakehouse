@@ -71,7 +71,8 @@ GK_ACTIONS_COLUMNS: tuple[str, ...] = (
     "pre_shot_gk_distance_to_shot",
     "pre_shot_gk_angle_to_shot_trajectory",
     "pre_shot_gk_angle_off_goal_line",
-    "gk_frame_mirrored",
+    # gk_frame_mirrored intentionally omitted (ADR-052): the geometry is LTR-unified upstream, the
+    # column is a contract-stable constant, and the scene overlay orients from the frame itself.
     "gk_actual_x",
     "gk_actual_y",
     "ghost_deviation_m",
@@ -140,7 +141,11 @@ def build_gk_lov_sql() -> tuple[str, tuple]:
 
 def build_gk_actions_sql(gk_player_key: str, family: str) -> tuple[str, tuple]:
     if family == "distribution":
-        where = "gk_was_distributing AND xt_gk IS NOT NULL AND player_key = %s"
+        # xt_gk (Eyestone GK-distribution value) is non-null ONLY on the acting GK's
+        # distribution actions — it is the authoritative domain marker. gk_was_distributing is
+        # a DISJOINT silly-kicks pre-shot feature on SHOT actions (was the *defending* GK
+        # distributing at a shot) and must NOT gate distribution analysis (ADR-051 follow-up).
+        where = "xt_gk IS NOT NULL AND player_key = %s"
     elif family == "defense":
         where = "defending_gk_player_key = %s"
     elif family == "shots":
@@ -198,6 +203,10 @@ def build_gk_pool_stats_sql(min_distributions: int = 10) -> tuple[str, tuple]:
         f"WHERE s.{_PROVIDER_SQL} "
         f"GROUP BY s.gk_player_key, p.player_display_name, s.data_source "
         f"HAVING SUM(COALESCE(s.n_distributions, 0)) >= %s OR SUM(COALESCE(s.shots_faced, 0)) > 0 "
+        # Deterministic order so the default selection (pool[0]) lands on the GK with the most
+        # distribution data — otherwise the headline 'Distribution Value' metrics render empty on
+        # first load for an arbitrary distribution-less keeper (n_distributions is COALESCE'd to 0).
+        f"ORDER BY n_distributions DESC, shots_faced DESC "
         f"LIMIT 500"
     )
     return sql, (*GK_TRACKING_PROVIDERS, min_distributions)
