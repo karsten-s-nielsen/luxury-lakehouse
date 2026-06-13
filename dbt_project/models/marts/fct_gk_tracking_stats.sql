@@ -49,7 +49,11 @@ distribution as (
         avg(gk_completion) as dist_completion_mean,
         avg(pressure_on_actor__andrienko_oval) as dist_pressure_mean
     from actions
-    where gk_was_distributing and xt_gk is not null and player_key is not null
+    -- xt_gk (Eyestone GK-distribution value) is non-null ONLY on the acting GK's distribution
+    -- actions (pass/goalkick) — the authoritative domain marker. gk_was_distributing is a
+    -- DISJOINT silly-kicks pre-shot feature on SHOT actions (was the *defending* GK distributing
+    -- at a shot); ANDing it here zeroed the entire distribution family (ADR-051 follow-up).
+    where xt_gk is not null and player_key is not null
     group by player_key, match_key
 ),
 

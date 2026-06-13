@@ -52,6 +52,14 @@ Adopt silly-kicks **4.26.0** as the floor everywhere (wheel **0.5.38**); regener
 - **External references:** silly-kicks 4.26.0; lakehouse handoff `tmp/silly_kicks_tracking_geometry_ltr_frame_20260612.md`
 - **Wheel:** 0.5.37 → 0.5.38 (`bump_wheel.py`, 28 files)
 
+## Amendment 1 (2026-06-13) — GK page lockstep removal completed; SC/Metrica orphan sweep
+
+The "Lockstep removal required" consequence is now **discharged** for the GK Analytics page (ADR-051, wheel **0.5.39**):
+
+- `dbt_project/macros/gk_tracking_geometry.sql` **deleted**; its calls in `fct_gk_tracking_actions.sql` replaced by the unconditional LTR→canonical projection — `gk_actual_x = 105 − pre_shot_gk_x`, `gk_actual_y = 68 − pre_shot_gk_y`, `ghost_deviation_m` = raw euclidean(pre_shot, ghost) (frame-invariant), `line_height_m = 105 − defensive_line_x`. `gk_frame_mirrored` retained as a **contract-stable constant** (`true` on shot rows) so the change stays **values-only** — no schema narrowing on the TRIGGERED-synced mart (no strand). Page (`state/gk_tracking.py`) canonicalizes the ghost inline and orients the tracking-frame overlay from `ball_x` instead of the now-dead flag.
+- Live verification (dev, regular periods): defended goal at (105, 34) — `pre_shot_gk_distance_to_goal − sqrt((105−x)²+(34−y)²)` residual = 0.0; raw ghost↔pre_shot deviation median ≈ 0.8 m. e2e: off-line 2.8 m, ghost dev 4.6 m (was the impossible ~90 m). IDSSE fully clean; **GS extra-time (period 3/4, 28 rows) remains old-frame** — known upstream issue, filtered by the page's plausibility gates.
+- **SkillCorner + Metrica were dropped from action-context** this cycle (deliberate, re-derive pending). The merge-only `fct_gk_tracking_actions` had retained 17,936 stale pre-recompute SC+Metrica orphans (old-frame); swept via the ADR-051 operator-driven orphan policy (`DELETE … WHERE data_source IN ('skillcorner','metrica')` — exact, since staging holds zero; GS/IDSSE verified 0 orphans), stats re-run cleared its post-hook orphans, both synced pipelines refreshed to IDLE. `skillcorner` stays in the page's provider set and reappears automatically on re-derive.
+
 ## Notes
 
 Mini-golden delta confirming the fix (the exact columns predicted in the handoff): `ghost_gk_x` maxd 68.1, `team_shape_centroid_x_attacking` 29.9, `defensive_line_x` 9.6, plus `ghost_gk_y`/centroid_y and the position-dependent features — all geometry, schema unchanged. The differential's legacy oracle was regenerated (not marked divergent) by recomputing `fct_tracking_context` for J03WMX p1 under 4.26.0 and re-extracting via `scripts/extract_action_context_fixture.py`.

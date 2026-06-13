@@ -5224,8 +5224,10 @@ models:
       Action-grain GK analytics projection of action-context, tracking providers only
       (ADR-051, side-by-side with the legacy GK marts). Grain: one row per
       (match_key, action_id). Carries the xT-GK distribution family, the ghost-GK /
-      box-command defensive family, pre-shot geometry, and the STORED orientation
-      reconciliation (gk_actual_x/y, gk_frame_mirrored) so no consumer re-derives it.
+      box-command defensive family, and pre-shot geometry. Per ADR-052 all per-action
+      tracking geometry is LTR-unified upstream (silly-kicks 4.26.0, defended goal at
+      x≈105); gk_actual_x/y carry the x~0 canonical projection (105−x, 68−y) so no
+      consumer re-derives orientation.
     columns:
       - name: gk_action_id
         data_type: string
@@ -5315,7 +5317,7 @@ models:
         data_type: double
       - name: ghost_gk_x
         data_type: double
-        description: Ghost-GK optimum x, canonical frame (defended goal at x~0).
+        description: "Ghost-GK optimum x, LTR action frame (defended goal at x≈105, ADR-052). For the x~0 canonical view apply 105−x; ghost_deviation_m already gives the frame-invariant distance to gk_actual."
       - name: ghost_gk_y
         data_type: double
       - name: ghost_gk_density_spread
@@ -5340,17 +5342,17 @@ models:
         data_type: double
       - name: defensive_line_x
         data_type: double
-        description: Defending team's line x in FRAME orientation (use line_height_m for the normalized value).
+        description: "Defending team's line x, LTR action frame (defended goal at x≈105, ADR-052); use line_height_m (105−x) for the goal-relative height."
       - name: pitch_control_method
         data_type: string
       - name: pre_shot_gk_x
         data_type: double
-        description: Defending GK x at the linked pre-shot frame, FRAME orientation (use gk_actual_x for canonical).
+        description: "Defending GK x at the linked pre-shot frame, LTR action frame (defended goal at x≈105, ADR-052); use gk_actual_x (105−x) for the x~0 canonical view."
       - name: pre_shot_gk_y
         data_type: double
       - name: pre_shot_gk_distance_to_goal
         data_type: double
-        description: Stored GK distance to the defended goal — the ANCHOR for the orientation reconciliation (ADR-051 section 4).
+        description: "Stored GK distance to the defended goal at (105, 34) in the LTR action frame (ADR-052); = sqrt((105−pre_shot_gk_x)² + (34−pre_shot_gk_y)²)."
       - name: pre_shot_gk_distance_to_shot
         data_type: double
       - name: pre_shot_gk_angle_to_shot_trajectory
@@ -5359,18 +5361,19 @@ models:
         data_type: double
       - name: gk_frame_mirrored
         data_type: boolean
-        description: Whether the frame-oriented pre-shot values were mirrored into the canonical frame (shot rows only).
+        description: "DEPRECATED (ADR-052): geometry is LTR-unified upstream, so the LTR→canonical map is a fixed reflection with no per-row decision. TRUE on every shot row (pre_shot present); retained for contract stability. Do NOT use for orientation."
       - name: gk_actual_x
         data_type: double
-        description: Actual GK x at the pre-shot frame, CANONICAL frame (defended goal at x~0) — comparable with ghost_gk_x.
+        description: "Actual GK x in the x~0 canonical projection (105 − pre_shot_gk_x); doubles as distance off the goal line, meters. Compare against the canonicalized ghost (105 − ghost_gk_x)."
       - name: gk_actual_y
         data_type: double
+        description: "Actual GK y in the canonical projection (68 − pre_shot_gk_y)."
       - name: ghost_deviation_m
         data_type: double
-        description: "Distance between actual and ghost-optimal GK position, meters (shot rows only; lower = more orthodox)."
+        description: "Frame-invariant distance between actual and ghost-optimal GK position, meters (shot rows only; lower = more orthodox)."
       - name: line_height_m
         data_type: double
-        description: "Defensive line distance from the defended goal, meters (orientation-normalized; shot rows only)."
+        description: "Defensive line distance from the defended goal, meters (105 − defensive_line_x; shot rows only; higher = higher line)."
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:

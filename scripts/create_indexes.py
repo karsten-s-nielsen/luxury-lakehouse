@@ -66,6 +66,11 @@ INDEXES: list[tuple[str, str, str]] = [
     ("idx_tracking_provider_match", "fct_tracking_frames_synced", "source_provider, match_id"),
     ("idx_tracking_match_frame", "fct_tracking_frames_synced", "match_id, frame"),
     ("idx_tracking_match_period_frame", "fct_tracking_frames_synced", "match_id, period, frame"),
+    # match_key-keyed scene-frame lookup for the GK tracking page (ADR-051,
+    # review M5): build_scene_frame_sql filters WHERE match_key = %s AND period
+    # = %s AND frame = %s on the ≤500 ms interaction path. The match_id variants
+    # above do NOT serve a match_key predicate — this covering index is required.
+    ("idx_tracking_match_key_period_frame", "fct_tracking_frames_synced", "match_key, period, frame"),
     # ── fct_xg_predictions_v2_synced — v2 Deep Sets + MC dropout (PR 3, ADR-013) ──
     # V2-1: competition_key for Shot Map v2 overlay queries (PK shot_id auto)
     ("idx_xg_predictions_v2_comp", "fct_xg_predictions_v2_synced", "competition_key"),
@@ -229,6 +234,17 @@ INDEXES: list[tuple[str, str, str]] = [
     ("idx_action_context_match_key", "fct_action_context_synced", "match_key"),
     ("idx_action_context_match_team_key", "fct_action_context_synced", "match_key, team_key"),
     ("idx_action_context_match_player_key", "fct_action_context_synced", "match_key, player_key"),
+    # ── fct_gk_tracking_actions_synced — GK tracking page (ADR-051) ──────
+    # 116K rows (>100K → filtered columns MUST be indexed). 3 query shapes from
+    # hf_taipy_app/src/queries/gk_tracking.py::build_gk_actions_sql:
+    #   distribution:        WHERE ... player_key = %s            ORDER BY match_key, period_id, time_seconds
+    #   defensive/pre-shot:  WHERE ... defending_gk_player_key = %s ORDER BY match_key, period_id, time_seconds
+    # match_key as the trailing index column also serves the ORDER BY. The
+    # (match_key, action_id) index covers the natural grain (dual-defense dedup).
+    # Stats mart (242 rows) needs no custom index — seq scan is optimal <50K.
+    ("idx_gk_tracking_actions_defgk_match", "fct_gk_tracking_actions_synced", "defending_gk_player_key, match_key"),
+    ("idx_gk_tracking_actions_player_match", "fct_gk_tracking_actions_synced", "player_key, match_key"),
+    ("idx_gk_tracking_actions_match_action", "fct_gk_tracking_actions_synced", "match_key, action_id"),
 ]
 
 # pgvector HNSW index definitions: (index_name, table, using_clause)

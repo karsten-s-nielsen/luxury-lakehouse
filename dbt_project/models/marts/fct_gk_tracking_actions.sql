@@ -101,26 +101,19 @@ select
     pre_shot_gk_distance_to_shot,
     pre_shot_gk_angle_to_shot_trajectory,
     pre_shot_gk_angle_off_goal_line,
-    -- computed (single-macro heuristic anchored on pre_shot_gk_distance_to_goal — review H3;
-    -- ADR-051 section 4; architecture-audit A1: canonical actual position + mirror flag are
-    -- STORED so the app never re-derives orientation)
-    case when pre_shot_gk_x is not null and pre_shot_gk_distance_to_goal is not null
-         then {{ gk_frame_mirror_flag('pre_shot_gk_x', 'pre_shot_gk_y', 'pre_shot_gk_distance_to_goal') }}
-    end as gk_frame_mirrored,
-    case when pre_shot_gk_x is not null and pre_shot_gk_distance_to_goal is not null
-         then {{ gk_actual_canonical_x('pre_shot_gk_x', 'pre_shot_gk_y', 'pre_shot_gk_distance_to_goal') }}
-    end as gk_actual_x,
-    case when pre_shot_gk_x is not null and pre_shot_gk_distance_to_goal is not null
-         then {{ gk_actual_canonical_y('pre_shot_gk_x', 'pre_shot_gk_y', 'pre_shot_gk_distance_to_goal') }}
-    end as gk_actual_y,
-    case when pre_shot_gk_x is not null and pre_shot_gk_distance_to_goal is not null
-              and ghost_gk_x is not null
-         then sqrt(
-            pow({{ gk_actual_canonical_x('pre_shot_gk_x', 'pre_shot_gk_y', 'pre_shot_gk_distance_to_goal') }} - ghost_gk_x, 2)
-          + pow({{ gk_actual_canonical_y('pre_shot_gk_x', 'pre_shot_gk_y', 'pre_shot_gk_distance_to_goal') }} - ghost_gk_y, 2))
+    -- Geometry projection (ADR-052): silly-kicks 4.26.0 unified every per-action tracking-geometry
+    -- output into the action LTR frame (defended goal at x≈105). The PR #376 residual-mirror macro
+    -- is retired — both pre_shot_gk_* and ghost_gk_* now share that single frame, so the canonical
+    -- (defended goal at x~0) projection the app draws is a fixed reflection: (105−x, 68−y). No
+    -- per-row orientation decision survives, so gk_frame_mirrored is now a contract-stable constant.
+    case when pre_shot_gk_x is not null then true end as gk_frame_mirrored,
+    case when pre_shot_gk_x is not null then 105.0 - pre_shot_gk_x end as gk_actual_x,
+    case when pre_shot_gk_y is not null then 68.0 - pre_shot_gk_y end as gk_actual_y,
+    -- frame-invariant: euclidean distance between the actual and ghost GK in their shared LTR frame
+    case when pre_shot_gk_x is not null and ghost_gk_x is not null
+         then sqrt(pow(pre_shot_gk_x - ghost_gk_x, 2) + pow(pre_shot_gk_y - ghost_gk_y, 2))
     end as ghost_deviation_m,
-    case when defensive_line_x is not null and pre_shot_gk_x is not null
-              and pre_shot_gk_distance_to_goal is not null
-         then {{ gk_line_height_m('defensive_line_x', 'pre_shot_gk_x', 'pre_shot_gk_y', 'pre_shot_gk_distance_to_goal') }}
+    case when defensive_line_x is not null
+         then 105.0 - defensive_line_x
     end as line_height_m
 from with_outcome

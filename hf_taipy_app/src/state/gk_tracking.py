@@ -211,12 +211,13 @@ def _build_bump_figure(pool: pd.DataFrame, selected_name: str | None, preset: st
             layer="below",
         )
     fig.update_layout(
-        **_LAYOUT,
+        # Wider left margin than _LAYOUT's default (l=60) for the GK name labels on
+        # each bump line; merge so this margin overrides rather than duplicating the key.
+        **{**_LAYOUT, "margin": dict(l=130, r=30, t=60, b=50)},
         height=380,
         title=f"Mean xT-GK per distribution — rank under every preset ({n_gk} GKs)",
         yaxis=dict(title="rank (1 = best)", autorange="reversed", dtick=1, gridcolor=_GRID),
         xaxis=dict(gridcolor=_GRID),
-        margin=dict(l=130, r=30, t=60, b=50),
     )
     return fig
 
@@ -288,7 +289,10 @@ def _build_dist_map(dist: pd.DataFrame, value_col: str, title: str) -> go.Figure
 
 
 def _build_scene_figure(shot: pd.Series, frame: pd.DataFrame, gk_name: str) -> go.Figure | None:
-    ghost_x, ghost_y = float(shot.ghost_gk_x), float(shot.ghost_gk_y)
+    # Post-ADR-052 ghost_gk_* and gk_actual_* live in DIFFERENT frames: ghost is raw LTR
+    # (defended goal at x≈105), gk_actual is already the x~0 canonical projection. Draw both in
+    # the canonical (goal-at-x=0) half-pitch by canonicalizing the ghost here (105-x, 68-y).
+    ghost_x, ghost_y = 105.0 - float(shot.ghost_gk_x), 68.0 - float(shot.ghost_gk_y)
     actual_x, actual_y = float(shot.gk_actual_x), float(shot.gk_actual_y)
     grid = resolve_provider().grid(
         ghost_x=ghost_x,
@@ -314,15 +318,21 @@ def _build_scene_figure(shot: pd.Series, frame: pd.DataFrame, gk_name: str) -> g
         )
     )
     if not frame.empty:
-        mirrored = bool(shot.gk_frame_mirrored)
         px = frame.x.to_numpy(float)
         py = frame.y.to_numpy(float)
+        ball_x0 = float(frame.ball_x.iloc[0]) if pd.notna(frame.ball_x.iloc[0]) else None
+        # fct_tracking_frames is per-period-ABSOLUTE (ADR-029) and post-ADR-052 the action row no
+        # longer carries the absolute orientation, so derive it from the frame itself: the shot
+        # attacks the defended goal, so flip (105-x, 68-y) when the ball — or, lacking it, the
+        # players — sits on the high-x half, putting the action on the low-x (goal-at-0) side.
+        ref_x = ball_x0 if ball_x0 is not None else float(np.nanmean(px))
+        mirrored = ref_x > 52.5
         if mirrored:
             px, py = 105.0 - px, 68.0 - py
         fig.add_trace(
             go.Scatter(x=px, y=py, mode="markers", name="Players (tracked frame)", marker=dict(size=8, color=_GREY))
         )
-        bx = float(frame.ball_x.iloc[0]) if pd.notna(frame.ball_x.iloc[0]) else None
+        bx = ball_x0
         if bx is not None:
             by = float(frame.ball_y.iloc[0])
             if mirrored:
