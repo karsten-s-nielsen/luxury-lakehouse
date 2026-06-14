@@ -79,8 +79,14 @@ undrived/conflicting flags, and it *is* the per-game validation the helper's con
   threshold (a GK's batch-median x is reliably in its own half), but it is not a unit-level decision.
 - `orient_frames_to_ltr` (the 4.27.0 helper) is unused in this path — relayed upstream.
 - **Value-changing**: a full metrica/skillcorner/GS action-context recompute + `fct_action_context`
-  rebuild is required to propagate the fix to live marts; a cross-provider AC orientation golden
-  should be added (current goldens are idsse-only — the gap that hid this).
+  rebuild was required to propagate the fix to live marts. **Done 2026-06-14**: per-provider scoped
+  recompute (GS ET-rows deleted then re-driven → ET corrected; metrica + skillcorner full → 100%
+  clean) + `fct_action_context` rebuilt via `rederive_synced_marts.py` (all 4 providers, 116,275
+  rows / 84 matches, 0 null `match_key`, synced online). A cross-provider AC orientation golden was
+  added — `src/tests/action_context/test_frame_orientation_golden.py` (idsse / skillcorner /
+  gradientsports `10517_p3` extra-time); metrica is excluded because its committed fixture's
+  `home_players` omits the GK jersey (a fixture-extraction quirk — its builder path is covered
+  transitively by skillcorner). This closes the idsse-only golden gap that hid the original bugs.
 
 ### Neutral
 
