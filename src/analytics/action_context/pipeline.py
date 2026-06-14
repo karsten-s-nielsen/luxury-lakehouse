@@ -18,6 +18,7 @@ at runtime via the FrameBundle.
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -68,6 +69,146 @@ _ACTION_TIME_BUFFER_SECONDS = 0.5
 # Metrica player ID jersey regex — compiled at module level per convention.
 _JERSEY_RE = re.compile(r"Player\s*(\d+)")
 
+logger = logging.getLogger(__name__)
+
+# Canonical SPADL pitch dimensions (metres) for the geometric LTR-orientation net.
+_PITCH_LENGTH_M = 105.0
+_PITCH_WIDTH_M = 68.0
+_PITCH_MID_X = _PITCH_LENGTH_M / 2.0
+_LTR_KNOWN_PERIODS = (1, 2, 3, 4)
+
+
+def correct_frames_to_home_ltr(
+    frames: pd.DataFrame,
+    *,
+    home_team_id: object,
+    provider: str = "",
+    game_id: object = None,
+) -> pd.DataFrame:
+    """Geometric correctness net: ensure the home team attacks +x in EVERY period.
+
+    Per-period directional anchor = the home goalkeeper's median x. A GK sits deepest in
+    its own half, so in the canonical home-attacks-right (LTR) frame the home GK must sit
+    at LOW x (home defends the x=0 goal). Any period whose home-GK median x is on the
+    attacking half (``> 52.5``) is mis-oriented; ALL its rows are point-reflected
+    (``x->105-x``, ``y->68-y``, and the velocity components ``vx->-vx``, ``vy->-vy``;
+    ``speed`` is a magnitude, unchanged). Every flip is logged at WARNING.
+
+    Unlike :func:`silly_kicks.tracking.orient_frames_to_ltr`, this reads orientation from
+    the data, so it is robust to:
+
+    * the action-context driver DEFAULTING ``home_team_start_left=True`` for
+      metrica/skillcorner (those flags are not derived in that path — a flag-based orient
+      would mis-orient ~half the games); and
+    * the per-match GS provider quirk where extra-time TRACKING coordinates are end-flipped
+      relative to the (correct) event coordinates (see ADR / project memory
+      ``reference-gs-et-flag-placeholder-unreliable``).
+
+    It also POPULATES ``team_attacking_direction`` when the builder left it null
+    (metrica/skillcorner emit ``None``); already-labeled frames (idsse/GS via
+    ``convert_to_frames``) carry ``home="ltr"`` which becomes geometrically true once any
+    mis-oriented period is corrected, so their labels are left untouched.
+
+    Args:
+        frames: Long-form tracking frames. Required columns: ``x``, ``y``, ``team_id``,
+            ``period_id``, ``is_ball``, ``is_goalkeeper``. ``vx``/``vy`` are flipped when
+            present. ``team_id`` may be any dtype (compared via ADR-019 ``ids_match``).
+        home_team_id: Home-team id matching ``frames["team_id"]`` (``"Home"`` for metrica;
+            native id otherwise).
+        provider: For log context only.
+        game_id: For log context only.
+
+    Returns:
+        A new DataFrame in home-attacks-right convention.
+    """
+    import numpy as np
+    from silly_kicks.tracking._id_compat import ids_match
+
+    if frames is None or len(frames) == 0:
+        return frames
+    required = {"x", "y", "team_id", "period_id", "is_ball", "is_goalkeeper"}
+    if not required.issubset(frames.columns):
+        return frames
+
+    out = frames.copy()
+    is_ball = out["is_ball"].astype(bool)
+    is_player = ~is_ball
+    is_home = ids_match(out["team_id"], home_team_id).fillna(False)
+    is_gk = out["is_goalkeeper"].astype(bool)
+
+    if not bool((is_player & is_home).any()):
+        # Wrong home_team_id dtype/value — refuse to guess (mis-orienting is worse than
+        # leaving as-is, and the linkage layer will surface the downstream NaN).
+        logger.error(
+            "correct_frames_to_home_ltr: home_team_id=%r matched ZERO player rows "
+            "(%s game=%s) — frames left unoriented",
+            home_team_id,
+            provider,
+            game_id,
+        )
+        return out
+
+    # Work in numpy (the read masks; .loc reads are typed Scalar by pandas-stubs). x_arr is the
+    # ORIGINAL geometry captured once — per-period flip masks are disjoint, so reading the
+    # original per period is correct even as `out` is mutated in the loop.
+    x_arr = out["x"].to_numpy(dtype="float64")
+    period_arr = out["period_id"].to_numpy()
+    home_arr = is_home.to_numpy(dtype=bool)
+    player_arr = is_player.to_numpy(dtype=bool)
+    gk_arr = is_gk.to_numpy(dtype=bool)
+
+    def _gk_median(row_mask: np.ndarray) -> float:
+        vals = x_arr[row_mask]
+        vals = vals[~np.isnan(vals)]
+        return float(np.median(vals)) if vals.size else float("nan")
+
+    has_vx, has_vy = "vx" in out.columns, "vy" in out.columns
+    flipped: list[int] = []
+    for period in out.loc[is_player, "period_id"].dropna().unique():
+        psel = player_arr & (period_arr == period)
+        home_gk_x = _gk_median(psel & home_arr & gk_arr)
+        if not np.isnan(home_gk_x):
+            needs_flip = home_gk_x > _PITCH_MID_X
+        else:
+            away_gk_x = _gk_median(psel & ~home_arr & gk_arr)
+            if np.isnan(away_gk_x):
+                logger.warning(
+                    "correct_frames_to_home_ltr: %s game=%s period=%s has no GK anchor "
+                    "(home or away) — orientation left as-is",
+                    provider,
+                    game_id,
+                    period,
+                )
+                continue
+            needs_flip = away_gk_x < _PITCH_MID_X
+        if needs_flip:
+            fmask = period_arr == period
+            out.loc[fmask, "x"] = _PITCH_LENGTH_M - x_arr[fmask]
+            out.loc[fmask, "y"] = _PITCH_WIDTH_M - out["y"].to_numpy(dtype="float64")[fmask]
+            if has_vx:
+                out.loc[fmask, "vx"] = -out["vx"].to_numpy(dtype="float64")[fmask]
+            if has_vy:
+                out.loc[fmask, "vy"] = -out["vy"].to_numpy(dtype="float64")[fmask]
+            flipped.append(int(period))
+
+    if flipped:
+        logger.warning(
+            "correct_frames_to_home_ltr: %s game=%s flipped periods %s to home-LTR "
+            "(home GK was on the attacking half — mis-oriented frames corrected)",
+            provider,
+            game_id,
+            flipped,
+        )
+
+    # Populate direction labels only when the builder left them null (metrica/skillcorner).
+    # Already-labeled frames (idsse/GS) carry home="ltr", now geometrically true post-flip.
+    if "team_attacking_direction" in out.columns and out["team_attacking_direction"].isna().all():
+        known = is_player & out["period_id"].isin(_LTR_KNOWN_PERIODS)
+        out.loc[known & is_home, "team_attacking_direction"] = "ltr"
+        out.loc[known & ~is_home, "team_attacking_direction"] = "rtl"
+
+    return out
+
 
 def _empty_result() -> pd.DataFrame:
     import pandas as pd
@@ -111,9 +252,9 @@ def _convert_tracking_batch(
             output_convention="ltr",
             preprocess=_PreprocessConfig(derive_velocity=True),
         )
-        return frames
+        result_frames = frames
 
-    if provider == "metrica":
+    elif provider == "metrica":
         game_id = int(actions["game_id"].iloc[0])
         _unique_pids = actions["player_id_native"].dropna().unique()
         _has_space = any(" " in str(p) for p in _unique_pids)
@@ -123,15 +264,15 @@ def _convert_tracking_batch(
             _m = _JERSEY_RE.match(str(_p))
             if _m:
                 _jersey_to_pid[_m.group(1)] = str(_p)
-        return _cv._bronze_metrica_to_frames(
+        result_frames = _cv._bronze_metrica_to_frames(
             pdf, game_id=game_id, jersey_to_pid=_jersey_to_pid, fallback_fmt=_fallback_fmt
         )
 
-    if provider == "skillcorner":
+    elif provider == "skillcorner":
         game_id = int(actions["game_id"].iloc[0])
-        return _cv._bronze_skillcorner_to_frames(pdf, game_id=game_id)
+        result_frames = _cv._bronze_skillcorner_to_frames(pdf, game_id=game_id)
 
-    if provider == "gradientsports":
+    elif provider == "gradientsports":
         from silly_kicks.tracking import PreprocessConfig as _PreprocessConfig
         from silly_kicks.tracking.gradientsports import convert_to_frames as _gs_convert_to_frames
 
@@ -167,10 +308,20 @@ def _convert_tracking_batch(
         )
         # convert_to_frames forces GS player_id/team_id to Int64; downstream compares
         # against native-STRING action ids, so realign (Int64(366) == "366" is False).
-        return _cv._coerce_gradientsports_frame_ids_to_native_str(frames)
+        result_frames = _cv._coerce_gradientsports_frame_ids_to_native_str(frames)
 
-    msg = f"Unknown tracking provider: {provider}"
-    raise ValueError(msg)
+    else:
+        msg = f"Unknown tracking provider: {provider}"
+        raise ValueError(msg)
+
+    # Universal geometric correctness net (ADR / project memory
+    # reference-ac-frame-orientation-per-provider + reference-gs-et-flag-placeholder-unreliable):
+    # orient metrica/skillcorner from absolute (their builders emit absolute frames + null
+    # direction; the action-context driver does NOT derive home_team_start_left for them) AND
+    # correct the per-match GS extra-time provider flip — all from frame geometry, no flag.
+    # No-op for already-correct frames (idsse, and most GS/metrica/skillcorner periods).
+    _gid = actions["game_id"].iloc[0] if "game_id" in actions.columns and len(actions) else None
+    return correct_frames_to_home_ltr(result_frames, home_team_id=meta.home_team_id, provider=provider, game_id=_gid)
 
 
 def compute_ownership_anchors(
