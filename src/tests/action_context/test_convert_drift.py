@@ -27,8 +27,11 @@ def _ast_of(fn) -> str:
     return ast.dump(ast.parse(textwrap.dedent(inspect.getsource(fn))))
 
 
-def test_idsse_converter_no_drift() -> None:
-    assert _ast_of(new._bronze_idsse_to_sportec_input) == _ast_of(tc_legacy._bronze_idsse_to_sportec_input)
+# NOTE: test_idsse_converter_no_drift was removed under delete-and-depend
+# (ADR-031 T3 / Gate B): both copies of `_bronze_idsse_to_sportec_input`
+# (AC-1 + legacy tracking_context) are deleted — the IDSSE tracking path now
+# calls the silly-kicks port `shape_tracking_to_native`, so there is no longer
+# a lakehouse copy to drift-guard. The metrica/skillcorner/GS copies remain.
 
 
 def test_metrica_converter_no_drift() -> None:
@@ -90,7 +93,7 @@ def test_gradientsports_converter_no_drift() -> None:
 
 
 def test_consumed_cols_constants_match() -> None:
-    assert new._IDSSE_CONSUMED_COLS == tc_legacy._IDSSE_CONSUMED_COLS
+    # _IDSSE_CONSUMED_COLS deleted from both copies (delete-and-depend, ADR-031 T3).
     assert new._METRICA_CONSUMED_COLS == tc_legacy._METRICA_CONSUMED_COLS
     assert new._SKILLCORNER_CONSUMED_COLS == tc_legacy._SKILLCORNER_CONSUMED_COLS
     assert new._SKILLCORNER_PERIOD_START_SECONDS == tc_legacy._SKILLCORNER_PERIOD_START_SECONDS

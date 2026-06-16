@@ -238,10 +238,11 @@ def _convert_tracking_batch(
     from analytics.action_context import convert as _cv
 
     if provider == "idsse":
+        from silly_kicks.providers.sportec import shape_tracking_to_native
         from silly_kicks.tracking import PreprocessConfig as _PreprocessConfig
         from silly_kicks.tracking.sportec import convert_to_frames as _convert_to_frames
 
-        sportec_input = _cv._bronze_idsse_to_sportec_input(pdf)
+        sportec_input = shape_tracking_to_native(pdf)
         if len(pdf) > _GC_COLLECT_MIN_ROWS:
             _gc.collect()
         frames, _report = _convert_to_frames(

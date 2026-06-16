@@ -883,12 +883,12 @@ def _make_idsse_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
     def _udf(pdf: pd.DataFrame) -> pd.DataFrame:
         """Convert one IDSSE match's events to SPADL actions."""
         import pandas as _pd
+        from silly_kicks.providers.sportec import (
+            shape_events_to_native as _adapt,
+        )
 
         from ingestion.spadl_adapter import (
             UNKNOWN_TEAM_SENTINEL as _SENTINEL,
-        )
-        from ingestion.spadl_adapter import (
-            adapt_idsse_events_for_silly_kicks as _adapt,
         )
         from ingestion.spadl_adapter import (
             hash_native_id_to_bigint as _hash_id,
@@ -995,7 +995,7 @@ def _make_idsse_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
             # silly-kicks 4.0.0 (PR-S70): symmetric ET guard requires the ET-direction
             # flag too. Derive from the extraTimeFirstHalf KickOff event when ET periods
             # exist; otherwise None (silly-kicks 4.0 accepts None when no ET present).
-            from ingestion.spadl_adapter import (
+            from silly_kicks.providers.sportec import (
                 derive_idsse_home_team_start_left,
                 derive_idsse_home_team_start_left_extratime,
             )

@@ -619,7 +619,10 @@ def test_udf_logs_error_on_exception(caplog) -> None:
     mock_frames = pd.DataFrame({"game_id": [1], "frame_id": [0]})
     with (
         patch(
-            "ingestion.tracking_context._bronze_idsse_to_sportec_input",
+            # IDSSE tracking shaping moved to the silly-kicks DFL parse port
+            # (delete-and-depend, ADR-031 T3 / Gate B); the UDF imports it
+            # locally, so patch the port source.
+            "silly_kicks.providers.sportec.shape_tracking_to_native",
             return_value=pd.DataFrame({"col": [1]}),
         ),
         patch(

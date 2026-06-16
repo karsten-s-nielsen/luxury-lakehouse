@@ -16,26 +16,6 @@ import numpy as np
 if TYPE_CHECKING:
     import pandas as pd
 
-_IDSSE_CONSUMED_COLS = frozenset(
-    {
-        "ball_x",
-        "timestamp",
-        "ball_z",
-        "player_id",
-        "period",
-        "match_id",
-        "ball_s",
-        "is_goalkeeper",
-        "team_id",
-        "frame_rate",
-        "ball_y",
-        "frame",
-        "s",
-        "y",
-        "x",
-        "ball_status",
-    }
-)
 _METRICA_CONSUMED_COLS = frozenset(
     {
         "ball_x",
@@ -151,131 +131,6 @@ def _derive_velocities_savgol(
     frames["speed"] = np.sqrt(frames["vx"] ** 2 + frames["vy"] ** 2)
 
 
-def _bronze_idsse_to_sportec_input(trk_pdf: pd.DataFrame) -> pd.DataFrame:
-    """Map bronze ``idsse_tracking`` columns to silly-kicks sportec input schema.
-
-    Bronze ``idsse_tracking`` stores one row per player per frame with ball
-    data denormalized as ``ball_x``/``ball_y``/``ball_z``/``ball_status``
-    columns on every player row.  ``convert_to_frames`` expects the sportec
-    ``EXPECTED_INPUT_COLUMNS`` schema which includes separate ball rows
-    (``is_ball=True``, ``player_id=NaN``, ``team_id=NaN``).
-
-    Column mapping (bronze → sportec input):
-
-    +--------------+--------------+--------------------------------------+
-    | Bronze       | Sportec      | Notes                                |
-    +--------------+--------------+--------------------------------------+
-    | match_id     | game_id      | rename                               |
-    | period       | period_id    | rename                               |
-    | frame        | frame_id     | rename                               |
-    | timestamp    | time_seconds | rename                               |
-    | x            | x_centered   | already DFL-centered (±52.5)         |
-    | y            | y_centered   | already DFL-centered (±34.0)         |
-    | s            | speed_native | rename                               |
-    | ball_status  | ball_state   | ``0``→``dead``, ``1``→``alive``,     |
-    |              |              | legacy ``Alive``/``Dead`` lowercased |
-    | frame_rate   | frame_rate   | identity                             |
-    | player_id    | player_id    | identity                             |
-    | team_id      | team_id      | identity                             |
-    | is_goalkeeper| is_goalkeeper| identity                             |
-    +--------------+--------------+--------------------------------------+
-
-    Synthetic ball rows are created by deduplicating
-    ``(frame, period)`` and pivoting ``ball_x``/``ball_y``/``ball_z``
-    into ``x_centered``/``y_centered``/``z``.  Player rows get
-    ``z=NaN`` (DFL does not provide z for non-ball objects).
-    """
-    import pandas as pd
-
-    # Filter to consumed columns — runtime assertion against drift.
-    trk_pdf = trk_pdf[list(_IDSSE_CONSUMED_COLS)].copy()
-
-    # ── Player rows ──────────────────────────────────────────────
-    players = trk_pdf.rename(
-        columns={
-            "match_id": "game_id",
-            "period": "period_id",
-            "frame": "frame_id",
-            "timestamp": "time_seconds",
-            "x": "x_centered",
-            "y": "y_centered",
-            "s": "speed_native",
-            "ball_status": "ball_state",
-        },
-    ).copy()
-    players["is_ball"] = False
-    players["z"] = np.nan
-
-    # ball_state: DFL XML BallStatus is "0" (dead) / "1" (alive) in IDSSE;
-    # infer_ball_carrier checks `bs == "dead"`.  Map before lowercasing so
-    # both legacy "Alive"/"Dead" and IDSSE "0"/"1" resolve correctly.
-    _ball_status_map = {"0": "dead", "1": "alive"}
-    bs = players["ball_state"]
-    players["ball_state"] = bs.map(_ball_status_map).fillna(bs.str.lower()).where(bs.notna(), other=None)  # type: ignore[arg-type]  # None→NA fill is valid at runtime; pandas-stubs over-narrows `other`
-
-    # ── Synthetic ball rows (one per frame) ──────────────────────
-    ball_src = trk_pdf[
-        [
-            "frame",
-            "period",
-            "timestamp",
-            "ball_x",
-            "ball_y",
-            "ball_z",
-            "ball_s",
-            "ball_status",
-            "match_id",
-            "frame_rate",
-        ]
-    ].copy()
-    ball_src = ball_src.drop_duplicates(subset=["frame", "period"])
-    ball_src.rename(
-        columns={
-            "match_id": "game_id",
-            "frame": "frame_id",
-            "period": "period_id",
-            "timestamp": "time_seconds",
-            "ball_x": "x_centered",
-            "ball_y": "y_centered",
-            "ball_z": "z",
-            "ball_s": "speed_native",
-            "ball_status": "ball_state",
-        },
-        inplace=True,
-    )
-    bs_ball = ball_src["ball_state"]
-    ball_src["ball_state"] = (
-        bs_ball.map(_ball_status_map).fillna(bs_ball.str.lower()).where(bs_ball.notna(), other=None)  # type: ignore[arg-type]  # None→NA fill is valid at runtime; pandas-stubs over-narrows `other`
-    )
-    ball_src["player_id"] = None
-    ball_src["team_id"] = None
-    ball_src["is_ball"] = True
-    ball_src["is_goalkeeper"] = False
-
-    # ── Combine and select only EXPECTED_INPUT_COLUMNS ───────────
-    expected_cols = [
-        "game_id",
-        "period_id",
-        "frame_id",
-        "time_seconds",
-        "frame_rate",
-        "player_id",
-        "team_id",
-        "is_ball",
-        "is_goalkeeper",
-        "x_centered",
-        "y_centered",
-        "z",
-        "speed_native",
-        "ball_state",
-    ]
-    result = pd.concat(
-        [players[expected_cols], ball_src[expected_cols]],
-        ignore_index=True,
-    )
-    return result.sort_values(["frame_id", "is_ball"]).reset_index(drop=True)
-
-
 def _bronze_metrica_to_frames(
     trk_pdf: pd.DataFrame,
     game_id: int,
@@ -291,7 +146,7 @@ def _bronze_metrica_to_frames(
 
     COORDINATE CONVERSION: Metrica 0-1 normalized → SPADL 105x68 meters.
     - x_spadl = x_01 * 105.0
-    - y_spadl = (1 - y_01) * 68.0  (Metrica y-axis is flipped: 0=top, 1=bottom)
+    - y_spadl = y_01 * 68.0  (Metrica y is already SPADL bottom-to-top — NO flip; verified live vs event y)
 
     Do NOT use metrica_to_statsbomb() — that produces 120x80 StatsBomb yards,
     not 105x68 SPADL meters. silly-kicks TRACKING_CONSTRAINTS require (0,105)x(0,68).
@@ -332,7 +187,7 @@ def _bronze_metrica_to_frames(
                 if isinstance(coords, dict) and "x" in coords and "y" in coords:
                     # Direct Metrica 0-1 → SPADL 105x68 (NOT StatsBomb 120x80)
                     x_spadl = float(coords["x"]) * 105.0
-                    y_spadl = (1.0 - float(coords["y"])) * 68.0
+                    y_spadl = float(coords["y"]) * 68.0
                     rows.append(
                         {
                             "game_id": game_id,
@@ -360,7 +215,7 @@ def _bronze_metrica_to_frames(
                     "player_id": None,
                     "team_id": None,
                     "x": float(bx) * 105.0,
-                    "y": (1.0 - float(by)) * 68.0,
+                    "y": float(by) * 68.0,
                     "is_goalkeeper": False,
                     "is_ball": True,
                 }

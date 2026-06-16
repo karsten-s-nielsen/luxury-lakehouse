@@ -70,10 +70,15 @@ def _adapt_and_convert(source: str, df: pd.DataFrame) -> pd.DataFrame:
         adapted = adapt_wyscout_events(df)
         actions, _ = silly_kicks.spadl.wyscout.convert_to_actions(adapted, home_team_id=home_team_id)
     elif source == "idsse":
-        from ingestion.spadl_adapter import adapt_idsse_events_for_silly_kicks, derive_idsse_home_team_start_left
+        # IDSSE shaper + deriver moved to the silly-kicks DFL parse port
+        # under delete-and-depend (ADR-031 T3 / Gate B).
+        from silly_kicks.providers.sportec import (
+            derive_idsse_home_team_start_left,
+            shape_events_to_native,
+        )
 
         df = df[~((df["period"] == 2) & (df["timestamp_seconds"] < 0))].reset_index(drop=True)
-        adapted = adapt_idsse_events_for_silly_kicks(df)
+        adapted = shape_events_to_native(df)
         home_team_id_native = str(df["home_team_id_native"].dropna().iloc[0])
         home_start_left = derive_idsse_home_team_start_left(adapted, home_team_id_native)
         actions, _ = silly_kicks.spadl.sportec.convert_to_actions(

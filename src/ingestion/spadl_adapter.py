@@ -8,7 +8,9 @@ serialized bronze column layout and the DataFrame shape that silly-kicks'
 Supported sources:
   - StatsBomb        (``adapt_statsbomb_events``, ``resolve_statsbomb_home_team_ids``)
   - Wyscout          (``adapt_wyscout_events``,   ``resolve_wyscout_home_team_ids``)
-  - IDSSE            (``adapt_idsse_events_for_silly_kicks``)
+  - IDSSE            (moved to the silly-kicks DFL parse port
+                       ``silly_kicks.providers.sportec.shape_events_to_native``
+                       under delete-and-depend, ADR-031 T3 / Gate B)
   - Metrica          (``adapt_metrica_events_for_silly_kicks``)
   - Gradient Sports  (``adapt_gradientsports_events``, ``extract_gradientsports_match_metadata``)
 """
@@ -248,42 +250,6 @@ def resolve_wyscout_home_team_ids(matches_pdf: pd.DataFrame) -> dict[int, int]:
 # each row's acting team lands in the ``team_id_native`` SPADL column.
 
 
-def adapt_idsse_events_for_silly_kicks(events_pdf: pd.DataFrame) -> pd.DataFrame:
-    """Convert bronze ``idsse_events`` rows to silly-kicks 1.7.0 sportec input.
-
-    Near-identity passthrough — bronze already stores the column names
-    silly-kicks expects (``match_id, event_id, event_type, period,
-    timestamp_seconds, player_id, team, x, y`` + optional qualifier columns
-    via the DFL ``_RECOGNIZED_QUALIFIER_COLUMNS`` set). Returns a copy so
-    silly-kicks's internal mutations don't leak back to the caller.
-
-    DFL XML set-piece / foul events store team/player attribution in
-    event-type-specific qualifier columns (``play_team``, ``throwin_team``,
-    ``foul_team_fouler``, ``play_player``, ``foul_fouler``) rather than the
-    generic ``team`` / ``player_id`` attributes.  This adapter resolves
-    ``team='unknown'`` and empty ``player_id`` from those qualifiers so that
-    silly-kicks receives proper values and the downstream SPADL output has
-    correct team/player attribution for all event types.
-
-    Args:
-        events_pdf: DataFrame read from the ``bronze.idsse_events`` Delta
-            table.
-
-    Returns:
-        Adapted DataFrame ready for ``silly_kicks.spadl.sportec.
-        convert_to_actions(events, home_team_id='home')``.
-    """
-    # silly-kicks's converter mutates+writes intermediate columns on its
-    # input — return a copy to honor the "input not mutated" contract that
-    # silly-kicks's own tests assert.
-    df = events_pdf.copy()
-
-    _resolve_idsse_team_from_qualifiers(df)
-    _resolve_idsse_player_from_qualifiers(df)
-
-    return df
-
-
 # -- DFL qualifier column priority for team resolution --------------------
 # Each tuple: (qualifier_column, contains_dfl_clu_id).
 # Columns that carry a DFL CLU id need home/away resolution; columns that
@@ -421,11 +387,10 @@ def adapt_metrica_events_for_silly_kicks(events_pdf: pd.DataFrame) -> pd.DataFra
 # ``home_team_start_left: bool`` on ``convert_to_actions(...)``. Bronze
 # storage of this flag varies per provider:
 #
-#   IDSSE / Sportec — AUTHORITATIVE: DFL XML's ``<KickOff>`` element ships
-#     ``TeamLeft`` and ``TeamRight`` attributes per game-section. Our IDSSE
-#     parser captures these as ``kickoff_team_left`` / ``kickoff_team_right``
-#     columns on KickOff event rows. ``derive_idsse_home_team_start_left``
-#     reads the firstHalf KickOff row and compares to the home team native id.
+#   IDSSE / Sportec — AUTHORITATIVE: moved to the silly-kicks DFL parse port
+#     (``silly_kicks.providers.sportec.derive_idsse_home_team_start_left``)
+#     under delete-and-depend (ADR-031 T3 / Gate B). The lakehouse no longer
+#     owns the IDSSE deriver — production callers import it from the port.
 #
 #   Metrica — EMPIRICAL: bronze does not capture a per-period direction flag.
 #     ``derive_metrica_home_team_start_left`` infers from period-1 SHOT
@@ -433,50 +398,6 @@ def adapt_metrica_events_for_silly_kicks(events_pdf: pd.DataFrame) -> pd.DataFra
 #     toward the right goal in period 1 (i.e., home defends the LEFT goal,
 #     so home_team_start_left=True). Falls back to all home period-1 events
 #     when shots are sparse, then raises if no usable signal exists.
-
-
-def derive_idsse_home_team_start_left(events: pd.DataFrame, home_team_id_native: str) -> bool:
-    """Derive ``home_team_start_left`` for an IDSSE / Sportec match from bronze.
-
-    Reads the firstHalf ``KickOff`` event's ``kickoff_team_left`` attribute
-    (captured by the IDSSE bronze parser from the DFL XML) and compares it to
-    the home team's native id. AUTHORITATIVE — ground truth from the source
-    XML, not derived from event positions.
-
-    Parameters
-    ----------
-    events : pd.DataFrame
-        IDSSE adapted DataFrame (post ``adapt_idsse_events_for_silly_kicks``).
-        Must contain ``event_type``, ``kickoff_game_section``,
-        ``kickoff_team_left`` columns.
-    home_team_id_native : str
-        Home team's DFL native id (e.g., ``"DFL-CLU-000008"``).
-
-    Returns
-    -------
-    bool
-        True iff the home team is positioned on the LEFT side of the pitch
-        in the first half (and thus attacks toward the right goal).
-
-    Raises
-    ------
-    RuntimeError
-        No firstHalf KickOff row found, or its ``kickoff_team_left`` is null.
-    """
-    first_half_kickoffs = events[
-        (events["event_type"] == "KickOff")
-        & (events["kickoff_game_section"] == "firstHalf")
-        & events["kickoff_team_left"].notna()
-    ]
-    if first_half_kickoffs.empty:
-        msg = (
-            "IDSSE: no firstHalf KickOff row with kickoff_team_left found. "
-            "Cannot derive home_team_start_left for silly-kicks 3.0.1 "
-            "convert_to_actions(...)."
-        )
-        raise RuntimeError(msg)
-    team_left = str(first_half_kickoffs["kickoff_team_left"].iloc[0])
-    return team_left == home_team_id_native
 
 
 def derive_metrica_home_team_start_left(
@@ -545,11 +466,10 @@ def derive_metrica_home_team_start_left(
 # {3, 4} but no ``home_team_start_left_extratime``. To stay correct under 4.0.0
 # the lakehouse must derive that flag per provider:
 #
-#   IDSSE / Sportec — AUTHORITATIVE: DFL XML's ``<KickOff GameSection=...>``
-#     ships ``TeamLeft`` for extraTimeFirstHalf (period 3) and
-#     extraTimeSecondHalf (period 4). Mirrors the period-1 derivation; the
-#     bronze parser (src/ingestion/idsse.py:_SECTION_TO_PERIOD) already maps
-#     these section names to periods 3/4.
+#   IDSSE / Sportec — AUTHORITATIVE: moved to the silly-kicks DFL parse port
+#     (``silly_kicks.providers.sportec.derive_idsse_home_team_start_left_extratime``)
+#     under delete-and-depend (ADR-031 T3 / Gate B). Production callers import
+#     it from the port; the lakehouse no longer owns the IDSSE ET deriver.
 #
 #   Metrica — EMPIRICAL: bronze has no per-period direction flag. Mirror the
 #     period-1 inference using period-3 SHOT positions.
@@ -557,68 +477,6 @@ def derive_metrica_home_team_start_left(
 # Returns ``None`` when the match has no ET periods — that's the correct value
 # to pass through; silly-kicks 4.0 accepts ``None`` if no ET data is present
 # and only raises when both signals are missing simultaneously.
-
-
-def derive_idsse_home_team_start_left_extratime(events: pd.DataFrame, home_team_id_native: str) -> bool | None:
-    """Derive ``home_team_start_left_extratime`` for an IDSSE / Sportec match.
-
-    Reads the ``extraTimeFirstHalf`` (or fallback ``extraTimeSecondHalf``)
-    KickOff event's ``kickoff_team_left`` attribute. AUTHORITATIVE — ground
-    truth from DFL XML, not derived from positions.
-
-    Returns ``None`` when the match has no ET periods (none of the ET
-    KickOff sections present); a ``None`` value is safe to pass to silly-kicks
-    4.0+ because its guard only raises when ET periods AND flag-is-None
-    coincide. Raises if ET periods are recorded but the KickOff metadata is
-    missing — that's an ingestion-data-integrity error, not a no-op.
-
-    Parameters
-    ----------
-    events : pd.DataFrame
-        IDSSE adapted DataFrame (post ``adapt_idsse_events_for_silly_kicks``).
-        Must contain ``event_type``, ``kickoff_game_section``,
-        ``kickoff_team_left``; should contain ``period_id`` for the strict
-        check (treated as no-ET when missing).
-    home_team_id_native : str
-        Home team's DFL native id.
-
-    Returns
-    -------
-    bool | None
-        True iff the home team is on the LEFT side at the start of ET.
-        None when this match has no ET periods.
-
-    Raises
-    ------
-    RuntimeError
-        ET periods recorded in ``events["period_id"]`` but no ET KickOff row
-        with non-null ``kickoff_team_left`` found in ``events``.
-    """
-    # No-op: match has no ET periods (zero IDSSE matches in lakehouse bronze
-    # have ET as of 2026-05-30; this branch is the steady-state today).
-    has_et_periods = "period_id" in events.columns and events["period_id"].isin([3, 4]).any()
-
-    et_kickoffs = events[
-        (events["event_type"] == "KickOff")
-        & (events["kickoff_game_section"].isin(("extraTimeFirstHalf", "extraTimeSecondHalf")))
-        & events["kickoff_team_left"].notna()
-    ]
-    if et_kickoffs.empty:
-        if has_et_periods:
-            msg = (
-                "IDSSE: events contain ET periods (period_id in {3, 4}) but no "
-                "ET KickOff event (GameSection in {extraTimeFirstHalf, extraTimeSecondHalf}) "
-                "with non-null kickoff_team_left found. Cannot derive "
-                "home_team_start_left_extratime — ingestion-data-integrity error."
-            )
-            raise RuntimeError(msg)
-        return None
-
-    # Prefer period-3 (extraTimeFirstHalf) KickOff; fall back to period-4.
-    p3_kickoffs = et_kickoffs[et_kickoffs["kickoff_game_section"] == "extraTimeFirstHalf"]
-    chosen = p3_kickoffs.iloc[0] if not p3_kickoffs.empty else et_kickoffs.iloc[0]
-    team_left = str(chosen["kickoff_team_left"])
-    return team_left == home_team_id_native
 
 
 def derive_metrica_home_team_start_left_extratime(
