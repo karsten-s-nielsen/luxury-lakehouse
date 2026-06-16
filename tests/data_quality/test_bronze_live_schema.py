@@ -51,7 +51,6 @@ from __future__ import annotations
 import logging
 import os
 import sys
-import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -103,43 +102,18 @@ def _live_bronze_cols(conn: object, table: str) -> set[str]:
 
 
 def _idsse_events_expected_cols() -> set[str]:
-    """Run the IDSSE events parser on the fixture synthetic XML and collect keys.
+    """The IDSSE events parser's full bronze column set.
 
-    Matches the existing ``test_idsse_bronze_coverage.py`` pattern — single
-    source of truth for what the parser emits.
+    Since the DFL parser was lifted to the silly-kicks parse port (ADR-055,
+    delete-and-depend), the lakehouse-side source of truth for the expected
+    events-bronze columns is the ``_IDSSE_EVENTS_BRONZE_COLS`` constant that
+    ``finalize_bronze_df`` enforces on every write — mirrors the tracking test
+    below (which uses ``_IDSSE_TRACKING_BRONZE_COLS``).
     """
-    import pandas as pd
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+    from ingestion.idsse import _IDSSE_EVENTS_BRONZE_COLS
 
-    _repo_root = Path(__file__).resolve().parents[2]
-    _src_tests = _repo_root / "src" / "tests"
-    # Make src importable when running via `uv run pytest`
-    sys.path.insert(0, str(_repo_root / "src"))
-    from ingestion.idsse import _parse_events_xml
-
-    # Reuse the coverage test's synthetic-XML generator (lives in src/tests/)
-    sys.path.insert(0, str(_src_tests))
-    from coverage_utils import load_attr_enumeration
-
-    try:
-        from test_idsse_bronze_coverage import _generate_synthetic_xml
-    except ImportError:
-        from tests.test_idsse_bronze_coverage import _generate_synthetic_xml  # type: ignore
-
-    fixture = _src_tests / "fixtures" / "idsse_dfl_event_attr_enumeration.json"
-    enum = load_attr_enumeration(fixture)
-    xml_text = _generate_synthetic_xml(enum)
-
-    fd, path = tempfile.mkstemp(suffix=".xml")
-    os.close(fd)
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(xml_text)
-        rows = _parse_events_xml(path, {}, "TEST", _LOGGER)
-    finally:
-        os.unlink(path)
-
-    df = pd.DataFrame(rows)
-    return set(df.columns)
+    return set(_IDSSE_EVENTS_BRONZE_COLS)
 
 
 # Audit columns added post-parser by write_delta_table.add_audit_columns.
