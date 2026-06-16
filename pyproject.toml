@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.5.40"
+version = "0.5.42"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -41,7 +41,7 @@ dependencies = [
 
 [project.optional-dependencies]
 spadl = [
-    "silly-kicks[das,ghost-gk]>=4.27.0,<5",
+    "silly-kicks[das,ghost-gk,parse-dfl]>=4.30.0,<5",
 ]
 analytics = [
     "luxury-lakehouse[spadl]",
@@ -126,7 +126,9 @@ taipy-app = [
 ]
 # NOTE: kloppy (SkillCorner tracking) is NOT listed here — it runs in a separate
 # Databricks task environment defined in terraform/modules/workflows/main.tf.
-# IDSSE tracking uses stdlib xml.etree.ElementTree and needs no extra dependencies.
+# IDSSE/Sportec DFL parsing is delegated to the silly-kicks parse port (ADR-055,
+# delete-and-depend): the `silly-kicks[das,ghost-gk,parse-dfl]` dep above carries it
+# (the `[parse-dfl]` extra). The lakehouse no longer parses DFL XML directly.
 [project.scripts]
 ingest_statsbomb = "ingestion.statsbomb:main"
 ingest_metrica = "ingestion.metrica:main"

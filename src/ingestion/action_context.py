@@ -1448,16 +1448,16 @@ def _process_tracking_match(
     gs_gk_player_ids: list[str] | None = None
 
     if provider == "idsse":
-        from ingestion.spadl_adapter import (
-            adapt_idsse_events_for_silly_kicks,
+        from silly_kicks.providers.sportec import (
             derive_idsse_home_team_start_left,
             derive_idsse_home_team_start_left_extratime,
+            shape_events_to_native,
         )
 
         hb.set_phase("toPandas_idsse_events")
         events_pdf = spark.table(f"{catalog}.bronze.idsse_events").filter(F.col("match_id") == match_id).toPandas()
         home_team_id = str(events_pdf["home_team_id_native"].dropna().iloc[0])
-        adapted_events = adapt_idsse_events_for_silly_kicks(events_pdf)
+        adapted_events = shape_events_to_native(events_pdf)
         home_start_left = derive_idsse_home_team_start_left(adapted_events, home_team_id)
         home_team_start_left_extratime = derive_idsse_home_team_start_left_extratime(adapted_events, home_team_id)
         del events_pdf, adapted_events

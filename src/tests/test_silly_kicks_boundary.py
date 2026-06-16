@@ -66,16 +66,20 @@ def _adapt_input(source: str, df: pd.DataFrame) -> tuple[pd.DataFrame, object]:
         home_team_id = int(df["teamId"].dropna().iloc[0])
         return adapt_wyscout_events(df), home_team_id
     if source == "idsse":
-        from ingestion.spadl_adapter import adapt_idsse_events_for_silly_kicks
+        # IDSSE events shaping moved to the silly-kicks DFL parse port under
+        # delete-and-depend (ADR-031 T3 / Gate B). bronze.idsse_events is the
+        # port's bronze shape (parity-guarded), so the port's
+        # `shape_events_to_native` is the production adapter here.
+        from silly_kicks.providers.sportec import shape_events_to_native
 
         # Drop bronze period-misclassification artifacts pre-bronze-rebuild
         # (Bug #6 — pre-2pass-parser; ~27-41 rows per match in pre-fix bronze).
         # The boundary test exists to catch silly-kicks API drift, not to
-        # surface our bronze parser bugs (covered by test_idsse_period_derivation).
+        # surface our bronze parser bugs.
         # After Phase H bronze re-ingest with the 2-pass parser, this filter
         # is a no-op (no negative-timestamp rows in re-ingested bronze).
         df = df[~((df["period"] == 2) & (df["timestamp_seconds"] < 0))].reset_index(drop=True)
-        return adapt_idsse_events_for_silly_kicks(df), "home"
+        return shape_events_to_native(df), "home"
     if source == "metrica":
         from ingestion.spadl_adapter import adapt_metrica_events_for_silly_kicks
 
@@ -98,7 +102,7 @@ def _call_converter(source: str, converter, adapted: pd.DataFrame, hti, df: pd.D
     in ``src/ingestion/spadl_conversion.py``.
     """
     if source == "idsse":
-        from ingestion.spadl_adapter import derive_idsse_home_team_start_left
+        from silly_kicks.providers.sportec import derive_idsse_home_team_start_left
 
         home_team_id_native = str(df["home_team_id_native"].dropna().iloc[0])
         home_start_left = derive_idsse_home_team_start_left(adapted, home_team_id_native)

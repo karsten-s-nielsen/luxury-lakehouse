@@ -8,10 +8,14 @@ import json
 import pandas as pd
 import pytest
 
+# IDSSE events shaping moved to the silly-kicks DFL parse port under
+# delete-and-depend (ADR-031 T3 / Gate B). The integration test below now
+# exercises the port's `shape_events_to_native` (the production adapter).
+from silly_kicks.providers.sportec import shape_events_to_native as adapt_idsse_events_for_silly_kicks
+
 from ingestion.spadl_adapter import (
     _resolve_idsse_player_from_qualifiers,
     _resolve_idsse_team_from_qualifiers,
-    adapt_idsse_events_for_silly_kicks,
     adapt_statsbomb_events,
     adapt_wyscout_events,
     resolve_statsbomb_home_team_ids,

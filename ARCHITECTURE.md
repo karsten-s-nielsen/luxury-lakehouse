@@ -57,7 +57,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • statsbombpy → competitions, matches, events, lineups, 360     │    │
 │  │  • requests → Metrica sample-data CSV + EPTS                     │    │
 │  │  • requests → Wyscout public JSON datasets                       │    │
-│  │  • xml.etree → IDSSE DFL position XML from UC Volume             │    │
+│  │  • silly-kicks parse port → IDSSE DFL XML (ADR-055)              │    │
 │  │  • kloppy → SkillCorner broadcast tracking from open data        │    │
 │  │  • pining-for-the-data → Gradient Sports events + tracking*      │    │
 │  │  • spadl_vaep → SPADL conversion + VAEP scoring from bronze      │    │
@@ -523,7 +523,7 @@ luxury-lakehouse/
 │   │   ├── formations_efpi.py        # EFPI template-matching formation detection
 │   │   ├── formations_shape_graph.py # Shape graph geometric formation detection
 │   │   ├── hf_jobs_cost.py           # HFJobsCostRecorder for HF Jobs scripts
-│   │   ├── idsse.py                  # IDSSE Bundesliga DFL tracking + events (7 matches, stdlib XML)
+│   │   ├── idsse.py                  # IDSSE Bundesliga DFL ingest (7 matches; parse via silly-kicks port, ADR-055)
 │   │   ├── import_obso_results.py    # Import OBSO values from HF Hub to bronze
 │   │   ├── import_psxg_predictions.py # Import PSxG predictions from HF Hub to bronze
 │   │   ├── import_space_creation.py  # Import space creation values from HF Hub to bronze

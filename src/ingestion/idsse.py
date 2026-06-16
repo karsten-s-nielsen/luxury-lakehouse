@@ -24,11 +24,7 @@ from __future__ import annotations
 
 import gc
 import logging
-import math
 import re
-import xml.etree.ElementTree as ET  # nosemgrep: use-defused-xml -- trusted local DFL XML files, not untrusted input
-from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -132,41 +128,19 @@ _MATCH_COMPETITION: dict[str, str] = {
     "J03WR9": "DFL-COM-000002",
 }
 
-_SECTION_TO_PERIOD: dict[str, int] = {
-    "firstHalf": 1,
-    "secondHalf": 2,
-    "extraTimeFirstHalf": 3,
-    "extraTimeSecondHalf": 4,
-    "penaltyShootout": 5,
-}
-# Verified with synthetic fixture only - no production data exercises periods 3-5 yet.
-
 # Frame rate for all IDSSE matches (DFL position data is 25fps)
 _FRAME_RATE = 25
 
 # Pre-compiled regex for DFL event XML filenames (DFL_03_02 series)
 _EVENT_FILE_RE = re.compile(r"DFL_03_02_.*DFL-MAT-([A-Za-z0-9]+)\.xml$")
 
-# Player attribute lookup order per event child tag.
-# For most event types, the primary actor is in the ``Player`` attribute.
-# TacklingGame uses ``Winner`` as the primary actor.
-_PLAYER_ATTR_ORDER: dict[str, list[str]] = {
-    "TacklingGame": ["Winner", "Player"],
-}
-_DEFAULT_PLAYER_ATTRS: list[str] = ["Player"]
-
-# Team attribute lookup order per event child tag.
-_TEAM_ATTR_ORDER: dict[str, list[str]] = {
-    "TacklingGame": ["WinnerTeam", "Team"],
-}
-_DEFAULT_TEAM_ATTRS: list[str] = ["Team"]
-
 # ---------------------------------------------------------------------------
-# Bronze-completeness schema constants (used by _parse_events_xml).
-# Contract: the IDSSE bronze-coverage test (test_idsse_bronze_coverage.py)
-# imports the same maps and asserts every DFL source attribute lands in a
-# bronze column through the combination of these constants + `_to_snake_case`.
-# See the test for the ground-truth DFL attribute enumeration.
+# Bronze-completeness schema constants. The DFL parser itself moved to the
+# silly-kicks parse port (``silly_kicks.providers.sportec``) under
+# delete-and-depend (ADR-031 T3 / Gate B); these maps survive because
+# ``_compute_idsse_events_bronze_cols`` still derives the expected
+# ``bronze.idsse_events`` column set (passed to ``finalize_bronze_df``) from
+# them + ``_to_snake_case``, guaranteeing every DFL attribute lands in Delta.
 # ---------------------------------------------------------------------------
 
 # Pre-compiled regex for splitting CamelCase / PascalCase at word boundaries.
@@ -344,8 +318,8 @@ def _compute_idsse_events_bronze_cols() -> frozenset[str]:
             for attr in attrs:
                 cols.add(f"{prefix}_{_to_snake_case(attr)}")
 
-    # shot_outcome_type disambiguator — emitted by _build_event_row whenever a
-    # ShotAtGoal has one of the six nested outcome tags.
+    # shot_outcome_type disambiguator — the parser (now in the silly-kicks port)
+    # emits it whenever a ShotAtGoal has one of the six nested outcome tags.
     cols.add("shot_outcome_type")
 
     return frozenset(cols)
@@ -355,14 +329,12 @@ _IDSSE_EVENTS_BRONZE_COLS: frozenset[str] = _compute_idsse_events_bronze_cols()
 """Expected bronze columns for bronze.idsse_events (computed at import time)."""
 
 
-# Single source of truth for which `_MatchMetadata` fields surface to bronze.
-# Both `ingest_idsse` (tracking writer) and `ingest_idsse_events` (events
-# writer) MUST emit a per-row column for each name here. Asserted by
-# `src/tests/test_idsse_match_metadata_parity.py` — closes the asymmetric-
-# coverage gap discovered in session 69 (2026-04-30) where PR-LL2 wired
-# `_parse_match_metadata` into `bronze.idsse_events` but missed
-# `bronze.idsse_tracking`. Both tables share the same upstream
-# matchinformation XML; both must surface the same per-match metadata.
+# Single source of truth for the match-level metadata fields the silly-kicks
+# DFL parse port surfaces to BOTH bronze tables. The parser moved to the port
+# under delete-and-depend (ADR-031 T3 / Gate B); this constant is retained as
+# the documented shared-metadata contract — both `bronze.idsse_events` and
+# `bronze.idsse_tracking` carry a per-row column for each name here (closing
+# the session-69 asymmetric-coverage gap, 2026-04-30).
 _IDSSE_MATCH_METADATA_BRONZE_COLS: frozenset[str] = frozenset(
     {
         "competition_native_id",  # e.g. 'DFL-COM-000001'
@@ -434,415 +406,12 @@ def _parse_match_ids_arg(raw: str | None) -> list[str] | None:
     return requested
 
 
-def _parse_teams(info_path: str) -> tuple[str, str, dict[str, str], set[str]]:
-    """Parse match info XML to get home/away team IDs, player-to-team mapping, and GK IDs.
-
-    Args:
-        info_path: Path to match info XML file.
-
-    Returns:
-        Tuple of (home_team_id, away_team_id, {person_id: "home"|"away"}, gk_player_ids).
-        ``gk_player_ids`` contains PersonIds of players with ``PlayingPosition="TW"``
-        (DFL standard for Torwart/goalkeeper).
-
-    Note:
-        The per-row DFL ``TeamId`` that lands in bronze is NOT sourced from
-        this mapping — it is taken directly from the enclosing FrameSet's
-        ``TeamId`` attribute during position parsing, which is always
-        available and avoids an extra map plumb-through.
-    """
-    tree = ET.parse(info_path)  # noqa: S314  # nosemgrep: use-defused-xml-parse
-    root = tree.getroot()
-
-    home_team_id = ""
-    away_team_id = ""
-    player_team_map: dict[str, str] = {}
-    gk_player_ids: set[str] = set()
-
-    for team_el in root.iter("Team"):
-        team_id = team_el.get("TeamId", "")
-        role = team_el.get("Role", "")
-
-        if role == "home":
-            home_team_id = team_id
-            team_label = "home"
-        elif role == "guest":
-            away_team_id = team_id
-            team_label = "away"
-        else:
-            continue
-
-        for player_el in team_el.iter("Player"):
-            person_id = player_el.get("PersonId", "")
-            if person_id:
-                player_team_map[person_id] = team_label
-                if player_el.get("PlayingPosition") == "TW":
-                    gk_player_ids.add(person_id)
-
-    return home_team_id, away_team_id, player_team_map, gk_player_ids
-
-
-@dataclass(frozen=True)
-class _MatchMetadata:
-    """Match-level metadata sourced from the DFL ``<General>`` and
-    ``<Environment>`` elements in the matchinformation XML.
-
-    PR-LL2 Path B: previously the SPADL/VAEP pipeline had no way to access
-    the per-match competition / season / pitch dimensions because none of
-    these landed in ``bronze.idsse_events``. This dataclass + parser
-    surface them so the bronze writer can populate the LL2-added columns
-    (``competition_native_id``, ``season_native_id``,
-    ``home_team_id_native``, ``away_team_id_native``).
-    """
-
-    competition_id: str
-    """DFL CompetitionId, e.g. ``DFL-COM-000001``. Format ``DFL-COM-XXXXXX``."""
-
-    season_id: str
-    """DFL SeasonId, e.g. ``DFL-SEA-0001K6``. Format ``DFL-SEA-XXXXXX``."""
-
-    home_team_id: str
-    """DFL HomeTeamId, e.g. ``DFL-CLU-000008``. Format ``DFL-CLU-XXXXXX``."""
-
-    away_team_id: str
-    """DFL GuestTeamId (DFL spec calls the away team "guest")."""
-
-    pitch_x: float | None
-    """Pitch length in meters (e.g. 105.0). NULL if absent from XML."""
-
-    pitch_y: float | None
-    """Pitch width in meters (e.g. 68.0). NULL if absent from XML."""
-
-
-def _parse_match_metadata(info_path: str) -> _MatchMetadata:
-    """Parse the ``<General>`` + ``<Environment>`` elements of a DFL
-    matchinformation XML, returning competition / season / pitch metadata.
-
-    DFL spec, ``DFL_02_01_matchinformation_*.xml`` shape::
-
-        <PutDataRequest>
-          <MatchInformation>
-            <General CompetitionId="DFL-COM-000001"
-                     SeasonId="DFL-SEA-0001K6"
-                     HomeTeamId="DFL-CLU-000008"
-                     GuestTeamId="DFL-CLU-00000G"
-                     ... />
-            <Environment PitchX="105.00" PitchY="68.00" ... />
-            <Teams>...</Teams>
-            ...
-
-    Args:
-        info_path: Filesystem path (or UC Volume path) to the matchinformation XML.
-
-    Returns:
-        Populated ``_MatchMetadata``. Empty strings for any missing IDs
-        (callers tolerate empty home_team_id today; we surface that as
-        empty string rather than raising so a malformed XML doesn't kill
-        the whole batch).
-    """
-    tree = ET.parse(info_path)  # noqa: S314  # nosemgrep: use-defused-xml-parse
-    root = tree.getroot()
-
-    general = root.find(".//General")
-    environment = root.find(".//Environment")
-
-    competition_id = general.get("CompetitionId", "") if general is not None else ""
-    season_id = general.get("SeasonId", "") if general is not None else ""
-    home_team_id = general.get("HomeTeamId", "") if general is not None else ""
-    away_team_id = general.get("GuestTeamId", "") if general is not None else ""
-
-    pitch_x: float | None = None
-    pitch_y: float | None = None
-    if environment is not None:
-        pitch_x = _parse_float_or_none(environment.get("PitchX", ""))
-        pitch_y = _parse_float_or_none(environment.get("PitchY", ""))
-
-    return _MatchMetadata(
-        competition_id=competition_id,
-        season_id=season_id,
-        home_team_id=home_team_id,
-        away_team_id=away_team_id,
-        pitch_x=pitch_x,
-        pitch_y=pitch_y,
-    )
-
-
-# Sentinel used by ``_parse_events_xml`` / ``_build_event_row`` when callers
-# don't have a real matchinformation XML available (e.g. unit tests with
-# synthetic event XML, no companion matchinfo). Production ingestion always
-# passes a populated metadata via ``_parse_match_metadata``.
-_EMPTY_MATCH_METADATA: _MatchMetadata = _MatchMetadata(
-    competition_id="",
-    season_id="",
-    home_team_id="",
-    away_team_id="",
-    pitch_x=None,
-    pitch_y=None,
-)
-
-
-# DFL Frame attribute contract — ground truth from
-# src/tests/fixtures/idsse_dfl_tracking_attr_enumeration.json (enumerated
-# 2026-04-21 from the 7 IDSSE match positions.xml files). Asserted by
-# test_idsse_bronze_coverage.TestTrackingCoverage.
-
-# Frame attrs shared across player / referee / ball FrameSets.
-_TRACKING_FRAME_ATTRS_SHARED: tuple[str, ...] = ("N", "T", "X", "Y", "S", "A", "D", "M")
-# Frame attrs found only on ball FrameSets.
-_TRACKING_FRAME_ATTRS_BALL_ONLY: tuple[str, ...] = ("Z", "BallPossession", "BallStatus")
-
-
-def _parse_float_or_none(raw: str) -> float | None:
-    """Parse an XML attribute into a float, returning None on empty/NaN."""
-    if not raw:
-        return None
-    try:
-        value = float(raw)
-    except (ValueError, TypeError):
-        return None
-    if math.isnan(value):
-        return None
-    return round(value, 4)
-
-
-def _parse_bool_or_none(raw: str) -> bool | None:
-    """Parse ``"true"``/``"false"`` (case-insensitive) into a Python bool."""
-    if not raw:
-        return None
-    lowered = raw.lower()
-    if lowered == "true":
-        return True
-    if lowered == "false":
-        return False
-    return None
-
-
-def _parse_positions_xml(
-    pos_path: str,
-    player_team_map: dict[str, str],
-    match_id: str,
-    logger: logging.Logger,
-    gk_player_ids: set[str] | None = None,
-    metadata: _MatchMetadata = _EMPTY_MATCH_METADATA,
-) -> dict[int, list[dict[str, object]]]:
-    """Parse DFL position XML into bronze-complete row dicts, split by period.
-
-    Uses TWO-PASS iterative XML parsing.
-
-    1. **First pass (ball-only)**: Scans ball FrameSets
-       (``TeamId="BALL"``) and populates ``ball_by_frame`` keyed on
-       ``(period, frame_n)``. Each ball entry captures EVERY DFL
-       ``<Frame>`` attribute (X, Y, Z, S, A, D, M, T, BallPossession,
-       BallStatus) so downstream joins see the full source schema.
-       Also populates ``period_first_frame`` for period-relative timestamps.
-    2. **Second pass (players-only)**: Emits one row per player per frame
-       with every DFL ``<Frame>`` attribute (X, Y, S, A, D, M, T), the
-       player's DFL ``TeamId`` (directly from the enclosing FrameSet),
-       and a ``ball_*`` join from pass 1.
-
-    **Bronze-completeness:** every attribute enumerated in
-    ``src/tests/fixtures/idsse_dfl_tracking_attr_enumeration.json`` lands
-    in a dedicated bronze column. Nothing is dropped silently.
-
-    **Why two-pass (PR 1.7):** real DFL position XMLs have ball FrameSets
-    AFTER all player / referee FrameSets in the file. A single-pass parser
-    emitting player rows first would see an empty ball lookup dict and
-    produce NULL ball coordinates in bronze.
-
-    Returns rows grouped by period so callers can process and release each
-    half independently, halving peak DataFrame memory.
-
-    Args:
-        pos_path: Path to position XML file.
-        player_team_map: Mapping of PersonId to "home"/"away".
-        match_id: Raw match identifier (without ``idsse_`` prefix).
-        logger: Structured logger instance.
-        gk_player_ids: Set of PersonIds identified as goalkeepers. When
-            provided, each tracking row carries an ``is_goalkeeper`` bool.
-
-    Returns:
-        Mapping of period number → list of row dicts. Each row carries all
-        DFL tracking attributes per the bronze-completeness contract.
-    """
-    rows_by_period: dict[int, list[dict[str, object]]] = {p: [] for p in _SECTION_TO_PERIOD.values()}
-    # PR-LL2 Path B close-out (2026-04-29): bronze.idsse_events.match_id /
-    # bronze.idsse_tracking.match_id now use the bare DFL MatchId (e.g.
-    # 'J03WMX'). Pre-close-out the format was 'idsse_J03WMX' which
-    # produced 100% NULL match_key on fct_action_values for IDSSE rows
-    # because dim_matches strips the 'idsse_' prefix. ADR-018 + Bug #1.
-    canonical_match_id = idsse_native_match_id(match_id)
-
-    # Ball data per (period, frame_n). Each entry is a dict carrying every
-    # DFL ball Frame attribute plus the ball-only ones. Populated in pass 1.
-    ball_by_frame: dict[tuple[int, int], dict[str, object]] = {}
-    ball_miss_count = 0  # Player frames where ball lookup returned None
-
-    # First-seen frame number per period — used to compute period-relative
-    # timestamps (see PR 1.6).
-    period_first_frame: dict[int, int] = {}
-
-    # ── PASS 1: ball FrameSets → populate ball_by_frame + period_first_frame ──
-    for _event, elem in ET.iterparse(pos_path, events=("end",)):  # noqa: S314
-        if elem.tag != "FrameSet":
-            continue
-
-        team_id_lower = elem.get("TeamId", "").lower()
-        if team_id_lower != "ball":
-            elem.clear()
-            continue
-
-        section = elem.get("GameSection", "")
-        period = _SECTION_TO_PERIOD.get(section)
-        if period is None:
-            logger.warning(
-                "Unrecognized GameSection %r in match %s — skipping FrameSet",
-                section,
-                match_id,
-            )
-            elem.clear()
-            continue
-
-        for frame_el in elem.iter("Frame"):
-            n = int(frame_el.get("N", "0"))
-            ball_entry: dict[str, object] = {
-                "ball_x": _parse_float_or_none(frame_el.get("X", "")),
-                "ball_y": _parse_float_or_none(frame_el.get("Y", "")),
-                "ball_z": _parse_float_or_none(frame_el.get("Z", "")),
-                "ball_s": _parse_float_or_none(frame_el.get("S", "")),
-                "ball_a": _parse_float_or_none(frame_el.get("A", "")),
-                "ball_d": _parse_float_or_none(frame_el.get("D", "")),
-                "ball_m": _parse_bool_or_none(frame_el.get("M", "")),
-                "ball_t": frame_el.get("T", "") or None,
-                "ball_possession": frame_el.get("BallPossession", "") or None,
-                "ball_status": frame_el.get("BallStatus", "") or None,
-            }
-            ball_by_frame[(period, n)] = ball_entry
-            cur = period_first_frame.get(period)
-            if cur is None or n < cur:
-                period_first_frame[period] = n
-        elem.clear()
-
-    # ── PASS 2: player FrameSets → emit per-player tracking rows ──
-    for _event, elem in ET.iterparse(pos_path, events=("end",)):  # noqa: S314
-        if elem.tag != "FrameSet":
-            continue
-
-        team_id_lower = elem.get("TeamId", "").lower()
-        # Pass 2 skips ball (already handled) and referee (not tracked).
-        if team_id_lower in ("ball", "referee"):
-            elem.clear()
-            continue
-
-        section = elem.get("GameSection", "")
-        period = _SECTION_TO_PERIOD.get(section)
-        if period is None:
-            logger.warning(
-                "Unrecognized GameSection %r in match %s — skipping FrameSet",
-                section,
-                match_id,
-            )
-            elem.clear()
-            continue
-
-        team_id = elem.get("TeamId", "") or None
-        person_id = elem.get("PersonId", "")
-        team_label = player_team_map.get(person_id, "unknown")
-        period_rows = rows_by_period[period]
-
-        for frame_el in elem.iter("Frame"):
-            n = int(frame_el.get("N", "0"))
-            x = _parse_float_or_none(frame_el.get("X", ""))
-            y = _parse_float_or_none(frame_el.get("Y", ""))
-
-            # Require at least X/Y to emit a player row — a player tracking
-            # row without position is meaningless. Other attrs default to
-            # None if missing (bronze-completeness tolerates sparse data).
-            if x is None or y is None:
-                continue
-
-            cur = period_first_frame.get(period)
-            if cur is None or n < cur:
-                period_first_frame[period] = n
-            period_start = period_first_frame[period]
-            timestamp = (n - period_start) / _FRAME_RATE
-
-            ball_lookup = ball_by_frame.get((period, n))
-            if ball_lookup is None:
-                ball_miss_count += 1
-            ball_entry: dict[str, object] = (
-                ball_lookup
-                if ball_lookup is not None
-                else {
-                    "ball_x": None,
-                    "ball_y": None,
-                    "ball_z": None,
-                    "ball_s": None,
-                    "ball_a": None,
-                    "ball_d": None,
-                    "ball_m": None,
-                    "ball_t": None,
-                    "ball_possession": None,
-                    "ball_status": None,
-                }
-            )
-
-            row: dict[str, object] = {
-                # Existing columns
-                "period": period,
-                "frame": n,
-                "timestamp": round(timestamp, 4),
-                "player_id": person_id,
-                "team": team_label,
-                "x": x,
-                "y": y,
-                "match_id": canonical_match_id,
-                "frame_rate": _FRAME_RATE,
-                # New per-player DFL Frame attrs
-                "team_id": team_id,
-                "t": frame_el.get("T", "") or None,
-                "s": _parse_float_or_none(frame_el.get("S", "")),
-                "a": _parse_float_or_none(frame_el.get("A", "")),
-                "d": _parse_float_or_none(frame_el.get("D", "")),
-                "m": _parse_bool_or_none(frame_el.get("M", "")),
-                # Per-match metadata (sourced from <General> in matchinformation XML).
-                # Same value for every row of a given match — replicated here for
-                # parity with bronze.idsse_events (asserted by
-                # test_idsse_match_metadata_parity.py). Empty string when the
-                # XML lacked the attribute or the caller passed _EMPTY_MATCH_METADATA
-                # (test path with no companion matchinfo).
-                "competition_native_id": metadata.competition_id,
-                "season_native_id": metadata.season_id,
-                "home_team_id_native": metadata.home_team_id,
-                "away_team_id_native": metadata.away_team_id,
-                # Ball-joined cols
-                **ball_entry,
-            }
-            if gk_player_ids is not None:
-                row["is_goalkeeper"] = person_id in gk_player_ids
-            period_rows.append(row)
-
-        elem.clear()
-
-    logger.info("Parsed %d ball frames for match %s", len(ball_by_frame), match_id)
-    if ball_miss_count > 0 and len(ball_by_frame) > 0:
-        total_player_frames = sum(len(rows) for rows in rows_by_period.values())
-        miss_pct = 100.0 * ball_miss_count / max(total_player_frames, 1)
-        log_fn = logger.warning if miss_pct > 5.0 else logger.info
-        log_fn(
-            "Ball coordinate lookup missed %d of %d player frames for match %s (%.1f%%)",
-            ball_miss_count,
-            total_player_frames,
-            match_id,
-            miss_pct,
-        )
-
-    return rows_by_period
-
-
 # Bronze-completeness contract for bronze.idsse_tracking.
-# Every column here is emitted by _parse_positions_xml; finalize_bronze_df
-# guarantees it lands in Delta regardless of which Frame attrs happen to be
-# populated for a given match's rows. Asserted by the coverage tests.
+# Every column here is emitted by the silly-kicks DFL parse port's tracking
+# parser (the lakehouse parser moved to the port under delete-and-depend,
+# ADR-031 T3 / Gate B); `ingest_idsse` passes this set to `finalize_bronze_df`
+# so every column lands in Delta regardless of which Frame attrs happen to be
+# populated for a given match's rows.
 _IDSSE_TRACKING_BRONZE_COLS: tuple[str, ...] = (
     # Derived / join keys
     "period",
@@ -956,39 +525,30 @@ def ingest_idsse(
         info_path = f"{data_dir}/DFL_02_01_matchinformation_{comp}_DFL-MAT-{mid}.xml"
         pos_path = f"{data_dir}/DFL_04_03_positions_raw_observed_{comp}_DFL-MAT-{mid}.xml"
 
-        _home_id, _away_id, player_team_map, gk_player_ids = _parse_teams(info_path)
-        # Parity with `ingest_idsse_events`: surface match-level metadata
-        # (competition / season / home+away DFL TeamIds) onto every bronze row.
-        # PR-LL2 wired this for events but missed tracking; session 69 closes
-        # the gap. Eliminates the hardcoded `_MATCH_COMPETITION` mirror in
-        # `dbt_project/models/staging/idsse/stg_idsse__matches.sql`.
-        match_metadata = _parse_match_metadata(info_path)
+        # silly-kicks DFL parse port (ADR-031 T3 / Gate B): parse the whole positions XML to RAW
+        # bronze (no smoothing — data-quality stays consumer-side per ADR-031 §4.5). The lakehouse
+        # keeps _smooth_tracking + finalize + write below. Output is byte-identical to the retired
+        # lakehouse parser (parity-guarded by test_dfl_parse_port_golden). NOTE: the port parses the
+        # whole match at once, so this gives up the prior per-half peak-memory halving (acceptable at
+        # IDSSE scale on the 16 GB driver); the per-period write loop is preserved.
+        # Function-body import: idsse.py is a guard module (_GUARD_MODULES) — silly-kicks may
+        # NOT be imported at module level (guard-import isolation, test_guard_conformance).
+        from silly_kicks.providers.sportec import parse_dfl_match_info, parse_dfl_tracking
+
+        match_info = parse_dfl_match_info(info_path)
         logger.info(
             "Found %d players in match info (%d GKs) — competition=%s, season=%s",
-            len(player_team_map),
-            len(gk_player_ids),
-            match_metadata.competition_id or "<missing>",
-            match_metadata.season_id or "<missing>",
+            len(match_info.player_team_map),
+            len(match_info.gk_player_ids),
+            match_info.competition_id or "<missing>",
+            match_info.season_id or "<missing>",
         )
+        bronze_all = pd.DataFrame(parse_dfl_tracking(pos_path, match_info=match_info, match_id=mid))
+        logger.info("Parsed %d tracking rows for IDSSE match %s", len(bronze_all), mid)
 
-        rows_by_period = _parse_positions_xml(
-            pos_path,
-            player_team_map,
-            mid,
-            logger,
-            gk_player_ids=gk_player_ids,
-            metadata=match_metadata,
-        )
-        total_rows = sum(len(r) for r in rows_by_period.values())
-        logger.info("Parsed %d tracking rows for IDSSE match %s", total_rows, mid)
-
-        # Process each half independently to halve peak DataFrame memory
-        for period, period_rows in rows_by_period.items():
-            if not period_rows:
-                continue
-            df = pd.DataFrame(period_rows)
-            del period_rows  # Release raw rows before smoothing
-            rows_by_period[period] = []
+        for period, period_df in bronze_all.groupby("period"):
+            period_int = int(period)  # type: ignore[arg-type]  # groupby key is the int `period` column
+            df = pd.DataFrame(period_df).reset_index(drop=True)
             df = _smooth_tracking(df)
             # Guarantee every DFL tracking column lands in bronze regardless of
             # which Frame attrs were populated in this match — Spark would
@@ -1000,7 +560,7 @@ def ingest_idsse(
             )
             sdf = spark.createDataFrame(df)
             row_count = validate_dataframe(sdf, required_cols, "idsse_tracking", logger)
-            replace_expr = f"match_id = '{idsse_native_match_id(mid)}' AND period = {period}"
+            replace_expr = f"match_id = '{idsse_native_match_id(mid)}' AND period = {period_int}"
             write_delta_table(
                 sdf,
                 catalog,
@@ -1012,7 +572,7 @@ def ingest_idsse(
             )
             del df, sdf
             gc.collect()
-        del rows_by_period
+        del bronze_all
         gc.collect()
 
 
@@ -1144,331 +704,6 @@ def _find_event_files(data_dir: str, match_ids: list[str]) -> dict[str, str]:
     return found
 
 
-def _build_event_row(
-    elem: ET.Element,
-    first_child: ET.Element,
-    event_type: str,
-    canonical_match_id: str,
-    current_period: int,
-    player_team_map: dict[str, str],
-    period_start_time: dict[int, datetime],
-    metadata: _MatchMetadata = _EMPTY_MATCH_METADATA,
-) -> dict[str, object]:
-    """Build one bronze row from a DFL <Event> element + its first child.
-
-    Per the bronze-completeness principle, this extracts EVERY XML attribute
-    on the Event + first-child + nested-child elements into a prefixed
-    bronze column. Type-casts event-level cols that downstream analysis
-    treats as numeric (x/y coords, frame numbers). Returns the full row
-    dict; callers need not pre-populate any columns.
-
-    Args:
-        ...
-        metadata: Match-level metadata from ``_parse_match_metadata``.
-            PR-LL2 Path B: lifts ``competition_native_id`` /
-            ``season_native_id`` / ``home_team_id_native`` /
-            ``away_team_id_native`` onto every row. ``team_id_native`` is
-            derived per-row from the ``team`` label.
-    """
-    row: dict[str, object] = {
-        "match_id": canonical_match_id,
-        "event_type": event_type,
-        "period": current_period,
-        "player_id": "",
-        "team": "unknown",
-        # PR-LL2: match-level metadata (same value for every row of a match).
-        "competition_native_id": metadata.competition_id,
-        "season_native_id": metadata.season_id,
-        "home_team_id_native": metadata.home_team_id,
-        "away_team_id_native": metadata.away_team_id,
-        # team_id_native filled below after `team` label resolves.
-    }
-
-    # --- Event-level attrs → bronze cols via EVENT_LEVEL_ATTR_MAP ---
-    for dfl_attr, bronze_col in _EVENT_LEVEL_ATTR_MAP.items():
-        raw_val = elem.get(dfl_attr)
-        if raw_val is None or raw_val == "":
-            row[bronze_col] = None
-            continue
-        if bronze_col in _EVENT_LEVEL_FLOAT_COLS:
-            try:
-                fv = float(raw_val)
-            except (ValueError, TypeError):
-                row[bronze_col] = None
-                continue
-            row[bronze_col] = round(fv, 4) if not math.isnan(fv) else None
-        elif bronze_col in _EVENT_LEVEL_INT_COLS:
-            try:
-                row[bronze_col] = int(raw_val)
-            except (ValueError, TypeError):
-                row[bronze_col] = None
-        else:
-            row[bronze_col] = raw_val
-
-    # --- timestamp_seconds: period-relative from EventTime ---
-    event_time_str = elem.get("EventTime", "")
-    timestamp_seconds: float | None = None
-    if event_time_str:
-        try:
-            event_dt = datetime.fromisoformat(event_time_str)
-            if event_dt.tzinfo is not None:
-                event_dt = event_dt.astimezone(timezone.utc)
-            if current_period not in period_start_time:
-                period_start_time[current_period] = event_dt
-            delta = event_dt - period_start_time[current_period]
-            timestamp_seconds = round(delta.total_seconds(), 4)
-        except (ValueError, TypeError):
-            pass
-    row["timestamp_seconds"] = timestamp_seconds
-
-    # --- Primary player_id + team label (preserving KickOff nested-Play lookup) ---
-    search_elem = first_child
-    if event_type == "KickOff":
-        for ko_child in first_child:
-            if ko_child.tag == "Play":
-                search_elem = ko_child
-                break
-    player_attr_names = _PLAYER_ATTR_ORDER.get(event_type, _DEFAULT_PLAYER_ATTRS)
-    for attr_name in player_attr_names:
-        pid = search_elem.get(attr_name, "")
-        if pid:
-            row["player_id"] = pid
-            break
-    pid_val = row["player_id"]
-    if isinstance(pid_val, str) and pid_val:
-        row["team"] = player_team_map.get(pid_val, "unknown")
-
-    # PR-LL2: derive `team_id_native` (DFL CLU id of the acting team) from
-    # the resolved home/away label. NULL when team is unknown.
-    team_label = row["team"]
-    if team_label == "home":
-        row["team_id_native"] = metadata.home_team_id
-    elif team_label == "away":
-        row["team_id_native"] = metadata.away_team_id
-    else:
-        row["team_id_native"] = None
-
-    # --- First-child attrs → {prefix}_{snake(attr)} bronze cols ---
-    prefix = _EVENT_TYPE_PREFIX.get(event_type)
-    if prefix is not None:
-        for attr_name, attr_val in first_child.attrib.items():
-            row[f"{prefix}_{_to_snake_case(attr_name)}"] = attr_val
-
-    # --- Nested children attrs → {nested_prefix}_{snake(attr)} bronze cols ---
-    for nested_child in first_child:
-        nested_prefix = _NESTED_PREFIX_MAP.get(nested_child.tag)
-        if nested_prefix is None:
-            continue
-        for attr_name, attr_val in nested_child.attrib.items():
-            row[f"{nested_prefix}_{_to_snake_case(attr_name)}"] = attr_val
-        # Disambiguator for ShotAtGoal's six mutually-exclusive outcome tags.
-        if event_type == "ShotAtGoal" and nested_child.tag in _SHOT_OUTCOME_NAMES:
-            row["shot_outcome_type"] = _SHOT_OUTCOME_NAMES[nested_child.tag]
-
-    return row
-
-
-def _scan_kickoff_times(event_path: str) -> dict[int, datetime]:
-    """Pass 1 of the 2-pass DFL event parser (ADR-018 / Bug #6 fix).
-
-    Scans ONLY KickOff events to build a ``{period: kickoff_event_time}`` map.
-    Pass 2 uses this map to derive each event's period by comparing its
-    EventTime to kickoff times — NOT by relying on XML stream-order
-    ``current_period`` state, which DFL XML's secondary blocks (BallClaiming,
-    RefereeBall, etc., emitted after the secondHalf KickOff) violate.
-
-    Returns:
-        Mapping period_id → first KickOff EventTime for that period (UTC).
-        Includes only periods whose ``<KickOff GameSection=...>`` has a
-        recognized GameSection per ``_SECTION_TO_PERIOD``. Empty dict for
-        inputs with no KickOffs.
-
-    Memory: O(periods) — typically O(2). Pass cost is O(events) but
-    we use ET.iterparse so the parsed tree never lives in memory.
-    """
-    kickoff_times: dict[int, datetime] = {}
-
-    for _ev, elem in ET.iterparse(event_path, events=("end",)):  # noqa: S314
-        if elem.tag != "Event":
-            if elem.tag == "PutDataRequest":
-                elem.clear()
-            continue
-
-        first_child: ET.Element | None = None
-        for child in elem:
-            first_child = child
-            break
-
-        if first_child is None or first_child.tag != "KickOff":
-            elem.clear()
-            continue
-
-        section = first_child.get("GameSection", "")
-        period = _SECTION_TO_PERIOD.get(section)
-        if period is None:
-            logger.warning(
-                "Unrecognized GameSection %r in %s — skipping KickOff event",
-                section,
-                event_path,
-            )
-            elem.clear()
-            continue
-
-        event_time_str = elem.get("EventTime", "")
-        if event_time_str:
-            try:
-                event_dt = datetime.fromisoformat(event_time_str)
-                if event_dt.tzinfo is not None:
-                    event_dt = event_dt.astimezone(timezone.utc)
-                # First KickOff for a period wins (defensively — DFL XML
-                # should have only one per period anyway).
-                if period not in kickoff_times:
-                    kickoff_times[period] = event_dt
-            except (ValueError, TypeError):
-                pass
-
-        elem.clear()
-
-    return kickoff_times
-
-
-def _derive_period_from_kickoffs(
-    event_dt: datetime,
-    kickoff_times: dict[int, datetime],
-) -> tuple[int | None, datetime | None]:
-    """Given an event's EventTime, return ``(period, period_kickoff_time)``.
-
-    Period = the largest period whose ``kickoff_time`` ≤ ``event_dt``.
-    Returns ``(None, None)`` if event_dt precedes all kickoffs (legitimate
-    edge case — pre-match warmup events; downstream skips them).
-    """
-    if not kickoff_times:
-        return None, None
-    best_period: int | None = None
-    best_start: datetime | None = None
-    for p, p_start in kickoff_times.items():
-        if event_dt >= p_start and (best_start is None or p_start > best_start):
-            best_period = p
-            best_start = p_start
-    return best_period, best_start
-
-
-def _parse_events_xml(
-    event_path: str,
-    player_team_map: dict[str, str],
-    match_id: str,
-    logger: logging.Logger,
-    metadata: _MatchMetadata = _EMPTY_MATCH_METADATA,
-) -> list[dict[str, object]]:
-    """Parse DFL event XML (DFL_03_02 series) into bronze-completeness row dicts.
-
-    Two-pass implementation (ADR-018 / Bug #6 fix, 2026-04-29):
-
-    - **Pass 1** (``_scan_kickoff_times``): scan KickOff events to build
-      ``{period: kickoff_event_time}`` map.
-    - **Pass 2** (this function body): emit per-event rows with period
-      derived from ``event_time`` via ``_derive_period_from_kickoffs``.
-
-    Pre-2026-04-29 used a state-machine ``current_period`` updated at each
-    KickOff in stream order. DFL XML emits secondary blocks (BallClaiming,
-    RefereeBall, etc.) AFTER the secondHalf KickOff in stream order with
-    first-half event_times — these were misclassified as period=2 with
-    negative period-relative ``timestamp_seconds``. The 2-pass approach
-    derives period from event_time, not stream-order.
-
-    Each ``<Event>`` in the DFL XML has exactly one first-child element
-    whose tag name determines the event type (``Play``, ``ShotAtGoal``,
-    ``TacklingGame``, etc.). This parser extracts:
-
-    - **Event-level attrs (13)**: renamed to bronze cols via
-      ``_EVENT_LEVEL_ATTR_MAP``.
-    - **First-child attrs**: prefixed per ``_EVENT_TYPE_PREFIX`` + snake_cased.
-    - **Nested-child attrs**: prefixed per ``_NESTED_PREFIX_MAP`` + snake_cased.
-      Six shot-outcome tags share ``shot_outcome_*`` columns with
-      ``shot_outcome_type`` as the disambiguator.
-    - **Derived cols**: ``match_id`` (canonical bare DFL MatchId per
-      ``shared.identifiers.idsse_native_match_id``), ``event_type``,
-      ``period`` (derived from event_time vs Pass-1 kickoff map),
-      ``timestamp_seconds`` (period-relative), ``player_id`` (primary actor
-      via ``_PLAYER_ATTR_ORDER``), ``team`` (``home``/``away``/``unknown``
-      via ``player_team_map``).
-
-    Events whose ``event_time`` precedes all KickOffs (pre-match warmup) are
-    skipped — they cannot be period-attributed. Events without an EventTime
-    attribute are also skipped (cannot derive period or timestamp).
-
-    Coordinate system: DFL pitch-origin meters (x 0-105, y 0-68). Staging
-    transforms to the shared 120x80 system.
-    """
-    canonical_match_id = idsse_native_match_id(match_id)
-
-    # PASS 1: build {period: kickoff_time} map.
-    kickoff_times = _scan_kickoff_times(event_path)
-    if not kickoff_times:
-        logger.warning("No KickOff events found in %s — skipping match", event_path)
-        return []
-
-    # PASS 2: emit per-event rows.
-    rows: list[dict[str, object]] = []
-
-    for _ev, elem in ET.iterparse(event_path, events=("end",)):  # noqa: S314
-        if elem.tag != "Event":
-            if elem.tag == "PutDataRequest":
-                elem.clear()
-            continue
-
-        first_child: ET.Element | None = None
-        for child in elem:
-            first_child = child
-            break
-
-        if first_child is None:
-            elem.clear()
-            continue
-
-        event_type = first_child.tag
-
-        # Derive period from event_time using pass-1 map.
-        event_time_str = elem.get("EventTime", "")
-        period: int | None = None
-        period_start: datetime | None = None
-        if event_time_str:
-            try:
-                event_dt = datetime.fromisoformat(event_time_str)
-                if event_dt.tzinfo is not None:
-                    event_dt = event_dt.astimezone(timezone.utc)
-                period, period_start = _derive_period_from_kickoffs(event_dt, kickoff_times)
-            except (ValueError, TypeError):
-                pass
-
-        # Skip events that predate all kickoffs (pre-match warmup) or that lack
-        # a parseable EventTime — neither can be period-attributed.
-        if period is None or period_start is None:
-            elem.clear()
-            continue
-
-        # Seed _build_event_row's period_start_time dict directly with the
-        # derived value (it would otherwise compute it from the first event
-        # of the period it sees, which on a single call is just this event).
-        period_start_time: dict[int, datetime] = {period: period_start}
-
-        row = _build_event_row(
-            elem,
-            first_child,
-            event_type,
-            canonical_match_id,
-            period,
-            player_team_map,
-            period_start_time,
-            metadata,
-        )
-        rows.append(row)
-        elem.clear()
-
-    logger.info("Parsed %d events for IDSSE match %s", len(rows), match_id)
-    return rows
-
-
 def ingest_idsse_events(
     spark: SparkSession,
     catalog: str,
@@ -1536,19 +771,18 @@ def ingest_idsse_events(
         comp = _MATCH_COMPETITION[mid]
         info_path = f"{data_dir}/DFL_02_01_matchinformation_{comp}_DFL-MAT-{mid}.xml"
 
-        _home_id, _away_id, player_team_map, _gk_ids = _parse_teams(info_path)
-        # PR-LL2 Path B: source competition / season / DFL team IDs from the
-        # <General> element so the bronze writer can populate the LL2 columns
-        # (competition_native_id, season_native_id, home_team_id_native,
-        # away_team_id_native, team_id_native).
-        metadata = _parse_match_metadata(info_path)
-        rows = _parse_events_xml(event_path, player_team_map, mid, logger, metadata)
+        # silly-kicks DFL parse port (ADR-031 T3): parse events XML to RAW bronze rows. The port
+        # stamps the LL2 metadata columns (competition_native_id, season_native_id, home/away_team_
+        # id_native, team_id_native) internally. Output byte-identical to the retired lakehouse parser.
+        # Function-body import (guard-import isolation — see ingest_idsse).
+        from silly_kicks.providers.sportec import parse_dfl_events, parse_dfl_match_info
 
-        if not rows:
+        match_info = parse_dfl_match_info(info_path)
+        df = pd.DataFrame(parse_dfl_events(event_path, match_info=match_info, match_id=mid))
+
+        if df.empty:
             logger.info("No events with position data for match %s", mid)
             continue
-
-        df = pd.DataFrame(rows)
         # Guarantee every DFL event column lands in bronze regardless of which
         # event types appeared in this specific match — the pandas→Arrow→Spark
         # pipeline otherwise drops all-None object columns as NullType, and

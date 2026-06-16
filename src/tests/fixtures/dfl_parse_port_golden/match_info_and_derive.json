@@ -1,0 +1,17 @@
+{
+  "away_team_id": "DFL-CLU-00000G",
+  "competition_id": "",
+  "derive_home_team_start_left": false,
+  "gk_player_ids": [
+    "A001",
+    "H001"
+  ],
+  "home_team_id": "DFL-CLU-000008",
+  "player_team_map": {
+    "A001": "away",
+    "A002": "away",
+    "H001": "home",
+    "H002": "home"
+  },
+  "season_id": ""
+}

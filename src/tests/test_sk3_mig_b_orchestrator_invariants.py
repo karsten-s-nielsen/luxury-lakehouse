@@ -254,7 +254,9 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     )
 
 
-# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 27, 0) ──────────
+# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 30, 0) ──────────
+# Floor advanced 4.27.0 -> 4.30.0 (2026-06-16) for the silly-kicks DFL parse-port
+# adoption (ADR-055) + Metrica builder y-fix; adds the `[parse-dfl]` extra.
 # Floor advanced 3.30.0 -> 4.0.0 (2026-05-30) to force silly-kicks 4.0.0 everywhere
 # (ET-direction symmetric guard via require_et_direction across all 5
 # per-period-absolute converters; breaking only for ET matches without the flag).
@@ -308,7 +310,7 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
 
 
 def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
-    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 27, 0)`.
+    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 30, 0)`.
 
     Per spec §2.10.5: the runtime check inside `main()` is not directly
     introspectable post-hoc, so we assert the constant. Code review covers
@@ -326,11 +328,11 @@ def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
         if not hasattr(trainer, "_REQUIRED_SK_MIN"):
             missing.append(item)
             continue
-        expected = (4, 27, 0)
+        expected = (4, 30, 0)
         actual = trainer._REQUIRED_SK_MIN
         if actual != expected:
             wrong_value[item] = actual
     assert not missing, (
-        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 27, 0)`: {missing}"
+        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 30, 0)`: {missing}"
     )
-    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 27, 0): {wrong_value}"
+    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 30, 0): {wrong_value}"
