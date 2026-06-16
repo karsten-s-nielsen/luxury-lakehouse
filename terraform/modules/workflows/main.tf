@@ -1493,7 +1493,7 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path,
-        "databricks-sdk==0.114.0",
+        "databricks-sdk==0.117.0",
       ]
     }
   }
