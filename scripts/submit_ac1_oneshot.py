@@ -60,7 +60,7 @@ _ANALYTICS_DEPENDENCIES: tuple[str, ...] = (
     "rapidfuzz==3.14.3",
     "unidecode==1.4.0",
     "sparse-dot-topn==1.2.0",
-    "mlflow-skinny==3.11.1",
+    "mlflow-skinny==3.13.0",
     "mplsoccer==1.6.1",
     "matplotlib==3.10.8",
     "scipy==1.15.3",

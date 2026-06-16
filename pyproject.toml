@@ -15,8 +15,22 @@ dependencies = [
     # CVE-2026-45409 (idna 3.11 vulnerability).
     "idna>=3.15",
     # Transitive dep (mlflow + fsspec[http] via huggingface-hub/datasets/torch). Pinned to
-    # >=3.14.0 to resolve CVE-2026-34993 + CVE-2026-47265 (aiohttp < 3.14.0 vulnerabilities).
-    "aiohttp>=3.14.0",
+    # >=3.14.1 to resolve CVE-2026-34993 + CVE-2026-47265 (aiohttp < 3.14.0) and the
+    # CVE-2026-54273..54280 batch (aiohttp 3.14.0, fixed in 3.14.1).
+    "aiohttp>=3.14.1",
+    # Transitive dep (mlflow-skinny → fastapi). Floored to >=1.3.1 to resolve
+    # CVE-2026-48818 + CVE-2026-48817 + CVE-2026-54283 + CVE-2026-54282 (starlette < 1.x
+    # web-server vulnerabilities). fastapi (>=0.46.0, no ceiling) accepts the starlette 1.x
+    # major; the lakehouse uses mlflow as a tracking client only (no server/gateway), so the
+    # starlette web-server paths are never exercised. uv kept 0.52.1 only because the 1.x line
+    # released after the last lock; the floor forces the upgrade.
+    "starlette>=1.3.1",
+    # Transitive dep (pyjwt / databricks-sql-connector). Floored to >=48.0.1 to resolve
+    # GHSA-537c-gmf6-5ccf (cryptography < 48.0.1).
+    "cryptography>=48.0.1",
+    # Transitive dep (optuna → alembic; dbt-core). Floored to >=1.3.12 to resolve
+    # CVE-2026-41205 (mako < 1.3.11) and CVE-2026-44307 (mako < 1.3.12) in one bump.
+    "mako>=1.3.12",
     # Workflow framework (card parsing + validation)
     "pydantic>=2.0",
     "PyYAML>=6.0",
@@ -83,7 +97,8 @@ mlflow = [
     # pins protobuf<5 and produces the dependency-conflict warning observed
     # on PR #208's live-build CI run (mlflow-skinny 2.11.4 vs protobuf
     # 6.33.6). Bumping the floor to 2.19 closes the warning and aligns our
-    # wheel's resolved version (currently mlflow 3.11.1 per uv.lock) with
+    # wheel's resolved version (currently mlflow 3.13.0 per uv.lock; bumped from 3.11.1
+    # by the cryptography>=48.0.1 CVE floor above) with
     # the runtime baseline. Training scripts (xg, vaep, psxg, football2vec,
     # scoutgpt) continue to use the same mlflow tracking client API.
     "mlflow>=2.19.0",

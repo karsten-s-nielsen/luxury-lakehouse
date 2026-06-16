@@ -5,16 +5,19 @@ license_name: provider-restricted
 license_details: Per-provider license terms; not redistributable. See Access below.
 task_categories: [tabular-classification, tabular-regression]
 tags: [sports-analytics, soccer, football, spadl, tracking, action-context, restricted]
-configs:
-  - config_name: default
-    data_files:
-      - split: train
-        path: "data/*/data.parquet"
+# NOTE: the per-provider `configs:` block is injected at publish time from the providers
+# actually present (ingestion.hf_publish.build_provider_configs / inject_frontmatter_configs).
 ---
 
 # SPADL Action Context — Restricted Partitions
 
-The **private companion** to [`luxury-lakehouse/spadl-action-context`](https://huggingface.co/datasets/luxury-lakehouse/spadl-action-context): identical schema and partition layout (`data/data_source=<provider>/data.parquet`), carrying only the partitions whose provider licenses do **not** permit public redistribution.
+The **private companion** to [`luxury-lakehouse/spadl-action-context`](https://huggingface.co/datasets/luxury-lakehouse/spadl-action-context): identical schema and per-provider layout (`data/<provider>.parquet`, one HF config per provider), carrying only the providers whose licenses do **not** permit public redistribution. Each row keeps its `data_source` column.
+
+```python
+from datasets import load_dataset  # org-members only (private repo)
+
+gs = load_dataset("luxury-lakehouse/spadl-action-context-restricted", "gradientsports")["train"].to_pandas()
+```
 
 ## Access
 
@@ -28,9 +31,9 @@ The split is governed by `RESTRICTED_HF_PROVIDERS` in the lakehouse's `ingestion
 
 ## Current contents
 
-| Partition | Reason restricted |
+| Config / provider | Reason restricted |
 |---|---|
-| `data_source=gradientsports` | License for public redistribution not yet secured (policy 2026-06-10) |
+| `gradientsports` | License for public redistribution not yet secured (policy 2026-06-10) |
 
 ## Schema
 

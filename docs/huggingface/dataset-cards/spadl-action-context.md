@@ -11,6 +11,9 @@ tags:
   - expected-threat
 size_categories:
   - 100K<n<1M
+# NOTE: the per-provider `configs:` block is injected at publish time from the providers
+# actually present (ingestion.hf_publish.build_provider_configs / inject_frontmatter_configs),
+# so it never drifts from the data. See the Quick Start for the resulting configs.
 ---
 
 # SPADL Action Context Features
@@ -49,13 +52,23 @@ provider-level averages over SB360 metrics** — filter on non-null and account 
 
 ## Quick Start
 
+Every row carries a `data_source` column. The dataset is split into one config per
+provider, so you can pull a single provider **without downloading the rest**:
+
 ```python
 from datasets import load_dataset
 
+# All public providers at once (config "all" — the default):
 ds = load_dataset("luxury-lakehouse/spadl-action-context")
 df = ds["train"].to_pandas()
-print(df.columns.tolist())
+print(df["data_source"].value_counts())   # idsse, metrica, skillcorner
+
+# Just one provider (downloads only that provider's parquet):
+sc = load_dataset("luxury-lakehouse/spadl-action-context", "skillcorner")["train"].to_pandas()
 ```
+
+Available configs: `all` (default), `idsse`, `metrica`, `skillcorner`. GradientSports lives in the
+private companion repo (`spadl-action-context-restricted`, config `gradientsports`).
 
 ## Column Categories
 
