@@ -533,3 +533,98 @@ class TestModelCardContent:
         for name in _EXPECTED_MODEL_CARDS:
             content = (self._CARDS_DIR / name).read_text(encoding="utf-8")
             assert content.endswith("\n"), f"{name} must end with a newline"
+
+
+class TestProviderConfigInjection:
+    """Data-driven per-provider HF `configs:` injection (the per-provider subset fix)."""
+
+    def test_build_provider_configs_default_plus_per_provider_sorted_deduped(self) -> None:
+        cfgs = hf_publish.build_provider_configs(["skillcorner", "idsse", "metrica", "idsse"])
+        names = [c["config_name"] for c in cfgs]
+        assert names == ["all", "idsse", "metrica", "skillcorner"]  # 'all' first, providers sorted+deduped
+        all_cfg = cfgs[0]
+        assert all_cfg["default"] is True
+        assert all_cfg["data_files"] == [{"split": "train", "path": "data/*.parquet"}]
+        sc = next(c for c in cfgs if c["config_name"] == "skillcorner")
+        assert sc["data_files"] == [{"split": "train", "path": "data/skillcorner.parquet"}]
+        assert "default" not in sc  # only the 'all' config is the default
+
+    def test_build_provider_configs_empty(self) -> None:
+        cfgs = hf_publish.build_provider_configs([])
+        assert [c["config_name"] for c in cfgs] == ["all"]
+
+    def test_inject_preserves_other_frontmatter_and_body(self) -> None:
+        import yaml
+
+        card = "---\nlicense: cc-by-nc-4.0\ntags:\n  - soccer\n---\n\n# Title\n\nBody text.\n"
+        out = hf_publish.inject_frontmatter_configs(card, hf_publish.build_provider_configs(["idsse"]))
+        front = yaml.safe_load(out.split("---", 2)[1])
+        assert front["license"] == "cc-by-nc-4.0"  # preserved
+        assert front["tags"] == ["soccer"]  # preserved
+        assert [c["config_name"] for c in front["configs"]] == ["all", "idsse"]  # injected
+        assert "# Title" in out and "Body text." in out  # body preserved
+
+    def test_inject_replaces_existing_configs(self) -> None:
+        import yaml
+
+        card = "---\nlicense: other\nconfigs:\n  - config_name: stale\n    data_files: x\n---\nbody\n"
+        out = hf_publish.inject_frontmatter_configs(card, hf_publish.build_provider_configs(["gradientsports"]))
+        front = yaml.safe_load(out.split("---", 2)[1])
+        assert [c["config_name"] for c in front["configs"]] == ["all", "gradientsports"]  # replaced, no 'stale'
+
+    def test_inject_malformed_frontmatter_raises(self) -> None:
+        with pytest.raises(ValueError, match="closing frontmatter fence"):
+            hf_publish.inject_frontmatter_configs("---\nlicense: x\n(no close)", [])
+
+    @patch("ingestion.hf_publish.HfApi")
+    def test_upload_injects_configs_into_uploaded_bytes(self, mock_hfapi_cls: MagicMock, tmp_path: Path) -> None:
+        import yaml
+
+        card = tmp_path / "card.md"
+        card.write_text("---\nlicense: cc-by-nc-4.0\n---\n\n# C\n", encoding="utf-8")
+        mock_api = MagicMock()
+        mock_api.upload_file.return_value = "https://huggingface.co/datasets/org/name/commit/x"
+        mock_hfapi_cls.return_value = mock_api
+
+        hf_publish.upload_hf_readme(
+            repo_id="org/name",
+            readme_path=card,
+            hf_token="fake_token",  # noqa: S106
+            config_providers=["metrica", "idsse"],
+        )
+        uploaded = mock_api.upload_file.call_args.kwargs["path_or_fileobj"].decode("utf-8")
+        front = yaml.safe_load(uploaded.split("---", 2)[1])
+        assert [c["config_name"] for c in front["configs"]] == ["all", "idsse", "metrica"]
+        assert front["license"] == "cc-by-nc-4.0"
+
+    @patch("ingestion.hf_publish.HfApi")
+    def test_upload_empty_providers_is_byte_identical(self, mock_hfapi_cls: MagicMock, tmp_path: Path) -> None:
+        card = tmp_path / "card.md"
+        body = "---\nlicense: x\n---\n\n# C\n"
+        card.write_text(body, encoding="utf-8")
+        mock_api = MagicMock()
+        mock_api.upload_file.return_value = "u"
+        mock_hfapi_cls.return_value = mock_api
+
+        hf_publish.upload_hf_readme(
+            repo_id="org/name",
+            readme_path=card,
+            hf_token="fake_token",  # noqa: S106 — test fixture
+            config_providers=[],
+        )
+        uploaded = mock_api.upload_file.call_args.kwargs["path_or_fileobj"]
+        assert uploaded == body.encode("utf-8")  # no injection, no 'configs:' key
+
+    @patch("ingestion.hf_publish.HfApi")
+    def test_upload_config_providers_on_non_dataset_raises(self, mock_hfapi_cls: MagicMock, tmp_path: Path) -> None:
+        card = tmp_path / "card.md"
+        card.write_text("---\nlicense: x\n---\nbody\n", encoding="utf-8")
+        mock_hfapi_cls.return_value = MagicMock()
+        with pytest.raises(ValueError, match="only valid for repo_type='dataset'"):
+            hf_publish.upload_hf_readme(
+                repo_id="org/name",
+                readme_path=card,
+                hf_token="fake_token",  # noqa: S106
+                repo_type="model",
+                config_providers=["x"],
+            )

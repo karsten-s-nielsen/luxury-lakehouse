@@ -135,10 +135,15 @@ def publish_to_hf_hub(df: pd.DataFrame, hf_token: str, *, repo_id: str = DATASET
             # the migration-to-public mechanic.
             logger.info("0 partitions for %s — sweep-only publish (delete_patterns clears stale data/)", repo_id)
         for source, sub_df in df.groupby("data_source"):
-            partition_dir = staging_dir / f"data_source={source}"
-            partition_dir.mkdir(parents=True, exist_ok=True)
-            sub_df.drop(columns=["data_source"]).to_parquet(
-                partition_dir / "data.parquet",
+            # Flat per-provider files (data/<provider>.parquet) and KEEP the data_source
+            # column. This lets the dataset card declare one HF config per provider so
+            # consumers can pull a single provider (e.g. load_dataset(repo, "skillcorner"))
+            # and the viewer shows a per-provider subset selector. data_source stays an
+            # explicit column so EVERY config (incl. the default "all") carries it — we do
+            # NOT rely on Hive `data_source=<x>/` path-key recovery, which HF does not apply
+            # to explicitly-listed `data_files`. See the card's `configs:` block.
+            sub_df.to_parquet(
+                staging_dir / f"{source}.parquet",
                 index=False,
                 engine="pyarrow",
             )
@@ -198,14 +203,21 @@ def main() -> None:
     )
     publish_to_hf_hub(restricted_df, hf_token, repo_id=RESTRICTED_DATASET_REPO, private=True)
 
-    for repo, card in (
-        (DATASET_REPO, "spadl-action-context.md"),
-        (RESTRICTED_DATASET_REPO, "spadl-action-context-restricted.md"),
+    # Inject a data-driven per-provider `configs:` block into each card so the viewer shows a
+    # per-provider subset selector and consumers can pull one provider —
+    # `load_dataset(repo, "<provider>")` — without downloading the rest. Providers are taken
+    # from the data actually published to each repo, so the card never drifts from the dataset.
+    public_providers = sorted(public_df["data_source"].unique())
+    restricted_providers = sorted(restricted_df["data_source"].unique())
+    for repo, card, providers in (
+        (DATASET_REPO, "spadl-action-context.md", public_providers),
+        (RESTRICTED_DATASET_REPO, "spadl-action-context-restricted.md", restricted_providers),
     ):
         upload_hf_readme(
             repo_id=repo,
             readme_path=get_hf_card_path(card, kind="dataset"),
             hf_token=hf_token,
+            config_providers=providers,
         )
     logger.info("Pipeline complete: %s", url)
 

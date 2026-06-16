@@ -28,8 +28,11 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
+
+import yaml
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -109,6 +112,65 @@ def split_restricted(df: pd.DataFrame, column: str = "data_source") -> tuple[pd.
     return df[~mask], df[mask]
 
 
+def build_provider_configs(
+    providers: Iterable[str],
+    *,
+    path_template: str = "data/{provider}.parquet",
+    all_config_name: str = "all",
+    all_glob: str = "data/*.parquet",
+) -> list[dict[str, object]]:
+    """Build the HF dataset ``configs`` list: a default ``all`` config that globs every
+    provider's parquet, plus one config per provider.
+
+    This lets consumers pull a single provider — ``load_dataset(repo, "<provider>")`` —
+    instead of the whole corpus, and gives the dataset viewer a per-provider subset
+    selector. The provider list is DATA-DRIVEN (the providers actually published this run),
+    so the card's configs can never drift from the data — there is no static per-provider
+    list to maintain (the original gap: a Hive-partitioned dataset with no ``configs:``
+    collapses to a single set). Providers are de-duplicated and sorted for a stable card.
+
+    Each provider's parquet must be a flat ``data/<provider>.parquet`` carrying its own
+    ``data_source`` column, so every config (including ``all``) exposes ``data_source``
+    without relying on Hive ``key=value`` path-key recovery (HF does not apply that to
+    explicitly-listed ``data_files``).
+    """
+    configs: list[dict[str, object]] = [
+        {"config_name": all_config_name, "data_files": [{"split": "train", "path": all_glob}], "default": True}
+    ]
+    for provider in sorted(dict.fromkeys(providers)):
+        path = path_template.format(provider=provider)
+        configs.append({"config_name": provider, "data_files": [{"split": "train", "path": path}]})
+    return configs
+
+
+def inject_frontmatter_configs(card_text: str, configs: list[dict[str, object]]) -> str:
+    """Return ``card_text`` with its YAML frontmatter ``configs`` key set to ``configs``.
+
+    Adds (or replaces) ONLY the ``configs`` key; all other frontmatter (license, tags, …)
+    and the card body are preserved. If the card has no frontmatter, one is created. Used at
+    publish time to inject the data-driven per-provider configs (``build_provider_configs``)
+    so the on-disk card needs no static, drift-prone provider list.
+
+    Raises:
+        ValueError: if the card opens a ``---`` fence without closing it, or its frontmatter
+            is not a YAML mapping.
+    """
+    if card_text.startswith("---"):
+        parts = card_text.split("---", 2)
+        if len(parts) < 3:
+            raise ValueError("Malformed card: opening '---' without a closing frontmatter fence.")
+        front = yaml.safe_load(parts[1]) or {}
+        if not isinstance(front, dict):
+            raise ValueError("Card frontmatter is not a YAML mapping.")
+        body = parts[2]
+    else:
+        front = {}
+        body = "\n" + card_text
+    front["configs"] = configs
+    dumped = yaml.safe_dump(front, sort_keys=False, default_flow_style=False, allow_unicode=True)
+    return f"---\n{dumped}---{body}"
+
+
 def get_hf_card_path(
     name: str,
     *,
@@ -172,6 +234,8 @@ def upload_hf_readme(
     hf_token: str,
     *,
     repo_type: Literal["dataset", "model", "space"] = "dataset",
+    config_providers: Iterable[str] | None = None,
+    config_path_template: str = "data/{provider}.parquet",
 ) -> dict[str, str]:
     """Upload a README.md to a HF dataset, model, or Space repo.
 
@@ -190,6 +254,15 @@ def upload_hf_readme(
         hf_token: HF API token. Callers pass it explicitly so secret
             handling stays at the call site.
         repo_type: ``"dataset"`` (default), ``"model"``, or ``"space"``.
+        config_providers: when given (dataset repos only), inject a data-driven
+            per-provider ``configs:`` block into the card's frontmatter before
+            upload (via ``build_provider_configs`` + ``inject_frontmatter_configs``)
+            so the viewer shows a per-provider subset selector and consumers can
+            ``load_dataset(repo, "<provider>")``. ``None`` (default) uploads the
+            card byte-for-byte (existing behavior). An empty iterable also skips
+            injection (e.g. a sweep-only publish of an empty repo).
+        config_path_template: per-provider parquet path pattern for the injected
+            configs (default ``"data/{provider}.parquet"``).
 
     Returns:
         ``{"commit_url": <commit url>, "sha256": <hex digest of LF-normalized bytes>}``.
@@ -214,6 +287,18 @@ def upload_hf_readme(
     raw = readme_path.read_bytes()
     if not raw.strip():
         raise ValueError(f"README is empty: {readme_path}")
+
+    # Inject the data-driven per-provider `configs:` block (dataset repos only) so the
+    # uploaded card matches the providers actually published — no static, drift-prone list
+    # on disk. `config_providers=None` keeps the upload byte-identical (existing callers).
+    providers = list(config_providers) if config_providers is not None else []
+    if providers:
+        if repo_type != "dataset":
+            raise ValueError("config_providers is only valid for repo_type='dataset'.")
+        injected = inject_frontmatter_configs(
+            raw.decode("utf-8"), build_provider_configs(providers, path_template=config_path_template)
+        )
+        raw = injected.encode("utf-8")
 
     # LF-normalize: CRLF → LF, then bare CR → LF. Keep the result as bytes
     # so ``upload_file`` treats it as a file payload (avoids the
