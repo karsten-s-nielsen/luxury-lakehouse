@@ -24,7 +24,7 @@ Env vars: DATABRICKS_HOST, DATABRICKS_TOKEN, DATABRICKS_SQL_WAREHOUSE_ID.
 
 Usage::
 
-    uv run python scripts/extract_action_context_fixture.py --provider wyscout --match-id <id>
+    uv run python scripts/extract_action_context_fixture.py --provider statsbomb --match-id <id>
     uv run python scripts/extract_action_context_fixture.py --provider idsse --match-id J03WMX \
         --period 1 --num-batches 30
 
@@ -57,8 +57,11 @@ FIXTURE_ROOT = Path("src/tests/fixtures/action_context")
 _SUBCHUNK_FRAMES = 1000
 
 _TRACKING_PROVIDERS = frozenset({"idsse", "metrica", "skillcorner", "gradientsports"})
-_EVENT_ONLY_PROVIDERS = frozenset({"statsbomb", "wyscout"})
-_ALL_PROVIDERS = _TRACKING_PROVIDERS | _EVENT_ONLY_PROVIDERS
+# ADR-057: action-context is frames-required. wyscout is out of scope; statsbomb is the only
+# non-tracking AC provider (sb360 tier, via freeze-frames). A statsbomb match without 360 is
+# also out of scope (extractor logs "no freeze-frame data").
+_SB360_PROVIDERS = frozenset({"statsbomb"})
+_ALL_PROVIDERS = _TRACKING_PROVIDERS | _SB360_PROVIDERS
 
 # Per-provider bronze tracking projections.
 # Source of truth: ingestion.tracking_context._{IDSSE,METRICA,SKILLCORNER}_TRACKING_SELECT_COLS

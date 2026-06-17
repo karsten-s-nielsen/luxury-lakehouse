@@ -74,6 +74,11 @@ _EXPECTED_COLUMNS = [
     "end_coord_source",
     "start_coord_confidence",
     "end_coord_confidence",
+    # GVM gk-distribution metrics (silly-kicks 4.31.0, ADR-056): actions-level, appended by
+    # apply_spadl_enrichments. NULL except on GK distribution passes.
+    "gk_pass_length_m",
+    "gk_pass_length_class",
+    "is_launch",
 ]
 
 

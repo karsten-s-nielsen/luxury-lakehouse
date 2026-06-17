@@ -1,9 +1,10 @@
 """AC-1 — every driver-side createDataFrame to the action-context table must pass an explicit schema.
 
 Regression guard for the DELTA_FAILED_TO_MERGE_FIELDS bug found by the first
-serverless wyscout run (2026-05-31): ``_process_event_only_match`` and
-``_process_statsbomb_match`` called ``spark.createDataFrame(out_pdf)`` with NO
-schema. Event-only / sb360 output leaves the ~80 tracking columns entirely
+serverless wyscout run (2026-05-31): ``_process_statsbomb_match`` called
+``spark.createDataFrame(out_pdf)`` with NO schema. (The event-only driver path
+that shared this bug was removed in ADR-057 — action-context is frames-required.)
+The sb360 output leaves the ~80 tracking columns entirely
 absent, so ``build_output`` fills them via ``out[col] = np.nan`` → all-NULL
 float64 pandas columns. Spark infers those as DoubleType, which then collides
 with the table's BIGINT columns (e.g. ``frame_id``) under write_delta_table's
@@ -42,9 +43,9 @@ def test_module_has_createdataframe_calls() -> None:
     """
     tree = ast.parse(_MODULE_PATH.read_text(encoding="utf-8"))
     calls = _createdataframe_calls(tree)
-    assert len(calls) >= 2, (
-        f"Expected >=2 createDataFrame calls in {_MODULE_PATH.name} "
-        f"(_process_event_only_match + _process_statsbomb_match), found {len(calls)}"
+    assert len(calls) >= 1, (
+        f"Expected >=1 createDataFrame call in {_MODULE_PATH.name} "
+        f"(_process_statsbomb_match; event-only writer removed per ADR-057), found {len(calls)}"
     )
 
 

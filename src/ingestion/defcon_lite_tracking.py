@@ -230,7 +230,9 @@ def _make_credits_udf_tracking(
             return _pd.DataFrame(columns=_empty_cols)
 
         ff = _pd.DataFrame(ff_rows)
-        result = _assign(actions, ff, params)
+        # ADR-056: tracking has velocities -> velocity-aware spearman pitch control at
+        # the action location (replaces the dead 0.5 pitch_control_at_action constant).
+        result = _assign(actions, ff, params, pitch_control_method="spearman")
         if result.empty:
             return _pd.DataFrame(columns=_empty_cols)
 

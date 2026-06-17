@@ -21,11 +21,11 @@ from analytics.action_context.work_unit import WorkUnit
 def test_tier_cost_fn_rank_order() -> None:
     tracking = WorkUnit(provider="metrica", match_id="m1")
     idsse_half = WorkUnit(provider="idsse", match_id="i1", period=1)
-    event = WorkUnit(provider="wyscout", match_id="w1")
     sb = WorkUnit(provider="statsbomb", match_id="s1")
-    # idsse-half and tracking are the expensive tier; event-only the cheap tier.
+    # Frames-required (ADR-057): idsse-half and tracking are the expensive tier; statsbomb
+    # (sb360) is the cheaper tier. There is no event-only tier.
     assert tier_cost_fn(idsse_half) == tier_cost_fn(tracking)
-    assert tier_cost_fn(tracking) > tier_cost_fn(sb) > tier_cost_fn(event)
+    assert tier_cost_fn(tracking) > tier_cost_fn(sb)
 
 
 def test_work_assignment_is_frozen() -> None:
@@ -37,7 +37,9 @@ def test_work_assignment_is_frozen() -> None:
 # ── Task 2: assign_workers ─────────────────────────────────────────────
 
 
-def _units(n: int, provider: str = "wyscout") -> list[WorkUnit]:
+def _units(n: int, provider: str = "statsbomb") -> list[WorkUnit]:
+    # statsbomb is the cheap (sb360) tier — a valid non-tracking AC provider (ADR-057);
+    # used here as the generic "cheap unit" for assign_workers/cost-ranking tests.
     return [WorkUnit(provider=provider, match_id=f"{provider}-{i}") for i in range(n)]
 
 
@@ -68,7 +70,7 @@ def test_assign_workers_expensive_units_spread() -> None:
 
 
 def test_assign_workers_deterministic_under_shuffle() -> None:
-    units = _units(15, "wyscout") + [WorkUnit(provider="idsse", match_id="i", period=p) for p in (1, 2)]
+    units = _units(15, "statsbomb") + [WorkUnit(provider="idsse", match_id="i", period=p) for p in (1, 2)]
     base = assign_workers(units, n_workers=4)
     shuffled = list(units)
     random.Random(7).shuffle(shuffled)  # noqa: S311 -- test shuffle, not cryptographic

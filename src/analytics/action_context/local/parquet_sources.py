@@ -3,14 +3,16 @@
 Fixture layout::
 
     <root>/<provider>/<match>[_p<period>]/
-        frames.parquet      # bronze tracking rows (raw cols incl. frame/frame_num); absent for event-only
+        frames.parquet      # bronze tracking rows (raw cols incl. frame/frame_num)
         actions.parquet     # bronze.spadl_actions rows for the match
         xt_grid.parquet     # zone_x, zone_y, xt_value (global grid)
         meta.parquet        # 1 row: home_team_id, home_start_left [, gs_*_json]
         sb360.parquet       # (statsbomb only) synthetic freeze-frames -> sb360 tier
 
-Tier resolution mirrors production: tracking providers -> ``tracking``; wyscout ->
-``event_only``; statsbomb -> ``sb360`` if sb360.parquet exists else ``event_only``.
+Tier resolution mirrors production (frames-required; ADR-057): tracking providers ->
+``tracking`` (via resolve_frame_tier); statsbomb -> ``sb360`` (sb360.parquet present).
+A statsbomb dir WITHOUT sb360.parquet — and any non-AC provider — is OUT OF SCOPE and
+raises (discovery never enqueues it).
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import pandas as pd
 
-from analytics.action_context.work_unit import FrameBundle, MatchMeta, provider_tier
+from analytics.action_context.work_unit import FrameBundle, MatchMeta, provider_tier, resolve_frame_tier
 
 if TYPE_CHECKING:
     from analytics.action_context.work_unit import WorkUnit
@@ -39,16 +41,19 @@ class ParquetFrameSource:
 
     def frames(self, wu: WorkUnit) -> FrameBundle:
         d = _unit_dir(self._root, wu)
-        base_tier = provider_tier(wu)
-        if base_tier == "tracking":
+        # provider_tier raises for non-AC providers (frames-required; ADR-057); resolve_frame_tier
+        # is THE single static->runtime mapping (tracking -> tracking, statsbomb -> sb360).
+        frame_tier = resolve_frame_tier(provider_tier(wu))
+        if frame_tier == "tracking":
             return FrameBundle(tier="tracking", frames=pd.read_parquet(d / "frames.parquet"))
-        if base_tier == "event_only":
-            return FrameBundle(tier="event_only", frames=pd.DataFrame())
-        # statsbomb: sb360 if freeze-frames present, else event_only
+        # statsbomb -> sb360: freeze-frames are required (a no-360 dir is out of scope, never enqueued).
         sb360 = d / "sb360.parquet"
-        if sb360.exists():
-            return FrameBundle(tier="sb360", frames=pd.read_parquet(sb360))
-        return FrameBundle(tier="event_only", frames=pd.DataFrame())
+        if not sb360.exists():
+            raise FileNotFoundError(
+                f"statsbomb unit {wu.match_id} has no sb360.parquet — out of action-context scope "
+                f"(frames-required; ADR-057). Discovery should not have enqueued it."
+            )
+        return FrameBundle(tier="sb360", frames=pd.read_parquet(sb360))
 
 
 class ParquetActionsSource:

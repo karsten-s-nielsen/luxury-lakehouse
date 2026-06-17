@@ -147,9 +147,9 @@ class TestSkillCornerLocalIntegration:
             "pressure_on_actor__andrienko_oval",
             "pressure_on_actor__link_zones",
             "pressure_on_actor__bekkers_pi",
-            "pitch_control_at_ball__spearman",
-            "pitch_control_at_ball__fernandez_bornn",
-            "pitch_control_at_ball__voronoi",
+            "pitch_control_at_target__spearman",
+            "pitch_control_at_target__fernandez_bornn",
+            "pitch_control_at_target__voronoi",
             "defensive_line_x",
             "nearest_defender_distance",
             "line_break",
@@ -191,9 +191,9 @@ class TestSkillCornerLocalIntegration:
         """Pitch control values must be in [0, 1]."""
         pytest.importorskip("silly_kicks")
         for col in (
-            "pitch_control_at_ball__spearman",
-            "pitch_control_at_ball__fernandez_bornn",
-            "pitch_control_at_ball__voronoi",
+            "pitch_control_at_target__spearman",
+            "pitch_control_at_target__fernandez_bornn",
+            "pitch_control_at_target__voronoi",
         ):
             vals = enriched[col].dropna()
             if len(vals) > 0:

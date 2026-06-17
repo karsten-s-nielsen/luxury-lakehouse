@@ -71,6 +71,9 @@ with action_values as (
         statsbomb_under_pressure,
         possession_id_heuristic,
         gk_role,
+        gk_pass_length_m,
+        gk_pass_length_class,
+        is_launch,
         gk_was_distributing,
         gk_was_engaged,
         gk_actions_in_possession,
@@ -207,6 +210,9 @@ actions_with_score as (
         -- LL2 enrichment columns (provider-agnostic, populated for ALL
         -- sources from apply_spadl_enrichments — see ADR-016).
         av.gk_role,
+        av.gk_pass_length_m,
+        av.gk_pass_length_class,
+        av.is_launch,
         av.gk_was_distributing,
         av.gk_was_engaged,
         av.gk_actions_in_possession,
@@ -286,10 +292,42 @@ actions_with_score as (
 
 ),
 
+-- gk_xt_delta (ADR-056): GVM distribution xT delta computed from the lakehouse's
+-- CANONICAL 12x8 xT grid (bronze.expected_threat_grids, competition_id='global') —
+-- the single xT source of truth, NOT a second silly-kicks-fitted grid. Same zone
+-- lookup as fct_goalkeeper_stats. Non-NULL only for SUCCESSFUL GK-distribution passes
+-- (matching silly-kicks add_gk_distribution_metrics GVM semantics); NULL elsewhere.
+xt_grid as (
+
+    select zone_x, zone_y, xt_value
+    from {{ source('spadl', 'expected_threat_grids') }}
+    where competition_id = 'global'
+
+),
+
+gk_xt as (
+
+    select
+        aws.action_value_id,
+        case
+            when aws.gk_role = 'distribution' and aws.action_result = 'success'
+                then coalesce(xt_end.xt_value, 0) - coalesce(xt_start.xt_value, 0)
+        end as gk_xt_delta
+    from actions_with_score aws
+    left join xt_grid xt_start
+        on  greatest(least(cast(aws.start_x / (105.0 / 12) as int), 11), 0) = xt_start.zone_x
+        and greatest(least(cast(aws.start_y / (68.0 / 8) as int), 7), 0) = xt_start.zone_y
+    left join xt_grid xt_end
+        on  greatest(least(cast(aws.end_x / (105.0 / 12) as int), 11), 0) = xt_end.zone_x
+        and greatest(least(cast(aws.end_y / (68.0 / 8) as int), 7), 0) = xt_end.zone_y
+    where aws._score_rn = 1
+
+),
+
 final as (
 
     select
-        action_value_id,
+        aws.action_value_id,
         match_key,
         competition_key,
         match_id,
@@ -325,6 +363,13 @@ final as (
         statsbomb_under_pressure,
         -- LL2 enrichment columns.
         gk_role,
+        -- GVM distribution metrics (silly-kicks 4.31.0, Lamberts 2025; ADR-056).
+        -- 3 grid-free cols from add_gk_distribution_metrics; gk_xt_delta derived above
+        -- from the canonical xT grid (NOT silly-kicks' own grid).
+        gk_pass_length_m,
+        gk_pass_length_class,
+        is_launch,
+        gk_xt.gk_xt_delta,
         gk_was_distributing,
         gk_was_engaged,
         gk_actions_in_possession,
@@ -361,8 +406,9 @@ final as (
         original_event_id,
         current_timestamp()                         as _loaded_at
 
-    from actions_with_score
-    where _score_rn = 1
+    from actions_with_score aws
+    left join gk_xt on gk_xt.action_value_id = aws.action_value_id
+    where aws._score_rn = 1
 
 )
 

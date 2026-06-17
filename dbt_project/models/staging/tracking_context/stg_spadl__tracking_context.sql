@@ -83,9 +83,9 @@ cleaned as (
         cast(pressure_on_actor__link_zones as double) as pressure_on_actor__link_zones,
         cast(pressure_on_actor__bekkers_pi as double) as pressure_on_actor__bekkers_pi,
         -- Pitch control
-        cast(pitch_control_at_ball__spearman as double) as pitch_control_at_ball__spearman,
-        cast(pitch_control_at_ball__fernandez_bornn as double) as pitch_control_at_ball__fernandez_bornn,
-        cast(pitch_control_at_ball__voronoi as double) as pitch_control_at_ball__voronoi,
+        cast(pitch_control_at_target__spearman as double) as pitch_control_at_target__spearman,
+        cast(pitch_control_at_target__fernandez_bornn as double) as pitch_control_at_target__fernandez_bornn,
+        cast(pitch_control_at_target__voronoi as double) as pitch_control_at_target__voronoi,
         -- Defensive line
         cast(defensive_line_x as double)    as defensive_line_x,
         cast(back_line_high_x as double)    as back_line_high_x,

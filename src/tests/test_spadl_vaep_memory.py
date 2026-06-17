@@ -61,6 +61,10 @@ def _build_synthetic_spadl_group(n_rows: int = 2711, *, random_state: int = 42) 
             "gk_was_engaged": rng.choice(np.array([True, False, None], dtype=object), n_rows),
             "gk_actions_in_possession": rng.integers(0, 5, n_rows).astype(np.int64),
             "defending_gk_player_id": rng.choice(np.array([100, 110, None], dtype=object), n_rows),
+            # GVM gk-distribution metrics (silly-kicks 4.31.0, ADR-056)
+            "gk_pass_length_m": rng.uniform(5.0, 70.0, n_rows),
+            "gk_pass_length_class": rng.choice(np.array(["short", "medium", "long", None], dtype=object), n_rows),
+            "is_launch": rng.choice(np.array([True, False], dtype=object), n_rows),
             # Native string identifiers
             "team_id_native": rng.choice(["10", "20"], n_rows),
             "home_team_id_native": "10",

@@ -1,10 +1,10 @@
 """Action-context enrichment tiers (pure pandas/numpy/silly_kicks).
 
-Moved verbatim from ``ingestion.action_context`` (behavior-preserving). Three
-tiers — tracking (full ~21-step chain), SB360 (synthetic freeze-frames), and
-event-only — plus the mutate-then-restore identity resolver. No pyspark; runs
-identically on a Spark executor (inside the per-group UDF, mapInPandas dispatch
-per ADR-045) and locally.
+Moved verbatim from ``ingestion.action_context`` (behavior-preserving). Action-context
+is FRAMES-REQUIRED (ADR-057): two tiers — tracking (full ~21-step chain) and SB360
+(synthetic freeze-frames) — plus the mutate-then-restore identity resolver. Event-only
+matches are out of scope (no row). No pyspark; runs identically on a Spark executor
+(inside the per-group UDF, mapInPandas dispatch per ADR-045) and locally.
 """
 
 from __future__ import annotations
@@ -207,6 +207,7 @@ def _enrich_tracking_match(
         add_pre_shot_gk_position,
         add_pressure_on_actor,
         add_shape_graph,
+        add_shot_goalmouth,
         add_space_creation,
         add_structural_pass,
         add_sync_score,
@@ -217,7 +218,7 @@ def _enrich_tracking_match(
         derive_team_in_possession,
         infer_ball_carrier,
         link_actions_to_frames,
-        pitch_control_at_action,
+        pitch_control_at_target,
     )
 
     # add_ghost_gk + add_player_influence + PitchControlCache are not re-exported from the
@@ -238,7 +239,7 @@ def _enrich_tracking_match(
     links, _report = link_actions_to_frames(out, tracking_df, on_low_coverage="ignore")
 
     # One shared per-frame pitch-control surface cache for this batch (silly-kicks 3.25.0
-    # TF-7): obso / cover_shadows / gk_influence / space_creation / pitch_control_at_action
+    # TF-7): obso / cover_shadows / gk_influence / space_creation / pitch_control_at_target
     # otherwise each recompute the same canonical surfaces. Caller-supplied cache extends
     # reuse ACROSS those families within this pass. Bit-identical output (only canonical,
     # not counterfactual, surfaces are cached).
@@ -275,7 +276,7 @@ def _enrich_tracking_match(
 
     # Step 6: Pitch control — 3 methods via Series API
     for method in ("spearman", "fernandez_bornn", "voronoi"):
-        s = pitch_control_at_action(out, tracking_df, links=links, method=method, pitch_control_cache=pc_cache)
+        s = pitch_control_at_target(out, tracking_df, links=links, method=method, pitch_control_cache=pc_cache)
         out[s.name] = s.values
 
     # Step 7: Defensive line
@@ -390,6 +391,12 @@ def _enrich_tracking_match(
         out, tracking_df, model=None, links=links, home_team_id=home_team_id, pitch_control_cache=pc_cache
     )
 
+    # Step 21b: Shot goalmouth crossing (TF-48; Anzer & Bauer 2021). Pure ball-trajectory geometry
+    # over the post-shot frames — post-contact outcome, so NOT a VAEP feature (upstream ADR-030
+    # leakage guard). NaN/NA for non-shot / unresolved rows. Tracking-derived → lives only in
+    # fct_action_context (the Kimball tracking-context fact), never the actions-level lineage.
+    out = add_shot_goalmouth(out, tracking_df, links=links)
+
     # Step 22: Structural-pass primitives (TF-45; Karakus & Arkadas 2026, arXiv:2603.28916).
     # No xt / no pitch control. NaN for non-pass/non-cross + non-possessing-team actions.
     out = add_structural_pass(out, tracking_df, links=links, home_team_id=home_team_id)
@@ -503,8 +510,11 @@ def _enrich_sb360_match(
     # Step 1: Convert freeze-frames to synthetic tracking frames + links.
     frames, links = snapshot_to_tracking_frames(freeze_frames, out)
 
+    # Frames-required (ADR-057): a sb360 match whose freeze-frames convert to ZERO synthetic
+    # frames produces NO rows. The "0 frames despite having 360 data" anomaly is WARN-logged at
+    # the production edge (_process_statsbomb_match); the pure core just returns empty.
     if len(frames) == 0:
-        return out  # No freeze-frame data — event-only fallback
+        return out.iloc[0:0]
 
     # Step 2: Single-frame positional features
     out = add_action_context(out, frames, links=links)
@@ -559,14 +569,4 @@ def _enrich_sb360_match(
     out["pitch_control_method"] = "voronoi"
     out["ghost_gk_method"] = kde_backend
 
-    return out
-
-
-def _enrich_event_only_match(actions_df: pd.DataFrame) -> pd.DataFrame:
-    """Minimal enrichment for event-only providers (StatsBomb, Wyscout)."""
-    from silly_kicks.spadl import add_game_state
-    from silly_kicks.spadl.utils import add_pre_shot_gk_context
-
-    out = add_game_state(actions_df)
-    out = add_pre_shot_gk_context(out)
     return out

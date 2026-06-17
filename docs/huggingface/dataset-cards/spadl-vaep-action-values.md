@@ -81,6 +81,10 @@ top_players = df.groupby("player_id")["vaep_value"].sum().nlargest(10)
 | `vaep_value` | `double` | Net VAEP value (offensive_value + defensive_value) |
 | `data_source` | `string` | Origin data provider — partition key (`statsbomb`, `wyscout`, `idsse`, `metrica`, `skillcorner`) |
 | `original_event_id` | `string` | Event ID from the source provider |
+| `gk_pass_length_m` | `double` | GVM goalkeeper-distribution pass length in metres (Euclidean start→end); `null` except on GK distribution passes (silly-kicks 4.31.0, Lamberts 2025; ADR-056). |
+| `gk_pass_length_class` | `string` | GVM distribution length bucket: `short` / `medium` / `long`; `null` off GK distribution passes. |
+| `is_launch` | `boolean` | GVM: a long deliberate-distribution launch (length above the long threshold). |
+| `gk_xt_delta` | `double` | GVM xT delta (start→end zone) on the lakehouse's canonical 12×8 xT grid; non-null only on successful GK distribution passes — single xT source of truth, derived in dbt (ADR-056). |
 
 ### Coordinate System
 

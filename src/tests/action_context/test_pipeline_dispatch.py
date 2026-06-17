@@ -40,7 +40,9 @@ class _Sink:
         return len(result_df)
 
 
-def test_event_only_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sb360_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Frames-required (ADR-057): the only non-tracking tier is sb360; it runs a single
+    # enrich_batch call (no frame batching). (Replaces the retired event_only dispatch.)
     calls: list[str] = []
 
     def _stub(**kw: object) -> pd.DataFrame:
@@ -51,14 +53,32 @@ def test_event_only_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
 
     class _Frames:
         def frames(self, wu: WorkUnit) -> FrameBundle:
-            return FrameBundle(tier="event_only", frames=pd.DataFrame())
+            return FrameBundle(tier="sb360", frames=pd.DataFrame())
 
     sink = _Sink()
     n = pipeline.run_work_unit(
-        WorkUnit("wyscout", "M"), frames=_Frames(), actions=_Actions(), xt=_Xt(), meta=_Meta(), sink=sink
+        WorkUnit("statsbomb", "M"), frames=_Frames(), actions=_Actions(), xt=_Xt(), meta=_Meta(), sink=sink
     )
-    assert calls == ["event_only"]  # single non-tracking call
+    assert calls == ["sb360"]  # single non-tracking call
     assert n == 1 and sink.rows == 1
+
+
+def test_enrich_batch_rejects_unknown_tier() -> None:
+    # Total dispatch (review M3): an unknown/retired tier raises rather than falling through
+    # to the tracking path. The guard fires before any frame work, so dummy args are fine.
+    with pytest.raises(ValueError, match="unknown action-context tier"):
+        pipeline.enrich_batch(
+            provider="wyscout",
+            tier="event_only",  # type: ignore[arg-type]  # deliberately invalid FrameTier
+            frames_pdf=pd.DataFrame(),
+            actions_records=[{"action_id": 0, "game_id": 1, "period_id": 1}],
+            period=1,
+            xt_grid_data=[[0.0]],
+            xt_l=1,
+            xt_w=1,
+            meta=MatchMeta(home_team_id="A", home_start_left=True),
+            native_match_id="M",
+        )
 
 
 def test_tracking_tier_loops_one_call_per_batch(monkeypatch: pytest.MonkeyPatch) -> None:

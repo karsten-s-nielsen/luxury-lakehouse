@@ -254,7 +254,16 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     )
 
 
-# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 30, 0) ──────────
+# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 32, 0) ──────────
+# Floor advanced 4.31.0 -> 4.32.0 (2026-06-17) for the silly-kicks add_* input-purity
+# CI gate + the add_gk_distribution_metrics in-place-mutation fix (identity/row-order
+# only, no value miscompute, no recompute) + the pitch_control_at_action ->
+# pitch_control_at_target FUNCTION rename (emitted column base unchanged). See sk ADR-033.
+# Floor advanced 4.30.0 -> 4.31.0 (2026-06-16) for the silly-kicks pitch-control
+# rename: pitch_control_at_ball__<method> -> pitch_control_at_target__<method>
+# (sampled at the action destination, with the ADR-028 away-team query
+# re-projection). BREAKING + atomic with the column migration (ADR-056); the dead
+# ~0.5 at-ball fallback is retired for a live at-destination feature.
 # Floor advanced 4.27.0 -> 4.30.0 (2026-06-16) for the silly-kicks DFL parse-port
 # adoption (ADR-055) + Metrica builder y-fix; adds the `[parse-dfl]` extra.
 # Floor advanced 3.30.0 -> 4.0.0 (2026-05-30) to force silly-kicks 4.0.0 everywhere
@@ -306,11 +315,11 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
 # metrica/skillcorner bronze-frame LTR-orientation helper; ADR-029) plus the 4.21-4.26
 # adoptions already shipped (space-creation lean contract, GS null-actor NaN identifiers,
 # tracking-geometry action-LTR frame unification). See ADR-052 / 4.27.0 adoption.
-# Matches the pyproject [spadl] pin `silly-kicks>=4.27.0,<5`.
+# Matches the pyproject [spadl] pin `silly-kicks>=4.32.0,<5`.
 
 
 def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
-    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 30, 0)`.
+    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 32, 0)`.
 
     Per spec §2.10.5: the runtime check inside `main()` is not directly
     introspectable post-hoc, so we assert the constant. Code review covers
@@ -328,11 +337,11 @@ def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
         if not hasattr(trainer, "_REQUIRED_SK_MIN"):
             missing.append(item)
             continue
-        expected = (4, 30, 0)
+        expected = (4, 32, 0)
         actual = trainer._REQUIRED_SK_MIN
         if actual != expected:
             wrong_value[item] = actual
     assert not missing, (
-        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 30, 0)`: {missing}"
+        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 32, 0)`: {missing}"
     )
-    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 30, 0): {wrong_value}"
+    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 32, 0): {wrong_value}"

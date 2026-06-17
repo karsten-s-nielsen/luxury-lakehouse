@@ -43,7 +43,7 @@ print(df.columns.tolist())  # 83 columns
 | Action context | nearest_defender_distance, actor_speed, receiver_zone_density, defenders_in_triangle_to_goal | — |
 | Actor pre-window | actor_arc_length_pre_window, actor_displacement_pre_window | — |
 | Pressure | pressure_on_actor__andrienko_oval, __link_zones, __bekkers_pi | Andrienko 2017, Bekkers 2023 |
-| Pitch control | pitch_control_at_ball__spearman, __fernandez_bornn, __voronoi | Spearman 2018, Fernandez & Bornn 2018 |
+| Pitch control | pitch_control_at_target__spearman, __fernandez_bornn, __voronoi | Spearman 2018, Fernandez & Bornn 2018 |
 | Defensive line | defensive_line_x, back_line_high_x, compactness_x, lateral_width, max_lateral_gap, back_n_count | — |
 | Off-ball context | line_break, n_attackers_behind_line, n_off_ball_runners_*, ... | Power 2017 |
 | Ward line-breaking | line_break__ward, lines_broken__ward, line_breaking_type__ward | Karakus & Arkadas 2025 |
