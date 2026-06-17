@@ -80,9 +80,9 @@ _BRONZE_READ_REQUIREMENTS: list[tuple[str, str, str]] = [
     # dbt_build_input_marts is correct per ADR-019 § ingest-helper exemption.
     ("dbt_build_input_marts", "statsbomb_360", "backfill_statsbomb_360"),
     ("dbt_build_output_marts", "player_embeddings_raw_360", "compute_embeddings_360"),
-    # ── compute_action_context: reads SPADL + all provider data ───────────
+    # ── compute_action_context: reads SPADL + frame-bearing provider data (ADR-057) ──
     # Evidence: src/ingestion/action_context.py — _process_tracking_match,
-    #         _process_statsbomb_match, _process_event_only_match
+    #         _process_statsbomb_match (sb360). Event-only providers are out of scope.
     ("compute_action_context", "spadl_actions", "compute_spadl_vaep"),
     ("compute_action_context", "statsbomb_360", "backfill_statsbomb_360"),
     ("compute_action_context", "idsse_tracking", "ingest_idsse"),

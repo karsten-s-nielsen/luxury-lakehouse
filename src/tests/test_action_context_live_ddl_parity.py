@@ -118,3 +118,40 @@ def test_live_bronze_has_every_ddl_column() -> None:
             len(extra_in_live),
             sorted(extra_in_live),
         )
+
+
+@requires_databricks
+def test_action_context_coverage_is_frames_required() -> None:
+    """Frames-required contract (ADR-057): bronze.spadl_action_context contains ONLY frame-bearing
+    providers — the 4 tracking providers + statsbomb matches that HAVE freeze-frames. Zero wyscout /
+    zero statsbomb-without-360 rows.
+
+    This is the post-recompute contract the row-absence model depends on (an SB action-context row
+    with no tracking is the exact bug this pipeline prevents). Live-only (skipped offline); it
+    trivially holds on an empty/wiped mart (no rows -> no violations) and becomes a real assertion
+    once the frames-required recompute lands.
+    """
+    provider_q = f"SELECT DISTINCT data_source FROM {_BRONZE_SCHEMA}.{_TABLE}"  # noqa: S608 — module constants
+    rows = _execute_sql(provider_q)
+    provs = {str(r[0]) for r in rows}
+    if not provs:
+        pytest.skip(f"{_BRONZE_SCHEMA}.{_TABLE} is empty (pre-recompute) — coverage assertion N/A")
+
+    assert "wyscout" not in provs, f"event-only rows present (frames-required violation): {sorted(provs)}"
+    assert provs <= {"idsse", "metrica", "skillcorner", "gradientsports", "statsbomb"}, (
+        f"unexpected provider in {_TABLE}: {sorted(provs)}"
+    )
+
+    # Every statsbomb AC match must map to a bronze.statsbomb_360 match (canonical long-cast id
+    # join, mirroring discovery's _find_sb360_new_ids). A non-empty result is a frames-required
+    # violation. Schema/table refs are module constants.
+    orphan_q = (
+        f"SELECT DISTINCT cast(a.match_id as string) FROM {_BRONZE_SCHEMA}.{_TABLE} a "  # noqa: S608
+        f"LEFT ANTI JOIN {_BRONZE_SCHEMA}.statsbomb_360 s "
+        f"ON cast(a.match_id as long) = cast(s.match_id as long) "
+        f"WHERE a.data_source = 'statsbomb'"
+    )
+    orphans = _execute_sql(orphan_q)
+    assert not orphans, (
+        f"statsbomb action-context rows without freeze-frames (frames-required violation): {[r[0] for r in orphans]}"
+    )

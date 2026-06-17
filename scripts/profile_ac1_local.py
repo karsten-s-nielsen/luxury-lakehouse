@@ -37,7 +37,7 @@ _STAGE_NAMES: tuple[str, ...] = (
     "add_obso",
     "add_team_shape",
     "add_off_ball_context",
-    "pitch_control_at_action",
+    "pitch_control_at_target",
     "infer_ball_carrier",
     "add_gk_influence",
     "add_defensive_line",

@@ -103,6 +103,11 @@ def _build_two_team_fixture(n_actions: int = 100) -> pd.DataFrame:
         "gk_was_engaged",
         "gk_actions_in_possession",
         "defending_gk_player_id",
+        # GVM gk-distribution metrics (silly-kicks 4.31.0, ADR-056) — NULL except on GK
+        # distribution passes; the scoring UDF carries them through.
+        "gk_pass_length_m",
+        "gk_pass_length_class",
+        "is_launch",
         "team_id_native",
         "home_team_id_native",
         "competition_native_id",

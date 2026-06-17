@@ -9,15 +9,21 @@ pipeline dispatches to the correct enrich tier.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     import pandas as pd
 
 _TRACKING_PROVIDERS: frozenset[str] = frozenset({"idsse", "metrica", "skillcorner", "gradientsports"})
-# statsbomb is resolved to sb360 vs event_only by the FrameSource (360 presence),
-# so it is NOT listed here; provider_tier returns "statsbomb" for it.
-_EVENT_ONLY_PROVIDERS: frozenset[str] = frozenset({"wyscout"})
+# statsbomb is resolved to the sb360 FrameTier at runtime by the FrameSource (freeze-frame
+# presence), so it is NOT in _TRACKING_PROVIDERS; provider_tier returns "statsbomb" for it.
+# There is no event-only provider: action-context is frames-required (ADR-057).
+
+# Two distinct tier vocabularies, kept apart at the type level so pyright catches a crossed
+# static/runtime value (review M2): ProviderTier is static (provider_tier), FrameTier is runtime
+# (FrameBundle / enrich_batch). resolve_frame_tier is the single mapping between them.
+ProviderTier = Literal["tracking", "statsbomb"]
+FrameTier = Literal["tracking", "sb360"]
 
 
 @dataclass(frozen=True)
@@ -72,25 +78,33 @@ class MatchMeta:
 class FrameBundle:
     """Tier-appropriate frames for a work unit.
 
-    ``tier`` is one of: ``tracking`` | ``sb360`` | ``event_only``.
-    ``frames`` is tracking frames, synthetic freeze-frames, or empty (event-only).
+    ``tier`` is one of: ``tracking`` | ``sb360`` (action-context is frames-required; ADR-057).
+    ``frames`` is tracking frames or synthetic freeze-frames — never empty.
     """
 
-    tier: str
+    tier: FrameTier
     frames: pd.DataFrame
     extra: dict[str, Any] = field(default_factory=dict)
 
 
-def provider_tier(wu: WorkUnit) -> str:
-    """Static provider classification.
+def provider_tier(wu: WorkUnit) -> ProviderTier:
+    """Static provider classification for the FRAMES-REQUIRED action-context pipeline.
 
-    Returns ``tracking`` | ``event_only`` | ``statsbomb``. The ``statsbomb``
-    case is resolved to ``sb360`` vs ``event_only`` at runtime by the
-    ``FrameSource`` (it depends on 360 freeze-frame availability), so it is
-    returned as-is here.
+    Returns ``tracking`` (idsse/metrica/skillcorner/gradientsports) or ``statsbomb``
+    (resolved to the ``sb360`` FrameTier at runtime by the FrameSource). Event-only
+    providers do NOT exist for action-context (ADR-057) — they raise.
     """
     if wu.provider in _TRACKING_PROVIDERS:
         return "tracking"
-    if wu.provider in _EVENT_ONLY_PROVIDERS:
-        return "event_only"
-    return "statsbomb"
+    if wu.provider == "statsbomb":
+        return "statsbomb"
+    raise ValueError(f"{wu.provider!r} is not an action-context provider (frames-required; ADR-057)")
+
+
+def resolve_frame_tier(pt: ProviderTier) -> FrameTier:
+    """Map the static ProviderTier to the runtime FrameTier — THE single mapping site.
+
+    Frames-required: an ENQUEUED statsbomb unit always has freeze-frames (discovery
+    semi-joins statsbomb_360), so it is always ``sb360`` — there is no event-only outcome.
+    """
+    return "tracking" if pt == "tracking" else "sb360"

@@ -3,7 +3,7 @@
 
 Mock-patches all silly-kicks add_* calls to verify:
 - call ordering and links propagation (tracking chain)
-- event-only chain produces game_state + GK resolution only
+- sb360 zero-frame match yields no rows (frames-required; ADR-057)
 - output column selection matches _RESULT_COLUMNS
 """
 
@@ -14,7 +14,6 @@ import sys
 from collections import namedtuple
 from unittest.mock import MagicMock, patch
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -24,12 +23,10 @@ from analytics.action_context.work_unit import WorkUnit
 from ingestion.action_context import (
     _ActionContextGuard,
     _build_output,
-    _enrich_event_only_match,
     _enrich_sb360_match,
-    _find_event_only_new_ids,
     _find_idsse_new_period_pairs,
+    _find_sb360_new_ids,
     _find_tracking_new_period_pairs,
-    _is_event_only_provider,
     _is_tracking_provider,
     _load_xt_grid_from_delta,
     _parse_preflight_filters,
@@ -88,42 +85,26 @@ def _make_mock_links(actions: pd.DataFrame) -> pd.DataFrame:
 _PASSTHROUGH = lambda actions, *args, **kwargs: actions  # noqa: E731
 
 
-def test_enrich_event_only_produces_game_state_and_gk() -> None:
-    """Event-only chain must add game_state + 4 GK resolution columns."""
-    actions = _make_actions()
-    with (
-        patch(
-            "silly_kicks.spadl.add_game_state",
-            side_effect=lambda df: df.assign(game_state="drawing"),
-        ) as mock_gs,
-        patch(
-            "silly_kicks.spadl.utils.add_pre_shot_gk_context",
-            side_effect=lambda df, **kw: df.assign(
-                defending_gk_player_id=np.nan,
-                gk_was_distributing=False,
-                gk_was_engaged=False,
-                gk_actions_in_possession=0,
-            ),
-        ) as mock_gk,
-    ):
-        result = _enrich_event_only_match(actions)
-    mock_gs.assert_called_once()
-    mock_gk.assert_called_once()
-    assert "game_state" in result.columns
-    assert "defending_gk_player_id" in result.columns
-    assert result["game_state"].iloc[0] == "drawing"
-
-
-def test_enrich_event_only_game_state_values() -> None:
-    """game_state values must be winning, losing, or drawing."""
+def test_sb360_zero_frames_yields_no_rows() -> None:
+    """Frames-required (ADR-057): a sb360 match whose freeze-frames convert to ZERO synthetic
+    frames produces NO rows. The pure core returns empty; the production edge WARNs (covered in
+    test_action_context_createdataframe_schema / the processor test). This test exercises the
+    ``len(frames) == 0`` branch specifically — NON-empty freeze-frames mapped to zero frames
+    (review L-new-2), not a trivially-empty input."""
     actions = _make_actions(3)
-    actions_with_gs = actions.assign(game_state=pd.array(["winning", "losing", "drawing"]))
+    ff = pd.DataFrame({"id": ["e0", "e1"], "freeze_frame": [[], []]})  # non-empty, but positionless
     with (
-        patch("silly_kicks.spadl.add_game_state", return_value=actions_with_gs),
+        patch("silly_kicks.spadl.add_game_state", side_effect=lambda df: df.assign(game_state="drawing")),
         patch("silly_kicks.spadl.utils.add_pre_shot_gk_context", side_effect=lambda df, **kw: df),
+        patch(
+            "silly_kicks.tracking.snapshot_to_tracking_frames",
+            return_value=(pd.DataFrame(), pd.DataFrame()),  # zero synthetic frames
+        ) as mock_snap,
     ):
-        result = _enrich_event_only_match(actions)
-    assert set(result["game_state"].unique()) == {"winning", "losing", "drawing"}
+        out = _enrich_sb360_match(actions, ff, home_team_id="H", xt=MagicMock())
+    mock_snap.assert_called_once()
+    assert len(ff) > 0  # pins the len(frames)==0 branch (not the empty-freeze-frames branch)
+    assert len(out) == 0
 
 
 def test_enrich_tracking_calls_all_steps_with_links() -> None:
@@ -134,7 +115,7 @@ def test_enrich_tracking_calls_all_steps_with_links() -> None:
     mock_xt = MagicMock()
 
     mock_link_fn = MagicMock(return_value=(mock_links, MagicMock()))
-    mock_pc = MagicMock(return_value=pd.Series([0.5] * len(actions), name="pitch_control_at_ball__spearman"))
+    mock_pc = MagicMock(return_value=pd.Series([0.5] * len(actions), name="pitch_control_at_target__spearman"))
     mock_def_line = MagicMock(side_effect=_PASSTHROUGH)
     mock_action_ctx = MagicMock(side_effect=_PASSTHROUGH)
     mock_das = MagicMock(side_effect=_PASSTHROUGH)
@@ -146,7 +127,7 @@ def test_enrich_tracking_calls_all_steps_with_links() -> None:
         patch("silly_kicks.tracking.add_action_context", mock_action_ctx),
         patch("silly_kicks.tracking.add_actor_pre_window", _PASSTHROUGH),
         patch("silly_kicks.tracking.add_pressure_on_actor", _PASSTHROUGH),
-        patch("silly_kicks.tracking.pitch_control_at_action", mock_pc),
+        patch("silly_kicks.tracking.pitch_control_at_target", mock_pc),
         patch("silly_kicks.tracking.add_defensive_line", mock_def_line),
         patch("silly_kicks.tracking.add_off_ball_context", _PASSTHROUGH),
         patch("silly_kicks.tracking.add_line_break", _PASSTHROUGH),
@@ -341,7 +322,7 @@ def test_build_output_column_selection() -> None:
     assert result["match_id"].iloc[0] == "native_m1"
     assert result["data_source"].iloc[0] == "statsbomb"
     assert "defending_gk_player_id_native" in result.columns
-    assert pd.isna(result["pitch_control_at_ball__spearman"].iloc[0])
+    assert pd.isna(result["pitch_control_at_target__spearman"].iloc[0])
 
 
 def test_build_output_type_id_to_type_name() -> None:
@@ -369,12 +350,11 @@ def test_build_output_type_id_to_type_name() -> None:
 
 
 def test_provider_tier_classification() -> None:
-    """Provider dispatch helpers must correctly classify all 6 providers (3 tiers)."""
+    """Frames-required (ADR-057): tracking providers classify as tracking; statsbomb is the
+    only non-tracking AC provider (sb360). wyscout is out of scope (not a tracking provider)."""
     for p in ("idsse", "metrica", "skillcorner", "gradientsports"):
         assert _is_tracking_provider(p), f"{p} should be tracking"
-        assert not _is_event_only_provider(p), f"{p} should NOT be event-only"
     for p in ("statsbomb", "wyscout"):
-        assert _is_event_only_provider(p), f"{p} should be event-only"
         assert not _is_tracking_provider(p), f"{p} should NOT be tracking"
 
 
@@ -590,48 +570,45 @@ def test_find_tracking_new_period_pairs_empty_results_cold_start() -> None:
 
 
 @pytest.mark.usefixtures("_mock_pyspark")
-def test_find_event_only_new_ids_anti_join() -> None:
-    """Event-only discovery: spadl_actions \\ results for a specific provider."""
+def test_find_sb360_new_ids_inner_then_antijoin() -> None:
+    """Frames-required discovery (ADR-057): statsbomb spadl ∩ statsbomb_360 \\ results.
+
+    Set-equality (review M-new-1) — a membership check would miss a partial drop. This fake
+    covers the join COMPOSITION; the canonical ``cast(long->string)`` id-normalization (ADR-019
+    class) is exercised by a real-dtype CI/live probe (needs Spark, unavailable locally)."""
     tables = {
-        "cat.bronze.spadl_actions": _MockDF(
-            [
-                {"_join_id": "sb1"},
-                {"_join_id": "sb2"},
-                {"_join_id": "sb3"},
-            ]
-        ),
-        "cat.bronze.spadl_action_context": _MockDF(
-            [
-                {"_join_id": "sb1"},  # already done
-            ]
-        ),
+        "cat.bronze.spadl_actions": _MockDF([{"_join_id": "1"}, {"_join_id": "2"}, {"_join_id": "3"}]),
+        "cat.bronze.statsbomb_360": _MockDF([{"_join_id": "1"}, {"_join_id": "2"}]),  # only 1,2 have 360
+        "cat.bronze.spadl_action_context": _MockDF([{"_join_id": "1"}]),  # 1 already processed
     }
     spark = _MockSpark(tables)
 
-    result = _find_event_only_new_ids(
+    result = _find_sb360_new_ids(
         spark,
         "cat.bronze.spadl_actions",
         "cat.bronze.spadl_action_context",
-        "statsbomb",
+        "cat.bronze.statsbomb_360",
     )
-    assert sorted(result) == ["sb2", "sb3"]
+    # 1,2 have 360; 1 done -> only 2 remains. 3 has NO 360 -> out of scope (frames-required).
+    assert set(result) == {"2"}
 
 
 @pytest.mark.usefixtures("_mock_pyspark")
-def test_find_event_only_new_ids_cold_start_5000_matches() -> None:
-    """Cold start: 5000 unprocessed matches returned without driver OOM."""
-    many_ids = [{"_join_id": f"sb{i}"} for i in range(5000)]
+def test_find_sb360_new_ids_cold_start_5000_matches() -> None:
+    """Cold start: 5000 unprocessed sb360 matches returned without driver OOM."""
+    many = [{"_join_id": f"{i}"} for i in range(5000)]
     tables = {
-        "cat.bronze.spadl_actions": _MockDF(many_ids),
-        "cat.bronze.spadl_action_context": _MockDF([]),  # empty
+        "cat.bronze.spadl_actions": _MockDF(many),
+        "cat.bronze.statsbomb_360": _MockDF(many),  # all have 360
+        "cat.bronze.spadl_action_context": _MockDF([]),  # none processed
     }
     spark = _MockSpark(tables)
 
-    result = _find_event_only_new_ids(
+    result = _find_sb360_new_ids(
         spark,
         "cat.bronze.spadl_actions",
         "cat.bronze.spadl_action_context",
-        "statsbomb",
+        "cat.bronze.statsbomb_360",
     )
     assert len(result) == 5000
 
@@ -684,7 +661,7 @@ def test_worker_id_task_value_is_constant_size() -> None:
 
 def test_assignment_retains_every_unit_at_scale() -> None:
     """assign_workers retains EVERY discovered unit (no 48 KB truncation) at any scale."""
-    units = [WorkUnit(provider="wyscout", match_id=f"w{i}") for i in range(100_000)]
+    units = [WorkUnit(provider="statsbomb", match_id=f"s{i}") for i in range(100_000)]
     assignments = assign_workers(units, n_workers=8)
     assert len(assignments) == 100_000
     assert len({a.unit.match_id for a in assignments}) == 100_000
@@ -714,7 +691,7 @@ def test_parse_preflight_filters_defaults_and_empty_are_none() -> None:
 
 
 def test_parse_preflight_filters_valid() -> None:
-    assert _parse_preflight_filters("wyscout", "5") == ("wyscout", 5)
+    assert _parse_preflight_filters("statsbomb", "5") == ("statsbomb", 5)
     assert _parse_preflight_filters(" idsse ", " 3 ") == ("idsse", 3)
     assert _parse_preflight_filters(None, "1") == (None, 1)
     assert _parse_preflight_filters("metrica", None) == ("metrica", None)
@@ -739,19 +716,20 @@ def test_parse_preflight_filters_bad_max_units_raises() -> None:
 
 @pytest.mark.usefixtures("_mock_pyspark")
 def test_guard_provider_filter_restricts_to_one_provider() -> None:
-    """provider_filter='wyscout' -> ONLY wyscout units; other providers' discovery skipped
-    even though their tables hold unprocessed units."""
+    """provider_filter='statsbomb' -> ONLY statsbomb (sb360) units; other providers' discovery
+    skipped even though their tables hold unprocessed units."""
     tables = {
-        "cat.bronze.spadl_actions": _MockDF([{"_join_id": "w1"}, {"_join_id": "w2"}, {"_join_id": "w3"}]),
-        # populated but must be ignored (statsbomb/metrica/idsse skipped):
-        "cat.bronze.metrica_tracking": _MockDF([{"_join_id": "w1"}]),
+        "cat.bronze.spadl_actions": _MockDF([{"_join_id": "s1"}, {"_join_id": "s2"}, {"_join_id": "s3"}]),
+        "cat.bronze.statsbomb_360": _MockDF([{"_join_id": "s1"}, {"_join_id": "s2"}, {"_join_id": "s3"}]),
+        # populated but must be ignored (metrica/idsse skipped):
+        "cat.bronze.metrica_tracking": _MockDF([{"_join_id": "s1"}]),
         "cat.bronze.idsse_tracking": _MockDF([{"_mid": "i1", "_period": 1}]),
     }
-    units = _ActionContextGuard(provider_filter="wyscout").discover_units(_MockSpark(tables), "cat", "bronze")
+    units = _ActionContextGuard(provider_filter="statsbomb").discover_units(_MockSpark(tables), "cat", "bronze")
 
-    assert units, "expected wyscout units"
-    assert all(u.provider == "wyscout" for u in units)
-    assert sorted(_match_ids(units)) == ["w1", "w2", "w3"]
+    assert units, "expected statsbomb units"
+    assert all(u.provider == "statsbomb" for u in units)
+    assert sorted(_match_ids(units)) == ["s1", "s2", "s3"]
 
 
 @pytest.mark.usefixtures("_mock_pyspark")
@@ -759,14 +737,17 @@ def test_guard_max_units_caps_deterministically() -> None:
     """provider_filter + max_units -> the FIRST N units in sorted order (stable 'next N')."""
     tables = {
         "cat.bronze.spadl_actions": _MockDF(
-            [{"_join_id": "w3"}, {"_join_id": "w1"}, {"_join_id": "w5"}, {"_join_id": "w2"}, {"_join_id": "w4"}]
+            [{"_join_id": "s3"}, {"_join_id": "s1"}, {"_join_id": "s5"}, {"_join_id": "s2"}, {"_join_id": "s4"}]
+        ),
+        "cat.bronze.statsbomb_360": _MockDF(
+            [{"_join_id": "s1"}, {"_join_id": "s2"}, {"_join_id": "s3"}, {"_join_id": "s4"}, {"_join_id": "s5"}]
         ),
     }
-    guard = _ActionContextGuard(provider_filter="wyscout", max_units=2)
+    guard = _ActionContextGuard(provider_filter="statsbomb", max_units=2)
     spark = _MockSpark(tables)
     units = guard.discover_units(spark, "cat", "bronze")
 
-    assert sorted(_match_ids(units)) == ["w1", "w2"], f"max_units=2 must pick sorted-first 2, got {units}"
+    assert sorted(_match_ids(units)) == ["s1", "s2"], f"max_units=2 must pick sorted-first 2, got {units}"
     assert guard.check(spark, "cat", "bronze").count == 2  # memoised -> same result
 
 
@@ -799,19 +780,20 @@ def test_guard_max_units_one_per_provider() -> None:
 
 @pytest.mark.usefixtures("_mock_pyspark")
 def test_guard_defaults_unchanged_no_filter_no_cap() -> None:
-    """No provider_filter + no max_units (the daily path) -> all providers, no truncation."""
+    """No provider_filter + no max_units (the daily path) -> all AC providers, no truncation."""
     tables = {
         "cat.bronze.spadl_actions": _MockDF(
-            [{"_join_id": "w1", "_mid": "w1"}, {"_join_id": "w2", "_mid": "w2"}, {"_join_id": "w3", "_mid": "w3"}]
+            [{"_join_id": "s1", "_mid": "s1"}, {"_join_id": "s2", "_mid": "s2"}, {"_join_id": "s3", "_mid": "s3"}]
         ),
-        "cat.bronze.metrica_tracking": _MockDF([{"_mid": "w1", "_period": 1}, {"_mid": "w2", "_period": 1}]),
+        "cat.bronze.statsbomb_360": _MockDF([{"_join_id": "s1"}, {"_join_id": "s2"}, {"_join_id": "s3"}]),
+        "cat.bronze.metrica_tracking": _MockDF([{"_mid": "s1", "_period": 1}, {"_mid": "s2", "_period": 1}]),
     }
     units = _ActionContextGuard().discover_units(_MockSpark(tables), "cat", "bronze")
 
     provs = set(_providers(units))
-    assert "wyscout" in provs and "metrica" in provs, provs
-    wy = sorted(u.match_id for u in units if u.provider == "wyscout")
-    assert wy == ["w1", "w2", "w3"], f"default path must not cap: {wy}"
+    assert "statsbomb" in provs and "metrica" in provs, provs
+    sb = sorted(u.match_id for u in units if u.provider == "statsbomb")
+    assert sb == ["s1", "s2", "s3"], f"default path must not cap: {sb}"
 
 
 @pytest.mark.usefixtures("_mock_pyspark")
@@ -840,7 +822,7 @@ def test_discover_units_memoised_and_keyed_on_target(monkeypatch: pytest.MonkeyP
     import ingestion.action_context as ac
     import ingestion.guards as g
 
-    calls = {"idsse": 0, "tracking": 0, "event": 0}
+    calls = {"idsse": 0, "tracking": 0, "sb360": 0}
 
     def _bump(key: str, value: object) -> object:
         calls[key] += 1
@@ -848,23 +830,25 @@ def test_discover_units_memoised_and_keyed_on_target(monkeypatch: pytest.MonkeyP
 
     monkeypatch.setattr(ac, "_find_idsse_new_period_pairs", lambda *a, **k: _bump("idsse", [("idm", 1), ("idm", 2)]))
     monkeypatch.setattr(ac, "_find_tracking_new_period_pairs", lambda *a, **k: _bump("tracking", [("t1", 1)]))
-    monkeypatch.setattr(ac, "_find_event_only_new_ids", lambda *a, **k: _bump("event", ["e1", "e2"]))
+    monkeypatch.setattr(ac, "_find_sb360_new_ids", lambda *a, **k: _bump("sb360", ["s1", "s2"]))
     monkeypatch.setattr(g, "ensure_table", lambda *a, **k: None)
 
     guard = ac._ActionContextGuard()
     units = guard.discover_units(None, "c", "bronze")  # type: ignore[arg-type]
     assert WorkUnit(provider="idsse", match_id="idm", period=1) in units
     assert sum(u.provider in {"metrica", "skillcorner", "gradientsports"} for u in units) == 3
-    assert sum(u.provider in {"statsbomb", "wyscout"} for u in units) == 4
+    # Frames-required (ADR-057): only statsbomb (sb360) among the non-tracking providers; no wyscout.
+    assert sum(u.provider == "statsbomb" for u in units) == 2
+    assert not any(u.provider == "wyscout" for u in units)
 
     # P1: check() + a second discover_units() must NOT re-run the anti-joins (memoised once).
     assert guard.check(None, "c", "bronze").count == len(units)  # type: ignore[arg-type]
     assert guard.discover_units(None, "c", "bronze") is units  # type: ignore[arg-type]
-    assert calls == {"idsse": 1, "tracking": 3, "event": 2}
+    assert calls == {"idsse": 1, "tracking": 3, "sb360": 1}
 
     # R1: a DIFFERENT (catalog, schema) self-invalidates the memo -> re-discovers.
     guard.discover_units(None, "OTHER", "bronze")  # type: ignore[arg-type]
-    assert calls == {"idsse": 2, "tracking": 6, "event": 4}
+    assert calls == {"idsse": 2, "tracking": 6, "sb360": 2}
 
 
 def test_main_preflight_builds_queue_and_task_values(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -880,7 +864,7 @@ def test_main_preflight_builds_queue_and_task_values(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(ac, "get_spark_session", lambda: object())
     monkeypatch.setattr(bs, "bootstrap_hooks", lambda *a, **k: None)
     monkeypatch.setattr(ac, "timed_check", lambda g, s, c, sc: FilterResult(workflow_id="x", count=20))
-    units = [WorkUnit(provider="wyscout", match_id=f"w{i}") for i in range(20)]
+    units = [WorkUnit(provider="statsbomb", match_id=f"s{i}") for i in range(20)]
     monkeypatch.setattr(ac._ActionContextGuard, "discover_units", lambda self, s, c, sc: units)
 
     captured: dict[str, object] = {}
@@ -948,7 +932,7 @@ def test_main_drain_worker_calls_drain(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ac, "get_spark_session", lambda: object())
     monkeypatch.setattr(bs, "bootstrap_hooks", lambda *a, **k: None)
 
-    prefetched = [WorkUnit(provider="wyscout", match_id="x")]
+    prefetched = [WorkUnit(provider="statsbomb", match_id="x")]
 
     class _Q:
         def __init__(self, *a: object, **k: object) -> None:

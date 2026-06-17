@@ -20,7 +20,7 @@ from analytics.action_context.work_unit import WorkUnit, provider_tier
 WATCHDOG_BUDGET_S = 2700
 MAX_ABANDONED_THREADS = 3
 
-_TIER_COST_S: dict[str, float] = {"tracking": 1800.0, "statsbomb": 120.0, "event_only": 60.0}
+_TIER_COST_S: dict[str, float] = {"tracking": 1800.0, "statsbomb": 120.0}
 
 
 class GameTimeoutError(RuntimeError):
@@ -54,8 +54,9 @@ def tier_cost_fn(unit: WorkUnit) -> float:
     """Rough per-unit cost estimate (seconds) for LPT load-balancing.
 
     Rank order is what matters, not accuracy: IDSSE halves + tracking matches are
-    the expensive tier, event-only the cheap tier, statsbomb between (sb360 subset).
-    Upgrade path: a historical-median cost_fn (the param is the injection seam).
+    the expensive tier; statsbomb (sb360) is the cheaper tier. Event-only providers
+    are out of action-context scope (frames-required; ADR-057). Upgrade path: a
+    historical-median cost_fn (the param is the injection seam).
     """
     return _TIER_COST_S[provider_tier(unit)]
 

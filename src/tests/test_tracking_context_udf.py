@@ -270,7 +270,7 @@ def _make_enrichment_patches(actions, mock_get_das_side_effect=None):
 
     passthrough = lambda actions, *args, **kwargs: actions  # noqa: E731
 
-    # pitch_control_at_action returns a Series (not DataFrame), so needs a
+    # pitch_control_at_target returns a Series (not DataFrame), so needs a
     # special mock that returns a named NaN series matching actions length.
     def pc_passthrough(actions, frames, method="spearman", **kwargs):
         return pd.Series(float("nan"), index=actions.index, name=f"pc_{method}")
@@ -312,7 +312,7 @@ def _make_enrichment_patches(actions, mock_get_das_side_effect=None):
         patch("silly_kicks.tracking.add_action_context", passthrough),
         patch("silly_kicks.tracking.add_actor_pre_window", passthrough),
         patch("silly_kicks.tracking.add_pressure_on_actor", passthrough),
-        patch("silly_kicks.tracking.pitch_control_at_action", pc_passthrough),
+        patch("silly_kicks.tracking.pitch_control_at_target", pc_passthrough),
         patch("silly_kicks.tracking.add_defensive_line", passthrough),
         patch("silly_kicks.tracking.add_off_ball_context", passthrough),
         patch("silly_kicks.tracking.add_line_break", passthrough),
@@ -409,7 +409,7 @@ def test_das_uses_action_linked_frames_and_chunk_size(caplog) -> None:
         patch("silly_kicks.tracking.add_action_context", passthrough),
         patch("silly_kicks.tracking.add_actor_pre_window", passthrough),
         patch("silly_kicks.tracking.add_pressure_on_actor", passthrough),
-        patch("silly_kicks.tracking.pitch_control_at_action", pc_passthrough),
+        patch("silly_kicks.tracking.pitch_control_at_target", pc_passthrough),
         patch("silly_kicks.tracking.add_defensive_line", passthrough),
         patch("silly_kicks.tracking.add_off_ball_context", passthrough),
         patch("silly_kicks.tracking.add_line_break", passthrough),
@@ -723,7 +723,7 @@ def test_bekkers_pi_valueerror_propagates_unconditionally() -> None:
         patch("silly_kicks.tracking.add_action_context", passthrough),
         patch("silly_kicks.tracking.add_actor_pre_window", passthrough),
         patch("silly_kicks.tracking.add_pressure_on_actor", mock_pressure),
-        patch("silly_kicks.tracking.pitch_control_at_action", pc_passthrough),
+        patch("silly_kicks.tracking.pitch_control_at_target", pc_passthrough),
         patch("silly_kicks.tracking.add_defensive_line", passthrough),
         patch("silly_kicks.tracking.add_off_ball_context", passthrough),
         patch("silly_kicks.tracking.add_line_break", passthrough),

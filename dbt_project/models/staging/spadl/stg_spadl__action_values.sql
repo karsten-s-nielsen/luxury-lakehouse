@@ -122,10 +122,14 @@ cleaned as (
         statsbomb_play_pattern,
         statsbomb_under_pressure,
 
-        -- LL2: 6 post-conversion enrichment columns from apply_spadl_enrichments.
+        -- LL2: post-conversion enrichment columns from apply_spadl_enrichments.
         -- See ADR-016. Populated for ALL sources; deterministic from canonical SPADL.
         possession_id_heuristic,
         gk_role,
+        -- GVM distribution metrics (silly-kicks 4.31.0, Lamberts 2025; ADR-056).
+        gk_pass_length_m,
+        gk_pass_length_class,
+        is_launch,
         gk_was_distributing,
         gk_was_engaged,
         gk_actions_in_possession,

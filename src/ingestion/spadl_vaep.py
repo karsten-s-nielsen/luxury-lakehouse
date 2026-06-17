@@ -61,11 +61,15 @@ _SPADL_SCHEMA = (
     # ``preserve_native`` kwarg on convert_to_actions. NULL for non-StatsBomb sources.
     "statsbomb_possession_id BIGINT, statsbomb_possession_team_id BIGINT, "
     "statsbomb_play_pattern STRING, statsbomb_under_pressure BOOLEAN, "
-    # LL2: 6 post-conversion enrichment columns from apply_spadl_enrichments.
+    # LL2: post-conversion enrichment columns from apply_spadl_enrichments.
     # add_possessions → possession_id_heuristic
     # add_gk_role → gk_role
+    # add_gk_distribution_metrics → gk_pass_length_m, gk_pass_length_class, is_launch
+    #   (silly-kicks 4.31.0, Lamberts 2025 GVM; gk_xt_delta dropped — derived in
+    #    fct_action_values from the canonical xT grid, ADR-056)
     # add_pre_shot_gk_context → 4 columns. See ADR-016.
     "possession_id_heuristic BIGINT, gk_role STRING, "
+    "gk_pass_length_m DOUBLE, gk_pass_length_class STRING, is_launch BOOLEAN, "
     "gk_was_distributing BOOLEAN, gk_was_engaged BOOLEAN, "
     "gk_actions_in_possession BIGINT, defending_gk_player_id BIGINT, "
     # LL2 Path B: native (string) provider identifiers for dim_teams /
@@ -130,8 +134,10 @@ _VAEP_SCHEMA = (
     # NULL for non-StatsBomb sources.
     "statsbomb_possession_id BIGINT, statsbomb_possession_team_id BIGINT, "
     "statsbomb_play_pattern STRING, statsbomb_under_pressure BOOLEAN, "
-    # LL2: 6 post-conversion enrichment columns. See ADR-016.
+    # LL2: post-conversion enrichment columns. See ADR-016. GVM trio = silly-kicks 4.31.0
+    # (Lamberts 2025); gk_xt_delta dropped (derived in fct_action_values, ADR-056).
     "possession_id_heuristic BIGINT, gk_role STRING, "
+    "gk_pass_length_m DOUBLE, gk_pass_length_class STRING, is_launch BOOLEAN, "
     "gk_was_distributing BOOLEAN, gk_was_engaged BOOLEAN, "
     "gk_actions_in_possession BIGINT, defending_gk_player_id BIGINT, "
     # LL2 Path B: native string identifiers (carried through from spadl_actions).
@@ -554,9 +560,12 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                 "statsbomb_possession_team_id",
                 "statsbomb_play_pattern",
                 "statsbomb_under_pressure",
-                # LL2: 6 post-conversion enrichment columns from apply_spadl_enrichments.
+                # LL2: post-conversion enrichment columns from apply_spadl_enrichments.
                 "possession_id_heuristic",
                 "gk_role",
+                "gk_pass_length_m",
+                "gk_pass_length_class",
+                "is_launch",
                 "gk_was_distributing",
                 "gk_was_engaged",
                 "gk_actions_in_possession",
@@ -691,9 +700,12 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                                 "statsbomb_possession_team_id",
                                 "statsbomb_play_pattern",
                                 "statsbomb_under_pressure",
-                                # LL2: 6 enrichment columns (populated for ALL sources).
+                                # LL2: enrichment columns (populated for ALL sources).
                                 "possession_id_heuristic",
                                 "gk_role",
+                                "gk_pass_length_m",
+                                "gk_pass_length_class",
+                                "is_launch",
                                 "gk_was_distributing",
                                 "gk_was_engaged",
                                 "gk_actions_in_possession",
@@ -956,6 +968,9 @@ def _vaep_output_schema() -> Any:
             StructField("statsbomb_under_pressure", BooleanType()),
             StructField("possession_id_heuristic", LongType()),
             StructField("gk_role", StringType()),
+            StructField("gk_pass_length_m", DoubleType()),
+            StructField("gk_pass_length_class", StringType()),
+            StructField("is_launch", BooleanType()),
             StructField("gk_was_distributing", BooleanType()),
             StructField("gk_was_engaged", BooleanType()),
             StructField("gk_actions_in_possession", LongType()),

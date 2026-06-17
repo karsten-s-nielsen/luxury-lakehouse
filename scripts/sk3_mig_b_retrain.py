@@ -4,7 +4,7 @@
 #     "databricks-sdk>=0.20",
 #     "huggingface_hub>=0.20",
 #     "mlflow>=2.19",
-#     "silly-kicks>=4.22.0,<5",
+#     "silly-kicks>=4.32.0,<5",
 # ]
 # ///
 # ruff: noqa: RUF001, RUF002 — text contains "PR-alpha" (Greek alpha) per project convention

@@ -265,7 +265,6 @@ class SparkGameProcessor:
     def process(self, unit: WorkUnit) -> int:
         from ingestion.action_context import (
             _is_tracking_provider,
-            _process_event_only_match,
             _process_statsbomb_match,
             _process_tracking_match,
         )
@@ -296,8 +295,6 @@ class SparkGameProcessor:
                 self._logger,
                 kde_backend=unit.kde_backend,
             )
-        if unit.provider == "wyscout":
-            return _process_event_only_match(
-                self._spark, self._catalog, self._schema, "wyscout", unit.match_id, self._logger
-            )
+        # Frames-required (ADR-057): wyscout / any non-AC provider is out of scope and never
+        # enqueued; a stray unit fails loud rather than writing event-only rows.
         raise ValueError(f"unknown provider: {unit.provider}")

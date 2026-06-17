@@ -178,7 +178,9 @@ def _make_credits_udf_360(
             }
         )
 
-        result = _assign(actions, ff, params)
+        # ADR-056: SB360 freeze-frames are position-only (no reliable velocity) ->
+        # voronoi pitch control at the action location (replaces the dead 0.5 constant).
+        result = _assign(actions, ff, params, pitch_control_method="voronoi")
         if result.empty:
             return _pd.DataFrame(columns=_empty_cols)
 

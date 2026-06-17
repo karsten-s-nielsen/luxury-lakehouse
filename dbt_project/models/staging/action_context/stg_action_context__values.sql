@@ -44,8 +44,7 @@ cleaned as (
         cast(start_y as double)             as start_y,
         cast(end_x as double)              as end_x,
         cast(end_y as double)              as end_y,
-        -- Game state (event-only + tracking providers)
-        cast(game_state as string)          as game_state,
+        -- game_state removed (ADR-056): actions-level, served by fct_action_values.
         -- Linkage provenance
         cast(frame_id as bigint)            as frame_id,
         cast(time_offset_seconds as double) as time_offset_seconds,
@@ -62,9 +61,8 @@ cleaned as (
             )
             else defending_gk_player_id_native
         end                                 as defending_gk_player_id_native,
-        cast(gk_was_distributing as boolean) as gk_was_distributing,
-        cast(gk_was_engaged as boolean)     as gk_was_engaged,
-        cast(gk_actions_in_possession as bigint) as gk_actions_in_possession,
+        -- gk_was_distributing / gk_was_engaged / gk_actions_in_possession removed
+        -- (ADR-056): actions-level (frame-independent), served by fct_action_values.
         -- GK spatial
         cast(pre_shot_gk_x as double)      as pre_shot_gk_x,
         cast(pre_shot_gk_y as double)      as pre_shot_gk_y,
@@ -85,9 +83,9 @@ cleaned as (
         cast(pressure_on_actor__link_zones as double) as pressure_on_actor__link_zones,
         cast(pressure_on_actor__bekkers_pi as double) as pressure_on_actor__bekkers_pi,
         -- Pitch control
-        cast(pitch_control_at_ball__spearman as double) as pitch_control_at_ball__spearman,
-        cast(pitch_control_at_ball__fernandez_bornn as double) as pitch_control_at_ball__fernandez_bornn,
-        cast(pitch_control_at_ball__voronoi as double) as pitch_control_at_ball__voronoi,
+        cast(pitch_control_at_target__spearman as double) as pitch_control_at_target__spearman,
+        cast(pitch_control_at_target__fernandez_bornn as double) as pitch_control_at_target__fernandez_bornn,
+        cast(pitch_control_at_target__voronoi as double) as pitch_control_at_target__voronoi,
         -- Defensive line
         cast(defensive_line_x as double)    as defensive_line_x,
         cast(back_line_high_x as double)    as back_line_high_x,
@@ -186,6 +184,18 @@ cleaned as (
         cast(xcross_attempt as double) as xcross_attempt,
         -- xShotOccurrence + pitch-control provenance (ADR-039)
         cast(xshot_occurrence as double) as xshot_occurrence,
+        -- Shot goalmouth crossing (TF-48; Anzer & Bauer 2021) — tracking-derived post-shot geometry
+        cast(shot_crossing_y as double) as shot_crossing_y,
+        cast(shot_crossing_z as double) as shot_crossing_z,
+        cast(shot_speed as double) as shot_speed,
+        cast(shot_time_to_goal_line as double) as shot_time_to_goal_line,
+        cast(shot_on_target_derived as boolean) as shot_on_target_derived,
+        cast(shot_crossing_source as string) as shot_crossing_source,
+        cast(shot_crossing_confidence as double) as shot_crossing_confidence,
+        cast(shot_fit_n_frames as double) as shot_fit_n_frames,
+        cast(shot_fit_rmse as double) as shot_fit_rmse,
+        cast(shot_fit_end_reason as string) as shot_fit_end_reason,
+        cast(shot_z_profile as string) as shot_z_profile,
         -- xT-GK (Eyestone; silly-kicks 4.21.0/4.22.0, ADR-048) + gk_completion
         cast(xt_gk as double) as xt_gk,
         cast(xt_gk_possession as double) as xt_gk_possession,

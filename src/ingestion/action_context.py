@@ -26,7 +26,6 @@ import numpy as np
 from analytics.action_context.batching import resolve_frame_batch_size
 from analytics.action_context.drain import WATCHDOG_BUDGET_S, assign_workers, drain_worker
 from analytics.action_context.enrich import (
-    _enrich_event_only_match,
     _enrich_sb360_match,
 )
 from analytics.action_context.ghost_gk_backend import resolve_ghost_gk_backend
@@ -93,16 +92,14 @@ _JERSEY_RE = re.compile(r"Player\s*(\d+)")
 # ── Provider classification ──────────────────────────────────────────
 
 _TRACKING_PROVIDERS: frozenset[str] = frozenset({"idsse", "metrica", "skillcorner", "gradientsports"})
-_EVENT_ONLY_PROVIDERS: frozenset[str] = frozenset({"statsbomb", "wyscout"})
-_ALL_PROVIDERS: frozenset[str] = _TRACKING_PROVIDERS | _EVENT_ONLY_PROVIDERS
+# Action-context is frames-required (ADR-057): valid AC providers are the 4 tracking providers
+# plus statsbomb (resolved to the sb360 tier; only matches WITH freeze-frames are enqueued).
+# wyscout (and statsbomb matches without 360) are out of scope — there is no event-only tier.
+_ALL_PROVIDERS: frozenset[str] = _TRACKING_PROVIDERS | frozenset({"statsbomb"})
 
 
 def _is_tracking_provider(provider: str) -> bool:
     return provider in _TRACKING_PROVIDERS
-
-
-def _is_event_only_provider(provider: str) -> bool:
-    return provider in _EVENT_ONLY_PROVIDERS
 
 
 # ── DDL parser ────────────────────────────────────────────────────────
@@ -558,32 +555,38 @@ def _find_tracking_new_period_pairs(
     return [(str(row["_mid"]), int(row["_period"])) for row in new_df.collect()]
 
 
-def _find_event_only_new_ids(
+def _find_sb360_new_ids(
     spark: SparkSession,
     spadl_table: str,
     results_table: str,
-    provider: str,
+    sb360_table: str,
 ) -> list[str]:
-    """Find unprocessed event-only matches (Spark-native LEFT ANTI JOIN).
+    """Find unprocessed StatsBomb matches that HAVE freeze-frames (frames-required; ADR-057).
 
-    spadl_actions(provider) \\ results(provider) — no full-table scan or
-    driver-side set difference.
+    statsbomb spadl matches ∩ statsbomb_360 match_ids \\ results — Spark-native, no
+    driver-side set difference. Event-only statsbomb matches (no 360) are out of
+    action-context scope and never enqueued.
+
+    The join key is CANONICALIZED identically on all three sides: ``cast(long->string)``
+    normalizes the ``"366.0"`` vs ``"366"`` float-format mismatch class (ADR-019 / the
+    canonical_id GK-feature incident). StatsBomb match ids are integers, so the long cast
+    is exact; a real-dtype set-equality probe (``test_sb360_discovery_id_join_is_dtype_safe``)
+    backstops this. A pre-recompute live ``DESCRIBE`` of both columns is on the ADR-057
+    operational checklist.
     """
     from pyspark.sql import functions as F  # noqa: N812
 
+    def _key(col: str):  # type: ignore[no-untyped-def]  # Spark Column; pyspark is runtime-only
+        return F.col(col).cast("long").cast("string").alias("_join_id")
+
     source_df = (
-        spark.table(spadl_table)
-        .filter(F.col("data_source") == provider)
-        .select(F.col("match_id_native").cast("string").alias("_join_id"))
-        .distinct()
+        spark.table(spadl_table).filter(F.col("data_source") == "statsbomb").select(_key("match_id_native")).distinct()
     )
+    have_360_df = spark.table(sb360_table).select(_key("match_id")).distinct()
     results_df = (
-        spark.table(results_table)
-        .filter(F.col("data_source") == provider)
-        .select(F.col("match_id").cast("string").alias("_join_id"))
-        .distinct()
+        spark.table(results_table).filter(F.col("data_source") == "statsbomb").select(_key("match_id")).distinct()
     )
-    new_df = source_df.join(results_df, "_join_id", "left_anti")
+    new_df = source_df.join(have_360_df, "_join_id", "inner").join(results_df, "_join_id", "left_anti")
     return [str(row["_join_id"]) for row in new_df.collect()]
 
 
@@ -728,10 +731,11 @@ class _ActionContextGuard:
                 )
                 units += [WorkUnit(provider=prov, match_id=mid, period=period) for mid, period in pairs]
 
-        for prov in ("statsbomb", "wyscout"):
-            if self._selected(prov):
-                ids = self._cap(_find_event_only_new_ids(spark, spadl_table, results_table, prov))
-                units += [WorkUnit(provider=prov, match_id=mid) for mid in ids]
+        # StatsBomb: frames-required (ADR-057) — only matches WITH freeze-frames (sb360 tier).
+        # wyscout and statsbomb-without-360 are out of action-context scope, never enqueued.
+        if self._selected("statsbomb"):
+            ids = self._cap(_find_sb360_new_ids(spark, spadl_table, results_table, f"{catalog}.bronze.statsbomb_360"))
+            units += [WorkUnit(provider="statsbomb", match_id=mid) for mid in ids]
 
         self._units_cache = units
         self._units_cache_key = (catalog, schema)
@@ -1111,9 +1115,8 @@ def main() -> None:
             written = _process_statsbomb_match(
                 spark, catalog, schema, match_id, xt_grid_data, xt_l, xt_w, task_logger, kde_backend=kde_backend
             )
-        elif provider == "wyscout":
-            written = _process_event_only_match(spark, catalog, schema, "wyscout", match_id, task_logger)
         else:
+            # Frames-required (ADR-057): wyscout / any non-AC provider is out of scope.
             raise SystemExit(f"Unknown provider: {provider}")
         per_match_written[match_id] = written
 
@@ -1750,7 +1753,7 @@ _PROFILE_STAGE_FUNCS: tuple[str, ...] = (
     "add_das",
     "get_das",
     "simulate_passes",  # accessible-space inner sim (F x PHI x T)
-    "pitch_control_at_action",
+    "pitch_control_at_target",
     "add_obso",
     "add_ghost_gk",
     "add_space_creation",
@@ -2070,22 +2073,33 @@ def _process_statsbomb_match(
         )
         has_360 = count_360 > 0
 
-    if has_360:
-        task_logger.info("StatsBomb match %s has 360 data — using SB360 tier", match_id)
-        result_pdf = _run_sb360_enrichment(
-            spark,
-            catalog,
-            actions_pdf,
-            match_id,
-            xt_grid_data,
-            xt_l,
-            xt_w,
-            task_logger,
-            kde_backend=kde_backend,
+    if not has_360:
+        # Frames-required (ADR-057): discovery only enqueues sb360 matches, so this is a
+        # defensive no-op (e.g. 360 deleted between discovery and processing). Out of scope → no rows.
+        task_logger.info("StatsBomb match %s has no 360 data — out of action-context scope, skipping", match_id)
+        return 0
+
+    task_logger.info("StatsBomb match %s has 360 data — using SB360 tier", match_id)
+    result_pdf = _run_sb360_enrichment(
+        spark,
+        catalog,
+        actions_pdf,
+        match_id,
+        xt_grid_data,
+        xt_l,
+        xt_w,
+        task_logger,
+        kde_backend=kde_backend,
+    )
+
+    if len(result_pdf) == 0:
+        # has_360 was true but the freeze-frames produced ZERO rows: corrupt/empty freeze-frames
+        # or a snapshot_to_tracking_frames bug — a real data-quality signal, NOT an out-of-scope
+        # match. WARN-visible per ADR-002 (no silent swallow); write nothing.
+        task_logger.warning(
+            "StatsBomb match %s had 360 data but produced 0 frames — conversion failure, 0 AC rows written", match_id
         )
-    else:
-        task_logger.info("StatsBomb match %s — event-only tier", match_id)
-        result_pdf = _enrich_event_only_match(actions_pdf)
+        return 0
 
     out_pdf = _build_output(result_pdf, match_id_native=match_id, data_source="statsbomb")
 
@@ -2133,8 +2147,10 @@ def _run_sb360_enrichment(
     sb360_pdf = spark.table(f"{catalog}.bronze.statsbomb_360").filter(F.col("match_id") == match_id).toPandas()
 
     if sb360_pdf.empty:
-        task_logger.warning("SB360 data empty for match %s — falling back to event-only", match_id)
-        return _enrich_event_only_match(actions_pdf)
+        # Frames-required (ADR-057): no freeze-frames → no rows (the caller's conversion-failure
+        # WARN fires since has_360 was true). Empty 0-row frame; nothing written.
+        task_logger.warning("SB360 data empty for match %s — 0 AC rows", match_id)
+        return actions_pdf.iloc[0:0]
 
     # Map event_uuid → action_id via original_event_id in SPADL actions
     # SB360.id = event_uuid; spadl_actions.original_event_id = event_uuid
@@ -2194,8 +2210,10 @@ def _run_sb360_enrichment(
         )
 
     if not snapshots:
-        task_logger.warning("No valid snapshots for match %s — falling back to event-only", match_id)
-        return _enrich_event_only_match(actions_pdf)
+        # Frames-required (ADR-057): freeze-frames present but none yielded a valid snapshot →
+        # 0 frames → no rows (caller WARNs on the has_360-but-0-rows conversion failure).
+        task_logger.warning("No valid snapshots for match %s — 0 AC rows", match_id)
+        return actions_pdf.iloc[0:0]
 
     freeze_frames = pd.DataFrame(snapshots)
 
@@ -2205,47 +2223,6 @@ def _run_sb360_enrichment(
 
     xt = _reconstruct_xt(xt_grid_data, xt_l, xt_w)
     return _enrich_sb360_match(actions_pdf, freeze_frames, home_team_id, xt, kde_backend=kde_backend)
-
-
-def _process_event_only_match(
-    spark: SparkSession,
-    catalog: str,
-    schema: str,
-    provider: str,
-    match_id: str,
-    task_logger: logging.Logger,
-) -> int:
-    """Process a pure event-only match (no tracking data)."""
-    from pyspark.sql import functions as F  # noqa: N812
-
-    from ingestion.utils import write_delta_table
-
-    actions_pdf = (
-        spark.table(f"{catalog}.bronze.spadl_actions")
-        .filter((F.col("match_id_native") == match_id) & (F.col("data_source") == provider))
-        .toPandas()
-    )
-    if actions_pdf.empty:
-        task_logger.warning("No SPADL actions for %s match %s", provider, match_id)
-        return 0
-
-    result_pdf = _enrich_event_only_match(actions_pdf)
-    out_pdf = _build_output(result_pdf, match_id_native=match_id, data_source=provider)
-
-    # Explicit schema is mandatory — see _process_statsbomb_match + ADR-033.
-    # Event-only output leaves all tracking columns NULL; without the schema
-    # Spark infers them as DoubleType and the BIGINT columns fail to merge.
-    out_sdf = spark.createDataFrame(out_pdf, schema=_get_result_schema())
-    written = write_delta_table(
-        out_sdf,
-        catalog,
-        schema,
-        _TABLE_NAME,
-        replace_where=f"match_id = '{match_id}'",
-        logger=task_logger,
-        row_count=len(out_pdf),
-    )
-    return written
 
 
 if __name__ == "__main__":

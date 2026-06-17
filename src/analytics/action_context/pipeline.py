@@ -28,7 +28,6 @@ from analytics.action_context.completeness import (
     expected_actions_within_coverage,
 )
 from analytics.action_context.enrich import (
-    _enrich_event_only_match,
     _enrich_sb360_match,
     _enrich_tracking_match,
     _resolve_enrichment_identity,
@@ -46,7 +45,7 @@ if TYPE_CHECKING:
         ResultSink,
         XtSource,
     )
-    from analytics.action_context.work_unit import MatchMeta, WorkUnit
+    from analytics.action_context.work_unit import FrameTier, MatchMeta, WorkUnit
 
 # Frame batch sizing — IDSSE (match_id, period) groups are 1.5M+ rows, exceeding
 # the 1 GB serverless UDF group cap; sub-batch by frame number. The size is
@@ -401,7 +400,7 @@ def _owned_action_ids(
 def enrich_batch(
     *,
     provider: str,
-    tier: str,
+    tier: FrameTier,
     frames_pdf: pd.DataFrame,
     actions_records: list[dict[str, Any]],
     period: int | None,
@@ -428,13 +427,6 @@ def enrich_batch(
     """
     import pandas as pd
 
-    if tier == "event_only":
-        actions = pd.DataFrame(actions_records)
-        if actions.empty:
-            return _empty_result()
-        result = _enrich_event_only_match(actions)
-        return build_output(result, native_match_id, provider)
-
     if tier == "sb360":
         actions = pd.DataFrame(actions_records)
         if actions.empty:
@@ -444,6 +436,9 @@ def enrich_batch(
         xt = _reconstruct_xt(xt_grid_data, xt_l, xt_w)
         result = _enrich_sb360_match(actions, frames_pdf, meta.home_team_id, xt, kde_backend=kde_backend)
         return build_output(result, native_match_id, provider)
+
+    if tier != "tracking":
+        raise ValueError(f"unknown action-context tier {tier!r} (frames-required; ADR-057)")
 
     # ── tracking tier (per-frame-batch) ──
     xt = _reconstruct_xt(xt_grid_data, xt_l, xt_w)

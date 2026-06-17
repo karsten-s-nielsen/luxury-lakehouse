@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import enum
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -21,6 +22,48 @@ import pandas as pd
 from xgboost import XGBRegressor
 
 from analytics.array_utils import _col_f64
+
+
+def _event_pitch_control_fn(
+    full_frame: pd.DataFrame,
+    defending_team_id: object,
+    method: str,
+) -> Callable[[pd.DataFrame, float, float], float]:
+    """Build a per-event ``pitch_control_fn`` for :func:`assign_defensive_credits`.
+
+    Returns the DEFENDING team's pitch control at the queried ``(x, y)`` in ``[0, 1]``
+    (high = defenders control the action location), via silly-kicks'
+    ``compute_pitch_control_at_points`` over the FULL freeze frame (both teams).
+    Replaces the degenerate ``0.5`` fallback (ADR-056) — the ``pitch_control_fn``
+    injection seam existed for exactly this but was never wired.
+
+    ``method``: ``"spearman"`` (tracking — velocity-aware) or ``"voronoi"`` (360
+    freeze-frames — position-only). silly-kicks expects ``vx``/``vy`` (not
+    ``velocity_x``/``velocity_y``) and an ``is_ball`` column; both are adapted here.
+    """
+    # Function-body import: silly-kicks is a heavy dep, kept out of module import.
+    from silly_kicks.tracking import compute_pitch_control_at_points
+
+    # silly-kicks' pitch-control frame requires ``vx``/``vy``, ``is_ball``, and
+    # ``is_goalkeeper`` (the latter two undocumented). DEFCON freeze-frames carry no
+    # GK flag, so we mark all players outfield: the GK sits far from the action
+    # location for the vast majority of defensive credits, making the spearman GK
+    # reaction-model difference negligible (a documented approximation, ADR-056).
+    sk_frame = full_frame.rename(columns={"velocity_x": "vx", "velocity_y": "vy"})
+    add_cols: dict[str, object] = {}
+    if "is_ball" not in sk_frame.columns:
+        add_cols["is_ball"] = False
+    if "is_goalkeeper" not in sk_frame.columns:
+        add_cols["is_goalkeeper"] = False
+    if add_cols:
+        sk_frame = sk_frame.assign(**add_cols)
+
+    def _fn(_defenders: pd.DataFrame, x: float, y: float) -> float:
+        targets = np.array([[float(x), float(y)]], dtype=float)
+        value = compute_pitch_control_at_points(sk_frame, targets, attacking_team_id=defending_team_id, method=method)
+        return float(value[0])
+
+    return _fn
 
 
 class CreditType(enum.Enum):
@@ -368,6 +411,7 @@ def assign_credits_for_period(
     actions_df: pd.DataFrame,
     freeze_frames_df: pd.DataFrame,
     params: DefconLiteParams | None = None,
+    pitch_control_method: str | None = None,
 ) -> pd.DataFrame:
     """Assign defensive credits for a batch of actions (Stage 1).
 
@@ -401,6 +445,9 @@ def assign_credits_for_period(
 
     # Pre-build grouped lookup for O(1) opponent retrieval per action
     opponent_groups = freeze_frames_df[~freeze_frames_df["teammate"]].groupby("event_id")
+    # Full-frame (both teams) groups for pitch control — only when wired (ADR-056).
+    # opponent_groups carries defenders only; pitch control needs both teams.
+    full_frame_groups = freeze_frames_df.groupby("event_id") if pitch_control_method else None
 
     for _, action_row in actions_df.iterrows():
         event_id = str(action_row["event_id"])
@@ -435,7 +482,20 @@ def assign_credits_for_period(
             }
         )
 
-        credits = assign_defensive_credits(action, defenders, params)
+        # Wire pitch control over the FULL frame (both teams) when requested (ADR-056).
+        # defending_team_id = the opponents' (defenders') team so the value reads as
+        # "how much the defending team controls the action location" (high = well-defended).
+        pitch_control_fn: Callable[[pd.DataFrame, float, float], float] | None = None
+        if pitch_control_method and full_frame_groups is not None:
+            try:
+                full_frame = full_frame_groups.get_group(event_id)
+            except KeyError:
+                full_frame = None
+            if full_frame is not None and not opponents.empty:
+                defending_team_id = opponents["team_id"].iloc[0]
+                pitch_control_fn = _event_pitch_control_fn(full_frame, defending_team_id, pitch_control_method)
+
+        credits = assign_defensive_credits(action, defenders, params, pitch_control_fn=pitch_control_fn)
         all_credits.extend(credits)
 
     if not all_credits:

@@ -180,6 +180,11 @@ def _make_sb_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
                 "end_coord_source",
                 "start_coord_confidence",
                 "end_coord_confidence",
+                # GVM gk-distribution metrics (silly-kicks 4.31.0, ADR-056) — actions-level,
+                # from apply_spadl_enrichments. Drops silently from the projection if omitted.
+                "gk_pass_length_m",
+                "gk_pass_length_class",
+                "is_launch",
             ]
         )
 
@@ -440,6 +445,11 @@ def _convert_statsbomb_from_bronze(
             StructField("end_coord_source", StringType()),
             StructField("start_coord_confidence", DoubleType()),
             StructField("end_coord_confidence", DoubleType()),
+            # GVM gk-distribution metrics (silly-kicks 4.31.0, ADR-056). Must mirror the
+            # projection above + _SPADL_SCHEMA + apply_spadl_enrichments.
+            StructField("gk_pass_length_m", DoubleType()),
+            StructField("gk_pass_length_class", StringType()),
+            StructField("is_launch", BooleanType()),
         ]
     )
 
@@ -562,6 +572,11 @@ def _make_ws_spadl_udf(goalkeeper_ids: set[int] | None = None) -> Callable[[pd.D
                 "end_coord_source",
                 "start_coord_confidence",
                 "end_coord_confidence",
+                # GVM gk-distribution metrics (silly-kicks 4.31.0, ADR-056) — actions-level,
+                # from apply_spadl_enrichments. Drops silently from the projection if omitted.
+                "gk_pass_length_m",
+                "gk_pass_length_class",
+                "is_launch",
             ]
         )
 
@@ -818,6 +833,11 @@ def _convert_wyscout_from_bronze(
             StructField("end_coord_source", StringType()),
             StructField("start_coord_confidence", DoubleType()),
             StructField("end_coord_confidence", DoubleType()),
+            # GVM gk-distribution metrics (silly-kicks 4.31.0, ADR-056). Must mirror the
+            # projection above + _SPADL_SCHEMA + apply_spadl_enrichments.
+            StructField("gk_pass_length_m", DoubleType()),
+            StructField("gk_pass_length_class", StringType()),
+            StructField("is_launch", BooleanType()),
         ]
     )
 
@@ -968,6 +988,11 @@ def _make_idsse_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
                 "end_coord_source",
                 "start_coord_confidence",
                 "end_coord_confidence",
+                # GVM gk-distribution metrics (silly-kicks 4.31.0, ADR-056) — actions-level,
+                # from apply_spadl_enrichments. Drops silently from the projection if omitted.
+                "gk_pass_length_m",
+                "gk_pass_length_class",
+                "is_launch",
             ]
         )
 
@@ -1272,6 +1297,11 @@ def _convert_idsse_from_bronze(
             StructField("end_coord_source", StringType()),
             StructField("start_coord_confidence", DoubleType()),
             StructField("end_coord_confidence", DoubleType()),
+            # GVM gk-distribution metrics (silly-kicks 4.31.0, ADR-056). Must mirror the
+            # projection above + _SPADL_SCHEMA + apply_spadl_enrichments.
+            StructField("gk_pass_length_m", DoubleType()),
+            StructField("gk_pass_length_class", StringType()),
+            StructField("is_launch", BooleanType()),
         ]
     )
 
@@ -1404,6 +1434,11 @@ def _make_metrica_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
                 "end_coord_source",
                 "start_coord_confidence",
                 "end_coord_confidence",
+                # GVM gk-distribution metrics (silly-kicks 4.31.0, ADR-056) — actions-level,
+                # from apply_spadl_enrichments. Drops silently from the projection if omitted.
+                "gk_pass_length_m",
+                "gk_pass_length_class",
+                "is_launch",
             ]
         )
 
@@ -1681,6 +1716,11 @@ def _convert_metrica_from_bronze(
             StructField("end_coord_source", StringType()),
             StructField("start_coord_confidence", DoubleType()),
             StructField("end_coord_confidence", DoubleType()),
+            # GVM gk-distribution metrics (silly-kicks 4.31.0, ADR-056). Must mirror the
+            # projection above + _SPADL_SCHEMA + apply_spadl_enrichments.
+            StructField("gk_pass_length_m", DoubleType()),
+            StructField("gk_pass_length_class", StringType()),
+            StructField("is_launch", BooleanType()),
         ]
     )
 
@@ -1811,6 +1851,11 @@ def _make_skillcorner_spadl_udf(*, match_metadata: dict[str, object]) -> Callabl
                 "end_coord_source",
                 "start_coord_confidence",
                 "end_coord_confidence",
+                # GVM gk-distribution metrics (silly-kicks 4.31.0, ADR-056) — actions-level,
+                # from apply_spadl_enrichments. Drops silently from the projection if omitted.
+                "gk_pass_length_m",
+                "gk_pass_length_class",
+                "is_launch",
             ]
         )
 
@@ -2021,6 +2066,11 @@ def _convert_skillcorner_from_bronze(
             StructField("end_coord_source", StringType()),
             StructField("start_coord_confidence", DoubleType()),
             StructField("end_coord_confidence", DoubleType()),
+            # GVM gk-distribution metrics (silly-kicks 4.31.0, ADR-056). Must mirror the
+            # projection above + _SPADL_SCHEMA + apply_spadl_enrichments.
+            StructField("gk_pass_length_m", DoubleType()),
+            StructField("gk_pass_length_class", StringType()),
+            StructField("is_launch", BooleanType()),
         ]
     )
 
@@ -2206,6 +2256,11 @@ def _make_gradientsports_spadl_udf(
                 "end_coord_source",
                 "start_coord_confidence",
                 "end_coord_confidence",
+                # GVM gk-distribution metrics (silly-kicks 4.31.0, ADR-056) — actions-level,
+                # from apply_spadl_enrichments. Drops silently from the projection if omitted.
+                "gk_pass_length_m",
+                "gk_pass_length_class",
+                "is_launch",
             ]
         )
 
@@ -2522,6 +2577,11 @@ def _convert_gradientsports_from_bronze(
             StructField("end_coord_source", StringType()),
             StructField("start_coord_confidence", DoubleType()),
             StructField("end_coord_confidence", DoubleType()),
+            # GVM gk-distribution metrics (silly-kicks 4.31.0, ADR-056). Must mirror the
+            # projection above + _SPADL_SCHEMA + apply_spadl_enrichments.
+            StructField("gk_pass_length_m", DoubleType()),
+            StructField("gk_pass_length_class", StringType()),
+            StructField("is_launch", BooleanType()),
         ]
     )
 

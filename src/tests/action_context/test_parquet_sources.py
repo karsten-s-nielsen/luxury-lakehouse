@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from analytics.action_context.local.parquet_sources import (
     ParquetActionsSource,
@@ -40,13 +41,23 @@ def test_tracking_frame_source_returns_frames(tmp_path: Path) -> None:
     assert len(bundle.frames) == 2
 
 
-def test_event_only_frame_source_is_empty(tmp_path: Path) -> None:
+def test_event_only_provider_is_out_of_scope(tmp_path: Path) -> None:
+    # Frames-required (ADR-057): wyscout is not an action-context provider — provider_tier raises.
     (tmp_path / "wyscout" / "M1").mkdir(parents=True)
     pd.DataFrame({"action_id": [1]}).to_parquet(tmp_path / "wyscout" / "M1" / "actions.parquet")
     wu = WorkUnit(provider="wyscout", match_id="M1")
-    bundle = ParquetFrameSource(tmp_path).frames(wu)
-    assert bundle.tier == "event_only"
-    assert bundle.frames.empty
+    with pytest.raises(ValueError, match="not an action-context provider"):
+        ParquetFrameSource(tmp_path).frames(wu)
+
+
+def test_statsbomb_without_sb360_is_out_of_scope(tmp_path: Path) -> None:
+    # Frames-required (ADR-057): a statsbomb dir with no sb360.parquet is out of scope (never enqueued).
+    d = tmp_path / "statsbomb" / "M3"
+    d.mkdir(parents=True)
+    pd.DataFrame({"action_id": [1]}).to_parquet(d / "actions.parquet")
+    wu = WorkUnit(provider="statsbomb", match_id="M3")
+    with pytest.raises(FileNotFoundError, match="out of action-context scope"):
+        ParquetFrameSource(tmp_path).frames(wu)
 
 
 def test_statsbomb_sb360_tier_when_freeze_frames_present(tmp_path: Path) -> None:

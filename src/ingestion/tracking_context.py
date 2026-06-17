@@ -148,9 +148,9 @@ _RESULT_COLUMNS: list[str] = [
     "pressure_on_actor__link_zones",
     "pressure_on_actor__bekkers_pi",
     # Pitch control (3 methods)
-    "pitch_control_at_ball__spearman",
-    "pitch_control_at_ball__fernandez_bornn",
-    "pitch_control_at_ball__voronoi",
+    "pitch_control_at_target__spearman",
+    "pitch_control_at_target__fernandez_bornn",
+    "pitch_control_at_target__voronoi",
     # Defensive line
     "defensive_line_x",
     "back_line_high_x",
@@ -223,8 +223,8 @@ _TRACKING_CONTEXT_DDL = (
     "actor_arc_length_pre_window DOUBLE, actor_displacement_pre_window DOUBLE, "
     "pressure_on_actor__andrienko_oval DOUBLE, pressure_on_actor__link_zones DOUBLE, "
     "pressure_on_actor__bekkers_pi DOUBLE, "
-    "pitch_control_at_ball__spearman DOUBLE, pitch_control_at_ball__fernandez_bornn DOUBLE, "
-    "pitch_control_at_ball__voronoi DOUBLE, "
+    "pitch_control_at_target__spearman DOUBLE, pitch_control_at_target__fernandez_bornn DOUBLE, "
+    "pitch_control_at_target__voronoi DOUBLE, "
     "defensive_line_x DOUBLE, back_line_high_x DOUBLE, compactness_x DOUBLE, "
     "lateral_width DOUBLE, max_lateral_gap DOUBLE, back_n_count BIGINT, "
     "line_break BOOLEAN, n_attackers_behind_line BIGINT, "
@@ -644,7 +644,7 @@ def _enrich_match(
         derive_team_in_possession,
         infer_ball_carrier,
         link_actions_to_frames,
-        pitch_control_at_action,
+        pitch_control_at_target,
     )
 
     # ── Resolve enrichment-compatible identity ─────────────────────
@@ -696,7 +696,7 @@ def _enrich_match(
 
     # Steps 5-7: Pitch control (3 methods, using Series API to avoid 3x copies)
     for method in ("spearman", "fernandez_bornn", "voronoi"):
-        s = pitch_control_at_action(actions, frames, links=links, method=method)
+        s = pitch_control_at_target(actions, frames, links=links, method=method)
         actions[s.name] = s.values
 
     # Step 8: Defensive line

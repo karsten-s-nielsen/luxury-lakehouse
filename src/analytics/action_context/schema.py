@@ -14,8 +14,11 @@ import numpy as np
 if TYPE_CHECKING:
     import pandas as pd
 
-# Identity (12) + game_state (1) + linkage (4) + GK (14) + features (76)
-# + xShotOccurrence (1) + xT-GK (16) + gk_completion (1) + provenance (2) + audit (1) = 128
+# Identity (12) + linkage (4) + GK (11) + features (76)
+# + xShotOccurrence (1) + shot_goalmouth (11) + xT-GK (16) + gk_completion (1)
+# + provenance (2) + audit (1) = 135
+# (ADR-056: game_state + GK action-sequence flags removed — actions-level, served
+#  by fct_action_values; defending_gk_player_id_native kept for the key resolution.)
 RESULT_COLUMNS: list[str] = [
     # Identity (12)
     "data_source",
@@ -30,18 +33,21 @@ RESULT_COLUMNS: list[str] = [
     "start_y",
     "end_x",
     "end_y",
-    # Game state (1)
-    "game_state",
+    # NOTE (ADR-056): game_state + the GK action-sequence flags
+    # (gk_was_distributing/gk_was_engaged/gk_actions_in_possession) were REMOVED
+    # here — they are actions-level (frame-independent; add_game_state / the
+    # add_pre_shot_gk_context lookback window) and already served by
+    # fct_action_values. Consumers join on (match_id, action_id). KEPT:
+    # defending_gk_player_id_native (load-bearing — resolves the AC-specific
+    # defending_gk_player_key via dim_players, which action_values does not), the
+    # tracking-derived pre_shot_gk_* POSITION columns, and frame-linkage provenance.
     # Frame linkage (4)
     "frame_id",
     "time_offset_seconds",
     "link_quality_score",
     "n_candidate_frames",
-    # GK resolution (4)
+    # GK resolution — native id resolves defending_gk_player_key in the mart (1)
     "defending_gk_player_id_native",
-    "gk_was_distributing",
-    "gk_was_engaged",
-    "gk_actions_in_possession",
     # GK spatial (6)
     "pre_shot_gk_x",
     "pre_shot_gk_y",
@@ -62,9 +68,9 @@ RESULT_COLUMNS: list[str] = [
     "pressure_on_actor__link_zones",
     "pressure_on_actor__bekkers_pi",
     # Pitch control (3)
-    "pitch_control_at_ball__spearman",
-    "pitch_control_at_ball__fernandez_bornn",
-    "pitch_control_at_ball__voronoi",
+    "pitch_control_at_target__spearman",
+    "pitch_control_at_target__fernandez_bornn",
+    "pitch_control_at_target__voronoi",
     # Defensive line (6)
     "defensive_line_x",
     "back_line_high_x",
@@ -166,6 +172,20 @@ RESULT_COLUMNS: list[str] = [
     "xcross_attempt",
     # xShotOccurrence (Pipping-Gamón, Feng & Sabin 2026; arXiv:2512.00203) (1)
     "xshot_occurrence",
+    # Shot goalmouth crossing (TF-48; Anzer & Bauer 2021) — post-shot ball-trajectory geometry.
+    # Tracking-derived (lives only here, not the actions-level fct_action_values). NOT a VAEP
+    # feature (post-contact outcome leakage; upstream ADR-030 guard). NaN/NA off-scope. (11)
+    "shot_crossing_y",
+    "shot_crossing_z",
+    "shot_speed",
+    "shot_time_to_goal_line",
+    "shot_on_target_derived",
+    "shot_crossing_source",
+    "shot_crossing_confidence",
+    "shot_fit_n_frames",
+    "shot_fit_rmse",
+    "shot_fit_end_reason",
+    "shot_z_profile",
     # xT-GK (Eyestone; silly-kicks 4.21.0/4.22.0, ADR-024 upstream) — GK-distribution
     # valuation. Composite stored per philosophy preset (default = `xt_gk`; the deck's named
     # presets as suffixed columns — δ/η enter the rav/temporal terms, so other presets are
@@ -201,11 +221,12 @@ ACTION_CONTEXT_DDL = (
     "data_source STRING, match_id STRING, action_id BIGINT, period_id BIGINT, "
     "time_seconds DOUBLE, team_id STRING, player_id STRING, type_name STRING, "
     "start_x DOUBLE, start_y DOUBLE, end_x DOUBLE, end_y DOUBLE, "
-    "game_state STRING, "
+    # game_state + GK action-sequence flags removed (ADR-056) — actions-level,
+    # served by fct_action_values; consumers join on (match_id, action_id).
+    # defending_gk_player_id_native KEPT (resolves defending_gk_player_key).
     "frame_id BIGINT, time_offset_seconds DOUBLE, link_quality_score DOUBLE, "
     "n_candidate_frames BIGINT, "
-    "defending_gk_player_id_native STRING, gk_was_distributing BOOLEAN, "
-    "gk_was_engaged BOOLEAN, gk_actions_in_possession BIGINT, "
+    "defending_gk_player_id_native STRING, "
     "pre_shot_gk_x DOUBLE, pre_shot_gk_y DOUBLE, "
     "pre_shot_gk_distance_to_goal DOUBLE, pre_shot_gk_distance_to_shot DOUBLE, "
     "pre_shot_gk_angle_to_shot_trajectory DOUBLE, pre_shot_gk_angle_off_goal_line DOUBLE, "
@@ -214,8 +235,8 @@ ACTION_CONTEXT_DDL = (
     "actor_arc_length_pre_window DOUBLE, actor_displacement_pre_window DOUBLE, "
     "pressure_on_actor__andrienko_oval DOUBLE, pressure_on_actor__link_zones DOUBLE, "
     "pressure_on_actor__bekkers_pi DOUBLE, "
-    "pitch_control_at_ball__spearman DOUBLE, pitch_control_at_ball__fernandez_bornn DOUBLE, "
-    "pitch_control_at_ball__voronoi DOUBLE, "
+    "pitch_control_at_target__spearman DOUBLE, pitch_control_at_target__fernandez_bornn DOUBLE, "
+    "pitch_control_at_target__voronoi DOUBLE, "
     "defensive_line_x DOUBLE, back_line_high_x DOUBLE, compactness_x DOUBLE, "
     "lateral_width DOUBLE, max_lateral_gap DOUBLE, back_n_count BIGINT, "
     "line_break BOOLEAN, n_attackers_behind_line BIGINT, "
@@ -256,6 +277,11 @@ ACTION_CONTEXT_DDL = (
     "off_ball_xt_diff DOUBLE, reachable_area_team DOUBLE, reachable_area_opponent DOUBLE, "
     "reachable_area_diff DOUBLE, xcross_attempt DOUBLE, "
     "xshot_occurrence DOUBLE, "
+    "shot_crossing_y DOUBLE, shot_crossing_z DOUBLE, shot_speed DOUBLE, "
+    "shot_time_to_goal_line DOUBLE, shot_on_target_derived BOOLEAN, "
+    "shot_crossing_source STRING, shot_crossing_confidence DOUBLE, "
+    "shot_fit_n_frames DOUBLE, shot_fit_rmse DOUBLE, shot_fit_end_reason STRING, "
+    "shot_z_profile STRING, "
     "xt_gk DOUBLE, xt_gk_possession DOUBLE, xt_gk_counter DOUBLE, xt_gk_direct DOUBLE, "
     "xt_gk_high_press DOUBLE, xt_gk_low_block DOUBLE, "
     "xt_gk_base DOUBLE, xt_gk_pev DOUBLE, xt_gk_rav DOUBLE, xt_gk_dzv DOUBLE, "

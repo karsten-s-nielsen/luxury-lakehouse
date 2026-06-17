@@ -984,6 +984,35 @@ models:
                 values: ['shot_stopping', 'cross_collection', 'sweeping', 'pick_up', 'distribution']
               config:
                 where: "gk_role is not null"
+      - name: gk_pass_length_m
+        data_type: double
+        description: >
+          GVM (silly-kicks 4.31.0, Lamberts 2025): Euclidean start->end distance (m)
+          for GK distribution actions (``gk_role = 'distribution'``). NULL otherwise.
+      - name: gk_pass_length_class
+        data_type: string
+        description: >
+          GVM length class for GK distribution actions: short / medium / long
+          (default 32m / 60m thresholds). NULL on non-distribution rows.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['short', 'medium', 'long']
+              config:
+                where: "gk_pass_length_class is not null"
+      - name: is_launch
+        data_type: boolean
+        description: >
+          GVM launch flag: True iff a GK distribution pass exceeds the long threshold
+          AND is a deliberate-distribution type. False everywhere else (non-null).
+      - name: gk_xt_delta
+        data_type: double
+        description: >
+          xT delta (end zone - start zone) for SUCCESSFUL GK distribution passes,
+          computed from the lakehouse CANONICAL 12x8 xT grid
+          (``bronze.expected_threat_grids``, competition_id='global') — the single xT
+          source of truth, NOT silly-kicks' own grid (ADR-056). NULL on non-distribution
+          or unsuccessful rows.
       - name: gk_was_distributing
         data_type: boolean
         description: >
@@ -4784,11 +4813,11 @@ models:
         data_type: double
       - name: pressure_on_actor__bekkers_pi
         data_type: double
-      - name: pitch_control_at_ball__spearman
+      - name: pitch_control_at_target__spearman
         data_type: double
-      - name: pitch_control_at_ball__fernandez_bornn
+      - name: pitch_control_at_target__fernandez_bornn
         data_type: double
-      - name: pitch_control_at_ball__voronoi
+      - name: pitch_control_at_target__voronoi
         data_type: double
       - name: defensive_line_x
         data_type: double
@@ -4925,14 +4954,9 @@ models:
           - accepted_values:
               arguments:
                 values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner', 'gradientsports']
-      - name: game_state
-        data_type: string
-        description: "Game state at the time of the action: winning, losing, or drawing."
-        data_tests:
-          - not_null
-          - accepted_values:
-              arguments:
-                values: ['winning', 'losing', 'drawing']
+      # game_state + GK action-sequence flags (gk_was_distributing/gk_was_engaged/
+      # gk_actions_in_possession) removed (ADR-056): actions-level, served by
+      # fct_action_values; join on (match_id, action_id).
       - name: period_id
         data_type: bigint
       - name: time_seconds
@@ -4957,12 +4981,6 @@ models:
         data_type: bigint
       - name: defending_gk_player_id_native
         data_type: string
-      - name: gk_was_distributing
-        data_type: boolean
-      - name: gk_was_engaged
-        data_type: boolean
-      - name: gk_actions_in_possession
-        data_type: bigint
       - name: pre_shot_gk_x
         data_type: double
       - name: pre_shot_gk_y
@@ -4993,11 +5011,11 @@ models:
         data_type: double
       - name: pressure_on_actor__bekkers_pi
         data_type: double
-      - name: pitch_control_at_ball__spearman
+      - name: pitch_control_at_target__spearman
         data_type: double
-      - name: pitch_control_at_ball__fernandez_bornn
+      - name: pitch_control_at_target__fernandez_bornn
         data_type: double
-      - name: pitch_control_at_ball__voronoi
+      - name: pitch_control_at_target__voronoi
         data_type: double
       - name: defensive_line_x
         data_type: double
@@ -5161,6 +5179,42 @@ models:
         data_type: double
       - name: xshot_occurrence
         data_type: double
+      # Shot goalmouth crossing (TF-48; Anzer & Bauer 2021) — silly-kicks 4.31.0.
+      # Post-shot ball-trajectory geometry; shots only, NULL/NA elsewhere. NOT a VAEP
+      # feature (post-contact leakage; ADR-030). ADR-056.
+      - name: shot_crossing_y
+        data_type: double
+        description: "Lateral (y) goal-line crossing position of the shot, metres. NULL off-shot."
+      - name: shot_crossing_z
+        data_type: double
+        description: "Height (z) at the goal line, metres. NULL off-shot."
+      - name: shot_speed
+        data_type: double
+        description: "Estimated ball speed of the shot (m/s) from the trajectory fit. NULL off-shot."
+      - name: shot_time_to_goal_line
+        data_type: double
+        description: "Seconds from shot contact to crossing the goal line. NULL off-shot."
+      - name: shot_on_target_derived
+        data_type: boolean
+        description: "Geometry-derived on-target flag (crossing within the frame). NULL off-shot."
+      - name: shot_crossing_source
+        data_type: string
+        description: "Provenance tier of the crossing estimate (e.g. tracking fit vs fallback)."
+      - name: shot_crossing_confidence
+        data_type: double
+        description: "Confidence of the crossing estimate in [0, 1]. NULL off-shot."
+      - name: shot_fit_n_frames
+        data_type: double
+        description: "Number of post-shot frames used in the trajectory fit. NULL off-shot."
+      - name: shot_fit_rmse
+        data_type: double
+        description: "RMSE of the trajectory fit (m). NULL off-shot."
+      - name: shot_fit_end_reason
+        data_type: string
+        description: "Why the trajectory fit window ended (provenance)."
+      - name: shot_z_profile
+        data_type: string
+        description: "Categorical height profile of the shot trajectory (provenance)."
       - name: xt_gk
         data_type: double
         description: "xT-GK composite (Eyestone), library-default params; GK-distribution actions only, NULL elsewhere. Signed."
