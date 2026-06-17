@@ -8,9 +8,9 @@ from analytics.action_context.work_unit import FrameBundle, WorkUnit
 
 class _FakeFrames:
     def frames(self, wu: WorkUnit) -> FrameBundle:
-        return FrameBundle(tier="event_only", frames=pd.DataFrame())
+        return FrameBundle(tier="sb360", frames=pd.DataFrame())
 
 
 def test_fake_framesource_satisfies_protocol() -> None:
     fs: FrameSource = _FakeFrames()
-    assert fs.frames(WorkUnit("wyscout", "M")).tier == "event_only"
+    assert fs.frames(WorkUnit("statsbomb", "M")).tier == "sb360"

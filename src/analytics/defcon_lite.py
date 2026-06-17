@@ -26,7 +26,7 @@ from analytics.array_utils import _col_f64
 
 def _event_pitch_control_fn(
     full_frame: pd.DataFrame,
-    defending_team_id: object,
+    defending_team_id: int | str,
     method: str,
 ) -> Callable[[pd.DataFrame, float, float], float]:
     """Build a per-event ``pitch_control_fn`` for :func:`assign_defensive_credits`.
@@ -50,17 +50,21 @@ def _event_pitch_control_fn(
     # location for the vast majority of defensive credits, making the spearman GK
     # reaction-model difference negligible (a documented approximation, ADR-056).
     sk_frame = full_frame.rename(columns={"velocity_x": "vx", "velocity_y": "vy"})
-    add_cols: dict[str, object] = {}
     if "is_ball" not in sk_frame.columns:
-        add_cols["is_ball"] = False
+        sk_frame = sk_frame.assign(is_ball=False)
     if "is_goalkeeper" not in sk_frame.columns:
-        add_cols["is_goalkeeper"] = False
-    if add_cols:
-        sk_frame = sk_frame.assign(**add_cols)
+        sk_frame = sk_frame.assign(is_goalkeeper=False)
 
     def _fn(_defenders: pd.DataFrame, x: float, y: float) -> float:
         targets = np.array([[float(x), float(y)]], dtype=float)
-        value = compute_pitch_control_at_points(sk_frame, targets, attacking_team_id=defending_team_id, method=method)
+        # method is a validated pitch-control method str from the pitch_control_method seam
+        # ("spearman"/"voronoi"); silly-kicks' Method is a Literal not cheaply importable here.
+        value = compute_pitch_control_at_points(
+            sk_frame,
+            targets,
+            attacking_team_id=defending_team_id,
+            method=method,  # type: ignore[arg-type]
+        )
         return float(value[0])
 
     return _fn
