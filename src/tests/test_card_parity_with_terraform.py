@@ -182,6 +182,9 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     "compute_pausa": "wf-obso-pausa",
     "compute_tracking_context": "wf-tracking-context",
     "compute_action_context": "wf-action-context",
+    # ADR-058: statsbomb sb360 arm of action-context — a single distributed cogroup.applyInPandas
+    # job (statsbomb exits the per-match drain). Same methodology + card as compute_action_context.
+    "compute_action_context_statsbomb": "wf-action-context",
     # AC-1 fan-out: Runtime chunk-discovery preflight feeding the
     # `compute_action_context` for_each_task fan-out. Pure orchestration
     # helper — writes Databricks task values and exits.

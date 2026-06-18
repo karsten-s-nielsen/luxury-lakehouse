@@ -25,9 +25,6 @@ import numpy as np
 
 from analytics.action_context.batching import resolve_frame_batch_size
 from analytics.action_context.drain import WATCHDOG_BUDGET_S, assign_workers, drain_worker
-from analytics.action_context.enrich import (
-    _enrich_sb360_match,
-)
 from analytics.action_context.ghost_gk_backend import resolve_ghost_gk_backend
 from analytics.action_context.pipeline import _reconstruct_xt
 from analytics.action_context.schema import (
@@ -731,11 +728,11 @@ class _ActionContextGuard:
                 )
                 units += [WorkUnit(provider=prov, match_id=mid, period=period) for mid, period in pairs]
 
-        # StatsBomb: frames-required (ADR-057) — only matches WITH freeze-frames (sb360 tier).
-        # wyscout and statsbomb-without-360 are out of action-context scope, never enqueued.
-        if self._selected("statsbomb"):
-            ids = self._cap(_find_sb360_new_ids(spark, spadl_table, results_table, f"{catalog}.bronze.statsbomb_360"))
-            units += [WorkUnit(provider="statsbomb", match_id=mid) for mid in ids]
+        # StatsBomb (ADR-058): sb360 EXITS the per-match drain — it is processed as ONE distributed
+        # cogroup.applyInPandas job by ``main_statsbomb`` (_process_statsbomb_matches), which scans each
+        # bronze table once and writes distributed (no driver toPandas, no 8-worker per-match commit
+        # contention). It is therefore NOT enqueued as drain units here. wyscout / statsbomb-without-360
+        # remain out of action-context scope (frames-required, ADR-057).
 
         self._units_cache = units
         self._units_cache_key = (catalog, schema)
@@ -1093,32 +1090,36 @@ def main() -> None:
     catalog, schema = args.catalog, args.schema
     per_match_written: dict[str, int] = {}
 
-    for match_id in ids:
-        period_str = f" period {period_filter}" if period_filter else ""
-        task_logger.info("Processing %s match %s%s", provider, match_id, period_str)
+    if provider == "statsbomb":
+        # statsbomb (ADR-058): process ALL requested matches in ONE distributed cogroup job — not
+        # per-match. (Production runs this via the dedicated main_statsbomb task; this branch handles
+        # a manual ``--match-ids statsbomb:a,b`` invocation.)
+        task_logger.info("Processing statsbomb (sb360) batch: %d matches", len(ids))
+        written = _process_statsbomb_matches(spark, catalog, schema, ids, xt_grid_data, xt_l, xt_w, task_logger)
+        per_match_written = {"__statsbomb_batch__": written}
+    else:
+        for match_id in ids:
+            period_str = f" period {period_filter}" if period_filter else ""
+            task_logger.info("Processing %s match %s%s", provider, match_id, period_str)
 
-        if _is_tracking_provider(provider):
-            written = _process_tracking_match(
-                spark,
-                catalog,
-                schema,
-                provider,
-                match_id,
-                period_filter,
-                xt_grid_data,
-                xt_l,
-                xt_w,
-                task_logger,
-                kde_backend=kde_backend,
-            )
-        elif provider == "statsbomb":
-            written = _process_statsbomb_match(
-                spark, catalog, schema, match_id, xt_grid_data, xt_l, xt_w, task_logger, kde_backend=kde_backend
-            )
-        else:
-            # Frames-required (ADR-057): wyscout / any non-AC provider is out of scope.
-            raise SystemExit(f"Unknown provider: {provider}")
-        per_match_written[match_id] = written
+            if _is_tracking_provider(provider):
+                written = _process_tracking_match(
+                    spark,
+                    catalog,
+                    schema,
+                    provider,
+                    match_id,
+                    period_filter,
+                    xt_grid_data,
+                    xt_l,
+                    xt_w,
+                    task_logger,
+                    kde_backend=kde_backend,
+                )
+            else:
+                # Frames-required (ADR-057): wyscout / any non-AC provider is out of scope.
+                raise SystemExit(f"Unknown provider: {provider}")
+            per_match_written[match_id] = written
 
     # Post-write summary — same fingerprint_hash for log-aggregation join.
     summary = _iteration_summary(
@@ -1135,6 +1136,49 @@ def main() -> None:
         summary["n_matches_zero_rows"],
         summary["n_matches_processed"],
     )
+
+
+def main_statsbomb() -> None:
+    """Entry point (ADR-058): process ALL pending statsbomb sb360 matches in ONE distributed
+    ``cogroup.applyInPandas`` job (``_process_statsbomb_matches``). statsbomb EXITS the per-match drain;
+    this is its production path. ``--max-units`` optionally caps the batch (scoped runs); ``--provider``
+    is ignored (statsbomb only). Own skip-guard: a no-op when discovery finds nothing.
+    """
+    args = parse_ingestion_args(
+        "Compute action context for statsbomb (sb360) — single distributed cogroup job",
+        extra_args=[
+            # str (not int): the job parameter arrives as an empty string when unset — parsed below.
+            ("--max-units", {"type": str, "default": "", "help": "Cap the number of sb360 matches (empty = all)."}),
+        ],
+    )
+    task_logger = configure_logging("action_context")
+    spark = get_spark_session()
+
+    from ingestion.bootstrap import bootstrap_hooks
+    from ingestion.guards import ensure_table
+
+    bootstrap_hooks(spark, args.catalog, args.schema)
+    catalog, schema = args.catalog, args.schema
+
+    results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+    ensure_table(spark, results_table, _ACTION_CONTEXT_DDL)
+
+    ids = _find_sb360_new_ids(
+        spark, f"{catalog}.bronze.spadl_actions", results_table, f"{catalog}.bronze.statsbomb_360"
+    )
+    raw_max = (getattr(args, "max_units", "") or "").strip()
+    if raw_max:
+        ids = sorted(ids)[: int(raw_max)]  # deterministic cap, mirrors the drain's _cap
+
+    # Skip-guard (ADR-058 / review M-2): the batch entry point owns its own empty-check — statsbomb no
+    # longer contributes to the drain skip-guard count.
+    if not ids:
+        task_logger.info("No pending statsbomb sb360 matches — skipping")
+        return
+
+    xt_grid_data, xt_l, xt_w = _load_xt_grid_from_delta(spark, catalog, schema, task_logger)
+    written = _process_statsbomb_matches(spark, catalog, schema, ids, xt_grid_data, xt_l, xt_w, task_logger)
+    task_logger.info("compute_action_context_statsbomb complete -- %d matches, %d rows written", len(ids), written)
 
 
 def main_drain_worker() -> None:
@@ -2037,192 +2081,103 @@ def profile_action_context() -> None:
     task_logger.info("AC1_PROFILE complete for %s/%s — %d rows enriched (not written)", provider, ids[0], n_rows)
 
 
-def _process_statsbomb_match(
+# ── SB360 distributed (cogroup.applyInPandas) processing (ADR-058) ────────────
+# statsbomb is processed as ONE distributed job over all pending sb360 matches (not per-match in the
+# drain): scan each bronze table once, enrich per match on executors, distributed write. This removes
+# the driver-side toPandas + the 8-worker per-match replaceWhere commit contention.
+
+
+def _canon_key(col: str):
+    """Canonicalize an id column on EVERY join side exactly as ``_find_sb360_new_ids`` (ADR-019):
+    ``cast("long").cast("string")`` normalizes the ``"3788746.0"`` vs ``"3788746"`` float-format
+    class. A bare ``cast("string")`` on a double-typed id yields ``"3788746.0"`` → silently drops from
+    ``.isin`` + mis-aligns the cogroup. The IN-list ids are the ``"3788746"``-style native strings."""
+    from pyspark.sql import functions as F  # noqa: N812
+
+    return F.col(col).cast("long").cast("string")
+
+
+def _empty_result_pdf() -> pd.DataFrame:
+    """0-row frame with RESULT_COLUMNS, dtype-correct (``build_output`` fills STRING→object,
+    numeric→float64). Returned by the cogroup UDF for empty / 0-frame matches; with 0 rows Arrow has
+    nothing to convert, so the float64↔BIGINT schema seam is not exercised on this path."""
+    return _build_output(pd.DataFrame(), match_id_native="", data_source="statsbomb")
+
+
+def _make_sb360_cogroup_udf(xt_grid_data: list[list[float]], xt_l: int, xt_w: int):
+    """Build the ``cogroup.applyInPandas`` UDF: ``(actions_pdf, sb360_pdf)`` for ONE match → AC rows,
+    on an executor. Closure captures only picklable scalars (xt grid + dims) per ADR-045; the ghost-GK
+    model is no longer needed on sb360 (ADR-058)."""
+
+    def _udf(actions_pdf: pd.DataFrame, sb360_pdf: pd.DataFrame) -> pd.DataFrame:
+        from analytics.action_context.enrich import _enrich_sb360_match
+        from analytics.action_context.sb360_snapshots import build_sb360_snapshots, resolve_home_team_id
+
+        if actions_pdf.empty:
+            return _empty_result_pdf()
+        # DETERMINISM (ADR-058): cogroup gives no row-order guarantee — sort so the dup-event
+        # keep="last" tie-break + any iloc[0] are reproducible (identical to the legacy path).
+        actions_pdf = actions_pdf.sort_values("action_id").reset_index(drop=True)
+        match_id = str(actions_pdf["match_id_native"].iloc[0])
+        frames = build_sb360_snapshots(actions_pdf, sb360_pdf)
+        if frames.empty:
+            return _empty_result_pdf()
+        home = resolve_home_team_id(actions_pdf)
+        xt = _reconstruct_xt(xt_grid_data, xt_l, xt_w)
+        result = _enrich_sb360_match(actions_pdf, frames, home, xt)
+        return _build_output(result, match_id_native=match_id, data_source="statsbomb")
+
+    return _udf
+
+
+def _process_statsbomb_matches(
     spark: SparkSession,
     catalog: str,
     schema: str,
-    match_id: str,
+    match_ids: list[str],
     xt_grid_data: list[list[float]],
     xt_l: int,
     xt_w: int,
     task_logger: logging.Logger,
-    kde_backend: str = "fft-cic",
 ) -> int:
-    """Process a StatsBomb match — SB360 tier (with freeze-frames) or event-only."""
+    """Process all given statsbomb sb360 matches in ONE distributed ``cogroup.applyInPandas`` job."""
     from pyspark.sql import functions as F  # noqa: N812
 
     from ingestion.utils import write_delta_table
 
-    # Read SPADL actions
-    actions_pdf = (
+    if not match_ids:  # empty -> "match_id IN ()" is a SQL syntax error; the discovery skip-guard
+        task_logger.info("No statsbomb sb360 matches to process — skipping")  # should pre-empt this.
+        return 0
+
+    # CRITICAL (ADR-058): discovery is INCREMENTAL + CAPPED — ``match_ids`` is a SUBSET, never the
+    # full statsbomb corpus. A full-partition ``replace_where="data_source='statsbomb'"`` would DELETE
+    # every previously-processed match and rewrite only this batch → silent data loss. Use the
+    # incremental ``match_id IN (...)`` list (codebase convention: formations_efpi / defcon_lite_360).
+    actions_sdf = (
         spark.table(f"{catalog}.bronze.spadl_actions")
-        .filter((F.col("match_id_native") == match_id) & (F.col("data_source") == "statsbomb"))
-        .toPandas()
+        .filter((F.col("data_source") == "statsbomb") & _canon_key("match_id_native").isin(match_ids))
+        .withColumn("_ck", _canon_key("match_id_native"))
     )
-    if actions_pdf.empty:
-        task_logger.warning("No SPADL actions for statsbomb match %s", match_id)
-        return 0
-
-    # Check for SB360 freeze-frame data
-    from ingestion.utils import tolerate_missing_table
-
-    has_360 = False
-    with tolerate_missing_table(task_logger, "statsbomb_360 table missing"):
-        count_360 = (
-            spark.table(f"{catalog}.bronze.statsbomb_360").filter(F.col("match_id") == match_id).limit(1).count()
-        )
-        has_360 = count_360 > 0
-
-    if not has_360:
-        # Frames-required (ADR-057): discovery only enqueues sb360 matches, so this is a
-        # defensive no-op (e.g. 360 deleted between discovery and processing). Out of scope → no rows.
-        task_logger.info("StatsBomb match %s has no 360 data — out of action-context scope, skipping", match_id)
-        return 0
-
-    task_logger.info("StatsBomb match %s has 360 data — using SB360 tier", match_id)
-    result_pdf = _run_sb360_enrichment(
-        spark,
-        catalog,
-        actions_pdf,
-        match_id,
-        xt_grid_data,
-        xt_l,
-        xt_w,
-        task_logger,
-        kde_backend=kde_backend,
+    sb360_sdf = (
+        spark.table(f"{catalog}.bronze.statsbomb_360")
+        .filter(_canon_key("match_id").isin(match_ids))
+        .withColumn("_ck", _canon_key("match_id"))
     )
-
-    if len(result_pdf) == 0:
-        # has_360 was true but the freeze-frames produced ZERO rows: corrupt/empty freeze-frames
-        # or a snapshot_to_tracking_frames bug — a real data-quality signal, NOT an out-of-scope
-        # match. WARN-visible per ADR-002 (no silent swallow); write nothing.
-        task_logger.warning(
-            "StatsBomb match %s had 360 data but produced 0 frames — conversion failure, 0 AC rows written", match_id
-        )
-        return 0
-
-    out_pdf = _build_output(result_pdf, match_id_native=match_id, data_source="statsbomb")
-
-    # Convert to Spark DataFrame and write. An EXPLICIT schema is mandatory:
-    # event-only / sb360 output leaves the ~80 tracking columns entirely absent,
-    # so _build_output fills them via ``out[col] = np.nan`` → an all-NULL float64
-    # pandas column. Spark would infer those as DoubleType, which then collides
-    # with the table's BIGINT columns (e.g. frame_id) under write_delta_table's
-    # mergeSchema, raising DELTA_FAILED_TO_MERGE_FIELDS. The tracking path avoids
-    # this by passing schema=_get_result_schema() to applyInPandas; the
-    # driver-side writers must do the same. See ADR-033.
-    out_sdf = spark.createDataFrame(out_pdf, schema=_get_result_schema())
-    written = write_delta_table(
-        out_sdf,
+    result_sdf = (
+        actions_sdf.groupBy("_ck")
+        .cogroup(sb360_sdf.groupBy("_ck"))
+        .applyInPandas(_make_sb360_cogroup_udf(xt_grid_data, xt_l, xt_w), schema=_get_result_schema())
+    )
+    # build_output writes match_id = match_id_native (native; no hashing) → IN-list = those native strings.
+    ids_sql = ", ".join("'" + str(m).replace("'", "''") + "'" for m in match_ids)
+    return write_delta_table(
+        result_sdf,
         catalog,
         schema,
         _TABLE_NAME,
-        replace_where=f"match_id = '{match_id}'",
+        replace_where=f"data_source = 'statsbomb' AND match_id IN ({ids_sql})",
         logger=task_logger,
-        row_count=len(out_pdf),
     )
-    return written
-
-
-def _run_sb360_enrichment(
-    spark: SparkSession,
-    catalog: str,
-    actions_pdf: pd.DataFrame,
-    match_id: str,
-    xt_grid_data: list[list[float]],
-    xt_l: int,
-    xt_w: int,
-    task_logger: logging.Logger,
-    kde_backend: str = "fft-cic",
-) -> pd.DataFrame:
-    """Run SB360 enrichment — converts freeze-frames to synthetic tracking then enriches.
-
-    SB360 pitch-control-dependent metrics (gk_influence/OBSO/PAUSA) need the xT grid for the
-    voronoi pitch-control surface (ADR-039); reconstructed once and passed to _enrich_sb360_match.
-    """
-    import pandas as pd
-    from pyspark.sql import functions as F  # noqa: N812
-
-    # Read SB360 freeze-frame data
-    sb360_pdf = spark.table(f"{catalog}.bronze.statsbomb_360").filter(F.col("match_id") == match_id).toPandas()
-
-    if sb360_pdf.empty:
-        # Frames-required (ADR-057): no freeze-frames → no rows (the caller's conversion-failure
-        # WARN fires since has_360 was true). Empty 0-row frame; nothing written.
-        task_logger.warning("SB360 data empty for match %s — 0 AC rows", match_id)
-        return actions_pdf.iloc[0:0]
-
-    # Map event_uuid → action_id via original_event_id in SPADL actions
-    # SB360.id = event_uuid; spadl_actions.original_event_id = event_uuid
-    _event_ids = actions_pdf["original_event_id"].dropna()
-    _action_ids = actions_pdf.loc[_event_ids.index, "action_id"]
-    event_to_action = dict(zip(_event_ids, _action_ids, strict=True))
-
-    # Pre-build indexed lookups — avoids O(n*m) boolean mask filtering in loop.
-    action_to_team: dict[Any, str] = dict(
-        zip(actions_pdf["action_id"], actions_pdf["team_id"].astype(str), strict=False)
-    )
-    all_teams = [str(t) for t in actions_pdf["team_id"].dropna().unique()]
-
-    # Build snapshot format: action_id, team_id, is_goalkeeper, x, y
-    # SB360 has: id (event_uuid), teammate (bool), actor (bool), keeper (bool), location (JSON [x,y])
-    import json
-
-    snapshots: list[dict[str, Any]] = []
-    for _, row in sb360_pdf.iterrows():
-        event_uuid = str(row.get("id", ""))
-        action_id = event_to_action.get(event_uuid)
-        if action_id is None:
-            continue
-
-        # Resolve team_id from teammate flag + acting team (dict lookup, O(1))
-        acting_team_id = action_to_team.get(action_id)
-        if acting_team_id is None:
-            continue
-
-        opponent_teams = [t for t in all_teams if t != acting_team_id]
-        opponent_team_id = opponent_teams[0] if opponent_teams else acting_team_id
-
-        is_teammate = bool(row.get("teammate", False))
-        team_id = acting_team_id if is_teammate else opponent_team_id
-        is_gk = bool(row.get("keeper", False))
-
-        # Parse location
-        loc = row.get("location")
-        if loc is None:
-            continue
-        if isinstance(loc, str):
-            try:
-                loc = json.loads(loc)
-            except (json.JSONDecodeError, TypeError):
-                continue
-        if not isinstance(loc, (list, tuple)) or len(loc) < 2:
-            continue
-
-        snapshots.append(
-            {
-                "action_id": int(action_id),
-                "team_id": team_id,
-                "is_goalkeeper": is_gk,
-                "x": float(loc[0]),
-                "y": float(loc[1]),
-            }
-        )
-
-    if not snapshots:
-        # Frames-required (ADR-057): freeze-frames present but none yielded a valid snapshot →
-        # 0 frames → no rows (caller WARNs on the has_360-but-0-rows conversion failure).
-        task_logger.warning("No valid snapshots for match %s — 0 AC rows", match_id)
-        return actions_pdf.iloc[0:0]
-
-    freeze_frames = pd.DataFrame(snapshots)
-
-    # Derive home_team_id for SB360 (use first team in actions as home approximation)
-    unique_teams = actions_pdf["team_id"].dropna().unique()
-    home_team_id = str(unique_teams[0]) if len(unique_teams) > 0 else "unknown"
-
-    xt = _reconstruct_xt(xt_grid_data, xt_l, xt_w)
-    return _enrich_sb360_match(actions_pdf, freeze_frames, home_team_id, xt, kde_backend=kde_backend)
 
 
 if __name__ == "__main__":

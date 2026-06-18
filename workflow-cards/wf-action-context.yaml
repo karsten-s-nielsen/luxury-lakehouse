@@ -55,6 +55,16 @@ execution:
     schedule: "daily 06:00 UTC"
     timeout: "7200s"
     environment: spadl
+  # ADR-058: statsbomb sb360 arm — a single distributed cogroup.applyInPandas job (statsbomb exits
+  # the per-match drain; scan each bronze table once, enrich per match on executors, distributed write).
+  statsbomb_enrichment:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: compute_action_context_statsbomb
+    module: ingestion.action_context
+    schedule: "daily 06:00 UTC"
+    timeout: "28800s"
+    environment: analytics
 
 dbt_model: fct_action_context
 

@@ -265,7 +265,6 @@ class SparkGameProcessor:
     def process(self, unit: WorkUnit) -> int:
         from ingestion.action_context import (
             _is_tracking_provider,
-            _process_statsbomb_match,
             _process_tracking_match,
         )
 
@@ -283,18 +282,10 @@ class SparkGameProcessor:
                 self._logger,
                 kde_backend=unit.kde_backend,
             )
-        if unit.provider == "statsbomb":
-            return _process_statsbomb_match(
-                self._spark,
-                self._catalog,
-                self._schema,
-                unit.match_id,
-                self._xt_grid,
-                self._xt_l,
-                self._xt_w,
-                self._logger,
-                kde_backend=unit.kde_backend,
-            )
-        # Frames-required (ADR-057): wyscout / any non-AC provider is out of scope and never
-        # enqueued; a stray unit fails loud rather than writing event-only rows.
-        raise ValueError(f"unknown provider: {unit.provider}")
+        # statsbomb (ADR-058) EXITS the drain — processed as a single distributed cogroup job by
+        # main_statsbomb, never enqueued here. A stray statsbomb unit (or wyscout / any non-AC
+        # provider, ADR-057) fails loud rather than silently reverting to the slow per-match path.
+        raise ValueError(
+            f"provider {unit.provider!r} is not drain-processed "
+            "(statsbomb runs via main_statsbomb / _process_statsbomb_matches; wyscout is out of scope)"
+        )

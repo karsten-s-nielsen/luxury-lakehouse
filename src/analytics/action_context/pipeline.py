@@ -428,13 +428,23 @@ def enrich_batch(
     import pandas as pd
 
     if tier == "sb360":
+        # ADR-058 lockstep (home + determinism): resolve home via the shared core resolver (NOT
+        # meta.home_team_id) and sort actions for the dup-event tie-break, matching production.
+        # NOTE: ``frames_pdf`` is still the PRE-BUILT snapshot frame (the committed fixture). The full
+        # raw-freeze-frame contract (build snapshots in-core, so the hexagon also exercises
+        # build_sb360_snapshots) lands with the fixture regen from full data (plan Task 7,
+        # compute-gated). The production paths (_run_sb360_enrichment + the cogroup UDF) already build
+        # snapshots from raw via the shared helper.
+        from analytics.action_context.sb360_snapshots import resolve_home_team_id
+
         actions = pd.DataFrame(actions_records)
         if actions.empty:
             return _empty_result()
-        # xt for the SB360 voronoi pitch-control metrics (gk_influence). The grid params are
-        # already enrich_batch arguments; the tracking branch reconstructs the same below (ADR-039).
+        actions = actions.sort_values("action_id").reset_index(drop=True)
+        # xt for the SB360 voronoi pitch-control metrics. The grid params are already enrich_batch
+        # arguments; the tracking branch reconstructs the same below (ADR-039).
         xt = _reconstruct_xt(xt_grid_data, xt_l, xt_w)
-        result = _enrich_sb360_match(actions, frames_pdf, meta.home_team_id, xt, kde_backend=kde_backend)
+        result = _enrich_sb360_match(actions, frames_pdf, resolve_home_team_id(actions), xt, kde_backend=kde_backend)
         return build_output(result, native_match_id, provider)
 
     if tier != "tracking":
