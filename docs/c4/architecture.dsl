@@ -47,7 +47,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             evolveEngine = container "Evolve Engine" "LLM-guided architecture search. AST validation, restricted exec." "Python, OpenEvolve"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models: xG, xT, VAEP, OBSO, pitch control, embeddings" "Python, PyTorch"
             execVisibility = container "Executor Visibility (exec_visibility)" "Driver PhaseHeartbeat + executor env-fingerprint/faulthandler/rendezvous markers + silly-kicks env-drift guard (ADR-044: fails loud on a stale/split UDF sandbox). Spark-Connect-safe applyInPandas progress + hang diagnostics (ADR-031)." "Python"
-            actionContextHexagon = container "Action Context Hexagon" "Pure-domain AC-1 enrichment to bronze.spadl_action_context (ADR-028): 5 ports + enrich_batch, same UDF in Spark (AQE-proof mapInPandas dispatch + single-pass write, ADR-045) + local run_work_unit. FRAMES-REQUIRED (ADR-057): tier model {tracking, sb360}; event-only matches out of scope (no row). Two-sided time-base guards + per-unit action-completeness invariant + global M13 ownership anchors (ADR-040 am.) + id-dtype guard (ADR-042); per-provider frame batching, run-overridable (ADR-047 am. 2); xT-GK + restart-coords (ADR-048); pitch_control_at_target + shot_goalmouth, Kimball-slim leaf mart (ADR-056)." "Python, pandas, silly-kicks 4.32.0"
+            actionContextHexagon = container "Action Context Hexagon" "Pure-domain AC-1 enrichment to bronze.spadl_action_context (ADR-028): 5 ports + enrich_batch, same UDF in Spark (AQE-proof mapInPandas dispatch + single-pass write, ADR-045) + local run_work_unit. FRAMES-REQUIRED (ADR-057): tier model {tracking, sb360}; event-only matches out of scope (no row). Two-sided time-base guards + per-unit action-completeness invariant + global M13 ownership anchors (ADR-040 am.) + id-dtype guard (ADR-042); per-provider frame batching, run-overridable (ADR-047 am. 2); xT-GK + restart-coords (ADR-048); pitch_control_at_target + shot_goalmouth, Kimball-slim leaf mart (ADR-056). ADR-058: sb360 EXITS the per-match drain as ONE distributed cogroup.applyInPandas job (vectorized snapshot build; ghost-GK excluded on freeze-frames, pitch_control_at_target__voronoi emitted)." "Python, pandas, silly-kicks 4.32.0"
             sharedLibrary = container "Shared Library" "Cross-package constants. Zero external deps." "Python"
         }
 
@@ -134,7 +134,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         workflowFramework -> costEstimateHook "Dispatches lifecycle hooks" ""
         ingestionPipelines -> analyticsLibrary "Imports domain logic" ""
         ingestionPipelines -> sharedLibrary "Imports constants" ""
-        ingestionPipelines -> actionContextHexagon "Worker-drain fan-out (ADR-037): N persistent workers drain a queue, each delegating per-game to enrich_batch (ADR-028)" ""
+        ingestionPipelines -> actionContextHexagon "Tracking providers: worker-drain fan-out (ADR-037), N persistent workers each delegating per-game to enrich_batch (ADR-028). StatsBomb sb360: one distributed cogroup.applyInPandas job (ADR-058)" ""
         ingestionPipelines -> execVisibility "UDF + driver emit progress/diagnostics (ADR-031)" ""
         actionContextHexagon -> sharedLibrary "Imports identifiers" ""
         actionContextHexagon -> bronzeSchema "Reads tracking+SPADL+xT grid, writes spadl_action_context" "PySpark/Delta"

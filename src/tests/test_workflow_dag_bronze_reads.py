@@ -80,18 +80,21 @@ _BRONZE_READ_REQUIREMENTS: list[tuple[str, str, str]] = [
     # dbt_build_input_marts is correct per ADR-019 § ingest-helper exemption.
     ("dbt_build_input_marts", "statsbomb_360", "backfill_statsbomb_360"),
     ("dbt_build_output_marts", "player_embeddings_raw_360", "compute_embeddings_360"),
-    # ── compute_action_context: reads SPADL + frame-bearing provider data (ADR-057) ──
-    # Evidence: src/ingestion/action_context.py — _process_tracking_match,
-    #         _process_statsbomb_match (sb360). Event-only providers are out of scope.
+    # ── compute_action_context: TRACKING providers only (ADR-058 — statsbomb exited the drain) ──
+    # Evidence: src/ingestion/action_context.py — _process_tracking_match (the drain worker).
     ("compute_action_context", "spadl_actions", "compute_spadl_vaep"),
-    ("compute_action_context", "statsbomb_360", "backfill_statsbomb_360"),
     ("compute_action_context", "idsse_tracking", "ingest_idsse"),
     ("compute_action_context", "idsse_events", "ingest_idsse_events"),
     ("compute_action_context", "metrica_tracking", "ingest_metrica"),
     ("compute_action_context", "skillcorner_tracking", "ingest_skillcorner"),
     ("compute_action_context", "gradientsports_tracking", "ingest_gradientsports"),
-    # ── dbt_build_output_marts: stg_action_context reads bronze ──────────
+    # ── compute_action_context_statsbomb: the sb360 cogroup batch (ADR-058) reads SPADL +
+    #    statsbomb_360. Evidence: _process_statsbomb_matches / main_statsbomb. ──
+    ("compute_action_context_statsbomb", "spadl_actions", "compute_spadl_vaep"),
+    ("compute_action_context_statsbomb", "statsbomb_360", "backfill_statsbomb_360"),
+    # ── dbt_build_output_marts: stg_action_context reads bronze written by BOTH AC arms ──
     ("dbt_build_output_marts", "spadl_action_context", "compute_action_context"),
+    ("dbt_build_output_marts", "spadl_action_context", "compute_action_context_statsbomb"),
 ]
 
 

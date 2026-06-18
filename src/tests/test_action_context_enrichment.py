@@ -17,13 +17,12 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from analytics.action_context.enrich import _enrich_tracking_match
+from analytics.action_context.enrich import _enrich_sb360_match, _enrich_tracking_match
 from analytics.action_context.schema import RESULT_COLUMNS as _RESULT_COLUMNS
 from analytics.action_context.work_unit import WorkUnit
 from ingestion.action_context import (
     _ActionContextGuard,
     _build_output,
-    _enrich_sb360_match,
     _find_idsse_new_period_pairs,
     _find_sb360_new_ids,
     _find_tracking_new_period_pairs,
@@ -216,6 +215,13 @@ def test_enrich_sb360_calls_snapshot_converter_and_positional_features() -> None
     mock_converter = MagicMock(return_value=(mock_frames, mock_links))
     mock_line_break = MagicMock(side_effect=_PASSTHROUGH)
     mock_team_shape = MagicMock(side_effect=_PASSTHROUGH)
+    # ADR-058: sb360 now emits pitch_control_at_target__voronoi (and does NOT run ghost-GK).
+    mock_pc = MagicMock(
+        side_effect=lambda out, *a, **k: pd.Series(
+            [0.5] * len(out), name="pitch_control_at_target__voronoi", index=out.index
+        )
+    )
+    mock_ghost = MagicMock(side_effect=_PASSTHROUGH)  # asserted NOT called (ADR-058)
 
     patches = [
         patch("silly_kicks.spadl.add_game_state", _PASSTHROUGH),
@@ -225,12 +231,12 @@ def test_enrich_sb360_calls_snapshot_converter_and_positional_features() -> None
         patch("silly_kicks.tracking.add_defensive_line", _PASSTHROUGH),
         patch("silly_kicks.tracking.add_line_break", mock_line_break),
         patch("silly_kicks.tracking.add_team_shape", mock_team_shape),
-        # SB360 coverage steps (ADR-039) — patched so the real silly-kicks funcs don't
-        # run on the minimal mock frame. add_ghost_gk / add_gk_influence resolve from
-        # silly_kicks.tracking.features in _enrich_sb360_match.
+        # SB360 coverage steps (ADR-039/ADR-058) — patched so the real silly-kicks funcs don't run on
+        # the minimal mock frame. pitch_control_at_target (voronoi) IS now on sb360; add_ghost_gk is NOT.
+        patch("silly_kicks.tracking.pitch_control_at_target", mock_pc),
         patch("silly_kicks.tracking.add_pressure_on_actor", _PASSTHROUGH),
         patch("silly_kicks.tracking.add_shape_graph", _PASSTHROUGH),
-        patch("silly_kicks.tracking.features.add_ghost_gk", _PASSTHROUGH),
+        patch("silly_kicks.tracking.features.add_ghost_gk", mock_ghost),
         patch("silly_kicks.tracking.features.add_gk_influence", _PASSTHROUGH),
         patch("silly_kicks.tracking.add_obso", _PASSTHROUGH),
         patch("silly_kicks.tracking.add_pausa", _PASSTHROUGH),
@@ -253,6 +259,11 @@ def test_enrich_sb360_calls_snapshot_converter_and_positional_features() -> None
     assert lb_kwargs.get("method") == "ward", "method='ward' not propagated to add_line_break"
     assert lb_kwargs.get("home_team_id") == "t1", "home_team_id not propagated to add_line_break"
     mock_team_shape.assert_called_once()
+    # ADR-058 tiering: voronoi pitch control IS emitted; ghost-GK is NOT run on sb360.
+    _, pc_kwargs = mock_pc.call_args
+    assert pc_kwargs.get("method") == "voronoi", "sb360 must call pitch_control_at_target(method='voronoi')"
+    assert "pitch_control_at_target__voronoi" in result.columns
+    mock_ghost.assert_not_called()
     assert isinstance(result, pd.DataFrame)
 
 
@@ -716,34 +727,42 @@ def test_parse_preflight_filters_bad_max_units_raises() -> None:
 
 @pytest.mark.usefixtures("_mock_pyspark")
 def test_guard_provider_filter_restricts_to_one_provider() -> None:
-    """provider_filter='statsbomb' -> ONLY statsbomb (sb360) units; other providers' discovery
-    skipped even though their tables hold unprocessed units."""
+    """provider_filter restricts discovery to one provider. statsbomb (ADR-058) EXITS the drain — it
+    is never discovered here (processed by main_statsbomb), so the filter is exercised via metrica."""
     tables = {
-        "cat.bronze.spadl_actions": _MockDF([{"_join_id": "s1"}, {"_join_id": "s2"}, {"_join_id": "s3"}]),
-        "cat.bronze.statsbomb_360": _MockDF([{"_join_id": "s1"}, {"_join_id": "s2"}, {"_join_id": "s3"}]),
-        # populated but must be ignored (metrica/idsse skipped):
-        "cat.bronze.metrica_tracking": _MockDF([{"_join_id": "s1"}]),
+        "cat.bronze.spadl_actions": _MockDF([{"_mid": "m1"}, {"_mid": "m2"}]),
+        "cat.bronze.statsbomb_360": _MockDF([{"_join_id": "s1"}, {"_join_id": "s2"}]),
+        "cat.bronze.metrica_tracking": _MockDF([{"_mid": "m1", "_period": 1}, {"_mid": "m2", "_period": 1}]),
         "cat.bronze.idsse_tracking": _MockDF([{"_mid": "i1", "_period": 1}]),
     }
-    units = _ActionContextGuard(provider_filter="statsbomb").discover_units(_MockSpark(tables), "cat", "bronze")
-
-    assert units, "expected statsbomb units"
-    assert all(u.provider == "statsbomb" for u in units)
-    assert sorted(_match_ids(units)) == ["s1", "s2", "s3"]
+    spark = _MockSpark(tables)
+    # statsbomb exits the drain — never discovered, even with an explicit filter (ADR-058).
+    assert _ActionContextGuard(provider_filter="statsbomb").discover_units(spark, "cat", "bronze") == []
+    # the filter still restricts to a single tracking provider.
+    units = _ActionContextGuard(provider_filter="metrica").discover_units(spark, "cat", "bronze")
+    assert units and all(u.provider == "metrica" for u in units)
+    assert sorted(_match_ids(units)) == ["m1", "m2"]
 
 
 @pytest.mark.usefixtures("_mock_pyspark")
 def test_guard_max_units_caps_deterministically() -> None:
-    """provider_filter + max_units -> the FIRST N units in sorted order (stable 'next N')."""
+    """provider_filter + max_units -> the FIRST N units in sorted order (stable 'next N'). Exercised
+    via metrica (a drain provider); statsbomb's cap lives in main_statsbomb (ADR-058)."""
     tables = {
         "cat.bronze.spadl_actions": _MockDF(
-            [{"_join_id": "s3"}, {"_join_id": "s1"}, {"_join_id": "s5"}, {"_join_id": "s2"}, {"_join_id": "s4"}]
+            [{"_mid": "s3"}, {"_mid": "s1"}, {"_mid": "s5"}, {"_mid": "s2"}, {"_mid": "s4"}]
         ),
-        "cat.bronze.statsbomb_360": _MockDF(
-            [{"_join_id": "s1"}, {"_join_id": "s2"}, {"_join_id": "s3"}, {"_join_id": "s4"}, {"_join_id": "s5"}]
+        "cat.bronze.metrica_tracking": _MockDF(
+            [
+                {"_mid": "s1", "_period": 1},
+                {"_mid": "s2", "_period": 1},
+                {"_mid": "s3", "_period": 1},
+                {"_mid": "s4", "_period": 1},
+                {"_mid": "s5", "_period": 1},
+            ]
         ),
     }
-    guard = _ActionContextGuard(provider_filter="statsbomb", max_units=2)
+    guard = _ActionContextGuard(provider_filter="metrica", max_units=2)
     spark = _MockSpark(tables)
     units = guard.discover_units(spark, "cat", "bronze")
 
@@ -791,9 +810,11 @@ def test_guard_defaults_unchanged_no_filter_no_cap() -> None:
     units = _ActionContextGuard().discover_units(_MockSpark(tables), "cat", "bronze")
 
     provs = set(_providers(units))
-    assert "statsbomb" in provs and "metrica" in provs, provs
-    sb = sorted(u.match_id for u in units if u.provider == "statsbomb")
-    assert sb == ["s1", "s2", "s3"], f"default path must not cap: {sb}"
+    # statsbomb EXITS the drain (ADR-058) — never discovered here even on the default path; metrica
+    # (a drain provider) is still discovered, uncapped.
+    assert "metrica" in provs, provs
+    assert "statsbomb" not in provs, provs
+    assert sorted(u.match_id for u in units if u.provider == "metrica") == ["s1", "s2"]
 
 
 @pytest.mark.usefixtures("_mock_pyspark")
@@ -837,18 +858,19 @@ def test_discover_units_memoised_and_keyed_on_target(monkeypatch: pytest.MonkeyP
     units = guard.discover_units(None, "c", "bronze")  # type: ignore[arg-type]
     assert WorkUnit(provider="idsse", match_id="idm", period=1) in units
     assert sum(u.provider in {"metrica", "skillcorner", "gradientsports"} for u in units) == 3
-    # Frames-required (ADR-057): only statsbomb (sb360) among the non-tracking providers; no wyscout.
-    assert sum(u.provider == "statsbomb" for u in units) == 2
+    # ADR-058: statsbomb EXITS the drain — discover_units never calls _find_sb360_new_ids, so no
+    # statsbomb units are enqueued (it is processed by main_statsbomb). No wyscout (ADR-057).
+    assert sum(u.provider == "statsbomb" for u in units) == 0
     assert not any(u.provider == "wyscout" for u in units)
 
     # P1: check() + a second discover_units() must NOT re-run the anti-joins (memoised once).
     assert guard.check(None, "c", "bronze").count == len(units)  # type: ignore[arg-type]
     assert guard.discover_units(None, "c", "bronze") is units  # type: ignore[arg-type]
-    assert calls == {"idsse": 1, "tracking": 3, "sb360": 1}
+    assert calls == {"idsse": 1, "tracking": 3, "sb360": 0}  # sb360 anti-join no longer in the drain
 
     # R1: a DIFFERENT (catalog, schema) self-invalidates the memo -> re-discovers.
     guard.discover_units(None, "OTHER", "bronze")  # type: ignore[arg-type]
-    assert calls == {"idsse": 2, "tracking": 6, "sb360": 2}
+    assert calls == {"idsse": 2, "tracking": 6, "sb360": 0}  # sb360 anti-join no longer in the drain
 
 
 def test_main_preflight_builds_queue_and_task_values(monkeypatch: pytest.MonkeyPatch) -> None:

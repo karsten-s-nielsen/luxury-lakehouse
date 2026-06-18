@@ -49,7 +49,10 @@ def _nn(df: pd.DataFrame, col: str) -> int:
 
 def test_sb360_supported_metrics_populate() -> None:
     df = _run()
-    assert _nn(df, "ghost_gk_x") > 0
+    # ADR-058: ghost-GK is NOT run on sb360 (velocity-degenerate); pitch_control_at_target__voronoi
+    # IS now emitted (position-only). Both are sb360 enricher-tiering changes.
+    assert _nn(df, "ghost_gk_x") == 0, "ghost-GK must be NULL on sb360 (ADR-058)"
+    assert _nn(df, "pitch_control_at_target__voronoi") > 0, "voronoi at_target must populate on sb360"
     assert _nn(df, "obso_actual") > 0
     assert _nn(df, "pausa_composite") > 0
     assert _nn(df, "gk_pitch_control_share_weighted") > 0  # voronoi

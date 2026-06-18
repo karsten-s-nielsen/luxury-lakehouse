@@ -219,6 +219,42 @@ resource "databricks_job" "data_ingestion" {
     }
   }
 
+  # ── Task: Compute action context for StatsBomb (sb360) ─────────────────
+  # ADR-058: statsbomb sb360 EXITS the per-match drain and runs as ONE distributed
+  # cogroup.applyInPandas job (scan each bronze table once, enrich per match on executors,
+  # distributed write). Reads bronze.spadl_actions (compute_spadl_vaep), bronze.statsbomb_360
+  # (backfill_statsbomb_360), and bronze.expected_threat_grids (compute_expected_threat). The 8 h
+  # timeout matches the drain's documented exception (first full backlog run); daily runs are tiny.
+  task {
+    task_key        = "compute_action_context_statsbomb"
+    timeout_seconds = 28800
+    max_retries     = 0
+
+    depends_on {
+      task_key = "backfill_statsbomb_360"
+    }
+    depends_on {
+      task_key = "compute_expected_threat"
+    }
+    depends_on {
+      task_key = "compute_spadl_vaep"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_action_context_statsbomb"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+        # Optional cap for scoped runs; empty => all pending sb360 matches (parsed in main_statsbomb).
+        "--max-units", "{{job.parameters.max_units}}",
+      ]
+    }
+
+    environment_key = "analytics"
+  }
+
   # ── Task: Compute DEFCON-lite defensive valuation ──────────────────────
   # Reads gold fct_action_values + bronze statsbomb_360, assigns defensive
   # credits per-defender per-action, trains XGBoost value estimators.
@@ -780,6 +816,7 @@ resource "databricks_job" "data_ingestion" {
     # extract_tracking_metadata + backfills + resolve_players are in
     # stage 1.) Order: alphabetical.
     depends_on { task_key = "compute_action_context" }
+    depends_on { task_key = "compute_action_context_statsbomb" }
     depends_on { task_key = "compute_defcon_lite" }
     depends_on { task_key = "compute_elastic_sync" }
     depends_on { task_key = "compute_embeddings_360" }

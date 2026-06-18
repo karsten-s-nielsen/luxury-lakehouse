@@ -7,7 +7,8 @@ Fixture layout::
         actions.parquet     # bronze.spadl_actions rows for the match
         xt_grid.parquet     # zone_x, zone_y, xt_value (global grid)
         meta.parquet        # 1 row: home_team_id, home_start_left [, gs_*_json]
-        sb360.parquet       # (statsbomb only) synthetic freeze-frames -> sb360 tier
+        sb360.parquet       # (statsbomb only) pre-built snapshot frame -> sb360 tier. (ADR-058 Task 7
+                            #   will switch this to RAW bronze.statsbomb_360 rows + in-core snapshots.)
 
 Tier resolution mirrors production (frames-required; ADR-057): tracking providers ->
 ``tracking`` (via resolve_frame_tier); statsbomb -> ``sb360`` (sb360.parquet present).

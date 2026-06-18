@@ -156,15 +156,16 @@ class TestGhostGkModelCache:
         assert calls == ["default"]  # loaded exactly once
 
     def test_call_sites_pass_instance_not_string(self) -> None:
-        """Both add_ghost_gk call sites must pass the cached instance — the "default"
-        STRING makes silly-kicks reload the ~12 MB weights from disk per batch."""
+        """The add_ghost_gk call site must pass the cached instance — the "default" STRING makes
+        silly-kicks reload the ~12 MB weights from disk per batch. Ghost-GK runs ONLY on the tracking
+        path now (ADR-058 removed it from the sb360 path), so there is exactly ONE call site."""
         from analytics.action_context import enrich
 
         src = inspect.getsource(enrich)
         # the trailing comma distinguishes the kwarg call-site form from prose mentions
         # of model="default" in docstrings/comments
         assert 'model="default",' not in src
-        assert src.count("model=_ghost_gk_model_cached()") == 2
+        assert src.count("model=_ghost_gk_model_cached()") == 1
 
 
 class TestEnvfpOnceGuard:

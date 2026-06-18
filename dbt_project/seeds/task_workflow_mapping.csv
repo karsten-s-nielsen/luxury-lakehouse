@@ -14,6 +14,7 @@ compute_pitch_control,wf-pitch-control
 compute_tracking_context,wf-tracking-context
 preflight_tracking_context,wf-tracking-context
 compute_action_context,wf-action-context
+compute_action_context_statsbomb,wf-action-context
 preflight_action_context,wf-action-context
 preflight_spadl_vaep,wf-vaep
 compute_spadl_vaep,wf-vaep

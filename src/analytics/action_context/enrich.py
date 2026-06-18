@@ -481,8 +481,14 @@ def _enrich_sb360_match(
     Uses snapshot_to_tracking_frames to convert per-event freeze-frame snapshots into synthetic
     tracking frames, then runs every single-frame-supportable enrichment (ADR-039). Velocity- and
     temporal-dependent features (DAS, cover_shadows, pre_shot_gk, off-ball, space-creation, elastic,
-    xcross_attempt) remain NULL. Pitch-control-dependent metrics use voronoi (position-only — freeze-frames have no
-    velocity); pitch_control_method='voronoi' records the provenance. All partial/sparse.
+    xcross_attempt, ghost_gk) remain NULL. Pitch-control-dependent metrics use voronoi (position-only —
+    freeze-frames have no velocity); pitch_control_method='voronoi' records the provenance. The
+    standalone pitch_control_at_target__voronoi column IS emitted (ADR-056); the spearman/fernandez
+    variants stay NULL (velocity-dependent). Ghost-GK is excluded (ADR-058 — velocity-dependent model,
+    degenerate on freeze-frames). All partial/sparse.
+
+    ``kde_backend`` is retained for caller/signature compatibility but is no longer used (it only fed
+    ghost-GK, which no longer runs on this path).
     """
     from silly_kicks.spadl import add_game_state
     from silly_kicks.spadl.utils import add_pre_shot_gk_context
@@ -497,9 +503,10 @@ def _enrich_sb360_match(
         add_structural_pass,
         add_team_shape,
         add_xshot_occurrence,
+        pitch_control_at_target,
         snapshot_to_tracking_frames,
     )
-    from silly_kicks.tracking.features import add_ghost_gk, add_gk_influence, add_player_influence
+    from silly_kicks.tracking.features import add_gk_influence, add_player_influence
 
     # Step 0: Actions-only enrichments
     out = add_game_state(actions_df)
@@ -511,8 +518,8 @@ def _enrich_sb360_match(
     frames, links = snapshot_to_tracking_frames(freeze_frames, out)
 
     # Frames-required (ADR-057): a sb360 match whose freeze-frames convert to ZERO synthetic
-    # frames produces NO rows. The "0 frames despite having 360 data" anomaly is WARN-logged at
-    # the production edge (_process_statsbomb_match); the pure core just returns empty.
+    # frames produces NO rows. The production edge (the cogroup UDF / _process_statsbomb_matches,
+    # ADR-058) handles this via build_output of the empty result; the pure core just returns empty.
     if len(frames) == 0:
         return out.iloc[0:0]
 
@@ -533,15 +540,23 @@ def _enrich_sb360_match(
     # partial/sparse — honest NULL where the freeze-frame lacks the needed players.
     out = add_pressure_on_actor(out, frames, links=links)
     out = add_shape_graph(out, frames, links=links, home_team_id=home_team_id)
-    out = add_ghost_gk(
-        out,
-        frames,
-        model=_ghost_gk_model_cached(),  # process-cached instance — NOT the "default" string (ADR-045)
-        links=links,
-        home_team_id=home_team_id,
-        actions_for_context=out,
-        kde_backend=kde_backend,
-    )
+
+    # Ghost-GK is deliberately NOT run on SB360 (ADR-058). It is a velocity-aware tracking model:
+    # 5 of its 26 features are velocity-derived (ball_vx/vy, ball_speed, defensive_line_speed,
+    # defending_centroid_vx) and it is fit on full continuous tracking. Freeze-frames have no
+    # velocity, so those features are NaN, which degenerates the tree-ensemble leaf-matching the
+    # KDE depends on → ~7% action coverage with ~85% of those clamped off-pitch (measured locally
+    # on match 3788746). Honest NULL beats clamped garbage; ghost_gk_x/y/density_spread/method stay
+    # NULL (build_output fills). Ghost-GK runs only on the full-tracking path (_enrich_tracking_match).
+
+    # Pitch control at the action target (ADR-056): voronoi ONLY — it is position-only, so it works
+    # on freeze-frames. spearman/fernandez need velocity and return all-NaN, so those two columns
+    # stay NULL (build_output fills). This is the headline at_target feature, previously absent on
+    # SB360 (the path used voronoi internally for gk_influence/obso/pausa but never emitted the
+    # standalone pitch_control_at_target column).
+    _pc_voronoi = pitch_control_at_target(out, frames, links=links, method="voronoi")
+    out[_pc_voronoi.name] = _pc_voronoi.values
+
     out = add_gk_influence(
         out,
         frames,
@@ -564,9 +579,8 @@ def _enrich_sb360_match(
     # velocity-dependent like DAS / cover_shadows / pre_shot_gk and stays NULL on SB360 (build_output
     # fills it). It runs only on the full-tracking path.
 
-    # Provenance: the persisted pitch-control-derived metrics on SB360 use voronoi (ADR-039);
-    # ghost_gk_method records the ghost-GK KDE backend (scopes to ghost_gk_* only).
+    # Provenance: the persisted pitch-control-derived metrics on SB360 use voronoi (ADR-039).
+    # ghost_gk_method stays NULL — ghost-GK is not run on SB360 (ADR-058; see above).
     out["pitch_control_method"] = "voronoi"
-    out["ghost_gk_method"] = kde_backend
 
     return out

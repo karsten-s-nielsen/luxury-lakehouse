@@ -1,21 +1,20 @@
-"""AC-1 — every driver-side createDataFrame to the action-context table must pass an explicit schema.
+"""AC-1 — every distributed UDF dispatch to the action-context table must pass an explicit schema.
 
-Regression guard for the DELTA_FAILED_TO_MERGE_FIELDS bug found by the first
-serverless wyscout run (2026-05-31): ``_process_statsbomb_match`` called
-``spark.createDataFrame(out_pdf)`` with NO schema. (The event-only driver path
-that shared this bug was removed in ADR-057 — action-context is frames-required.)
-The sb360 output leaves the ~80 tracking columns entirely
-absent, so ``build_output`` fills them via ``out[col] = np.nan`` → all-NULL
-float64 pandas columns. Spark infers those as DoubleType, which then collides
-with the table's BIGINT columns (e.g. ``frame_id``) under write_delta_table's
-``mergeSchema`` → ``[DELTA_FAILED_TO_MERGE_FIELDS] Failed to merge fields
-'frame_id' and 'frame_id'``. The applyInPandas tracking path was always safe
-because it passes ``schema=_get_result_schema()``.
+Regression guard for the DELTA_FAILED_TO_MERGE_FIELDS / Arrow-cast class: the sb360 output leaves the
+~80 tracking columns absent, so ``build_output`` fills them via ``out[col] = np.nan`` → all-NULL
+float64 pandas columns. Without an explicit schema, Spark/Arrow infers those as DoubleType, which
+collides with the table's BIGINT columns (e.g. ``frame_id``).
 
-This test is AST-based (no Spark needed — pyspark is not installed locally) so
-it runs in offline CI. It asserts that EVERY ``spark.createDataFrame(...)`` call
-inside ``src/ingestion/action_context.py`` passes a ``schema=`` keyword
-argument. See ADR-033.
+Originally this guarded the driver-side ``spark.createDataFrame(out_pdf)`` in
+``_process_statsbomb_match`` (the 2026-05-31 wyscout bug). ADR-058 removed that per-match driver path:
+statsbomb now writes via ``cogroup.applyInPandas`` and tracking via ``mapInPandas`` — both must pass
+``schema=_get_result_schema()`` (cogroup's Arrow conversion has NO intervening createDataFrame
+coercion, so the explicit schema is the only protection — see the live check in test_sb360_cogroup +
+ADR-058 Task 8). This test now guards the surviving distributed writers.
+
+AST-based (no Spark — pyspark is not installed locally), so it runs in offline CI. It asserts EVERY
+``.applyInPandas(...)`` / ``.mapInPandas(...)`` in ``src/ingestion/action_context.py`` passes a
+``schema=`` keyword. See ADR-033 + ADR-058.
 """
 
 from __future__ import annotations
@@ -24,50 +23,52 @@ import ast
 from pathlib import Path
 
 _MODULE_PATH = Path(__file__).resolve().parents[1] / "ingestion" / "action_context.py"
+_DISPATCH_METHODS = {"applyInPandas", "mapInPandas"}
 
 
-def _createdataframe_calls(tree: ast.Module) -> list[ast.Call]:
-    """Return every ``<something>.createDataFrame(...)`` Call node in the module."""
-    calls: list[ast.Call] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "createDataFrame":
-            calls.append(node)
-    return calls
+def _dispatch_calls(tree: ast.Module) -> list[ast.Call]:
+    """Return every ``<something>.applyInPandas(...)`` / ``.mapInPandas(...)`` Call node."""
+    return [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in _DISPATCH_METHODS
+    ]
 
 
-def test_module_has_createdataframe_calls() -> None:
-    """Guardrail: the AST walk actually finds the driver-side writers.
+def test_module_has_distributed_writers() -> None:
+    """Guardrail: the AST walk actually finds the distributed writers (cogroup + tracking mapInPandas).
 
-    If this drops to zero, the writers were renamed/removed and the schema
-    assertion below would vacuously pass — fail loudly instead.
+    If this drops to zero, the writers were renamed/removed and the schema assertion below would
+    vacuously pass — fail loudly instead.
     """
     tree = ast.parse(_MODULE_PATH.read_text(encoding="utf-8"))
-    calls = _createdataframe_calls(tree)
+    calls = _dispatch_calls(tree)
     assert len(calls) >= 1, (
-        f"Expected >=1 createDataFrame call in {_MODULE_PATH.name} "
-        f"(_process_statsbomb_match; event-only writer removed per ADR-057), found {len(calls)}"
+        f"Expected >=1 applyInPandas/mapInPandas call in {_MODULE_PATH.name} "
+        f"(cogroup statsbomb + tracking mapInPandas; driver createDataFrame removed per ADR-058), "
+        f"found {len(calls)}"
     )
 
 
-def test_every_createdataframe_passes_explicit_schema() -> None:
-    """Every createDataFrame in action_context.py must pass schema=<...>.
+def test_every_distributed_writer_passes_explicit_schema() -> None:
+    """Every applyInPandas/mapInPandas in action_context.py must pass schema=<...>.
 
-    Without an explicit schema, Spark infers all-NULL tracking columns as
-    DoubleType and the write fails to merge into the BIGINT table columns.
+    cogroup.applyInPandas Arrow-converts the returned frame to the declared schema directly (no
+    createDataFrame coercion), so the explicit schema is the ONLY guard against all-NULL float64
+    tracking columns failing to cast into the BIGINT table columns (ADR-033/ADR-058).
     """
     tree = ast.parse(_MODULE_PATH.read_text(encoding="utf-8"))
     offenders: list[int] = []
-    for call in _createdataframe_calls(tree):
+    for call in _dispatch_calls(tree):
         kwargs = {kw.arg for kw in call.keywords if kw.arg is not None}
-        # Accept either the schema= kwarg or a 2nd positional arg (schema).
+        # Accept the schema= kwarg or a 2nd positional arg (func, schema).
         has_schema = "schema" in kwargs or len(call.args) >= 2
         if not has_schema:
             offenders.append(call.lineno)
     assert not offenders, (
-        "createDataFrame() without an explicit schema in action_context.py at "
-        f"line(s) {offenders}. Pass schema=_get_result_schema() — see ADR-033 "
-        "(all-NULL tracking columns infer as DoubleType and fail to merge into "
-        "the BIGINT table columns, raising DELTA_FAILED_TO_MERGE_FIELDS)."
+        "applyInPandas/mapInPandas without an explicit schema in action_context.py at "
+        f"line(s) {offenders}. Pass schema=_get_result_schema() — see ADR-033/ADR-058 (all-NULL "
+        "tracking columns infer as DoubleType and fail to cast into the BIGINT table columns)."
     )
 
 
