@@ -234,10 +234,10 @@ resource "databricks_job" "data_ingestion" {
       task_key = "backfill_statsbomb_360"
     }
     depends_on {
-      task_key = "compute_spadl_vaep"
+      task_key = "compute_expected_threat"
     }
     depends_on {
-      task_key = "compute_expected_threat"
+      task_key = "compute_spadl_vaep"
     }
 
     python_wheel_task {
