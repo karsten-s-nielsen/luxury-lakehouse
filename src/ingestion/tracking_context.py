@@ -95,6 +95,12 @@ _SKILLCORNER_TRACKING_SELECT_COLS: tuple[str, ...] = (
     "frame_rate",
     "ball_x",
     "ball_y",
+    # TF-23 (silly-kicks 4.34.0 adapter): ball_z + is_visible feed the upstream
+    # skillcorner.convert_to_frames contract (ball_z->z unlocks SC on-target/PSxG;
+    # is_visible->visibility). Harmless extra cols for the legacy builder (which filters
+    # to _SKILLCORNER_CONSUMED_COLS) until it is replaced by the adapter.
+    "ball_z",
+    "is_visible",
 )
 """Bronze-native columns only. ``team``, ``is_goalkeeper``, and ``home_team_id``
 are resolved at compute time via a Spark join with ``bronze.skillcorner_matches``

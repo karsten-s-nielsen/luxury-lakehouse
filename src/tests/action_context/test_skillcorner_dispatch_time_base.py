@@ -19,8 +19,7 @@ from __future__ import annotations
 import inspect
 
 import pandas as pd
-
-from analytics.action_context.convert import _SKILLCORNER_PERIOD_START_SECONDS
+from silly_kicks.spadl.skillcorner import _PERIOD_START_SECONDS as _SKILLCORNER_PERIOD_START_SECONDS
 
 
 def _rebase(ts: pd.Series, period: pd.Series) -> pd.Series:

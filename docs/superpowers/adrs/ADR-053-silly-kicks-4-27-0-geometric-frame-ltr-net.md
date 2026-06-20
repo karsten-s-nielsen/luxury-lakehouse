@@ -111,3 +111,31 @@ keep the drift-tested builders untouched and to apply uniformly at the single di
 Validation: `src/tests/action_context/test_frame_ltr_correction.py` (5 cases: metrica-absolute orient,
 no-op-when-correct, GS ET correction with labels preserved, velocity negation, speed invariance,
 zero-match guard) + the idsse mini-golden no-op + real-bronze empirical checks above.
+
+## Amendment (2026-06-19) — net promoted upstream + DELETED (TF-23 / TF-23b, ADR-034 / ADR-035)
+
+`correct_frames_to_home_ltr` was **promoted into silly-kicks** and the in-repo copy is now **deleted**.
+Orientation is owned UPSTREAM for all four tracking providers as of silly-kicks **4.34.0**:
+
+- **SkillCorner / Metrica:** the `tracking.{skillcorner,metrica}.convert_to_frames` builders orient
+  geometrically (`orient_frames_to_ltr_by_geometry`, the schema-adapted port of this net) when the
+  orientation flags are omitted — adopted via `analytics.action_context.sk_frame_adapters` (TF-23,
+  ADR-034). This also recovers SkillCorner `ball_z` (the prior null `shot_on_target`/PSxG) and
+  single-sources the SC period offset from `silly_kicks.spadl.skillcorner._PERIOD_START_SECONDS`.
+- **idsse / GradientSports:** the native `tracking.{sportec,gradientsports}` adapters apply the
+  geometric backstop after the flag-flip (TF-23b, ADR-035), self-correcting a wrong/absent ET flag
+  (the GS-ET placeholder this net used to fix).
+
+Consequently the dispatch-tail net call in `_convert_tracking_batch` and the
+`correct_frames_to_home_ltr` function are removed. **Acceptance oracle:**
+`test_frame_orientation_golden.py` (idsse / skillcorner / gradientsports-ET `10517_p3`) stays green
+WITHOUT the net — a green `10517_p3` (extra time) proves the upstream backstop carries the exact
+GS-ET flip this net did. `test_frame_ltr_correction.py` is retired (it tested the deleted function).
+
+**Consequences for downstream:** SC/metrica frame values change (z recovered, orientation now upstream)
+→ Phase B re-materialises `fct_action_context` + downstream VAEP/AC. **Period-5/PSO preflight:** the
+4.34.0 net never orients shootout frames; before recompute, query production period-5 across all four
+providers (GS WC2022 knockouts have shootouts → expect GS period-5 in the changed set; metrica/SC/idsse
+are ~PSO-free). The **legacy** `fct_tracking_context` path (`ingestion.tracking_context`) is NOT migrated
+in this PR (D4 descoped — low-traffic; its `_bronze_*` copies + the duplicated SC offset remain, tracked
+as a follow-up). Wheel: silly-kicks 4.34.0.
