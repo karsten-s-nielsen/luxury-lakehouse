@@ -101,6 +101,44 @@ def test_skillcorner_adapter_derives_velocities_and_matches_schema() -> None:
     assert set(frames.columns) == _AC_FRAME_COLUMNS, f"schema drift: {set(frames.columns) ^ _AC_FRAME_COLUMNS}"
 
 
+def test_skillcorner_adapter_maps_is_visible_to_visibility() -> None:
+    """TF-23: bronze ``is_visible`` flows to the frame ``visibility`` column on player rows."""
+    rows = []
+    for fr in range(6):
+        ts = fr / 10.0
+        for pid, team, xc, y, gk, vis in [
+            ("hgk", "H", -40.0, 0.0, True, True),
+            ("afw", "A", 30.0, 2.0, False, False),
+            ("agk", "A", 45.0, 0.0, True, True),
+        ]:
+            rows.append(
+                {
+                    "match_id": "M1",
+                    "period": 1,
+                    "frame": fr,
+                    "timestamp": ts,
+                    "frame_rate": 10.0,
+                    "player_id": pid,
+                    "team_id": team,
+                    "x": xc,
+                    "y": y,
+                    "is_goalkeeper": gk,
+                    "is_visible": vis,
+                    "ball_x": float(fr),
+                    "ball_y": 0.0,
+                    "ball_z": 1.5,
+                }
+            )
+    bronze = pd.DataFrame(rows)
+    frames, _ = convert_skillcorner_bronze_to_frames(
+        bronze, game_id=1, home_team_id="H", period_relative_time=_period_relative_time(bronze, offset=0.0)
+    )
+    pl = frames[~frames["is_ball"]]
+    assert set(pl.loc[pl["player_id"] == "hgk", "visibility"].dropna()) == {True}
+    assert set(pl.loc[pl["player_id"] == "afw", "visibility"].dropna()) == {False}
+    assert pl["visibility"].notna().all(), "every player row must carry visibility from is_visible"
+
+
 # ── Metrica adapter ────────────────────────────────────────────────────────
 
 

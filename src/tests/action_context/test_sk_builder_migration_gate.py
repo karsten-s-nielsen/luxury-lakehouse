@@ -11,12 +11,14 @@ invariants achievable without a fresh data extract:
 * the B' clock is the dispatcher's period-relative clock (== bronze timestamp here), not the
   builder's internal re-base.
 
-**Data-extract limitations (tracked, Phase B):** the committed fixture predates the SkillCorner
-``ball_z`` carry (migrated in-place to ``ball_z = NaN``), so the ``z``-population diff cannot be
-shown here — it is covered on synthetic real-z bronze by ``test_sk_frame_adapters``. The fixture is
-also a single period spanning one frame batch, so the multi-batch metrica clock case is covered by
-``test_sk_frame_adapters.test_metrica_adapter_overwrites_clock_on_mid_period_batch`` instead. A
-denser real-ball_z, multi-batch bronze extract would let this gate add the old-vs-new byte-diff.
+The committed fixture carries **real SkillCorner ``ball_z``** (backfilled from
+``bronze.skillcorner_tracking`` match 1886347 / period 2, Phase B 2026-06-20), so this gate now
+exercises the **ball_z unlock on real data** — the deleted lakehouse builder hardcoded ``z = NaN``;
+the silly-kicks adapter must populate frame ``z`` from ``ball_z`` (the on-target/PSxG enabler).
+
+**Remaining extract limitation:** the fixture is a single period spanning one frame batch, so the
+multi-batch metrica clock case is covered by
+``test_sk_frame_adapters.test_metrica_adapter_overwrites_clock_on_mid_period_batch`` instead.
 """
 
 from __future__ import annotations
@@ -55,6 +57,12 @@ def test_skillcorner_adapter_on_real_bronze_orients_and_matches_schema() -> None
     assert not gk.empty, "no goalkeeper rows in converted real-bronze frames"
     home_gk_x = gk[gk["team_id"].astype(str) == str(meta["home_team_id"])]["x"].median()
     assert home_gk_x < 52.5, f"home GK must defend low x after LTR (got {home_gk_x})"
+
+    # ball_z unlock (TF-23): the fixture carries real ball_z, so the adapter must populate frame z
+    # for the ball (the on-target/PSxG enabler the deleted lakehouse builder hardcoded to NaN).
+    ball = frames[frames["is_ball"]]
+    assert ball["z"].notna().all(), "ball z must be populated from real ball_z (TF-23 unlock)"
+    assert ball["z"].between(-1, 15).all(), f"ball z outside plausible range: {ball['z'].agg(['min', 'max']).to_dict()}"
 
 
 def test_skillcorner_adapter_clock_is_dispatcher_period_relative() -> None:
