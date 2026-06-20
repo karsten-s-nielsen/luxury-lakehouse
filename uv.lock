@@ -733,7 +733,7 @@ wheels = [
 
 [[package]]
 name = "databricks-sdk"
-version = "0.117.0"
+version = "0.118.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-auth" },
@@ -741,9 +741,9 @@ dependencies = [
     { name = "requests" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/95/86/fe149c523a9181deb3a90ae4e83708f54a6ee80c40ca392cf66ffdf425df/databricks_sdk-0.117.0.tar.gz", hash = "sha256:30a6fc21a8f9c4a41830c43332ae63b38c3679a83ac1bda4734ce7ced114faf1", size = 989404, upload-time = "2026-06-11T18:19:29.034Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/57/55/776f868cfe97821aafdee3a387badf4468c6205be97d18144738cfc94f66/databricks_sdk-0.118.0.tar.gz", hash = "sha256:cd049b7a9612d957e53d842631800f1974406fc3bec78bc51d429387046a0287", size = 992804, upload-time = "2026-06-18T14:09:35.16Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/92/4d/3e28a5a1ae9aa42237bd0f4e6b34867b554c046a0f3e7c2ef49fa74800f6/databricks_sdk-0.117.0-py3-none-any.whl", hash = "sha256:bafd588c067ee353c905e56cd2eb37c7eca7a56a4c1b57656621b77208c32f86", size = 936854, upload-time = "2026-06-11T18:19:27.395Z" },
+    { url = "https://files.pythonhosted.org/packages/8c/7b/b0ce4a5d544d28df9b86d63305bfad7f09409c0a0ce52f4ad29d2098d9fd/databricks_sdk-0.118.0-py3-none-any.whl", hash = "sha256:7931c7147315902e4347863074c2e2bc1d389338e15d1b60bbf49bc5ebabcbe0", size = 939666, upload-time = "2026-06-18T14:09:33.064Z" },
 ]
 
 [[package]]
@@ -1857,7 +1857,7 @@ wheels = [
 
 [[package]]
 name = "luxury-lakehouse"
-version = "0.5.44"
+version = "0.5.45"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -1866,6 +1866,7 @@ dependencies = [
     { name = "huggingface-hub" },
     { name = "idna" },
     { name = "mako" },
+    { name = "msgpack" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "requests" },
@@ -1908,7 +1909,7 @@ mlflow = [
     { name = "optuna-integration", extra = ["mlflow"] },
 ]
 sdk = [
-    { name = "databricks-sdk", version = "0.117.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "databricks-sdk", version = "0.118.0", source = { registry = "https://pypi.org/simple" } },
     { name = "psycopg2-binary" },
 ]
 spadl = [
@@ -1916,7 +1917,7 @@ spadl = [
 ]
 taipy-app = [
     { name = "cachetools" },
-    { name = "databricks-sdk", version = "0.117.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "databricks-sdk", version = "0.118.0", source = { registry = "https://pypi.org/simple" } },
     { name = "huggingface-hub" },
     { name = "mplsoccer" },
     { name = "numpy" },
@@ -1963,8 +1964,8 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.14.1" },
     { name = "cachetools", marker = "extra == 'taipy-app'", specifier = ">=6.0.0" },
     { name = "cryptography", specifier = ">=48.0.1" },
-    { name = "databricks-sdk", marker = "extra == 'sdk'", specifier = "==0.117.0" },
-    { name = "databricks-sdk", marker = "extra == 'taipy-app'", specifier = "==0.117.0" },
+    { name = "databricks-sdk", marker = "extra == 'sdk'", specifier = "==0.118.0" },
+    { name = "databricks-sdk", marker = "extra == 'taipy-app'", specifier = "==0.118.0" },
     { name = "databricks-sql-connector", marker = "extra == 'analytics'", specifier = ">=4.0.0" },
     { name = "datasets", marker = "extra == 'training'", specifier = ">=3.0" },
     { name = "dbt-core", marker = "extra == 'dbt'", specifier = ">=1.10.0" },
@@ -1981,6 +1982,7 @@ requires-dist = [
     { name = "mlflow", marker = "extra == 'mlflow'", specifier = ">=2.19.0" },
     { name = "mplsoccer", marker = "extra == 'analytics'", specifier = ">=1.1.3" },
     { name = "mplsoccer", marker = "extra == 'taipy-app'", specifier = "==1.6.1" },
+    { name = "msgpack", specifier = ">=1.2.1" },
     { name = "numpy", marker = "extra == 'analytics'", specifier = ">=1.26.0" },
     { name = "numpy", marker = "extra == 'taipy-app'", specifier = "==1.26.4" },
     { name = "openevolve", marker = "extra == 'evolve'", specifier = ">=0.2.0" },
@@ -1994,7 +1996,7 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'training'", specifier = ">=14.0" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic", marker = "extra == 'taipy-app'", specifier = ">=2.0" },
-    { name = "pydantic-settings", marker = "extra == 'taipy-app'", specifier = ">=2.13.0" },
+    { name = "pydantic-settings", marker = "extra == 'taipy-app'", specifier = ">=2.14.2" },
     { name = "pyjwt", marker = "extra == 'analytics'", specifier = ">=2.13.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rapidfuzz", marker = "extra == 'analytics'", specifier = ">=3.6.0" },
@@ -2005,7 +2007,7 @@ requires-dist = [
     { name = "scikit-learn", marker = "extra == 'analytics'", specifier = ">=1.3.0" },
     { name = "scipy", marker = "extra == 'analytics'", specifier = ">=1.11.0" },
     { name = "scipy", marker = "extra == 'taipy-app'", specifier = ">=1.15.0" },
-    { name = "silly-kicks", extras = ["das", "ghost-gk", "parse-dfl"], marker = "extra == 'spadl'", specifier = ">=4.32.0,<5" },
+    { name = "silly-kicks", extras = ["das", "ghost-gk", "parse-dfl"], marker = "extra == 'spadl'", specifier = ">=4.34.0,<5" },
     { name = "sparse-dot-topn", marker = "extra == 'analytics'", specifier = ">=1.1.0" },
     { name = "starlette", specifier = ">=1.3.1" },
     { name = "taipy", marker = "extra == 'taipy-app'", specifier = "==4.1.1" },
@@ -2228,7 +2230,7 @@ dependencies = [
     { name = "click" },
     { name = "cloudpickle" },
     { name = "databricks-sdk", version = "0.77.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-dbt'" },
-    { name = "databricks-sdk", version = "0.117.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-sdk' or extra == 'extra-16-luxury-lakehouse-taipy-app' or extra != 'extra-16-luxury-lakehouse-dbt'" },
+    { name = "databricks-sdk", version = "0.118.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-sdk' or extra == 'extra-16-luxury-lakehouse-taipy-app' or extra != 'extra-16-luxury-lakehouse-dbt'" },
     { name = "fastapi" },
     { name = "gitpython" },
     { name = "importlib-metadata" },
@@ -2259,7 +2261,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cachetools" },
     { name = "databricks-sdk", version = "0.77.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-dbt'" },
-    { name = "databricks-sdk", version = "0.117.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-sdk' or extra == 'extra-16-luxury-lakehouse-taipy-app' or extra != 'extra-16-luxury-lakehouse-dbt'" },
+    { name = "databricks-sdk", version = "0.118.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-sdk' or extra == 'extra-16-luxury-lakehouse-taipy-app' or extra != 'extra-16-luxury-lakehouse-dbt'" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-proto" },
     { name = "opentelemetry-sdk" },
@@ -2310,18 +2312,20 @@ wheels = [
 
 [[package]]
 name = "msgpack"
-version = "1.1.2"
+version = "1.2.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/4d/f2/bfb55a6236ed8725a96b0aa3acbd0ec17588e6a2c3b62a93eb513ed8783f/msgpack-1.1.2.tar.gz", hash = "sha256:3b60763c1373dd60f398488069bcdc703cd08a711477b5d480eecc9f9626f47e", size = 173581, upload-time = "2025-10-08T09:15:56.596Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/31/f9/c0a1c127f9049db9155afc316952ea571720dd01833ff5e4d7e8e6352dbb/msgpack-1.2.1.tar.gz", hash = "sha256:04c721c2c7448767e9e3f2520a475663d8ee0f09c31890f6d2bd70fd636a9647", size = 183960, upload-time = "2026-06-18T16:13:52.594Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f5/a2/3b68a9e769db68668b25c6108444a35f9bd163bb848c0650d516761a59c0/msgpack-1.1.2-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:0051fffef5a37ca2cd16978ae4f0aef92f164df86823871b5162812bebecd8e2", size = 81318, upload-time = "2025-10-08T09:14:38.722Z" },
-    { url = "https://files.pythonhosted.org/packages/5b/e1/2b720cc341325c00be44e1ed59e7cfeae2678329fbf5aa68f5bda57fe728/msgpack-1.1.2-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:a605409040f2da88676e9c9e5853b3449ba8011973616189ea5ee55ddbc5bc87", size = 83786, upload-time = "2025-10-08T09:14:40.082Z" },
-    { url = "https://files.pythonhosted.org/packages/71/e5/c2241de64bfceac456b140737812a2ab310b10538a7b34a1d393b748e095/msgpack-1.1.2-cp310-cp310-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:8b696e83c9f1532b4af884045ba7f3aa741a63b2bc22617293a2c6a7c645f251", size = 398240, upload-time = "2025-10-08T09:14:41.151Z" },
-    { url = "https://files.pythonhosted.org/packages/b7/09/2a06956383c0fdebaef5aa9246e2356776f12ea6f2a44bd1368abf0e46c4/msgpack-1.1.2-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:365c0bbe981a27d8932da71af63ef86acc59ed5c01ad929e09a0b88c6294e28a", size = 406070, upload-time = "2025-10-08T09:14:42.821Z" },
-    { url = "https://files.pythonhosted.org/packages/0e/74/2957703f0e1ef20637d6aead4fbb314330c26f39aa046b348c7edcf6ca6b/msgpack-1.1.2-cp310-cp310-musllinux_1_2_aarch64.whl", hash = "sha256:41d1a5d875680166d3ac5c38573896453bbbea7092936d2e107214daf43b1d4f", size = 393403, upload-time = "2025-10-08T09:14:44.38Z" },
-    { url = "https://files.pythonhosted.org/packages/a5/09/3bfc12aa90f77b37322fc33e7a8a7c29ba7c8edeadfa27664451801b9860/msgpack-1.1.2-cp310-cp310-musllinux_1_2_x86_64.whl", hash = "sha256:354e81bcdebaab427c3df4281187edc765d5d76bfb3a7c125af9da7a27e8458f", size = 398947, upload-time = "2025-10-08T09:14:45.56Z" },
-    { url = "https://files.pythonhosted.org/packages/4b/4f/05fcebd3b4977cb3d840f7ef6b77c51f8582086de5e642f3fefee35c86fc/msgpack-1.1.2-cp310-cp310-win32.whl", hash = "sha256:e64c8d2f5e5d5fda7b842f55dec6133260ea8f53c4257d64494c534f306bf7a9", size = 64769, upload-time = "2025-10-08T09:14:47.334Z" },
-    { url = "https://files.pythonhosted.org/packages/d0/3e/b4547e3a34210956382eed1c85935fff7e0f9b98be3106b3745d7dec9c5e/msgpack-1.1.2-cp310-cp310-win_amd64.whl", hash = "sha256:db6192777d943bdaaafb6ba66d44bf65aa0e9c5616fa1d2da9bb08828c6b39aa", size = 71293, upload-time = "2025-10-08T09:14:48.665Z" },
+    { url = "https://files.pythonhosted.org/packages/5b/16/f70100614b69feb3ade7285f08c9c52d6cda0a5c03f3f5e2facd63acb211/msgpack-1.2.1-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:8c7b398c56ff125feae96c2737abfec5595f1fa0aa186df60c56040b8accb95c", size = 82926, upload-time = "2026-06-18T16:12:31.531Z" },
+    { url = "https://files.pythonhosted.org/packages/e4/3c/08ecd5cdfe4e2de43aec79062028ad0f7b2d9b1fea5430068c198ba570da/msgpack-1.2.1-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:1548006a91aa93c5da81f3bdcebc1a0d10cea2d25969754fbe848da622b2b895", size = 82730, upload-time = "2026-06-18T16:12:32.894Z" },
+    { url = "https://files.pythonhosted.org/packages/19/9f/a70c9cb1a04ecc134005149367dcfe35d167284e8f65035a1e4156ad17b5/msgpack-1.2.1-cp310-cp310-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:1dabedcd0f23559f3596428c6589c1cd8c6eaed3a0d720795b07b0225d769203", size = 400729, upload-time = "2026-06-18T16:12:34.052Z" },
+    { url = "https://files.pythonhosted.org/packages/fa/7f/5ce020168cf0439041526e95aa068c722c016aee21624e331aeabeee2e8e/msgpack-1.2.1-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:83efa1c898e0fc5380fc0cabbf75164c52e3b5cbb45973710d75821928380c73", size = 407625, upload-time = "2026-06-18T16:12:35.239Z" },
+    { url = "https://files.pythonhosted.org/packages/79/70/fb7668ce0386819303047057aef6fc1da73b584291d9cff82b821744e2ef/msgpack-1.2.1-cp310-cp310-manylinux_2_31_riscv64.manylinux_2_39_riscv64.whl", hash = "sha256:01e2dd6c9b19d333a00282330cc8a73d38d8dabc306dc5b42cd668c3ac82e833", size = 377891, upload-time = "2026-06-18T16:12:36.684Z" },
+    { url = "https://files.pythonhosted.org/packages/3d/dc/9ebe654a73c3aed2e40aa6b52e3c2a02b5f53ef0085fa235a45d5b367f87/msgpack-1.2.1-cp310-cp310-musllinux_1_2_aarch64.whl", hash = "sha256:350cb813d0af6e65d2f7ef0d729f7ff5be5a8bce03665892f43e5883d4ecc1b8", size = 391987, upload-time = "2026-06-18T16:12:37.839Z" },
+    { url = "https://files.pythonhosted.org/packages/42/eb/b67cf64218a2fa25e1c671fe1d3dbb06cbeb973e71bc4b822da079862d0b/msgpack-1.2.1-cp310-cp310-musllinux_1_2_riscv64.whl", hash = "sha256:ee1d9ed27d0497b848923746cf762ed2e7db24f4be7eec8e5cbe8c766aa707b7", size = 374603, upload-time = "2026-06-18T16:12:39.221Z" },
+    { url = "https://files.pythonhosted.org/packages/a2/2e/9ee200cde32fd1a0101b4006202fde554c1860adfb9bf7bff31ea4c08df8/msgpack-1.2.1-cp310-cp310-musllinux_1_2_x86_64.whl", hash = "sha256:633727297ed063441fd1cda2288865487f33ad14eeb8831afb5f0c396a62cfce", size = 405121, upload-time = "2026-06-18T16:12:40.524Z" },
+    { url = "https://files.pythonhosted.org/packages/43/b6/f10117be7ca7a51e8feed699a907b8e663a8cd66e115ae6b4fb30cc7945c/msgpack-1.2.1-cp310-cp310-win32.whl", hash = "sha256:298872ecf9e61950f1c6af4ca969b859ee91783bb920ef6e6172697d0c8aad74", size = 64088, upload-time = "2026-06-18T16:12:41.762Z" },
+    { url = "https://files.pythonhosted.org/packages/ba/93/89976c696fb0224662239d952c47b4d1661b34d79a332ef5584facaa8579/msgpack-1.2.1-cp310-cp310-win_amd64.whl", hash = "sha256:2ff164c1b0bcb740b073b99e945234d0212852fa378e44a208c425379140dbeb", size = 70113, upload-time = "2026-06-18T16:12:42.78Z" },
 ]
 
 [[package]]
@@ -3191,7 +3195,7 @@ wheels = [
 
 [[package]]
 name = "pydantic-settings"
-version = "2.13.1"
+version = "2.14.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
@@ -3199,9 +3203,9 @@ dependencies = [
     { name = "python-dotenv", version = "1.2.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-dbt' or extra != 'extra-16-luxury-lakehouse-taipy-app'" },
     { name = "typing-inspection" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/52/6d/fffca34caecc4a3f97bda81b2098da5e8ab7efc9a66e819074a11955d87e/pydantic_settings-2.13.1.tar.gz", hash = "sha256:b4c11847b15237fb0171e1462bf540e294affb9b86db4d9aa5c01730bdbe4025", size = 223826, upload-time = "2026-02-19T13:45:08.055Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5c/b5/8f48e906c3e0205276e8bd8cb7512217a87b2685304d64be27cad5b3019f/pydantic_settings-2.14.2.tar.gz", hash = "sha256:c19dd64b19097f1de80184f0cc7b0272a13ae6e170cbf240a3e27e381ed14a5f", size = 237700, upload-time = "2026-06-19T13:44:56.324Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/00/4b/ccc026168948fec4f7555b9164c724cf4125eac006e176541483d2c959be/pydantic_settings-2.13.1-py3-none-any.whl", hash = "sha256:d56fd801823dbeae7f0975e1f8c8e25c258eb75d278ea7abb5d9cebb01b56237", size = 58929, upload-time = "2026-02-19T13:45:06.034Z" },
+    { url = "https://files.pythonhosted.org/packages/77/c1/6e422f34e569cf8e18df68d1939c81c099d2b61e4f7d9621c8a77560799c/pydantic_settings-2.14.2-py3-none-any.whl", hash = "sha256:a20c97b37910b6550d5ea50fbcc2d4187defe58cd57070b73863d069419c9440", size = 61715, upload-time = "2026-06-19T13:44:55.02Z" },
 ]
 
 [[package]]
@@ -3742,7 +3746,7 @@ wheels = [
 
 [[package]]
 name = "silly-kicks"
-version = "4.32.0"
+version = "4.34.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
@@ -3750,9 +3754,9 @@ dependencies = [
     { name = "scikit-learn" },
     { name = "scipy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c3/c4/4e473e8f2ee38ac91b485dca7febcdb5b221f9b93211394e2e89c3129d03/silly_kicks-4.32.0.tar.gz", hash = "sha256:587b70b12473a96c3cff20ed47ca58afb2f6fc71832cf6f2b6abcf254c852bcd", size = 28520728, upload-time = "2026-06-17T10:38:21.483Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/97/e6/793bafbbe2ecf875b88b91a14fcd85c8e51987d3e7202b106718971d7384/silly_kicks-4.34.0.tar.gz", hash = "sha256:5c6b09b883feeec7719dec6049c918d57ed2427bcb945043ff6e5e7090d9413a", size = 28617363, upload-time = "2026-06-19T17:17:15.075Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9c/ea/d08ac1c50f5372f4ff6a0fabd617addfd40c9d8ac2f7c429dc2fa10726ba/silly_kicks-4.32.0-py3-none-any.whl", hash = "sha256:9c110aafd8d2c118b6094044493b8e58462a7171dfbb89b0f65070a3a3724cf7", size = 12230997, upload-time = "2026-06-17T10:38:18.808Z" },
+    { url = "https://files.pythonhosted.org/packages/99/1c/62ca8617473cd0a17388c0a21363f3acaf3755936231455279ede47f5111/silly_kicks-4.34.0-py3-none-any.whl", hash = "sha256:98bba9accd567c01442f6a0e6788d55df8dc52c4b41977c479377fa33721fc6b", size = 12242308, upload-time = "2026-06-19T17:17:12.455Z" },
 ]
 
 [package.optional-dependencies]
