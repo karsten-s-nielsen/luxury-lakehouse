@@ -30,8 +30,8 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from silly_kicks.spadl.skillcorner import _PERIOD_START_SECONDS as _SKILLCORNER_PERIOD_START_SECONDS
 
-from analytics.action_context.convert import _SKILLCORNER_PERIOD_START_SECONDS
 from analytics.action_context.local.parquet_sources import (
     ParquetActionsSource,
     ParquetFrameSource,

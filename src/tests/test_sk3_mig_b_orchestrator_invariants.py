@@ -254,7 +254,7 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     )
 
 
-# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 32, 0) ──────────
+# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 34, 0) ──────────
 # Floor advanced 4.31.0 -> 4.32.0 (2026-06-17) for the silly-kicks add_* input-purity
 # CI gate + the add_gk_distribution_metrics in-place-mutation fix (identity/row-order
 # only, no value miscompute, no recompute) + the pitch_control_at_action ->
@@ -319,7 +319,7 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
 
 
 def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
-    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 32, 0)`.
+    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 34, 0)`.
 
     Per spec §2.10.5: the runtime check inside `main()` is not directly
     introspectable post-hoc, so we assert the constant. Code review covers
@@ -337,11 +337,11 @@ def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
         if not hasattr(trainer, "_REQUIRED_SK_MIN"):
             missing.append(item)
             continue
-        expected = (4, 32, 0)
+        expected = (4, 34, 0)
         actual = trainer._REQUIRED_SK_MIN
         if actual != expected:
             wrong_value[item] = actual
     assert not missing, (
-        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 32, 0)`: {missing}"
+        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 34, 0)`: {missing}"
     )
-    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 32, 0): {wrong_value}"
+    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 34, 0): {wrong_value}"

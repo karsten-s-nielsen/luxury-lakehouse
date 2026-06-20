@@ -109,7 +109,9 @@ def test_projection_is_not_wasteful() -> None:
             # SkillCorner consumed cols include team + is_goalkeeper (join-added,
             # not in projection). Only check bronze-native consumed cols.
             _SKILLCORNER_CONSUMED_COLS - {"team", "is_goalkeeper"},
-            groupby_extra,
+            # match_id (groupBy) + ball_z/is_visible (consumed by the silly-kicks SC adapter on the
+            # AC path -> z/visibility; TF-23, not in the legacy _SKILLCORNER_CONSUMED_COLS).
+            groupby_extra | {"ball_z", "is_visible"},
         ),
     ]:
         extra = set(proj) - consumed - process_extra

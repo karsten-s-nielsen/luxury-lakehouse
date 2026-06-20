@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.5.44"
+version = "0.5.45"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -31,6 +31,9 @@ dependencies = [
     # Transitive dep (optuna → alembic; dbt-core). Floored to >=1.3.12 to resolve
     # CVE-2026-41205 (mako < 1.3.11) and CVE-2026-44307 (mako < 1.3.12) in one bump.
     "mako>=1.3.12",
+    # Transitive dep (mlflow / databricks-sdk / distributed). Floored to >=1.2.1 to resolve
+    # GHSA-6v7p-g79w-8964 (msgpack < 1.2.1).
+    "msgpack>=1.2.1",
     # Workflow framework (card parsing + validation)
     "pydantic>=2.0",
     "PyYAML>=6.0",
@@ -41,7 +44,7 @@ dependencies = [
 
 [project.optional-dependencies]
 spadl = [
-    "silly-kicks[das,ghost-gk,parse-dfl]>=4.32.0,<5",
+    "silly-kicks[das,ghost-gk,parse-dfl]>=4.34.0,<5",
 ]
 analytics = [
     "luxury-lakehouse[spadl]",
@@ -116,7 +119,8 @@ taipy-app = [
     "pandas==2.2.3",
     "numpy==1.26.4",
     "pydantic>=2.0",
-    "pydantic-settings>=2.13.0",
+    # Floored to >=2.14.2 to resolve GHSA-4xgf-cpjx-pc3j (pydantic-settings < 2.14.2).
+    "pydantic-settings>=2.14.2",
     "requests>=2.33.0",
     "databricks-sdk==0.117.0",
     "huggingface-hub>=1.5.0",

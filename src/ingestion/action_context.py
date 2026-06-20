@@ -1451,7 +1451,7 @@ def _process_tracking_match(
             .filter(F.col("match_id") == match_id)
             .select(
                 F.col("player_id"),
-                F.col("team_id").cast("string").alias("team"),
+                F.col("team_id").cast("string").alias("team_id"),  # silly-kicks SC builder contract (TF-23)
                 (F.col("position_acronym") == "GK").alias("is_goalkeeper"),
             )
         )
@@ -1612,7 +1612,8 @@ def _process_tracking_match(
     # the SAME nominal offsets the converter uses — one imported constant, no second copy.
     # Mirrors pipeline.run_work_unit; lockstep via test_skillcorner_dispatch_time_base.
     if provider == "skillcorner":
-        from analytics.action_context.convert import _SKILLCORNER_PERIOD_START_SECONDS
+        # B' (TF-23): single-source the SC period offset from silly-kicks; lakehouse copy deleted.
+        from silly_kicks.spadl.skillcorner import _PERIOD_START_SECONDS as _SKILLCORNER_PERIOD_START_SECONDS
 
         _sc_offset = F.coalesce(
             F.create_map(*[F.lit(x) for kv in sorted(_SKILLCORNER_PERIOD_START_SECONDS.items()) for x in kv])[
