@@ -190,16 +190,20 @@ def main() -> None:
             raise SystemExit(f"Invalid {field_name} '{value}': must match {IDENTIFIER_RE.pattern}")
 
     spark = SparkSession.builder.getOrCreate()  # type: ignore[attr-defined]
-    raise SystemExit(
-        run_pipeline(
-            spark,
-            args.catalog,
-            args.gold_schema,
-            args.bronze_schema,
-            args.model_path,
-            model_version=args.model_version,
-        )
+    exit_code = run_pipeline(
+        spark,
+        args.catalog,
+        args.gold_schema,
+        args.bronze_schema,
+        args.model_path,
+        model_version=args.model_version,
     )
+    # Return normally on success: a SystemExit escaping the entry point is treated as a
+    # workload failure by the Databricks python_wheel_task runner (even SystemExit(0) —
+    # it false-failed a run that had already written bronze). Raise only on a non-zero
+    # code so CLI/error semantics are preserved.
+    if exit_code:
+        raise SystemExit(exit_code)
 
 
 if __name__ == "__main__":
