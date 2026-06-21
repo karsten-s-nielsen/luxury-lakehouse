@@ -85,6 +85,12 @@ outputs:
     - id: "{catalog}.dev_gold.fct_gk_actions_detail"
       destination: delta-table
       dbt_model: fct_gk_actions_detail
+    - id: "{catalog}.dev_gold.fct_gk_shot_stopping"
+      destination: delta-table
+      dbt_model: fct_gk_shot_stopping
+    - id: "{catalog}.dev_gold.fct_gk_shot_stopping_pooled"
+      destination: delta-table
+      dbt_model: fct_gk_shot_stopping_pooled
     - id: "{catalog}.dev_gold.fct_goalkeeper_stats"
       destination: delta-table
       dbt_model: fct_goalkeeper_stats
@@ -142,6 +148,9 @@ outputs:
     - id: "{catalog}.dev_gold.fct_position_maps"
       destination: delta-table
       dbt_model: fct_position_maps
+    - id: "{catalog}.dev_gold.fct_shot_psxg"
+      destination: delta-table
+      dbt_model: fct_shot_psxg
     - id: "{catalog}.dev_gold.fct_space_creation"
       destination: delta-table
       dbt_model: fct_space_creation
