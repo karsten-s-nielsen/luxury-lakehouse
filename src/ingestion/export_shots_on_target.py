@@ -1,8 +1,9 @@
 """Export on-target shots from Databricks gold layer to HF Hub.
 
-Reads ``fct_shots`` from the Unity Catalog gold layer, filters to on-target
-shots (``end_location_z IS NOT NULL``), writes a Parquet staging file to a
-UC Volume path, and uploads the dataset to HF Hub.
+Reads ``fct_shots`` from the Unity Catalog gold layer, filters to true on-target
+shots (``shot_outcome IN ('Goal','Saved','Post','Saved to Post')`` with a non-null
+``end_location_z`` coordinate guard), writes a Parquet staging file to a UC Volume
+path, and uploads the dataset to HF Hub.
 
 This script is a D39 prerequisite — the exported dataset is the primary input
 for PSxG (Post-Shot Expected Goals) model training on HF Jobs.
@@ -92,9 +93,14 @@ def _validate_identifier(field_name: str, value: str) -> None:
 def _build_query(catalog: str, schema: str) -> str:
     """Build the SQL query for on-target shots.
 
-    On-target shots are identified by ``end_location_z IS NOT NULL``,
-    which is populated only for shots that reach the goal face (saved,
-    scored, or post/bar — any shot that the goalkeeper attempts to stop).
+    On-target = ``shot_outcome IN ('Goal','Saved','Post','Saved to Post')``
+    (D-0, spec 2026-06-20-psxg-tracking-extension). The prior
+    ``end_location_z IS NOT NULL`` filter was ~46% off-target (``Off T`` carries
+    a recorded end-z too), which contaminated the PSxG training population.
+    ``Post`` / ``Saved to Post`` are kept because P-1 verified the tracking
+    ``shot_on_target_derived`` geometry counts post/bar strikes as on-target —
+    so the two modalities share one definition. ``end_location_z IS NOT NULL``
+    is retained as a coordinate-usability guard (the model needs the height).
 
     Args:
         catalog: Unity Catalog name (already validated).
@@ -120,7 +126,8 @@ SELECT
 FROM {catalog}.{schema}.fct_shots s
 LEFT JOIN {catalog}.{schema}.dim_matches dm
     ON s.match_key = dm.match_key
-WHERE s.end_location_z IS NOT NULL
+WHERE s.shot_outcome IN ('Goal', 'Saved', 'Post', 'Saved to Post')
+  AND s.end_location_z IS NOT NULL
 """  # noqa: S608
 
 
@@ -168,7 +175,8 @@ def run_pipeline(
     if row_count == 0:
         raise RuntimeError(
             f"No on-target shots found in {source_table} "
-            "(end_location_z IS NOT NULL returned zero rows — check that fct_shots has been built by dbt)"
+            "(shot_outcome IN ('Goal','Saved','Post','Saved to Post') AND end_location_z IS NOT NULL "
+            "returned zero rows — check that fct_shots has been built by dbt)"
         )
 
     # ------------------------------------------------------------------

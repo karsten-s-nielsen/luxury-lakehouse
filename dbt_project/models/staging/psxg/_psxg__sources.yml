@@ -18,7 +18,7 @@ sources:
     tables:
       - name: psxg_predictions
         description: >
-          Per-shot PSxG probability predictions. One row per shot event.
+          Per-shot PSxG probability predictions (StatsBomb event path). One row per shot event.
           event_id is the shot's surrogate key (matches fct_shots.shot_id).
           player_id is the SHOOTER (not the goalkeeper).
           psxg is NaN for off-target shots.
@@ -31,5 +31,36 @@ sources:
             description: Shooter player_id (NOT the goalkeeper)
           - name: psxg
             description: Post-shot xG probability (0-1, NaN for off-target)
+          - name: _ingested_at
+            description: UTC timestamp of ingestion
+
+      - name: psxg_tracking_predictions
+        description: >
+          Per-shot PSxG predictions for the TRACKING modality (GradientSports /
+          SkillCorner / IDSSE), written by ingestion.compute_psxg_tracking. One row per
+          on-target tracking shot, keyed (match_key, action_id, data_source) — the SPADL
+          universe (NOT fct_shots.shot_id). psxg/psxg_recalibrated are NULL for
+          gate-failed (psxg_gated) rows. psxg_calibration is 'platt' for tracking.
+        columns:
+          - name: match_key
+            description: Kimball match surrogate (FK to dim_matches)
+          - name: action_id
+            description: SPADL action id of the shot (degenerate dimension)
+          - name: data_source
+            description: Tracking provider (gradientsports / skillcorner / idsse)
+          - name: psxg
+            description: Raw model PSxG (0-1; NULL when psxg_gated)
+          - name: psxg_recalibrated
+            description: Platt-recalibrated PSxG (0-1; NULL when psxg_gated)
+          - name: psxg_gated
+            description: True when the trajectory fit failed the confidence/RMSE gate (psxg NULL)
+          - name: psxg_calibration
+            description: Calibration applied ('platt' for tracking)
+          - name: model_version
+            description: PSxG model version scored
+          - name: platt_version
+            description: Platt-calibration fit identifier
+          - name: normalization_version
+            description: Goalmouth-normalization version (SPADL metres -> StatsBomb [0,1] space)
           - name: _ingested_at
             description: UTC timestamp of ingestion

@@ -273,24 +273,87 @@ def compute_gk_action_summary(
 # PSxG — Post-Shot Expected Goals (Butcher et al. 2025)
 # ---------------------------------------------------------------------------
 
-# StatsBomb goalmouth coordinate frame.
+# StatsBomb goalmouth coordinate frame (the PSxG model's training/input space).
 _GOAL_Y_MIN = 36.0
 _GOAL_Y_MAX = 44.0
 _GOAL_Z_MAX = 8.0
+# The model's [0,1] denominator: the goal-mouth span in StatsBomb units.
+_SB_GOAL_SPAN = _GOAL_Y_MAX - _GOAL_Y_MIN  # 8.0
+
+# SPADL metric goalmouth (the tracking-feature space: shot_crossing_y/z in metres).
+# Goal centred at y=34 m, mouth 7.32 m wide (posts at 30.34 / 37.66), crossbar 2.44 m.
+# The 7.32 m mouth IS the model's `_SB_GOAL_SPAN` expressed in metres, so dividing a
+# metric crossing by it yields the SAME normalised fraction-of-goal-width the model
+# was trained on — there is ONE normalization concept, two unit systems. (Spec D-E.)
+_SPADL_GOAL_CENTRE_M = 34.0
+_SPADL_GOAL_WIDTH_M = 7.32
+_SPADL_LEFT_POST_M = _SPADL_GOAL_CENTRE_M - _SPADL_GOAL_WIDTH_M / 2.0  # 30.34
 
 
 def _normalise_goalmouth(y: np.ndarray, z: np.ndarray) -> np.ndarray:
     """Normalise StatsBomb goalmouth coordinates to [0, 1].
 
-    StatsBomb goal frame: y in [36, 44] (8-yard goal centred at y=40),
-    z in [0, 8] (crossbar height).
+    StatsBomb goal frame: y in [36, 44] (8-unit goal centred at y=40),
+    z in [0, 8] (StatsBomb units; NOT metres — the 2.44 m crossbar ≈ 2.67 units).
 
     Returns:
         Column-stacked array of shape ``(n, 2)`` with ``[y_norm, z_norm]``.
     """
-    y_norm = (y - _GOAL_Y_MIN) / (_GOAL_Y_MAX - _GOAL_Y_MIN)
+    y_norm = (y - _GOAL_Y_MIN) / _SB_GOAL_SPAN
     z_norm = z / _GOAL_Z_MAX
     return np.column_stack([y_norm, z_norm])
+
+
+def normalise_tracking_goalmouth(crossing_y_m: np.ndarray, crossing_z_m: np.ndarray) -> np.ndarray:
+    """Map SPADL-metre goalmouth crossings into the StatsBomb-trained [0, 1] space.
+
+    The single normalization port for the *tracking* modality (TF-48
+    ``shot_crossing_y`` / ``shot_crossing_z``, in SPADL metres) — the StatsBomb
+    modality goes through :func:`_normalise_goalmouth`. Both produce the same
+    fraction-of-goal-width semantics the model's ``StandardScaler`` was fit on,
+    so the stored scaler + coefficients apply unchanged:
+
+      - ``y_norm = (crossing_y_m - left_post) / goal_width`` — posts map to 0/1,
+        goal centre (34 m) to 0.5, exactly as StatsBomb y=36/44/40 do.
+      - ``z_norm = crossing_z_m / goal_width`` — the crossbar (2.44 m) maps to
+        ``2.44/7.32 = 0.333``, matching StatsBomb's ``2.67/8 = 0.334``.
+
+    No clamping (mirrors :func:`_normalise_goalmouth`); on-target gating keeps
+    inputs inside the mouth. Handedness (which post is 0) is regression-pinned
+    by the golden test — low-y maps to 0, consistent with the LTR-normalised
+    SPADL/StatsBomb orientation.
+
+    Args:
+        crossing_y_m: Ball y at the goal-line crossing, SPADL metres.
+        crossing_z_m: Ball height at the crossing, SPADL metres.
+
+    Returns:
+        Column-stacked array of shape ``(n, 2)`` with ``[y_norm, z_norm]``.
+    """
+    y_norm = (crossing_y_m - _SPADL_LEFT_POST_M) / _SPADL_GOAL_WIDTH_M
+    z_norm = crossing_z_m / _SPADL_GOAL_WIDTH_M
+    return np.column_stack([y_norm, z_norm])
+
+
+def load_psxg_model(path: str) -> PSxGModel:
+    """Load a :class:`PSxGModel` from its JSON envelope.
+
+    The envelope (published by ``scripts/train_psxg_hf.py``) carries
+    ``coefficients`` / ``intercept`` / ``scaler_mean`` / ``scaler_scale`` —
+    zero pickle surface. Used by the tracking-PSxG writer to score tracking
+    shots with the same model the StatsBomb path was delivered.
+    """
+    import json
+
+    with open(path, encoding="utf-8") as fh:
+        envelope = json.load(fh)
+    intercept = np.asarray(envelope["intercept"], dtype=np.float64).ravel()
+    return PSxGModel(
+        coefficients=np.asarray(envelope["coefficients"], dtype=np.float64).ravel(),
+        intercept=float(intercept[0]),
+        scaler_mean=np.asarray(envelope["scaler_mean"], dtype=np.float64),
+        scaler_scale=np.asarray(envelope["scaler_scale"], dtype=np.float64),
+    )
 
 
 def train_psxg_model(shots_df: pd.DataFrame) -> PSxGModel:
