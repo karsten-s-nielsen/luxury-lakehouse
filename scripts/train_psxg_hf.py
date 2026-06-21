@@ -1,13 +1,14 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.46-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.47-py3-none-any.whl",
 #     "numpy>=1.26.0",
 #     "pandas>=2.0.0",
 #     "pyarrow>=14.0.0",
 #     "scikit-learn>=1.3.0",
 #     "huggingface-hub>=1.5.0",
 #     "mlflow>=2.17.0",
+#     "databricks-sdk>=0.102.0",
 # ]
 # ///
 """Train Post-Shot Expected Goals (PSxG) model on HF Jobs.
@@ -27,6 +28,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import sys
 import tempfile
@@ -36,13 +38,23 @@ import mlflow
 import numpy as np
 import pandas as pd
 from huggingface_hub import HfApi
-from sklearn.calibration import calibration_curve
-from sklearn.metrics import brier_score_loss, log_loss
-from sklearn.model_selection import train_test_split
 
-from analytics.goalkeeper import PSxGModel, predict_psxg, train_psxg_model
+from analytics.goalkeeper import (
+    PSXG_FEATURE_NAMES,
+    PSxGModel,
+    cross_validate_psxg_by_match,
+    predict_psxg,
+    serialize_psxg_model,
+    train_psxg_model,
+)
+from ingestion.artifact_deploy import (
+    require_mlflow_env,
+    set_and_verify_mlflow_champion,
+    upload_weights_to_uc_volume,
+)
 from ingestion.hf_jobs_cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
+from shared.constants import mlflow_model_uri
 
 logging.basicConfig(
     level=logging.INFO,
@@ -58,8 +70,22 @@ INPUT_DATASET = f"{HF_ORG}/statsbomb-shots-on-target"
 OUTPUT_MODEL = f"{HF_ORG}/psxg-model"
 OUTPUT_PREDICTIONS = f"{HF_ORG}/psxg-predictions"
 
-TEST_SIZE = 0.2
-RANDOM_STATE = 42
+# Delivery targets (ADR-012). The MLflow registry name and the UC Volume model
+# directory differ: the registry FQN is the governance handle; the Volume dir +
+# filename are what the tracking writer reads via --model-path.
+CATALOG = "soccer_analytics"
+SCHEMA = "dev_gold"
+MLFLOW_MODEL_NAME = "psxg_model"  # -> soccer_analytics.dev_gold.psxg_model
+UC_VOLUME_MODEL_DIR = "psxg"  # -> /Volumes/soccer_analytics/dev_gold/model_weights/psxg/
+WEIGHTS_FILENAME = "psxg_model.json"
+
+# v1 = legacy `end_location_z IS NOT NULL` population (46% off-target contamination);
+# v2 = true on-target population (Goal/Saved/Post/Saved to Post, D-0). Embedded in the
+# envelope + logged to MLflow; the GK-page recalibration caption references it.
+MODEL_VERSION = "v2-ontarget"
+
+# Out-of-sample CV folds — GroupKFold by match (no same-match leakage, the xT-3 class).
+N_CV_SPLITS = 5
 
 
 # ---------------------------------------------------------------------------
@@ -101,47 +127,31 @@ def load_shots() -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-def evaluate_model(model: PSxGModel, test_df: pd.DataFrame) -> dict[str, float | int]:
-    """Evaluate PSxG model on the held-out test set.
+def population_summary(shots_df: pd.DataFrame, model: PSxGModel) -> dict[str, float | int]:
+    """In-sample population context (NOT the governed metric).
 
-    Metrics reported:
-      - ``log_loss``: Cross-entropy loss (lower = better).
-      - ``brier_score``: Mean squared probability error (lower = better).
-      - ``n_test``: Number of test shots.
-      - ``goal_rate``: Observed goal rate in the test set.
-      - ``mean_psxg``: Mean predicted PSxG (calibration check: should be close to goal_rate).
+    The headline, governed metrics are out-of-sample via
+    :func:`analytics.goalkeeper.cross_validate_psxg_by_match` (GroupKFold by match).
+    This adds population context for the model card / MLflow: on-target shot count,
+    observed goal rate, and mean predicted PSxG (a coarse calibration sanity check —
+    mean PSxG should sit close to the goal rate).
 
     Args:
-        model: Fitted ``PSxGModel`` from ``train_psxg_model``.
-        test_df: Held-out test shots with ``is_goal`` and goalmouth coordinate columns.
+        model: Fitted ``PSxGModel`` from ``train_psxg_model`` (trained on all shots).
+        shots_df: Full on-target shots with ``is_goal`` and goalmouth coordinates.
 
     Returns:
-        Dict of evaluation metric name → value.
+        Dict with ``n_shots``, ``goal_rate``, ``mean_psxg``.
     """
-    result = predict_psxg(model, test_df)
-    on_target_mask = result["psxg"].notna()
-    result = result.loc[on_target_mask]
-
-    y_true = result["is_goal"].to_numpy(dtype=np.int64)
-    y_pred = result["psxg"].to_numpy(dtype=np.float64)
-
-    # Clip predictions to avoid log(0) in log_loss.
-    y_pred_clipped = np.clip(y_pred, 1e-7, 1 - 1e-7)
-
-    # Compute calibration (reliability: predicted vs. observed) at 5 bins.
-    fraction_of_positives, mean_predicted = calibration_curve(y_true, y_pred_clipped, n_bins=5)
-    max_calibration_error = float(np.abs(fraction_of_positives - mean_predicted).max())
-
-    metrics: dict[str, float | int] = {
-        "log_loss": float(log_loss(y_true, y_pred_clipped)),
-        "brier_score": float(brier_score_loss(y_true, y_pred_clipped)),
-        "n_test": len(test_df),
+    result = predict_psxg(model, shots_df)
+    on_target = result["psxg"].notna()
+    y_true = result.loc[on_target, "is_goal"].to_numpy(dtype=np.int64)
+    y_pred = result.loc[on_target, "psxg"].to_numpy(dtype=np.float64)
+    return {
+        "n_shots": int(on_target.sum()),
         "goal_rate": float(y_true.mean()),
-        "mean_psxg": float(y_pred_clipped.mean()),
-        "max_calibration_error": max_calibration_error,
+        "mean_psxg": float(y_pred.mean()),
     }
-    logger.info("Evaluation metrics: %s", json.dumps(metrics, indent=2))
-    return metrics
 
 
 # ---------------------------------------------------------------------------
@@ -149,41 +159,23 @@ def evaluate_model(model: PSxGModel, test_df: pd.DataFrame) -> dict[str, float |
 # ---------------------------------------------------------------------------
 
 
-def publish_model(model: PSxGModel, metrics: dict[str, float | int]) -> None:
-    """Serialise and publish PSxG model weights to HF Hub.
+def publish_model(weight_bytes: bytes) -> None:
+    """Publish the serialized PSxG envelope to HF Hub + upload the model card.
 
-    The model is written as a JSON file (zero pickle surface). Numpy arrays
-    are serialised via ``.tolist()``.
-
-    Payload schema::
-
-        {
-          "coefficients": [...],   // list[float], shape (n_features,)
-          "intercept": float,
-          "scaler_mean": [...],    // list[float], shape (n_features,)
-          "scaler_scale": [...],   // list[float], shape (n_features,)
-          "metrics": { ... }
-        }
+    Takes the already-serialized envelope bytes (from
+    :func:`analytics.goalkeeper.serialize_psxg_model`) so the HF Hub copy, the
+    MLflow artifact, and the UC Volume copy are byte-identical — one serialization,
+    three destinations (ADR-012).
 
     Args:
-        model: Fitted ``PSxGModel`` dataclass.
-        metrics: Evaluation metrics dict from ``evaluate_model``.
+        weight_bytes: The canonical JSON envelope bytes (carries ``feature_names`` +
+            ``model_version`` per ADR-012 §2).
     """
     api = HfApi()
     api.create_repo(OUTPUT_MODEL, exist_ok=True, repo_type="model")
-
-    model_data: dict[str, object] = {
-        "coefficients": model.coefficients.tolist(),
-        "intercept": model.intercept,
-        "scaler_mean": model.scaler_mean.tolist(),
-        "scaler_scale": model.scaler_scale.tolist(),
-        "metrics": metrics,
-    }
-    payload = json.dumps(model_data, indent=2).encode("utf-8")
-
     api.upload_file(
-        path_or_fileobj=payload,
-        path_in_repo="psxg_model.json",
+        path_or_fileobj=weight_bytes,
+        path_in_repo=WEIGHTS_FILENAME,
         repo_id=OUTPUT_MODEL,
         repo_type="model",
     )
@@ -255,15 +247,17 @@ def publish_predictions(shots_df: pd.DataFrame, model: PSxGModel) -> None:
 
 
 def main() -> None:
-    """Train, evaluate, and publish the PSxG model.
+    """Train, evaluate (out-of-sample), register, and publish the PSxG model.
 
     Pipeline:
-      1. Load on-target shots from HF Hub.
-      2. Stratified train/test split (80/20).
-      3. Train logistic regression PSxG model on train set.
-      4. Evaluate on held-out test set (log_loss, brier_score, calibration).
-      5. Log params and metrics to MLflow experiment ``psxg-training``.
-      6. Publish model JSON and full-dataset predictions to HF Hub.
+      1. Pre-flight: ``require_mlflow_env()`` (ADR-012 — no silent registry skip).
+      2. Load the corrected on-target shots from HF Hub.
+      3. Out-of-sample CV: GroupKFold by match (no same-match leakage) — the governed metric.
+      4. Train the FINAL model on all shots; serialize the envelope once
+         (``feature_names`` + ``model_version``, ADR-012 §2).
+      5. MLflow: log params/metrics + artifact + register + ``@Champion`` (zombie-alias guard).
+      6. Deliver: HF Hub (weights + predictions) + UC Volume weights (ADR-012 second leg —
+         the tracking writer's ``--model-path`` source).
     """
     recorder = HFJobsCostRecorder(
         workflow_id="wf-psxg",
@@ -275,89 +269,104 @@ def main() -> None:
     recorder.start()
 
     try:
-        # ------------------------------------------------------------------
-        # 1. Load data
-        # ------------------------------------------------------------------
+        # 1. Pre-flight (ADR-012): fail loud if MLflow/Databricks env vars are missing.
+        require_mlflow_env()
+
+        # 2. Load data
         logger.info("=== Loading on-target shots from HF Hub ===")
         shots_df = load_shots()
-
         if shots_df.empty:
             logger.error("Dataset is empty — aborting.")
             sys.exit(1)
 
-        # ------------------------------------------------------------------
-        # 2. Train / test split
-        # ------------------------------------------------------------------
-        logger.info("=== Splitting data (test_size=%.1f, stratified) ===", TEST_SIZE)
-        train_df, test_df = train_test_split(
-            shots_df,
-            test_size=TEST_SIZE,
-            random_state=RANDOM_STATE,
-            stratify=shots_df["is_goal"],
-        )
-        logger.info("Train: %d shots, Test: %d shots", len(train_df), len(test_df))
+        # 3. Out-of-sample CV (GroupKFold by match) — the governed, leakage-free metric.
+        logger.info("=== Cross-validating (GroupKFold by match, %d splits) ===", N_CV_SPLITS)
+        oos_metrics = cross_validate_psxg_by_match(shots_df, n_splits=N_CV_SPLITS)
+        logger.info("Out-of-sample metrics: %s", json.dumps(oos_metrics, indent=2))
+        if not math.isfinite(float(oos_metrics["brier_score"])):
+            logger.error("Out-of-sample CV degenerate (insufficient match groups) — aborting.")
+            sys.exit(1)
 
-        # ------------------------------------------------------------------
-        # 3. Train model
-        # ------------------------------------------------------------------
-        logger.info("=== Training PSxG logistic regression ===")
-        mlflow.set_experiment("psxg-training")
+        # 4. Train the FINAL model on ALL shots; serialize the envelope once.
+        logger.info("=== Training final PSxG model on all %d shots ===", len(shots_df))
+        model = train_psxg_model(shots_df)
+        logger.info("Trained — coefficients: %s, intercept: %.4f", model.coefficients.tolist(), model.intercept)
 
-        with mlflow.start_run(run_name="psxg-logistic"):
-            model = train_psxg_model(train_df)
-            logger.info(
-                "Trained — coefficients: %s, intercept: %.4f",
-                model.coefficients.tolist(),
-                model.intercept,
-            )
+        population = population_summary(shots_df, model)
+        metrics: dict[str, float | int] = {**oos_metrics, **population}
+        weight_bytes = serialize_psxg_model(model, metrics=metrics, model_version=MODEL_VERSION)
 
-            # ------------------------------------------------------------------
-            # 4. Evaluate
-            # ------------------------------------------------------------------
-            logger.info("=== Evaluating on held-out test set ===")
-            metrics = evaluate_model(model, test_df)
-
-            # ------------------------------------------------------------------
-            # 5. Log to MLflow
-            # ------------------------------------------------------------------
+        # 5. MLflow register + @Champion (ADR-012 zombie-alias guard).
+        mlflow_fqn = mlflow_model_uri(CATALOG, SCHEMA, MLFLOW_MODEL_NAME)
+        mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
+        mlflow.set_experiment("/soccer_analytics/psxg_model")
+        with mlflow.start_run(run_name="psxg-logistic-hf-jobs"):
             mlflow.log_params(
                 {
                     "model_type": "logistic_regression",
-                    "features": "end_location_y,end_location_z",
-                    "n_train": len(train_df),
-                    "n_test": len(test_df),
-                    "test_size": TEST_SIZE,
-                    "random_state": RANDOM_STATE,
+                    "model_version": MODEL_VERSION,
+                    "features": ",".join(PSXG_FEATURE_NAMES),
+                    "n_shots": population["n_shots"],
+                    "cv": f"GroupKFold(by match, n_splits={N_CV_SPLITS})",
                     "reference": "Butcher et al. (2025) An Expected Goals On Target (xGOT) Model",
                 }
             )
-            # Log only float-valued metrics to MLflow (n_test is int → cast).
+            # MLflow rejects NaN — log only finite metrics (CV is finite at production scale).
             for key, value in metrics.items():
-                mlflow.log_metric(key, float(value))
+                if math.isfinite(float(value)):
+                    mlflow.log_metric(key, float(value))
 
-            # ------------------------------------------------------------------
-            # 6. Publish
-            # ------------------------------------------------------------------
-            logger.info("=== Publishing model and predictions to HF Hub ===")
-            publish_model(model, metrics)
-            publish_predictions(shots_df, model)
+            with tempfile.NamedTemporaryFile(mode="wb", suffix=".json", delete=False, dir=tempfile.gettempdir()) as tmp:
+                tmp.write(weight_bytes)
+                tmp_path = tmp.name
+            artifact_path = os.path.join(os.path.dirname(tmp_path), WEIGHTS_FILENAME)
+            os.replace(tmp_path, artifact_path)
+            mlflow.log_artifact(artifact_path)
 
-        metrics_payload: dict[str, object] = {
-            "psxg": metrics,
-            "config": {
-                "model_type": "logistic_regression",
-                "features": ["end_location_y", "end_location_z"],
-                "n_train": len(train_df),
-                "n_test": len(test_df),
-            },
-        }
-        recorder.complete(metrics_payload, row_count=len(shots_df))
+            class _W(mlflow.pyfunc.PythonModel):  # type: ignore[misc]
+                def predict(self, context: object, model_input: pd.DataFrame) -> np.ndarray:  # type: ignore[override]
+                    # Registry/governance stub — real inference reads the JSON envelope
+                    # from the UC Volume / HF Hub (zero pickle surface). Mirrors xg_v2.
+                    return np.zeros(len(model_input))
+
+            mlflow.pyfunc.log_model(
+                python_model=_W(),
+                artifact_path="psxg_model",
+                registered_model_name=mlflow_fqn,
+                input_example=pd.DataFrame({"x": [0.0]}),
+            )
+            run_id = mlflow.active_run().info.run_id
+
+        client = mlflow.tracking.MlflowClient()
+        champion_version = set_and_verify_mlflow_champion(client, mlflow_fqn=mlflow_fqn, run_id=run_id)
+        logger.info("MLflow @Champion set: %s version %s", mlflow_fqn, champion_version)
+
+        # 6a. Publish to HF Hub (weights envelope + predictions).
+        logger.info("=== Publishing to HF Hub ===")
+        publish_model(weight_bytes)
+        publish_predictions(shots_df, model)
+
+        # 6b. UC Volume (ADR-012 second leg) — the tracking writer's --model-path source.
+        from databricks.sdk import WorkspaceClient
+
+        workspace_client = WorkspaceClient()
+        volume_result = upload_weights_to_uc_volume(
+            workspace_client,
+            catalog=CATALOG,
+            schema=SCHEMA,
+            model_name=UC_VOLUME_MODEL_DIR,
+            filename=WEIGHTS_FILENAME,
+            weights_bytes=weight_bytes,
+        )
+        logger.info("UC Volume publish complete: %s", volume_result["path"])
+
+        recorder.complete({"psxg": metrics, "model_version": MODEL_VERSION}, row_count=len(shots_df))
 
     except Exception:
         recorder.fail()
         raise
 
-    logger.info("PSxG training complete.")
+    logger.info("PSxG training complete (model_version=%s).", MODEL_VERSION)
 
 
 if __name__ == "__main__":

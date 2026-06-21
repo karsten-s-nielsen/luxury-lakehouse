@@ -40,6 +40,12 @@ class PSxGModel:
     scaler_scale: np.ndarray
 
 
+# Canonical PSxG feature order — the single source consumed by training,
+# the serialized envelope's ``feature_names`` (ADR-012 §2), and inference.
+# Order matches ``_normalise_goalmouth`` (y first, z second).
+PSXG_FEATURE_NAMES: tuple[str, str] = ("end_location_y", "end_location_z")
+
+
 # Penalty area x-extent from own goal line (metres, SPADL 105x68m coordinates).
 _PENALTY_AREA_X = 16.5
 
@@ -434,6 +440,116 @@ def predict_psxg(model: PSxGModel, shots_df: pd.DataFrame) -> pd.DataFrame:
         result.loc[on_target_mask, "psxg"] = probabilities
 
     return result
+
+
+def cross_validate_psxg_by_match(shots_df: pd.DataFrame, *, n_splits: int = 5) -> dict[str, float | int]:
+    """Out-of-sample PSxG metrics via GroupKFold grouped by match (no same-match leakage).
+
+    Plain k-fold leaks: shots from the same match share match-level structure (same GK,
+    pitch, conditions), so a random split places correlated rows in both train and test
+    and inflates the score — the xT-3 cross-game leak class. Grouping by ``match_key``
+    guarantees every shot of a match is held out together, so the reported Brier/AUC are
+    genuinely out-of-sample.
+
+    Each fold trains a fresh :func:`train_psxg_model` on the train matches and scores the
+    held-out matches via :func:`predict_psxg`; metrics are pooled over the out-of-sample
+    predictions. Mirrors the GroupKFold discipline of
+    :func:`analytics.psxg_tracking.fit_platt_calibration`.
+
+    Args:
+        shots_df: On-target shots with ``end_location_y`` / ``end_location_z`` / ``is_goal``
+            and a ``match_key`` (preferred) or ``match_id`` grouping column.
+        n_splits: Maximum folds; capped at the number of distinct match groups.
+
+    Returns:
+        Dict with ``brier_score``, ``log_loss``, ``roc_auc``, ``n_oos_shots``, ``n_groups``.
+        Metrics are NaN with ``n_oos_shots=0`` when fewer than two match groups are present
+        (a single group cannot be held out) or no fold yields a two-class train split.
+    """
+    from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
+    from sklearn.model_selection import GroupKFold
+
+    group_col = "match_key" if "match_key" in shots_df.columns else "match_id"
+    if group_col not in shots_df.columns:
+        raise KeyError("cross_validate_psxg_by_match requires a 'match_key' or 'match_id' column")
+
+    df = shots_df.reset_index(drop=True)
+    groups = df[group_col].to_numpy()
+    y = df["is_goal"].to_numpy(dtype=np.int64)
+    n = len(df)
+    n_groups = int(pd.unique(groups).size)
+
+    degenerate: dict[str, float | int] = {
+        "brier_score": float("nan"),
+        "log_loss": float("nan"),
+        "roc_auc": float("nan"),
+        "n_oos_shots": 0,
+        "n_groups": n_groups,
+    }
+    splits = min(n_splits, n_groups)
+    if splits < 2 or np.unique(y).size < 2:
+        return degenerate
+
+    oos = np.full(n, np.nan, dtype=np.float64)
+    gkf = GroupKFold(n_splits=splits)
+    for train_idx, test_idx in gkf.split(df, y, groups):
+        if np.unique(y[train_idx]).size < 2:
+            continue  # single-class train fold — cannot fit logistic; leave NaN, excluded below
+        fold_model = train_psxg_model(df.iloc[train_idx])
+        oos[test_idx] = predict_psxg(fold_model, df.iloc[test_idx])["psxg"].to_numpy(dtype=np.float64)
+
+    scored = ~np.isnan(oos)
+    if scored.sum() == 0 or np.unique(y[scored]).size < 2:
+        return degenerate
+
+    y_scored = y[scored]
+    p_scored = np.clip(oos[scored], 1e-7, 1.0 - 1e-7)
+    return {
+        "brier_score": float(brier_score_loss(y_scored, p_scored)),
+        "log_loss": float(log_loss(y_scored, p_scored)),
+        "roc_auc": float(roc_auc_score(y_scored, p_scored)),
+        "n_oos_shots": int(scored.sum()),
+        "n_groups": n_groups,
+    }
+
+
+def serialize_psxg_model(
+    model: PSxGModel,
+    *,
+    metrics: dict[str, float | int],
+    model_version: str,
+    feature_names: tuple[str, ...] = PSXG_FEATURE_NAMES,
+) -> bytes:
+    """Serialize a :class:`PSxGModel` to its canonical JSON envelope (zero pickle surface).
+
+    Single source for the bytes written to HF Hub, logged as the MLflow artifact, and
+    uploaded to the UC Volume — keeping all three byte-identical. ADR-012 §2: the envelope
+    carries a top-level ``feature_names`` (the logistic envelope has no native feature
+    names) so inference reindexes tabular input deterministically; ``model_version`` is
+    embedded so consumers and the GK-page recalibration caption can reference it.
+
+    Args:
+        model: Fitted ``PSxGModel``.
+        metrics: Evaluation metrics to embed (provenance only; not read at inference).
+        model_version: Human-meaningful version string (e.g. ``"v2-ontarget"``).
+        feature_names: Feature order; defaults to :data:`PSXG_FEATURE_NAMES`.
+
+    Returns:
+        UTF-8 JSON bytes carrying ``model_version`` / ``feature_names`` / ``coefficients`` /
+        ``intercept`` / ``scaler_mean`` / ``scaler_scale`` / ``metrics``.
+    """
+    import json
+
+    envelope: dict[str, object] = {
+        "model_version": model_version,
+        "feature_names": list(feature_names),
+        "coefficients": model.coefficients.tolist(),
+        "intercept": float(model.intercept),
+        "scaler_mean": model.scaler_mean.tolist(),
+        "scaler_scale": model.scaler_scale.tolist(),
+        "metrics": metrics,
+    }
+    return json.dumps(envelope, indent=2).encode("utf-8")
 
 
 def compute_goals_prevented(gk_df: pd.DataFrame) -> pd.DataFrame:
