@@ -18,7 +18,7 @@ pipeline_tag: tabular-classification
 
 # PSxG Model &mdash; Post-Shot Expected Goals for Goalkeeper Evaluation
 
-Logistic regression model estimating the probability that an on-target shot becomes a goal, given its goalmouth position. Trained on **~15K StatsBomb on-target shots**. Used to compute *goals prevented* (PSxG &minus; actual goals conceded) as the primary shot-stopping pillar of the goalkeeper evaluation framework.
+Logistic regression model estimating the probability that an on-target shot becomes a goal, from its **projected goal-line crossing + shot geometry** (4 features). Trained on **32,698 StatsBomb on-target shots** (29.9% goal rate); out-of-sample **AUC 0.818, Brier 0.153** (GroupKFold by match). Model version `v2-ontarget`. Used to compute *goals prevented* (PSxG &minus; actual goals conceded) as the primary shot-stopping pillar of the goalkeeper evaluation framework.
 
 Part of the (Right! Luxury!) Lakehouse soccer analytics platform.
 
@@ -28,12 +28,16 @@ PSxG (Post-Shot Expected Goals) conditions on the observed shot destination &mda
 
 ### Features
 
-| Feature | Range | Description |
-|---------|-------|-------------|
-| `end_location_y` | ~[0, 1] | Horizontal goalmouth position: `(y − 36) / 8` (0 = left post, 1 = right post) |
-| `end_location_z` | ~[0, 0.33] on-target | Vertical goalmouth position: `z / 8` in **StatsBomb units** (the 2.44 m crossbar ≈ 2.67 units → ≈0.33, **NOT** 1.0) |
+The model scores a 4-feature vector (`analytics.goalkeeper.PSXG_FEATURE_NAMES`), built identically for both modalities through one shared port:
 
-Both features are normalized by the goal-mouth's **8 StatsBomb units** span (`_GOAL_Y_MIN=36`, `_GOAL_Z_MAX=8`). The z denominator is 8 StatsBomb units (≈7.32 m), **not** 2.44 m — an earlier card revision misstated this. Tracking-derived crossings (SPADL metres) are mapped into the same fraction-of-goal-width space via `analytics.goalkeeper.normalise_tracking_goalmouth` (÷7.32 m).
+| Feature | Description |
+|---------|-------------|
+| `goalmouth_dist_from_centre` | `min(\|y_norm − 0.5\|, 0.5)` — distance of the goal-line crossing from goal centre. The goal-vs-save signal is a symmetric arch (near-post hardest, dead-centre saveable), which a logistic on a linear y cannot represent. |
+| `goalmouth_z` | Crossing height as a fraction of goal width (`z / 7.32 m`). |
+| `distance_to_goal_m` | Shot origin → goal centre, **metres** (StatsBomb yards harmonised ×0.9144; tracking already metres). |
+| `shot_angle` | Angle subtended at the posts, radians. |
+
+**Goal-line crossing (the key fix — [ADR-060](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/docs/superpowers/adrs/ADR-060-psxg-projected-goalmouth-four-feature-model.md)):** StatsBomb `end_location` is the goal-line crossing **only for goals** (`end_location_x`=120); for saves it is the *save point* (~x=118) or deflected end position, so raw `end_location_y/z` is the wrong coordinate for ~67% of shots (the prior placement-only model was near-random, OOS AUC 0.525). The crossing is recovered by projecting the trajectory `location → end_location` onto the goal plane (x=120). The **tracking** modality uses its *measured* ball crossing (TF-48 `shot_crossing_y/z`) directly — no projection. `distance_to_goal`/`shot_angle` are computed identically across modalities (replicating the dbt macros in SPADL coords), so one Champion scores both.
 
 ### Architecture
 
@@ -45,7 +49,7 @@ Both features are normalized by the goal-mouth's **8 StatsBomb units** span (`_G
 | **Feature scaling** | `StandardScaler` (fit on training set, serialized with model) |
 | **Serialization** | JSON (coefficients + intercept + scaler params &mdash; zero pickle surface) |
 
-Logistic regression with just two spatial features intentionally keeps the model transparent and auditable. The goalmouth coordinate surface is low-dimensional and near-linear in log-odds space, making logistic regression the appropriate choice. No tree-based or neural models are needed for this feature set.
+Logistic regression on four low-dimensional features keeps the model transparent and auditable; the surface is near-linear in log-odds space, so no tree-based or neural model is needed. Richer covariates (goalkeeper position, shot speed) are deliberately deferred (ADR-060 / spec §8/E).
 
 ### Model Output
 
@@ -63,7 +67,7 @@ Logistic regression with just two spatial features intentionally keeps the model
 
 Training data is published as [`luxury-lakehouse/statsbomb-shots-on-target`](https://huggingface.co/datasets/luxury-lakehouse/statsbomb-shots-on-target) on HF Hub.
 
-Only true on-target shots are included: `shot_outcome IN ('Goal', 'Saved', 'Post', 'Saved to Post')` (`Off T`, `Blocked`, `Wayward`, and `Saved Off Target` are excluded as off-target). `Post` / `Saved to Post` are kept because the tracking `shot_on_target_derived` geometry counts post/bar strikes as on-target (ball-radius tolerance), so both modalities share one definition. A prior revision filtered on `end_location_z IS NOT NULL`, which silently included ~46% off-target `Off T` shots and depressed the goal rate to 15.9%; the corrected population is **≈32.7K shots at a 29.9% goal rate** (final count + eval metrics refreshed by the retrain).
+Only true on-target shots are included: `shot_outcome IN ('Goal', 'Saved', 'Post', 'Saved to Post')` (`Off T`, `Blocked`, `Wayward`, and `Saved Off Target` are excluded as off-target). `Post` / `Saved to Post` are kept because the tracking `shot_on_target_derived` geometry counts post/bar strikes as on-target (ball-radius tolerance), so both modalities share one definition. A prior revision filtered on `end_location_z IS NOT NULL`, which silently included ~46% off-target `Off T` shots and depressed the goal rate to 15.9%; the corrected population is **32,698 shots at a 29.9% goal rate**. On this population the placement-only 2-feature model was near-random (OOS AUC 0.525 — raw `end_location` is the save-point for non-goals); the projected-crossing 4-feature model (`v2-ontarget`, ADR-060) scores **OOS AUC 0.818, Brier 0.153** (GroupKFold by `match_key`, n=32,698 — no same-match leakage).
 
 ## How to Use
 
@@ -80,22 +84,23 @@ config_path = hf_hub_download("luxury-lakehouse/psxg-model", "psxg_model.json")
 with open(config_path) as f:
     model = json.load(f)
 
-# Extract logistic regression parameters
-coef = np.array(model["coefficients"])  # shape (2,)
+# Extract logistic regression parameters (feature order in model["feature_names"])
+coef = np.array(model["coefficients"])  # shape (4,)
 intercept = np.array(model["intercept"])  # shape (1,)
 scaler_mean = np.array(model["scaler_mean"])
 scaler_scale = np.array(model["scaler_scale"])
 
-def predict_psxg(end_location_y_norm: float, end_location_z_norm: float) -> float:
-    """Predict PSxG from normalized goalmouth coordinates."""
-    x = np.array([[end_location_y_norm, end_location_z_norm]])
-    x_scaled = (x - scaler_mean) / scaler_scale
+def predict_psxg(features: np.ndarray) -> float:
+    """features = [goalmouth_dist_from_centre, goalmouth_z, distance_to_goal_m, shot_angle].
+    Build them with analytics.goalkeeper.build_psxg_features_{statsbomb,tracking}
+    (StatsBomb projects to the goal line; tracking uses the measured crossing)."""
+    x_scaled = (np.asarray(features, dtype=float) - scaler_mean) / scaler_scale
     log_odds = x_scaled @ coef.T + intercept
     return float(1.0 / (1.0 + np.exp(-log_odds)))
 
-# Example: shot aimed center-right, mid-height
-psxg = predict_psxg(end_location_y_norm=0.65, end_location_z_norm=0.45)
-print(f"PSxG: {psxg:.3f}")  # e.g. 0.312
+# Example: near-post crossing (0.45 from centre), mid-height (0.30), 12 m out, angle 0.40 rad
+psxg = predict_psxg(np.array([0.45, 0.30, 12.0, 0.40]))
+print(f"PSxG: {psxg:.3f}")
 ```
 
 ### Load Pre-Computed Predictions
@@ -118,7 +123,7 @@ print(gp.sort_values("goals_prevented", ascending=False).head())
 
 - **Goalkeeper evaluation**: Primary shot-stopping metric for `fct_goalkeeper_stats`
 - **Benchmarking**: Compare GK shot-stopping performance against PSxG expectations across seasons
-- **Research**: Transparent two-feature PSxG baseline for goalkeeper analytics research
+- **Research**: Transparent four-feature PSxG baseline for goalkeeper analytics research
 - **Downstream**: Input to the composite goalkeeper score (Lamberts 2025 framework)
 
 ## EU AI Act — Intended Use and Non-Use
@@ -131,7 +136,7 @@ See the [`AI_GOVERNANCE.md`](https://github.com/karsten-s-nielsen/luxury-lakehou
 
 ## Limitations
 
-- **Two features only**: The model uses only goalmouth coordinates. Shot speed, trajectory, deflections, and defensive pressure are not captured.
+- **Four features**: projected goalmouth crossing (distance-from-centre + height) + shot distance + angle. Shot speed, goalkeeper position, deflections, and defensive pressure are not captured (deferred, ADR-060 / spec §8/E).
 - **Open data only**: Trained on StatsBomb open data (~15K shots). Commercial datasets with larger coverage may yield different calibration.
 - **StatsBomb coordinate system**: `end_location_z` is available only in StatsBomb 360 data. Models trained on providers without z-coordinate data will require a 2D fallback.
 - **No freeze-frame context**: PSxG does not model the goalkeeper's starting position or movement. See the [xG v2 model](https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder) for freeze-frame-conditioned expected goals.
