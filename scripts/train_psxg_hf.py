@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.47-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.48-py3-none-any.whl",
 #     "numpy>=1.26.0",
 #     "pandas>=2.0.0",
 #     "pyarrow>=14.0.0",
@@ -15,8 +15,9 @@
 
 Following Butcher et al. (2025), "An Expected Goals On Target (xGOT) Model".
 
-The PSxG logistic regression model predicts goal probability from normalised
-goalmouth coordinates (end_location_y, end_location_z) for on-target shots.
+The PSxG logistic regression model predicts goal probability for on-target shots
+from a 4-feature vector (projected-goalmouth distance-from-centre, crossing height,
+distance-to-goal, shot angle — see ``analytics.goalkeeper.PSXG_FEATURE_NAMES``).
 Model weights are serialised to JSON (zero pickle surface) and published to
 HF Hub alongside per-shot predictions.
 
@@ -61,6 +62,15 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s — %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# Make stdout UTF-8 so third-party emoji (e.g. MLflow's "🏃 View run …" line) can't
+# crash a non-UTF-8 console (Windows cp1252 raises UnicodeEncodeError). HF Jobs (Linux)
+# is already UTF-8, so this is a no-op there.
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+    except (ValueError, OSError):
+        pass
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -117,8 +127,21 @@ def load_shots() -> pd.DataFrame:
         msg = f"No Parquet files found in {INPUT_DATASET}/data/"
         raise RuntimeError(msg)
 
-    df = pd.concat([pd.read_parquet(f) for f in parquet_files], ignore_index=True)
-    logger.info("Loaded %d on-target shots from %s (%d files)", len(df), INPUT_DATASET, len(parquet_files))
+    # Read ONLY the canonical single file when present. Concatenating stale Spark
+    # part-files of a different schema/population silently contaminates training
+    # (the ADR-049 stale-part-file class — saved-shot rows with NULL match_key /
+    # the old off-target population poisoned a prior retrain). Fall back to the
+    # glob only when the canonical file is absent (legacy Spark-publish layout).
+    canonical = [p for p in parquet_files if p.name == "shots_on_target.parquet"]
+    files_to_read = canonical if canonical else parquet_files
+    df = pd.concat([pd.read_parquet(f) for f in files_to_read], ignore_index=True)
+    logger.info(
+        "Loaded %d on-target shots from %s (%d of %d parquet files)",
+        len(df),
+        INPUT_DATASET,
+        len(files_to_read),
+        len(parquet_files),
+    )
     return df
 
 
@@ -362,8 +385,8 @@ def main() -> None:
 
         recorder.complete({"psxg": metrics, "model_version": MODEL_VERSION}, row_count=len(shots_df))
 
-    except Exception:
-        recorder.fail()
+    except Exception as exc:
+        recorder.fail(exc)
         raise
 
     logger.info("PSxG training complete (model_version=%s).", MODEL_VERSION)

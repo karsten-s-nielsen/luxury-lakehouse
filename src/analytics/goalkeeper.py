@@ -40,10 +40,21 @@ class PSxGModel:
     scaler_scale: np.ndarray
 
 
-# Canonical PSxG feature order — the single source consumed by training,
-# the serialized envelope's ``feature_names`` (ADR-012 §2), and inference.
-# Order matches ``_normalise_goalmouth`` (y first, z second).
-PSXG_FEATURE_NAMES: tuple[str, str] = ("end_location_y", "end_location_z")
+# Canonical PSxG feature order — the single source consumed by training, the serialized
+# envelope's ``feature_names`` (ADR-012 §2), and inference. BOTH modalities build this same
+# 4-vector: StatsBomb via goal-line trajectory projection, tracking via the measured ball
+# crossing (TF-48 shot_crossing_*). See 2026-06-21-psxg-end-location-feature-inadequacy-finding.
+PSXG_FEATURE_NAMES: tuple[str, ...] = (
+    "goalmouth_dist_from_centre",  # min(|y_norm - 0.5|, 0.5) — the symmetric near-post arch
+    "goalmouth_z",  # crossing height as fraction of goal width
+    "distance_to_goal_m",  # shot origin -> goal centre, metres (yard/metre-harmonised)
+    "shot_angle",  # angle subtended at the posts, radians (modality-invariant)
+)
+
+# StatsBomb goal-line x (120x80 pitch) for trajectory projection; yards->metres for the
+# distance feature so StatsBomb (yards) and tracking (metres) land on one scale.
+_SB_GOAL_LINE_X = 120.0
+_YARD_TO_M = 0.9144
 
 
 # Penalty area x-extent from own goal line (metres, SPADL 105x68m coordinates).
@@ -341,6 +352,130 @@ def normalise_tracking_goalmouth(crossing_y_m: np.ndarray, crossing_z_m: np.ndar
     return np.column_stack([y_norm, z_norm])
 
 
+def assemble_psxg_features(
+    y_norm: np.ndarray,
+    z_norm: np.ndarray,
+    distance_to_goal_m: np.ndarray,
+    shot_angle: np.ndarray,
+) -> np.ndarray:
+    """Assemble the canonical 4-feature PSxG matrix from modality-normalised inputs.
+
+    The single feature port both modalities funnel through, so one model scores both.
+    ``y_norm`` / ``z_norm`` are goalmouth-crossing fractions (0..1 across the goal, posts at
+    0/1) from :func:`_normalise_goalmouth` (StatsBomb) or :func:`normalise_tracking_goalmouth`
+    (tracking). The horizontal feature is **distance from the goal centre** —
+    ``min(|y_norm - 0.5|, 0.5)`` (clipped at the post): the goal-vs-save signal is a symmetric
+    arch (near-post hardest to save, dead-centre saveable, wide = misses), which a logistic on
+    a linear y cannot represent.
+
+    Args:
+        y_norm: Goalmouth crossing y, fraction across the goal.
+        z_norm: Crossing height, fraction of goal width.
+        distance_to_goal_m: Shot origin -> goal centre, METRES (unit-harmonised).
+        shot_angle: Angle subtended at the posts, radians.
+
+    Returns:
+        ``(n, 4)`` array in :data:`PSXG_FEATURE_NAMES` order.
+    """
+    dist_from_centre = np.minimum(np.abs(np.asarray(y_norm, dtype=np.float64) - 0.5), 0.5)
+    return np.column_stack(
+        [
+            dist_from_centre,
+            np.asarray(z_norm, dtype=np.float64),
+            np.asarray(distance_to_goal_m, dtype=np.float64),
+            np.asarray(shot_angle, dtype=np.float64),
+        ]
+    )
+
+
+def project_sb_shot_to_goal_line(
+    location_x: np.ndarray,
+    location_y: np.ndarray,
+    end_location_x: np.ndarray,
+    end_location_y: np.ndarray,
+    end_location_z: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Project a StatsBomb shot trajectory onto the goal line (x=120).
+
+    ``end_location`` is the goal-line crossing only for goals (``end_location_x``=120); for
+    saves it is the save point (~x=118), so the raw y/z are NOT the goalmouth target. Linear
+    extrapolation of (location -> end_location) to x=120 recovers the intended crossing.
+    Falls back to the raw end point for shots with no forward x-extent.
+
+    Returns:
+        ``(y_goal, z_goal)`` — the projected goal-line crossing y and height.
+    """
+    lx = np.asarray(location_x, dtype=np.float64)
+    ly = np.asarray(location_y, dtype=np.float64)
+    ex = np.asarray(end_location_x, dtype=np.float64)
+    ey = np.asarray(end_location_y, dtype=np.float64)
+    ez = np.asarray(end_location_z, dtype=np.float64)
+    denom = ex - lx
+    safe = denom > 0.1
+    frac = np.where(safe, (_SB_GOAL_LINE_X - lx) / np.where(safe, denom, 1.0), 1.0)
+    y_goal = np.where(safe, ly + (ey - ly) * frac, ey)
+    z_goal = np.where(safe, ez * frac, ez)
+    return y_goal, z_goal
+
+
+def build_psxg_features_statsbomb(shots_df: pd.DataFrame) -> np.ndarray:
+    """Build the 4-feature PSxG matrix for StatsBomb shots (project -> normalise -> assemble).
+
+    Requires ``location_x`` / ``location_y`` / ``end_location_x`` / ``end_location_y`` /
+    ``end_location_z`` (StatsBomb 120x80 yards) + ``distance_to_goal`` (yards) + ``shot_angle``
+    (radians).
+    """
+    y_goal, z_goal = project_sb_shot_to_goal_line(
+        shots_df["location_x"].to_numpy(dtype=np.float64),
+        shots_df["location_y"].to_numpy(dtype=np.float64),
+        shots_df["end_location_x"].to_numpy(dtype=np.float64),
+        shots_df["end_location_y"].to_numpy(dtype=np.float64),
+        shots_df["end_location_z"].to_numpy(dtype=np.float64),
+    )
+    normalised = _normalise_goalmouth(y_goal, z_goal)
+    distance_m = shots_df["distance_to_goal"].to_numpy(dtype=np.float64) * _YARD_TO_M
+    shot_angle = shots_df["shot_angle"].to_numpy(dtype=np.float64)
+    return assemble_psxg_features(normalised[:, 0], normalised[:, 1], distance_m, shot_angle)
+
+
+def spadl_shot_geometry(start_x: np.ndarray, start_y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Distance-to-goal (metres) + subtended shot angle (radians) for SPADL-metre origins.
+
+    Mirrors the StatsBomb dbt macros ``distance_to_goal`` / ``shot_angle`` (Soccermatics
+    Ch.2) in SPADL coordinates (105x68 m, goal centre ``(105, 34)``, goal width 7.32 m), so
+    the tracking modality's distance/angle land on the SAME definition as the StatsBomb
+    model was trained on. The angle is scale-invariant (numerator and denominator both scale
+    as length²); distance is metres for both modalities via the yard→metre harmonisation.
+    """
+    sx = np.asarray(start_x, dtype=np.float64)
+    sy = np.asarray(start_y, dtype=np.float64)
+    dx = _PITCH_LENGTH - sx
+    dy = _SPADL_GOAL_CENTRE_M - sy
+    distance_m = np.sqrt(dx**2 + dy**2)
+    half_w = _SPADL_GOAL_WIDTH_M / 2.0
+    angle = np.abs(np.arctan2(_SPADL_GOAL_WIDTH_M * dx, dx**2 + dy**2 - half_w**2))
+    return distance_m, angle
+
+
+def build_psxg_features_tracking(shots_df: pd.DataFrame) -> np.ndarray:
+    """Build the 4-feature PSxG matrix for tracking shots (measured crossing + start geometry).
+
+    Requires ``shot_crossing_y`` / ``shot_crossing_z`` (the measured goal-line crossing, TF-48,
+    SPADL metres) + ``start_x`` / ``start_y`` (shot origin, SPADL metres). The crossing is the
+    true goal-line crossing (no projection needed, unlike StatsBomb); distance/angle come from
+    :func:`spadl_shot_geometry` so the feature semantics match :func:`build_psxg_features_statsbomb`.
+    """
+    normalised = normalise_tracking_goalmouth(
+        shots_df["shot_crossing_y"].to_numpy(dtype=np.float64),
+        shots_df["shot_crossing_z"].to_numpy(dtype=np.float64),
+    )
+    distance_m, shot_angle = spadl_shot_geometry(
+        shots_df["start_x"].to_numpy(dtype=np.float64),
+        shots_df["start_y"].to_numpy(dtype=np.float64),
+    )
+    return assemble_psxg_features(normalised[:, 0], normalised[:, 1], distance_m, shot_angle)
+
+
 def load_psxg_model(path: str) -> PSxGModel:
     """Load a :class:`PSxGModel` from its JSON envelope.
 
@@ -365,15 +500,17 @@ def load_psxg_model(path: str) -> PSxGModel:
 def train_psxg_model(shots_df: pd.DataFrame) -> PSxGModel:
     """Train a logistic regression PSxG model on on-target shots.
 
-    Features: normalised ``end_location_y`` and ``end_location_z`` (StatsBomb
-    goalmouth coordinates).  Uses ``StandardScaler`` for feature scaling.
+    Features: the 4-vector from :func:`build_psxg_features_statsbomb` —
+    projected-goalmouth distance-from-centre, crossing height, distance-to-goal
+    (metres), and shot angle (:data:`PSXG_FEATURE_NAMES`). ``StandardScaler`` scales them.
 
     The returned ``PSxGModel`` stores the fitted numpy arrays — not the sklearn
     estimator — enabling JSON serialisation for HF Hub publishing.
 
     Args:
-        shots_df: On-target shots with columns ``end_location_y``,
-            ``end_location_z``, ``is_goal``.
+        shots_df: On-target shots with ``location_x`` / ``location_y`` /
+            ``end_location_x`` / ``end_location_y`` / ``end_location_z`` /
+            ``distance_to_goal`` / ``shot_angle`` / ``is_goal``.
 
     Returns:
         Frozen ``PSxGModel`` with logistic regression coefficients and
@@ -382,9 +519,7 @@ def train_psxg_model(shots_df: pd.DataFrame) -> PSxGModel:
     from sklearn.linear_model import LogisticRegression
     from sklearn.preprocessing import StandardScaler
 
-    y_raw = shots_df["end_location_y"].to_numpy(dtype=np.float64)
-    z_raw = shots_df["end_location_z"].to_numpy(dtype=np.float64)
-    features = _normalise_goalmouth(y_raw, z_raw)
+    features = build_psxg_features_statsbomb(shots_df)
 
     scaler = StandardScaler()
     x_scaled: np.ndarray = scaler.fit_transform(features)
@@ -409,12 +544,14 @@ def train_psxg_model(shots_df: pd.DataFrame) -> PSxGModel:
 def predict_psxg(model: PSxGModel, shots_df: pd.DataFrame) -> pd.DataFrame:
     """Predict PSxG probabilities using stored model parameters.
 
-    Manual logistic sigmoid — no sklearn dependency at inference time.
-    Off-target shots (``end_location_z`` is NaN) receive ``psxg = NaN``.
+    Manual logistic sigmoid — no sklearn dependency at inference time. Off-target shots
+    (``end_location_z`` is NaN) receive ``psxg = NaN``. On-target rows are scored with the
+    same 4-feature vector the model was trained on (:func:`build_psxg_features_statsbomb`).
 
     Args:
         model: Fitted ``PSxGModel`` from ``train_psxg_model``.
-        shots_df: Shots with ``end_location_y`` and ``end_location_z``.
+        shots_df: Shots with the StatsBomb feature columns (see
+            :func:`build_psxg_features_statsbomb`).
 
     Returns:
         Copy of input DataFrame with ``psxg`` column added.
@@ -426,14 +563,10 @@ def predict_psxg(model: PSxGModel, shots_df: pd.DataFrame) -> pd.DataFrame:
     result["psxg"] = np.nan
 
     if bool(on_target_mask.any()):
-        y_raw = result.loc[on_target_mask, "end_location_y"].to_numpy(dtype=np.float64)
-        z_raw = result.loc[on_target_mask, "end_location_z"].to_numpy(dtype=np.float64)
-        features = _normalise_goalmouth(y_raw, z_raw)
+        features = build_psxg_features_statsbomb(result.loc[on_target_mask])
 
-        # Manual StandardScaler transform.
+        # Manual StandardScaler transform + logistic sigmoid: p = 1 / (1 + exp(-logits)).
         x_scaled = (features - model.scaler_mean) / model.scaler_scale
-
-        # Manual logistic sigmoid: p = 1 / (1 + exp(-logits)).
         logits: np.ndarray = x_scaled @ model.coefficients + model.intercept
         probabilities = 1.0 / (1.0 + np.exp(-logits))
 

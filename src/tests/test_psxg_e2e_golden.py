@@ -32,10 +32,10 @@ _Z = 1.96
 
 def _model() -> PSxGModel:
     return PSxGModel(
-        coefficients=np.array([1.0, 1.5]),
+        coefficients=np.array([1.0, 1.5, -0.05, 0.5]),
         intercept=-0.8,
-        scaler_mean=np.array([0.0, 0.0]),
-        scaler_scale=np.array([1.0, 1.0]),
+        scaler_mean=np.zeros(4),
+        scaler_scale=np.ones(4),
     )
 
 
@@ -47,6 +47,8 @@ def _fixture() -> pd.DataFrame:
             "action_id": [10, 11, 12, 13, 14, 15],
             "data_source": ["gradientsports", "gradientsports", "skillcorner", "skillcorner", "idsse", "idsse"],
             "defending_gk_player_key": [100, 100, 100, 100, 200, 200],
+            "start_x": [88.0, 90.0, 92.0, 89.0, 91.0, 90.0],
+            "start_y": [34.0, 33.0, 35.0, 34.0, 36.0, 34.0],
             "shot_crossing_y": [33.0, 35.0, 32.5, 36.0, 34.0, 33.5],
             "shot_crossing_z": [1.0, 2.0, 0.6, 1.8, 1.2, 0.9],
             "shot_crossing_confidence": [0.9, 0.9, 0.8, 0.15, 0.85, 0.9],  # idx3 gated
