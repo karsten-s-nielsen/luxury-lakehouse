@@ -25,6 +25,9 @@ models:
         data_tests:
           - unique
           - not_null
+      - name: event_id
+        data_type: string
+        description: Native provider event id (PSxG Phase-2 bridge to fct_action_values.original_event_id → action_id).
       - name: match_key
         data_type: bigint
         description: Kimball surrogate FK to dim_matches.match_key (ADR-011, PR 3). Native match_id recoverable via JOIN dim_matches.
@@ -5521,3 +5524,210 @@ models:
             combination_of_columns:
               - gk_player_key
               - match_key
+
+  # ── PSxG subsystem (spec 2026-06-20-psxg-tracking-extension) ───────────
+  - name: fct_shot_psxg
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Atomic shot-grain PSxG fact — one row per on-target shot, all providers.
+      Single source of truth for post-shot expected goals. Grain (match_key, action_id).
+      Phase 1 = tracking modality (GS/SkillCorner/IDSSE); Phase 2 unions StatsBomb.
+      Gate-failed shots kept with psxg NULL + psxg_gated=true (D-F). dim_players is a
+      role-playing dimension (shooter player_key + defending_gk_player_key).
+    columns:
+      - name: shot_psxg_id
+        data_type: string
+        description: Surrogate key = generate_surrogate_key(match_key, action_id).
+        data_tests: [unique, not_null]
+      - name: match_key
+        data_type: bigint
+        description: Kimball match surrogate (FK to dim_matches).
+        data_tests: [not_null]
+      - name: action_id
+        data_type: bigint
+        description: SPADL action id of the shot (degenerate dimension).
+        data_tests: [not_null]
+      - name: data_source
+        data_type: string
+        description: Provider (gradientsports / skillcorner / idsse; statsbomb in Phase 2).
+      - name: psxg_input_source
+        data_type: string
+        description: Modality — 'tracking_trajectory' or 'statsbomb_freeze_frame'.
+      - name: player_key
+        data_type: bigint
+        description: Shooter (FK to dim_players).
+      - name: team_key
+        data_type: bigint
+        description: Shooting team (FK to dim_teams).
+      - name: defending_gk_player_key
+        data_type: bigint
+        description: Defending goalkeeper (role-playing FK to dim_players).
+      - name: competition_key
+        data_type: bigint
+        description: Denormalized via dim_matches.
+      - name: season_id
+        data_type: int
+        description: Denormalized via dim_matches.
+      - name: shot_crossing_y
+        data_type: double
+        description: Ball y at the goal-line crossing (SPADL metres).
+      - name: shot_crossing_z
+        data_type: double
+        description: Ball height at the crossing (SPADL metres).
+      - name: y_norm
+        data_type: double
+        description: Normalized horizontal position ((y-30.34)/7.32) — model input space.
+      - name: z_norm
+        data_type: double
+        description: Normalized height (z/7.32) — model input space.
+      - name: shot_speed
+        data_type: double
+        description: Shot speed (reserved; not consumed by the 2-feature model).
+      - name: shot_z_profile
+        data_type: string
+        description: rolling / airborne / bounced.
+      - name: shot_crossing_confidence
+        data_type: double
+        description: Trajectory-fit confidence (gate input).
+      - name: shot_fit_rmse
+        data_type: double
+        description: Trajectory-fit RMSE (gate input).
+      - name: psxg
+        data_type: double
+        description: Raw model PSxG (0-1; NULL when psxg_gated).
+      - name: psxg_recalibrated
+        data_type: double
+        description: Platt-recalibrated PSxG (tracking; NULL when psxg_gated).
+      - name: psxg_gated
+        data_type: boolean
+        description: True when the trajectory fit failed the gate (psxg NULL).
+      - name: psxg_calibration
+        data_type: string
+        description: "'platt' (tracking) or 'none' (statsbomb, Phase 2)."
+      - name: is_goal
+        data_type: boolean
+        description: Shot resulted in a goal (action_result='success').
+      - name: model_version
+        data_type: string
+      - name: platt_version
+        data_type: string
+      - name: normalization_version
+        data_type: string
+
+  - name: fct_gk_shot_stopping
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      GK x match shot-stopping aggregate — derived additive rollup of fct_shot_psxg over
+      shots faced. DRILL-DOWN, not evaluative (B2). All measures additive. goals_conceded_on_shots
+      counts goals among gate-passed shots only (B3); != event-side fct_goalkeeper_stats.goals_conceded.
+    columns:
+      - name: gk_shot_stopping_id
+        data_type: string
+        data_tests: [unique, not_null]
+      - name: player_key
+        data_type: bigint
+        description: The goalkeeper (FK to dim_players).
+        data_tests: [not_null]
+      - name: match_key
+        data_type: bigint
+        data_tests: [not_null]
+      - name: competition_key
+        data_type: bigint
+      - name: season_id
+        data_type: int
+      - name: data_source
+        data_type: string
+      - name: shots_faced
+        data_type: int
+        description: On-target shots faced, post-gate (additive).
+      - name: shots_faced_total
+        data_type: int
+        description: On-target shots faced, pre-gate (additive); >= shots_faced.
+      - name: goals_conceded_on_shots
+        data_type: int
+        description: Goals among gate-passed shots faced (additive; NOT own goals/all goals).
+      - name: psxg_faced
+        data_type: double
+        description: Sum of psxg_recalibrated over gate-passed shots (additive).
+      - name: goals_prevented
+        data_type: double
+        description: psxg_faced - goals_conceded_on_shots (additive); +ve = better than expected.
+      - name: psxg_variance_sum
+        data_type: double
+        description: Sum psxg*(1-psxg) over gate-passed shots — Poisson-binomial variance (additive).
+      - name: low_sample
+        data_type: boolean
+        description: shots_faced_total < 5.
+      - name: psxg_calibration
+        data_type: string
+      - name: model_version
+        data_type: string
+      - name: platt_version
+        data_type: string
+      - name: normalization_version
+        data_type: string
+      - name: _loaded_at
+        data_type: timestamp
+
+  - name: fct_gk_shot_stopping_pooled
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Pooled GK x competition x season shot-stopping — the page's evaluative surface (C3/B1).
+      Additive SUM rollup of fct_gk_shot_stopping with a closed-form Poisson-binomial band.
+      Percentile leaderboard DEFERRED: goals_prevented_pctile is NULL unless ranking_enabled
+      (>=20 GKs clear >=20 shots in the cohort — currently false everywhere).
+    columns:
+      - name: gk_pooled_id
+        data_type: string
+        data_tests: [unique, not_null]
+      - name: player_key
+        data_type: bigint
+        data_tests: [not_null]
+      - name: competition_key
+        data_type: bigint
+      - name: season_id
+        data_type: int
+      - name: data_source
+        data_type: string
+      - name: shots_faced
+        data_type: int
+      - name: shots_faced_total
+        data_type: int
+      - name: goals_conceded_on_shots
+        data_type: int
+      - name: psxg_faced
+        data_type: double
+      - name: goals_prevented
+        data_type: double
+        description: Raw value — present with the band; never shown as a point or rank.
+      - name: goals_prevented_ci_low
+        data_type: double
+        description: goals_prevented - 1.96*sqrt(psxg_variance_sum) (Poisson-binomial, not bootstrap).
+      - name: goals_prevented_ci_high
+        data_type: double
+      - name: low_sample
+        data_type: boolean
+        description: shots_faced_total < 5 (the norm at current volume).
+      - name: ranking_enabled
+        data_type: boolean
+        description: True only when the cohort clears the ranking floor (currently false).
+      - name: goals_prevented_pctile
+        data_type: double
+        description: percent_rank within (competition, season); NULL while ranking_enabled=false.
+      - name: _loaded_at
+        data_type: timestamp

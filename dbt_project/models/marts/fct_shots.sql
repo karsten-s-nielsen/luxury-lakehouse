@@ -48,6 +48,10 @@ shots_with_score as (
         -- Surrogate key
         {{ dbt_utils.generate_surrogate_key(['unified_shots.event_id', 'unified_shots.data_source']) }} as shot_id,
 
+        -- Native provider event id (PSxG tracking-extension Phase 2 bridge: resolves
+        -- the (match_key, action_id) shot via fct_action_values.original_event_id).
+        cast(unified_shots.event_id as string) as event_id,
+
         -- Kimball keys (from dim_matches join)
         unified_shots.match_key,
         match_attrs.competition_key,
@@ -142,6 +146,7 @@ final as (
 
     select
         shot_id,
+        event_id,
         match_key,
         player_id,
         team_id,

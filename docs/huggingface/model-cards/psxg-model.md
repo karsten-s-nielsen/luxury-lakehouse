@@ -30,10 +30,10 @@ PSxG (Post-Shot Expected Goals) conditions on the observed shot destination &mda
 
 | Feature | Range | Description |
 |---------|-------|-------------|
-| `end_location_y` | [0, 1] | Normalized horizontal goalmouth position (0 = left post, 1 = right post) |
-| `end_location_z` | [0, 1] | Normalized vertical goalmouth position (0 = ground level, 1 = crossbar) |
+| `end_location_y` | ~[0, 1] | Horizontal goalmouth position: `(y − 36) / 8` (0 = left post, 1 = right post) |
+| `end_location_z` | ~[0, 0.33] on-target | Vertical goalmouth position: `z / 8` in **StatsBomb units** (the 2.44 m crossbar ≈ 2.67 units → ≈0.33, **NOT** 1.0) |
 
-Both features are normalized to [0, 1] from StatsBomb's raw coordinate system (y: 36&ndash;44 yards, z: 0&ndash;2.44m).
+Both features are normalized by the goal-mouth's **8 StatsBomb units** span (`_GOAL_Y_MIN=36`, `_GOAL_Z_MAX=8`). The z denominator is 8 StatsBomb units (≈7.32 m), **not** 2.44 m — an earlier card revision misstated this. Tracking-derived crossings (SPADL metres) are mapped into the same fraction-of-goal-width space via `analytics.goalkeeper.normalise_tracking_goalmouth` (÷7.32 m).
 
 ### Architecture
 
@@ -63,7 +63,7 @@ Logistic regression with just two spatial features intentionally keeps the model
 
 Training data is published as [`luxury-lakehouse/statsbomb-shots-on-target`](https://huggingface.co/datasets/luxury-lakehouse/statsbomb-shots-on-target) on HF Hub.
 
-Only shots with `shot_outcome` in `{Saved, Goal, Post}` are included (blocked shots and wayward shots are excluded, as they do not reach the goalkeeper).
+Only true on-target shots are included: `shot_outcome IN ('Goal', 'Saved', 'Post', 'Saved to Post')` (`Off T`, `Blocked`, `Wayward`, and `Saved Off Target` are excluded as off-target). `Post` / `Saved to Post` are kept because the tracking `shot_on_target_derived` geometry counts post/bar strikes as on-target (ball-radius tolerance), so both modalities share one definition. A prior revision filtered on `end_location_z IS NOT NULL`, which silently included ~46% off-target `Off T` shots and depressed the goal rate to 15.9%; the corrected population is **≈32.7K shots at a 29.9% goal rate** (final count + eval metrics refreshed by the retrain).
 
 ## How to Use
 

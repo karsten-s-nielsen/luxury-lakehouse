@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.45-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.46-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -17,8 +17,12 @@ but runs via Databricks SQL Statement Execution API so it can be invoked
 from a local shell without uploading a notebook + Python source tree to
 the workspace.
 
-Filter: ``end_location_z IS NOT NULL`` — restricts to shots with goalmouth
-coordinates, used for PSxG model training (Butcher et al. 2025).
+Filter: true on-target (``shot_outcome IN ('Goal','Saved','Post','Saved to Post')``
+with a non-null ``end_location_z`` coordinate guard), used for PSxG model training.
+The SELECT + filter are the SINGLE source of truth in
+``ingestion.export_shots_on_target._build_query`` (imported below) — do NOT
+re-inline the SQL here; a divergent copy is what contaminated the training
+population in the first place (D-0, spec 2026-06-20-psxg-tracking-extension).
 
 Usage (locally with env vars set):
     DATABRICKS_SQL_WAREHOUSE_ID=<id> uv run --no-project --script \
@@ -47,6 +51,7 @@ import pandas as pd
 import requests
 from huggingface_hub import HfApi
 
+from ingestion.export_shots_on_target import _build_query
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 
 logging.basicConfig(
@@ -59,24 +64,9 @@ logger = logging.getLogger(__name__)
 HF_ORG = "luxury-lakehouse"
 DATASET_REPO = f"{HF_ORG}/statsbomb-shots-on-target"
 
-_SHOTS_SQL = """\
-SELECT
-    s.shot_id                                              AS event_id,
-    s.match_key,
-    CAST(dm.native_match_id AS STRING)                     AS match_id,
-    s.player_id,
-    s.player_key,
-    s.team_id,
-    s.team_key,
-    s.end_location_y,
-    s.end_location_z,
-    s.shot_outcome,
-    CASE WHEN s.shot_outcome = 'Goal' THEN 1 ELSE 0 END    AS is_goal
-FROM soccer_analytics.dev_gold.fct_shots s
-LEFT JOIN soccer_analytics.dev_gold.dim_matches dm
-    ON s.match_key = dm.match_key
-WHERE s.end_location_z IS NOT NULL
-"""
+# Single source of truth for the SELECT + on-target filter (D-0). This local
+# PEP 723 publisher targets the same gold catalog/schema as the workflow task.
+_SHOTS_SQL = _build_query("soccer_analytics", "dev_gold")
 
 _POLL_INTERVAL_S = 2.0
 _TIMEOUT_SUBMIT = (10, 120)

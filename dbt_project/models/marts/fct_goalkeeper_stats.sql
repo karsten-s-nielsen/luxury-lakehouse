@@ -263,37 +263,23 @@ sweeper_stats as (
 -- PR 6: shot_id is the unique join key — match_id cross-check dropped.
 -- match_key + data_source flow through fct_shots so we can JOIN gk_matches
 -- on (match_key, data_source).
-psxg_shots as (
-
-    select
-        psxg.event_id,
-        psxg.match_id,
-        psxg.psxg,
-        shots.team_id      as shooter_team_id,
-        shots.match_key,
-        shots.data_source,
-        shots.shot_outcome
-    from {{ ref('stg_psxg__predictions') }} psxg
-    inner join {{ ref('fct_shots') }} shots
-        on shots.shot_id = psxg.event_id
-
-),
-
+-- PSxG (D-D, spec 2026-06-20-psxg-tracking-extension): goals_prevented now comes from the
+-- unified fct_shot_psxg -> fct_gk_shot_stopping subsystem; the inlined psxg_shots/psxg_agg
+-- CTEs are RETIRED (one PSxG source of truth, all providers). gk_matches recovers the native
+-- (player_id, match_id) the downstream joins expect. goals_conceded := goals_conceded_on_shots
+-- (gate-passed goals only; B3). Parity vs the re-baselined legacy is guarded at deploy by
+-- tests/assert_psxg_goals_prevented_parity.sql (post-retrain).
 psxg_agg as (
 
     select
         gm.player_id,
         gm.match_id,
         gm.data_source,
-        sum(ps.psxg)                                                      as psxg_faced,
-        cast(sum(case when ps.shot_outcome = 'Goal' then 1 else 0 end)
-            as int)                                                       as goals_conceded
-    from gk_matches gm
-    inner join psxg_shots ps
-        on gm.match_key = ps.match_key
-       and gm.team_id != ps.shooter_team_id
-       and gm.data_source = ps.data_source
-    group by gm.player_id, gm.match_id, gm.data_source
+        gss.psxg_faced,
+        gss.goals_conceded_on_shots as goals_conceded
+    from {{ ref('fct_gk_shot_stopping') }} gss
+    inner join gk_matches gm
+        on gss.player_key = gm.player_key and gss.match_key = gm.match_key
 
 ),
 

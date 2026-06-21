@@ -45,7 +45,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             rederiveSyncedMarts = container "Strand-safe Re-derive" "Operator re-derive of TRIGGERED synced marts (ADR-043): D MERGE-reprocess / T plain-rebuild / B delete+full-refresh+recreate. Pure planner + thin executor." "Python, databricks-sdk"
             dbtRunner = container "dbt Runner" "python_wheel_task entry point. OAuth token exchange, warehouse start." "Python, dbt-core"
             evolveEngine = container "Evolve Engine" "LLM-guided architecture search. AST validation, restricted exec." "Python, OpenEvolve"
-            analyticsLibrary = container "Analytics Library" "Pure-Python domain models: xG, xT, VAEP, OBSO, pitch control, embeddings" "Python, PyTorch"
+            analyticsLibrary = container "Analytics Library" "Pure-Python domain models: xG, xT, VAEP, OBSO, pitch control, PSxG (incl. tracking scorer + GroupKFold calibration, ADR-059), embeddings" "Python, PyTorch"
             execVisibility = container "Executor Visibility (exec_visibility)" "Driver heartbeat + executor env-fingerprint/faulthandler markers + silly-kicks env-drift guard (ADR-044). Spark-Connect-safe applyInPandas progress + hang diagnostics (ADR-031)." "Python"
             actionContextHexagon = container "Action Context Hexagon" "Pure-domain AC enrichment (ADR-028): ports + enrich_batch, one Spark+local UDF. Frames-required (ADR-057); sb360 cogroup (ADR-058); SC/metrica frames via silly-kicks (TF-23); LTR net deleted." "Python, pandas, silly-kicks 4.34.0"
             sharedLibrary = container "Shared Library" "Cross-package constants. Zero external deps." "Python"
@@ -62,15 +62,15 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             telemetryTable = container "Telemetry Table" "Cycle log: items, smoke-gate pass/fail, cost tracking, heartbeat rows." "Delta Lake" "Database"
         }
 
-        dbtProject = softwareSystem "dbt Project" "Medallion transformation: 95 models (41 staging, 11 intermediate, 43 marts). Kimball dims, liquid clustering. on-run-start tripwire blocks --full-refresh of TRIGGERED synced marts (ADR-043)." {
+        dbtProject = softwareSystem "dbt Project" "Medallion transformation: 99 models (42 staging, 11 intermediate, 46 marts). Kimball dims, liquid clustering. on-run-start tripwire blocks --full-refresh of TRIGGERED synced marts (ADR-043)." {
             fctWorkflowCosts = container "fct_workflow_costs" "Gold-layer cost attribution with billing JOIN. 90-day rolling window." "SQL, dbt" "Database"
-            goldModels = container "Gold Models" "39 fact + 4 dim tables. Enforced contracts, liquid clustering." "SQL, dbt" "Database"
+            goldModels = container "Gold Models" "42 fact + 4 dim tables. Enforced contracts, liquid clustering. PSxG subsystem (ADR-059): fct_shot_psxg (atomic, all-provider) -> fct_gk_shot_stopping (+ pooled)." "SQL, dbt" "Database"
         }
 
         # Data stores
         unityCatalog = softwareSystem "Unity Catalog" "Governed Delta Lake: bronze (raw), gold (analytics), observability (metadata)" "External" {
-            bronzeSchema = container "Bronze Schema" "Raw events, tracking, SPADL actions, VAEP scores, compute results" "Delta Lake" "Database"
-            goldSchema = container "Gold Schema" "39 fact + 4 dim tables. Analytics-ready." "Delta Lake" "Database"
+            bronzeSchema = container "Bronze Schema" "Raw events, tracking, SPADL actions, VAEP scores, PSxG tracking predictions, compute results" "Delta Lake" "Database"
+            goldSchema = container "Gold Schema" "42 fact + 4 dim tables. Analytics-ready." "Delta Lake" "Database"
             observabilitySchema = container "Observability Schema" "workflow_cost_live, workflow_import_checksums, workflow_watermarks, definer's-rights views" "Delta Lake" "Database"
         }
 
