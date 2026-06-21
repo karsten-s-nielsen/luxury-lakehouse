@@ -33,7 +33,19 @@ def _multi_match_shots(n_matches: int = 4) -> pd.DataFrame:
     for m in range(n_matches):
         match_key = (m + 1) * 10
         for z, goal in ((0.4, 0), (0.8, 0), (1.8, 1), (2.3, 1)):
-            rows.append({"match_key": match_key, "end_location_y": 40.0, "end_location_z": z, "is_goal": goal})
+            rows.append(
+                {
+                    "match_key": match_key,
+                    "location_x": 105.0,
+                    "location_y": 40.0,
+                    "end_location_x": 120.0,
+                    "end_location_y": 40.0,
+                    "end_location_z": z,
+                    "distance_to_goal": 15.0,
+                    "shot_angle": 0.4,
+                    "is_goal": goal,
+                }
+            )
     return pd.DataFrame(rows)
 
 
@@ -79,11 +91,12 @@ def test_serialize_psxg_model_envelope_has_feature_names_and_roundtrips(tmp_path
     )
     envelope = json.loads(payload)
 
-    # ADR-012 §2: feature_names present + matches the canonical order.
+    # ADR-012 §2: feature_names present + matches the canonical 4-feature order.
     assert envelope["feature_names"] == list(PSXG_FEATURE_NAMES)
-    assert envelope["feature_names"] == ["end_location_y", "end_location_z"]
+    assert envelope["feature_names"][0] == "goalmouth_dist_from_centre"
+    assert len(envelope["feature_names"]) == 4
     assert envelope["model_version"] == "v2-ontarget"
-    assert len(envelope["coefficients"]) == 2
+    assert len(envelope["coefficients"]) == 4
     assert "scaler_mean" in envelope and "scaler_scale" in envelope
 
     # load_psxg_model reads the same envelope (the inference consumer's contract).

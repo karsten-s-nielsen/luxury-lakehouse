@@ -34,10 +34,10 @@ def test_load_psxg_model_roundtrip(tmp_path) -> None:
 
 def _model() -> PSxGModel:
     return PSxGModel(
-        coefficients=np.array([1.0, 2.0]),
+        coefficients=np.array([1.0, 2.0, -0.05, 0.5]),
         intercept=-1.0,
-        scaler_mean=np.array([0.0, 0.0]),
-        scaler_scale=np.array([1.0, 1.0]),
+        scaler_mean=np.zeros(4),
+        scaler_scale=np.ones(4),
     )
 
 
@@ -48,6 +48,8 @@ def _shots() -> pd.DataFrame:
             "match_key": [1, 1, 2, 2, 1, 2],
             "action_id": [10, 11, 12, 13, 14, 15],
             "data_source": ["idsse", "idsse", "skillcorner", "skillcorner", "idsse", "skillcorner"],
+            "start_x": [88.0, 90.0, 92.0, 89.0, 91.0, 90.0],
+            "start_y": [34.0, 33.0, 35.0, 34.0, 36.0, 34.0],
             "shot_crossing_y": [33.0, 35.0, 32.0, 36.0, 34.0, 34.0],
             "shot_crossing_z": [1.0, 2.0, 0.5, 1.5, 1.0, 1.0],
             "shot_crossing_confidence": [0.9, 0.9, 0.8, 0.8, 0.2, 0.9],  # row idx4 gated

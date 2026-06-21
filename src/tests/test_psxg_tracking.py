@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from analytics.goalkeeper import PSxGModel
+from analytics.goalkeeper import PSxGModel, build_psxg_features_tracking
 from analytics.psxg_tracking import (
     PlattParams,
     TrackingGateParams,
@@ -17,19 +17,21 @@ from analytics.psxg_tracking import (
 
 
 def _identity_scaler_model() -> PSxGModel:
-    # scaler is identity so x_scaled == normalized features; logits = feats @ coef + b.
+    # 4-feature model; identity scaler so x_scaled == features; logits = feats @ coef + b.
     return PSxGModel(
-        coefficients=np.array([1.0, 2.0]),
+        coefficients=np.array([1.0, 2.0, -0.05, 0.5]),
         intercept=-1.0,
-        scaler_mean=np.array([0.0, 0.0]),
-        scaler_scale=np.array([1.0, 1.0]),
+        scaler_mean=np.zeros(4),
+        scaler_scale=np.ones(4),
     )
 
 
 def _shots() -> pd.DataFrame:
     return pd.DataFrame(
         {
-            "shot_crossing_y": [34.0, 34.0],  # centre → y_norm 0.5
+            "start_x": [90.0, 90.0],  # 15 m out, central → distance/angle from spadl_shot_geometry
+            "start_y": [34.0, 34.0],
+            "shot_crossing_y": [34.0, 34.0],  # centre → y_norm 0.5 → dist_from_centre 0
             "shot_crossing_z": [1.0, 1.0],  # z_norm 1/7.32 ≈ 0.1366
             "shot_crossing_confidence": [0.9, 0.2],  # row0 passes, row1 fails
             "shot_fit_rmse": [0.1, 2.0],  # row0 passes, row1 fails
@@ -46,11 +48,14 @@ def test_scorer_gates_as_flag_not_drop() -> None:
 
 
 def test_scorer_math_matches_manual_logistic() -> None:
-    out = score_tracking_psxg(_shots(), _identity_scaler_model(), gate=TrackingGateParams())
-    y_norm = 0.5
-    z_norm = 1.0 / 7.32
-    expected = 1.0 / (1.0 + np.exp(-(y_norm * 1.0 + z_norm * 2.0 - 1.0)))
-    assert out["psxg"].iloc[0] == pytest.approx(expected, abs=1e-6)
+    shots = _shots()
+    model = _identity_scaler_model()
+    out = score_tracking_psxg(shots, model, gate=TrackingGateParams())
+    # Recompute via the same 4-feature builder the scorer uses + the manual logistic.
+    feats = build_psxg_features_tracking(shots)
+    x_scaled = (feats - model.scaler_mean) / model.scaler_scale
+    expected = 1.0 / (1.0 + np.exp(-(x_scaled @ model.coefficients + model.intercept)))
+    assert out["psxg"].iloc[0] == pytest.approx(expected[0], abs=1e-6)
 
 
 def test_scorer_empty_input() -> None:

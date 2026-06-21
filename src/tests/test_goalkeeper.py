@@ -201,8 +201,13 @@ def _make_on_target_shots(n: int = 100) -> pd.DataFrame:
             "event_id": [f"e{i}" for i in range(n)],
             "match_id": ["m1"] * n,
             "player_id": [10] * n,
+            "location_x": [105.0] * n,
+            "location_y": [40.0] * n,
+            "end_location_x": [120.0] * n,  # goal-line crossing (no projection needed)
             "end_location_y": np.concatenate([goal_y, save_y]),
             "end_location_z": np.concatenate([goal_z, save_z]),
+            "distance_to_goal": [15.0] * n,  # constant — placement (y/z) carries the signal
+            "shot_angle": [0.5] * n,
             "shot_outcome": ["Goal"] * goals + ["Saved"] * saves,
             "is_goal": [1] * goals + [0] * saves,
         }

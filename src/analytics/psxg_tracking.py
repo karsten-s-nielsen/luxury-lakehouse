@@ -1,10 +1,10 @@
 """Tracking-modality PSxG scoring + out-of-sample calibration.
 
-The PSxG model (2-feature logistic) lives in :mod:`analytics.goalkeeper`; this
-module applies it to the *tracking* modality (TF-48 ``shot_crossing_y/z`` in
-SPADL metres) and provides the out-of-sample Platt recalibration used for the
-tracking cohort. See spec ``docs/superpowers/specs/2026-06-20-psxg-tracking-extension-design.md``
-(D-C / D-F) and plan tasks 1.1 / 1.2.
+The PSxG model (4-feature logistic) lives in :mod:`analytics.goalkeeper`; this
+module applies it to the *tracking* modality (the measured TF-48 ``shot_crossing_y/z``
+goal-line crossing + ``start_x/y`` shot geometry, SPADL metres) and provides the
+out-of-sample Platt recalibration used for the tracking cohort. See spec
+``2026-06-20-psxg-tracking-extension-design.md`` (D-C / D-F) and plan tasks 1.1 / 1.2.
 
 Design notes
 ------------
@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from analytics.goalkeeper import PSxGModel, normalise_tracking_goalmouth
+from analytics.goalkeeper import PSxGModel, build_psxg_features_tracking
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -66,8 +66,8 @@ def score_tracking_psxg(
 
     Args:
         shots: on-target tracking shot rows with ``shot_crossing_y``,
-            ``shot_crossing_z``, ``shot_crossing_confidence``, ``shot_fit_rmse``
-            (SPADL metres / fit diagnostics).
+            ``shot_crossing_z``, ``start_x``, ``start_y`` (the 4-feature inputs, SPADL
+            metres) + ``shot_crossing_confidence``, ``shot_fit_rmse`` (gate diagnostics).
         model: the trained :class:`~analytics.goalkeeper.PSxGModel`.
         gate: confidence/RMSE gate; defaults to :class:`TrackingGateParams`.
 
@@ -89,10 +89,7 @@ def score_tracking_psxg(
         out["psxg_gated"] = pd.array([], dtype="boolean")
         return out
 
-    feats = normalise_tracking_goalmouth(
-        out["shot_crossing_y"].to_numpy(dtype=np.float64),
-        out["shot_crossing_z"].to_numpy(dtype=np.float64),
-    )
+    feats = build_psxg_features_tracking(out)
     # Same scale + logistic the model applies (mirrors goalkeeper.predict_psxg).
     x_scaled = (feats - model.scaler_mean) / model.scaler_scale
     logits = x_scaled @ model.coefficients + model.intercept

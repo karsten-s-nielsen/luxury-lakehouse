@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.47-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.48-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -183,6 +183,26 @@ def main() -> None:
             commit_message="Republish shots-on-target with PR 7 player_key + team_id + team_key columns",
         )
         logger.info("Uploaded parquet to https://huggingface.co/datasets/%s", DATASET_REPO)
+
+        # Single-file canonical layout: delete any other data/*.parquet (e.g. stale Spark
+        # part-files from the workflow-task publisher). load_shots concatenates every
+        # data/*.parquet, so leftover part-files of a different schema/population silently
+        # contaminate training (ADR-049 stale-part-file class — a mixed population poisoned
+        # a PSxG retrain on 2026-06-21). Keep only the file we just wrote.
+        existing = api.list_repo_files(repo_id=DATASET_REPO, repo_type="dataset")
+        stale = [
+            f
+            for f in existing
+            if f.startswith("data/") and f.endswith(".parquet") and f != "data/shots_on_target.parquet"
+        ]
+        if stale:
+            api.delete_files(
+                repo_id=DATASET_REPO,
+                repo_type="dataset",
+                delete_patterns=stale,
+                commit_message=f"Remove {len(stale)} stale parquet file(s) — single-file canonical layout",
+            )
+            logger.info("Deleted %d stale parquet file(s) from data/", len(stale))
 
         readme_result = upload_hf_readme(
             repo_id=DATASET_REPO,

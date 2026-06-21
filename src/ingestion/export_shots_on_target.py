@@ -119,8 +119,13 @@ SELECT
     s.player_key,
     s.team_id,
     s.team_key,
+    s.location_x,
+    s.location_y,
+    s.end_location_x,
     s.end_location_y,
     s.end_location_z,
+    s.distance_to_goal,
+    s.shot_angle,
     s.shot_outcome,
     CASE WHEN s.shot_outcome = 'Goal' THEN 1 ELSE 0 END    AS is_goal
 FROM {catalog}.{schema}.fct_shots s

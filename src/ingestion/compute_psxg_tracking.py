@@ -48,6 +48,8 @@ def _read_on_target_tracking_shots(spark: SparkSession, catalog: str, gold_schem
         SELECT ac.match_key,
                ac.action_id,
                ac.data_source,
+               ac.start_x,
+               ac.start_y,
                ac.shot_crossing_y,
                ac.shot_crossing_z,
                ac.shot_crossing_confidence,
