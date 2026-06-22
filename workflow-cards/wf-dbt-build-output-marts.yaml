@@ -85,6 +85,9 @@ outputs:
     - id: "{catalog}.dev_gold.fct_gk_actions_detail"
       destination: delta-table
       dbt_model: fct_gk_actions_detail
+    - id: "{catalog}.dev_gold.fct_gk_defensive_line"
+      destination: delta-table
+      dbt_model: fct_gk_defensive_line
     - id: "{catalog}.dev_gold.fct_gk_shot_stopping"
       destination: delta-table
       dbt_model: fct_gk_shot_stopping

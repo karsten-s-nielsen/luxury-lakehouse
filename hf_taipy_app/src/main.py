@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -18,8 +17,8 @@ from pages.conversion_funnel import page_config as funnel_config
 from pages.conversion_funnel import page_md as funnel_page
 from pages.defensive_valuation import page_config as defensive_impact_config
 from pages.defensive_valuation import page_md as defensive_impact_page
-from pages.goalkeeper import page_config as goalkeeper_config
-from pages.goalkeeper import page_md as goalkeeper_page
+from pages.gk_analytics import page_config as goalkeeper_config
+from pages.gk_analytics import page_md as goalkeeper_page
 from pages.heat_map import page_config as heat_map_config
 from pages.heat_map import page_md as heat_map_page
 from pages.match_summary import page_config as match_summary_config
@@ -51,7 +50,7 @@ from pages.workflows import page_md as workflows_page
 from state.action_values import *  # noqa: F403
 from state.conversion_funnel import *  # noqa: F403
 from state.defensive_valuation import *  # noqa: F403
-from state.goalkeeper import *  # noqa: F403
+from state.gk_analytics import *  # noqa: F403
 from state.heat_map import *  # noqa: F403
 from state.match_summary import *  # noqa: F403
 from state.movement_analysis import *  # noqa: F403
@@ -129,21 +128,6 @@ PAGE_REGISTRY: list[PageEntry] = [
     # Operations
     PageEntry("AI-ML-Workflows", workflows_config, workflows_page),
 ]
-
-# Goalkeeper Tracking (ADR-051): staging-gated side-by-side page. Registers ONLY when
-# LL_GK_TRACKING_PAGE=1 (set on the staging Space; absent in production), so production
-# stays bit-identical until final sign-off. Imports are inside the gate on purpose —
-# without the flag, none of the new modules load at all.
-if os.environ.get("LL_GK_TRACKING_PAGE") == "1":
-    import state.gk_tracking as _gkt_state  # registers the page refresher
-    from pages.gk_tracking import page_config as gk_tracking_config
-    from pages.gk_tracking import page_md as gk_tracking_page
-
-    # Taipy binds page variables from THIS module's globals (the state star-imports above).
-    # `from ... import *` is illegal inside a conditional, so inject __all__ explicitly —
-    # same effect, same surface, flag-gated.
-    globals().update({name: getattr(_gkt_state, name) for name in _gkt_state.__all__})
-    PAGE_REGISTRY.append(PageEntry("Goalkeeper-Tracking", gk_tracking_config, gk_tracking_page))
 
 # Generate nav and root page
 _nav_md = build_nav(PAGE_REGISTRY)

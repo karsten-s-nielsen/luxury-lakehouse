@@ -207,47 +207,6 @@ def search_players(
     )
 
 
-def search_goalkeepers(
-    query: str,
-    competition_id: int,
-    team_id: int | None = None,
-    *,
-    limit: int = 500,
-    top_n_when_empty: int = 50,
-) -> list[tuple[str, int]]:
-    """Backend substring-search for goalkeepers (GK-only) by display name.
-
-    Mirrors queries.goalkeepers.fetch_gk_player_lov semantics: only players with
-    rows in fct_goalkeeper_stats for the selected competition (+optional team).
-    Orders by display name (alpha) rather than minutes DESC so search results
-    are predictable — user types "van der", sees matches in alpha order.
-    """
-    gk_tbl = t("fct_goalkeeper_stats_synced")
-    players_tbl = t("dim_players_synced")
-    base_predicates = ["gk.competition_id = %s"]
-    base_params: list[Any] = [int(competition_id)]
-    if team_id is not None:
-        base_predicates.append("gk.team_id = %s")
-        base_params.append(int(team_id))
-    where = " AND ".join(base_predicates)
-    select_from_where = (
-        f"SELECT p.player_display_name AS name, p.player_id AS id "  # noqa: S608
-        f"FROM {gk_tbl} gk "
-        f"JOIN {players_tbl} p ON gk.player_id = p.player_id "
-        f"WHERE {where}"
-    )
-    return _execute_search_query(
-        select_from_where=select_from_where,
-        name_column="p.player_display_name",
-        query=query,
-        base_params=tuple(base_params),
-        group_by="p.player_display_name, p.player_id",
-        limit=limit,
-        top_n_when_empty=top_n_when_empty,
-        return_id_type=int,
-    )
-
-
 def search_pausa_players(
     query: str,
     match_id: str,

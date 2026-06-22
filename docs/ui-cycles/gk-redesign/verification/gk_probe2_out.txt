@@ -1,0 +1,21 @@
+Installed 20 packages in 537ms
+[WARN] pyarrow is not installed by default since databricks-sql-connector 4.0.0,any arrow specific api (e.g. fetchmany_arrow) and cloud fetch will be disabled.If you need these features, please run pip install pyarrow or pip install databricks-sql-connector[pyarrow] to install
+
+== fct_goalkeeper_stats by data_source (+gp non-null) ==
+data_source | n | gp_nn
+statsbomb | 7509 | 6560
+wyscout | 4475 | 0
+
+== fct_goalkeeper_stats key cols ==
+column_name
+player_key
+
+== fct_gk_shot_stopping by data_source ==
+data_source | n | gks
+gradientsports | 112 | 52
+idsse | 6 | 5
+skillcorner | 27 | 23
+statsbomb | 6560 | 677
+
+DONE
+EXIT=0

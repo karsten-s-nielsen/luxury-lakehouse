@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Defensive view v4 — sweeper-led, per-provider, honest sample</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#0d1521;color:#dfe7f0;display:flex;min-height:100vh;}
+  .nav{width:190px;flex-shrink:0;background:#0a111b;border-right:1px solid #1c2636;padding:14px 0;font-size:12px;}
+  .nav .grp{color:#5d7290;font-size:10px;letter-spacing:.08em;padding:12px 16px 4px;text-transform:uppercase;}
+  .nav .item{padding:6px 16px;color:#aab8cc;}
+  .nav .item.on{background:#13202f;color:#f0a23c;border-left:2px solid #f0a23c;}
+  .main{flex:1;padding:20px 26px 60px;max-width:1000px;}
+  .brand{color:#f0a23c;font-size:19px;font-weight:700;margin-bottom:12px;}
+  h2{font-size:18px;font-weight:650;margin-bottom:4px;}
+  .blurb{color:#8b9bb0;font-size:12px;margin-bottom:12px;max-width:840px;}
+  .blurb a{color:#f0a23c;text-decoration:underline;}
+  .ctx{display:flex;gap:24px;background:#101a27;border-left:3px solid #f0a23c;border-radius:6px;padding:9px 16px;font-size:12px;margin-bottom:14px;flex-wrap:wrap;}
+  .ctx b{color:#5d7290;font-weight:600;margin-right:6px;}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px;}
+  .kpi{background:#131c2b;border:1px solid #243043;border-radius:8px;padding:11px 13px;}
+  .kpi .k{font-size:10px;letter-spacing:.05em;color:#5d7290;text-transform:uppercase;}
+  .kpi .v{font-size:21px;font-weight:700;margin:3px 0 2px;}
+  .kpi .s{font-size:11px;color:#8b9bb0;}
+  .kpi.verdict{border-color:#f0a23c;}.kpi.verdict .v{color:#f0a23c;font-size:16px;}
+  .story{border:1px solid #f0a23c;border-radius:8px;padding:13px 16px;margin-bottom:14px;background:#13141a;}
+  .story .h{color:#f0a23c;font-size:11px;letter-spacing:.08em;font-weight:700;margin-bottom:5px;}
+  .story p{font-size:13px;line-height:1.5;}
+  .card{background:#131c2b;border:1px solid #243043;border-radius:8px;padding:13px 16px;margin-bottom:14px;}
+  .card .ct{font-size:13px;font-weight:600;}
+  .card .cs{font-size:11px;color:#8b9bb0;margin-bottom:6px;}
+  .foot{font-size:10px;color:#5d7290;margin-top:9px;line-height:1.5;}
+  .banner{font-size:11px;color:#8b9bb0;background:#0f1a14;border:1px solid #234034;border-left:3px solid #3fb950;border-radius:6px;padding:7px 12px;margin-bottom:14px;}
+  .sec{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .sbox{background:#10161f;border:1px dashed #2c3a4a;border-radius:8px;padding:10px 13px;}
+  .sbox .k{font-size:10px;letter-spacing:.05em;color:#5d7290;text-transform:uppercase;}
+  .sbox .v{font-size:17px;font-weight:700;margin:3px 0 2px;color:#c9d1d9;}
+  .pill{display:inline-block;font-size:9px;padding:1px 6px;border-radius:8px;margin-left:6px;vertical-align:middle;}
+  .pill.low{background:#2a2030;color:#e8b34a;border:1px solid #6b5320;}
+  .pill.pend{background:#22262b;color:#8b9bb0;border:1px solid #3a4350;}
+</style>
+</head>
+<body>
+  <div class="nav">
+    <div class="grp">Player Analysis</div>
+    <div class="item on">🧤 Goalkeeper Analytics</div>
+    <div class="grp">View</div>
+    <div class="item">Distribution Value</div>
+    <div class="item on" style="border-left-color:#3fb950;color:#3fb950;">▸ Shot Review</div>
+  </div>
+
+  <div class="main">
+    <div class="brand">⚽ (Right! Luxury!) Lakehouse</div>
+    <h2>🧤 Goalkeeper Analytics — Shot Review (Defensive)</h2>
+    <div class="blurb">His defensive contribution as a <b>space-commander</b>: how much ground he covers behind the line and how fast he reaches the box — measured on <b>every defended action</b> (≈150+ per keeper), not just the handful of shots he faces. Pitch-control / reachable-area / closing-time via <a>silly-kicks</a> GK-influence; the line he plays behind from avg defensive line position.</div>
+
+    <div class="banner">Sweeper metrics are robust (≈150+ defended actions/keeper). Shot-facing metrics (positioning accuracy, goals-prevented) are <b>thin — avg ~3–16 shots/keeper</b> — so they appear as honest value ± band, never as the headline, and never ranked.</div>
+
+    <div class="ctx">
+      <span><b>COHORT</b> his provider's keepers</span>
+      <span><b>KEEPER</b> Y. Sommer</span>
+      <span><b>HIS LINE</b> Deep block (avg line 38 m)</span>
+      <span><b>SAMPLE</b> 152 defended · 12 shots</span>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi"><div class="k">Reachable area</div><div class="v">298 m²</div><div class="s">upper-cohort · n=152</div></div>
+      <div class="kpi"><div class="k">Pitch-control share</div><div class="v">9.1%</div><div class="s">above cohort median</div></div>
+      <div class="kpi"><div class="k">Closing time · 6-yd</div><div class="v">1.5 s</div><div class="s">faster than median (lower=better)</div></div>
+      <div class="kpi verdict"><div class="k">Our verdict</div><div class="v">Underused sweeper</div><div class="s">sweeper range, deep line</div></div>
+    </div>
+
+    <div class="story">
+      <div class="h">★ BIG STORY</div>
+      <p><b>A sweeper used as a line-keeper.</b> His sweeping range and box-coverage speed sit in the upper part of the cohort — and that read is <b>solid</b> because it’s measured over 152 defended actions, not a handful of shots. Yet his team defends deep (avg line ~38 m from goal). The system parks its sweeper on his line and wastes his best defensive asset — the mirror of his distribution story: <i>right keeper, wrong system.</i></p>
+    </div>
+
+    <div class="card">
+      <div class="ct">Sweeper profile vs his provider's cohort</div>
+      <div class="cs">his value (●) against <b>his provider's</b> keepers' spread (shaded = IQR, tick = median; band shown only if ≥8 GKs). Per-provider — providers differ in tracking method. Position in the spread, NOT a rank.</div>
+      <svg width="100%" viewBox="0 0 880 196">
+        <!-- three metric rows; track x 180..720 -->
+        <g font-size="12" fill="#aab8cc">
+          <!-- Reachable area row y=44 -->
+          <text x="16" y="40">Reachable area</text>
+          <text x="16" y="54" font-size="9" fill="#5d7290">m² covered</text>
+          <line x1="180" y1="44" x2="720" y2="44" stroke="#2a3a4f" stroke-width="2"/>
+          <rect x="330" y="39" width="270" height="10" fill="#23415a" opacity="0.6"/>
+          <line x1="450" y1="36" x2="450" y2="52" stroke="#8b9bb0" stroke-width="2"/>
+          <circle cx="534" cy="44" r="7" fill="#3fb950"/><text x="534" y="28" fill="#3fb950" font-size="11" text-anchor="middle">298</text>
+          <text x="150" y="48" text-anchor="end" font-size="9" fill="#5d7290">180</text><text x="732" y="48" font-size="9" fill="#5d7290">360</text>
+          <text x="740" y="40" font-size="9" fill="#3fb950">better →</text>
+
+          <!-- Pitch-control row y=98 -->
+          <text x="16" y="94">Pitch-control share</text>
+          <text x="16" y="108" font-size="9" fill="#5d7290">% of pitch</text>
+          <line x1="180" y1="98" x2="720" y2="98" stroke="#2a3a4f" stroke-width="2"/>
+          <rect x="288" y="93" width="270" height="10" fill="#23415a" opacity="0.6"/>
+          <line x1="423" y1="90" x2="423" y2="106" stroke="#8b9bb0" stroke-width="2"/>
+          <circle cx="455" cy="98" r="7" fill="#3fb950"/><text x="455" y="82" fill="#3fb950" font-size="11" text-anchor="middle">9.1%</text>
+          <text x="150" y="102" text-anchor="end" font-size="9" fill="#5d7290">4%</text><text x="732" y="102" font-size="9" fill="#5d7290">14%</text>
+          <text x="740" y="94" font-size="9" fill="#3fb950">better →</text>
+
+          <!-- Closing time row y=152 (lower=better, so right=faster) -->
+          <text x="16" y="148">Closing time · 6-yd</text>
+          <text x="16" y="162" font-size="9" fill="#5d7290">seconds</text>
+          <line x1="180" y1="152" x2="720" y2="152" stroke="#2a3a4f" stroke-width="2"/>
+          <rect x="315" y="147" width="304" height="10" fill="#23415a" opacity="0.6"/>
+          <line x1="484" y1="144" x2="484" y2="160" stroke="#8b9bb0" stroke-width="2"/>
+          <circle cx="551" cy="152" r="7" fill="#3fb950"/><text x="551" y="136" fill="#3fb950" font-size="11" text-anchor="middle">1.5 s</text>
+          <text x="150" y="156" text-anchor="end" font-size="9" fill="#5d7290">2.6 s</text><text x="732" y="156" font-size="9" fill="#5d7290">1.0 s</text>
+          <text x="740" y="148" font-size="9" fill="#3fb950">faster →</text>
+        </g>
+      </svg>
+      <div class="foot">Measured over 152 defended actions (pitch-control / reachable-area / closing-time are non-null on every tracked defended action). Cohort spread = <b>his own provider's</b> keepers (SkillCorner), median ± IQR — NOT pooled across providers (pitch-control 0.137 GS vs 0.200 SC = methodology effect). No percentile/rank shown. Values illustrative.</div>
+    </div>
+
+    <div class="card">
+      <div class="ct">Spatial command vs the line he plays behind</div>
+      <div class="cs">his sweeping command (upper-cohort, above) and his side's avg line — the §11a rule, descriptive (no formation recommended)</div>
+      <svg width="100%" viewBox="0 0 880 96">
+        <text x="16" y="34" font-size="12" fill="#aab8cc">His side’s line</text>
+        <line x1="180" y1="52" x2="720" y2="52" stroke="#2a3a4f" stroke-width="2"/>
+        <text x="180" y="74" font-size="10" fill="#5d7290" text-anchor="middle">Deep block</text>
+        <text x="450" y="74" font-size="10" fill="#5d7290" text-anchor="middle">Mid block</text>
+        <text x="720" y="74" font-size="10" fill="#5d7290" text-anchor="middle">High line</text>
+        <circle cx="235" cy="52" r="8" fill="#5b9bd5"/><text x="235" y="38" font-size="10" fill="#5b9bd5" text-anchor="middle">his side (≈38 m, deep tercile)</text>
+        <text x="450" y="90" fill="#f0a23c" font-size="10" text-anchor="middle">command upper-cohort + line deep → "command unused behind a deep line"</text>
+      </svg>
+    </div>
+
+    <div class="card">
+      <div class="ct">Shot-facing — honest, thin sample <span class="pill low">low sample</span></div>
+      <div class="cs">these confirm the profile when volume allows; today too few shots to lead or rank</div>
+      <div class="sec">
+        <div class="sbox"><div class="k">Ghost-positioning deviation</div><div class="v">1.9 m <span style="font-size:12px;color:#8b9bb0;">± 0.8</span></div><div class="s" style="font-size:11px;color:#8b9bb0;">n=12 shots — band wide; treat as indicative</div></div>
+        <div class="sbox"><div class="k">Goals prevented <span class="pill low">low sample</span></div><div class="v">+0.4 <span style="font-size:12px;color:#8b9bb0;">± 1.5</span></div><div class="s" style="font-size:11px;color:#8b9bb0;">n=12 shots · band straddles 0 (inconclusive) · higher = better, 0 = as expected · live (ADR-060 PSxG)</div></div>
+      </div>
+      <div class="foot">Ghost deviation &amp; goals-prevented are per shot faced (avg ~3–16/keeper) → shown as value ± uncertainty band with a low-sample flag, never ranked (GK ranking gated ≥20×20, not met). Values illustrative.</div>
+    </div>
+  </div>
+</body>
+</html>

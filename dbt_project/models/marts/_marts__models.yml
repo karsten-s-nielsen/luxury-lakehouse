@@ -5731,3 +5731,36 @@ models:
         description: percent_rank within (competition, season); NULL while ranking_enabled=false.
       - name: _loaded_at
         data_type: timestamp
+
+  - name: fct_gk_defensive_line
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Per-(defending GK, competition) defensive-line + shape aggregate for the tracking cohort.
+      Keyed on the DEFENDING goalkeeper (the line in front of him), not the attacking team_key.
+      avg_line_height_m is the back line's average distance from its OWN goal (metres; higher =
+      higher line) — silly-kicks' raw defensive_line_x is an absolute home-LTR coordinate, so it is
+      normalised per action to own-goal distance before averaging.
+    columns:
+      - name: gk_defensive_line_id
+        data_type: string
+        data_tests: [unique, not_null]
+      - name: gk_player_key
+        data_type: bigint
+        data_tests: [not_null]
+      - name: competition_key
+        data_type: bigint
+      - name: data_source
+        data_type: string
+      - name: avg_line_height_m
+        data_type: double
+      - name: avg_width
+        data_type: double
+      - name: avg_compactness
+        data_type: double
+      - name: n_actions
+        data_type: bigint

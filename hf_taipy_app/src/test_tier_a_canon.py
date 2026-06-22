@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pages.action_values import page_config as player_impact_config
 from pages.conversion_funnel import page_config as conversion_funnel_config
-from pages.goalkeeper import page_config as goalkeeper_config
+from pages.gk_analytics import page_config as goalkeeper_config  # route "Goalkeeper-Analytics", new page
 from pages.heat_map import page_config as heat_map_config
 from pages.match_summary import page_config as match_summary_config
 from pages.pass_map import page_config as pass_map_config

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Offensive view v3 — within-keeper, no ranks</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#0d1521;color:#dfe7f0;display:flex;min-height:100vh;}
+  .nav{width:190px;flex-shrink:0;background:#0a111b;border-right:1px solid #1c2636;padding:14px 0;font-size:12px;}
+  .nav .grp{color:#5d7290;font-size:10px;letter-spacing:.08em;padding:12px 16px 4px;text-transform:uppercase;}
+  .nav .item{padding:6px 16px;color:#aab8cc;}
+  .nav .item.on{background:#13202f;color:#f0a23c;border-left:2px solid #f0a23c;}
+  .main{flex:1;padding:20px 26px 60px;max-width:1000px;}
+  .brand{color:#f0a23c;font-size:19px;font-weight:700;margin-bottom:12px;}
+  h2{font-size:18px;font-weight:650;margin-bottom:4px;}
+  .blurb{color:#8b9bb0;font-size:12px;margin-bottom:12px;max-width:840px;}
+  .blurb a{color:#f0a23c;text-decoration:underline;}
+  .ctx{display:flex;gap:24px;background:#101a27;border-left:3px solid #f0a23c;border-radius:6px;padding:9px 16px;font-size:12px;margin-bottom:14px;flex-wrap:wrap;}
+  .ctx b{color:#5d7290;font-weight:600;margin-right:6px;}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px;}
+  .kpi{background:#131c2b;border:1px solid #243043;border-radius:8px;padding:11px 13px;}
+  .kpi .k{font-size:10px;letter-spacing:.05em;color:#5d7290;text-transform:uppercase;}
+  .kpi .v{font-size:21px;font-weight:700;margin:3px 0 2px;}
+  .kpi .s{font-size:11px;color:#8b9bb0;}
+  .kpi.verdict{border-color:#f0a23c;}.kpi.verdict .v{color:#f0a23c;font-size:16px;}
+  .story{border:1px solid #f0a23c;border-radius:8px;padding:13px 16px;margin-bottom:14px;background:#13141a;}
+  .story .h{color:#f0a23c;font-size:11px;letter-spacing:.08em;font-weight:700;margin-bottom:5px;}
+  .story p{font-size:13px;line-height:1.5;}
+  .story .inf{color:#8b9bb0;font-style:italic;font-size:11px;margin-top:5px;}
+  .card{background:#131c2b;border:1px solid #243043;border-radius:8px;padding:13px 16px;margin-bottom:14px;}
+  .card .ct{font-size:13px;font-weight:600;}
+  .card .cs{font-size:11px;color:#8b9bb0;margin-bottom:6px;}
+  table{width:100%;border-collapse:collapse;font-size:12px;}
+  th{text-align:left;color:#5d7290;font-weight:600;font-size:10px;letter-spacing:.04em;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid #243043;}
+  td{padding:6px 8px;border-bottom:1px solid #1a2330;}
+  tr.star td{background:#161b22;}
+  .pos{color:#3fb950;}.neg{color:#e5544b;}.dir{color:#aab8cc;}
+  .foot{font-size:10px;color:#5d7290;margin-top:9px;line-height:1.5;}
+  .pill{display:inline-block;font-size:9px;padding:1px 6px;border-radius:8px;background:#2a2030;color:#e8b34a;border:1px solid #6b5320;margin-left:6px;vertical-align:middle;}
+  .banner{font-size:11px;color:#8b9bb0;background:#0f1a14;border:1px solid #234034;border-left:3px solid #3fb950;border-radius:6px;padding:7px 12px;margin-bottom:14px;}
+</style>
+</head>
+<body>
+  <div class="nav">
+    <div class="grp">Player Analysis</div>
+    <div class="item on">🧤 Goalkeeper Analytics</div>
+    <div class="grp">View</div>
+    <div class="item on" style="border-left-color:#3fb950;color:#3fb950;">▸ Distribution Value</div>
+    <div class="item">Shot Review</div>
+  </div>
+
+  <div class="main">
+    <div class="brand">⚽ (Right! Luxury!) Lakehouse</div>
+    <h2>🧤 Goalkeeper Analytics — Distribution Value</h2>
+    <div class="blurb">How much threat his passing creates, and <b>which game model gets the most out of him</b>. Each of his distributions is re-valued under all six pre-computed models — so this is a <b>within-keeper</b> comparison (robust at any volume); no cross-keeper ranking is shown (cohort too small to rank). xT-GK = Eyestone action-based threat for GK passes, via <a>silly-kicks</a>.</div>
+
+    <div class="banner">No leaderboard / percentile rendered — GK ranking is gated at ≥20 keepers × ≥20 shots (not met). Cross-keeper context is shown only as a pooled cohort <b>reference band</b>, never a rank.</div>
+
+    <div class="ctx">
+      <span><b>COHORT</b> GradientSports + SkillCorner + IDSSE (pooled, in-app)</span>
+      <span><b>KEEPER</b> Y. Sommer</span>
+      <span><b>INFERRED SYSTEM</b> Possession <span class="pill">inferred</span></span>
+      <span><b>SAMPLE</b> 41 distributions</span>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi"><div class="k">xT-GK / distribution</div><div class="v">0.041</div><div class="s">under his (inferred) system · n=41</div></div>
+      <div class="kpi"><div class="k">Best-fit system</div><div class="v">Counter</div><div class="s">0.061 — +0.020 vs his actual</div></div>
+      <div class="kpi"><div class="k">Fit spread</div><div class="v">0.028–0.061</div><div class="s">wide → system-sensitive</div></div>
+      <div class="kpi verdict"><div class="k">Our verdict</div><div class="v">Mis-deployed <span class="pill">inferred</span></div><div class="s">counter profile, possession side</div></div>
+    </div>
+
+    <div class="story">
+      <div class="h">★ BIG STORY</div>
+      <p><b>A transition distributor in a possession side.</b> Re-valuing his own 41 distributions under each game model, Sommer is worth most on the <b style="color:#f0a23c;">Counter</b> (0.061/dist) and notably less in slow build-up (0.041 — his side’s inferred style). The shape of that curve is stable even at this volume because it re-weights the same passes; the absolute level is noisier.</p>
+      <p class="inf">“His system” is inferred from tracking signals (avg defensive line height, team shape, das) — there is no actual game-model label in the data. Treat the mis-deployment read as a hypothesis, not a fact.</p>
+    </div>
+
+    <div class="card">
+      <div class="ct">His distribution value under each game model</div>
+      <div class="cs">mean xT-GK per distribution — HIS OWN 41 passes re-valued under each model · dashed = pooled cohort median · blue = inferred actual · amber = best fit</div>
+      <svg width="100%" viewBox="0 0 880 232">
+        <!-- gridlines value 0..0.07 -> x 200..840 -->
+        <g stroke="#1d2838" stroke-width="1">
+          <line x1="200" y1="26" x2="200" y2="196"/><line x1="360" y1="26" x2="360" y2="196"/><line x1="520" y1="26" x2="520" y2="196"/><line x1="680" y1="26" x2="680" y2="196"/><line x1="840" y1="26" x2="840" y2="196"/>
+        </g>
+        <g fill="#5d7290" font-size="10" text-anchor="middle">
+          <text x="200" y="210">0</text><text x="360" y="210">0.018</text><text x="520" y="210">0.035</text><text x="680" y="210">0.053</text><text x="840" y="210">0.070</text>
+          <text x="520" y="224" fill="#6e7681">mean xT-GK per distribution</text>
+        </g>
+        <!-- cohort median ref at 0.034 -> x=511 -->
+        <line x1="511" y1="26" x2="511" y2="196" stroke="#6e7681" stroke-dasharray="3 3"/>
+        <text x="511" y="20" fill="#6e7681" font-size="9" text-anchor="middle">cohort median</text>
+        <!-- rows: px = 200 + (v/0.07)*640 -->
+        <g font-size="12">
+          <text x="190" y="42" text-anchor="end" fill="#f0a23c" font-weight="700">Counter</text>
+          <line x1="200" y1="38" x2="757" y2="38" stroke="#2a3a4f"/><circle cx="757" cy="38" r="8" fill="#f0a23c"/><text x="767" y="42" fill="#f0a23c" font-size="11">0.061 · best fit</text>
+          <text x="190" y="70" text-anchor="end" fill="#aab8cc">Direct</text>
+          <line x1="200" y1="66" x2="639" y2="66" stroke="#2a3a4f"/><circle cx="639" cy="66" r="5" fill="#6e7681"/><text x="649" y="70" fill="#8b9bb0" font-size="11">0.048</text>
+          <text x="190" y="98" text-anchor="end" fill="#5b9bd5" font-weight="700">Possession</text>
+          <line x1="200" y1="94" x2="575" y2="94" stroke="#2a3a4f"/><circle cx="575" cy="94" r="7" fill="#5b9bd5"/><text x="585" y="98" fill="#5b9bd5" font-size="11">0.041 · inferred actual</text>
+          <text x="190" y="126" text-anchor="end" fill="#aab8cc">High Press</text>
+          <line x1="200" y1="122" x2="547" y2="122" stroke="#2a3a4f"/><circle cx="547" cy="122" r="5" fill="#6e7681"/><text x="557" y="126" fill="#8b9bb0" font-size="11">0.038</text>
+          <text x="190" y="154" text-anchor="end" fill="#aab8cc">Default</text>
+          <line x1="200" y1="150" x2="529" y2="150" stroke="#2a3a4f"/><circle cx="529" cy="150" r="5" fill="#6e7681"/><text x="539" y="154" fill="#8b9bb0" font-size="11">0.036</text>
+          <text x="190" y="182" text-anchor="end" fill="#aab8cc">Low Block</text>
+          <line x1="200" y1="178" x2="456" y2="178" stroke="#2a3a4f"/><circle cx="456" cy="178" r="5" fill="#6e7681"/><text x="466" y="182" fill="#8b9bb0" font-size="11">0.028</text>
+        </g>
+        <g stroke="#f0a23c" stroke-width="1.4" fill="none"><path d="M575 84 L575 78 L757 78 L757 30"/></g>
+        <text x="666" y="74" fill="#f0a23c" font-size="10" text-anchor="middle">+0.020 untapped fit</text>
+      </svg>
+    </div>
+
+    <div class="card">
+      <div class="ct">Per-system breakdown — with plain-language read</div>
+      <table>
+        <thead><tr><th>Game model</th><th>xT-GK / dist</th><th>vs cohort mean</th><th>Direction</th></tr></thead>
+        <tbody>
+          <tr class="star"><td>★ Counter</td><td>0.061</td><td class="pos">+0.027 ▲</td><td class="dir">Far above cohort on the counter — his clear strength</td></tr>
+          <tr><td>Direct</td><td>0.048</td><td class="pos">+0.014 ▲</td><td class="dir">Comfortable hitting early forward balls</td></tr>
+          <tr><td>Possession <span style="color:#5b9bd5">(inferred actual)</span></td><td>0.041</td><td class="pos">+0.007 ▲</td><td class="dir">Above average, but well short of his ceiling</td></tr>
+          <tr><td>High Press</td><td>0.038</td><td class="pos">+0.004 ▲</td><td class="dir">Around cohort-median when forced to play out</td></tr>
+          <tr><td>Default</td><td>0.036</td><td class="pos">+0.002 ▲</td><td class="dir">Unremarkable with no tactical tilt</td></tr>
+          <tr><td>Low Block</td><td>0.028</td><td class="neg">−0.006 ▼</td><td class="dir">Below average parked deep — not his game</td></tr>
+        </tbody>
+      </table>
+      <div class="foot">Within-keeper: all six values are HIS 41 distributions re-valued — the ranking is stable; absolute values carry sampling noise. “vs cohort mean” = pooled GS+SkillCorner+IDSSE reference (a band, not a rank). Off-ball positioning not valued (distribution only). Values illustrative.</div>
+    </div>
+  </div>
+</body>
+</html>
