@@ -79,12 +79,12 @@ def test_get_auth_headers_does_not_call_subprocess(monkeypatch: pytest.MonkeyPat
     _get_auth_headers()  # must not raise
 
 
-def test_synced_tables_list_has_44_entries() -> None:
-    """SYNCED_TABLES drift guard — 44 SyncedTableConfig entries
-    (+2 GK tracking marts, ADR-051)."""
+def test_synced_tables_list_has_46_entries() -> None:
+    """SYNCED_TABLES drift guard — 46 SyncedTableConfig entries
+    (+2 GK tracking marts ADR-051; +2 GK insight-views marts: pooled shot-stopping + defensive line)."""
     from ingestion.refresh_synced_tables import SYNCED_TABLES, SyncedTableConfig
 
-    assert len(SYNCED_TABLES) == 44
+    assert len(SYNCED_TABLES) == 46
     assert all(isinstance(c, SyncedTableConfig) for c in SYNCED_TABLES)
 
 
@@ -153,13 +153,13 @@ def test_synced_table_config_rejects_invalid_scheduling_policy() -> None:
 
 
 def test_synced_tables_scheduling_policy_distribution() -> None:
-    """15 TRIGGERED + 29 SNAPSHOT = 44 total (+2 GK tracking TRIGGERED, ADR-051)."""
+    """15 TRIGGERED + 31 SNAPSHOT = 46 total (+2 GK insight-views SNAPSHOT marts)."""
     from ingestion.refresh_synced_tables import SYNCED_TABLES
 
     triggered = [c for c in SYNCED_TABLES if c.scheduling_policy == "TRIGGERED"]
     snapshot = [c for c in SYNCED_TABLES if c.scheduling_policy == "SNAPSHOT"]
     assert len(triggered) == 15, f"Expected 15 TRIGGERED, got {len(triggered)}: {[c.name for c in triggered]}"
-    assert len(snapshot) == 29, f"Expected 29 SNAPSHOT, got {len(snapshot)}: {[c.name for c in snapshot]}"
+    assert len(snapshot) == 31, f"Expected 31 SNAPSHOT, got {len(snapshot)}: {[c.name for c in snapshot]}"
 
 
 def test_synced_tables_all_have_primary_keys() -> None:

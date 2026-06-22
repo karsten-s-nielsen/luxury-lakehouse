@@ -209,12 +209,15 @@ The "Power of Three" coaching framework and game state context layer
 analysis practice (Thomson, Sfeir, Gronnemark). These are practitioner
 methodologies, not peer-reviewed publications.
 
-Goalkeeper Tracking Analytics (ADR-051)
-The Goalkeeper Tracking page's distribution-valuation framework (xT-GK: base
-xT + Pressure Escape Value + Risk-Adjusted Value + Defensive Zone Value, with
-team-philosophy presets) follows Eyestone, J., "xT-GK: Expected Threat for
-Goalkeepers" (practitioner presentation / course materials; implemented
-upstream in silly-kicks, lakehouse ADR-048). The goalkeeper-profile framing
+Goalkeeper Analytics (ADR-051, ADR-061)
+The Goalkeeper Analytics page's distribution-valuation framework (xT-GK: base
+xT + Pressure Escape Value + Risk-Adjusted Value + Defensive Zone Value)
+follows Eyestone, J., "xT-GK: Expected Threat for Goalkeepers" (practitioner
+presentation / course materials; implemented upstream in silly-kicks, lakehouse
+ADR-048). The page surfaces the signed per-distribution xT-GK and the share of
+distributions that add threat; the team-philosophy preset ladder was dropped
+from the page as statistically degenerate (~0.99 collinear, ADR-061) — the
+presets remain available upstream in silly-kicks. The goalkeeper-profile framing
 (defending: lead organization / starting position / control space / control
 box / protect goal; attacking: read pressure / initiate build-up / support
 positioning) follows Poole, P. (2022), "USWNT Goalkeeper Profile," IGCC

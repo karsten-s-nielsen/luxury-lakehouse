@@ -1,0 +1,73 @@
+Installed 20 packages in 1.18s
+[WARN] pyarrow is not installed by default since databricks-sql-connector 4.0.0,any arrow specific api (e.g. fetchmany_arrow) and cloud fetch will be disabled.If you need these features, please run pip install pyarrow or pip install databricks-sql-connector[pyarrow] to install
+
+===== B1 xT-GK + components sign (fct_action_context, xt_gk IS NOT NULL) =====
+n | avg_xtgk | min_xtgk | max_xtgk | frac_neg_xtgk | avg_pev | pev_pos | avg_dzv | dzv_pos | avg_rav | rav_pos | avg_base | avg_completion
+5227 | -0.019 | -0.0792 | 0.0324 | 0.832 | 0.0 | 0.021 | -0.0058 | 0.379 | 0.0065 | 0.892 | -0.0213 | 0.751
+
+===== B1 per-GK dist_xt_gk_mean by provider (fct_gk_tracking_stats) =====
+data_source | gks | avg_default | min_d | max_d | frac_neg | avg_counter
+gradientsports | 62 | -0.0228 | -0.0792 | 0.0324 | 0.968 | -0.0209
+idsse | 17 | -0.0221 | -0.0706 | 0.0175 | 0.882 | -0.0202
+metrica | 6 | -0.0187 | -0.0298 | 0.0025 | 0.833 | -0.0173
+skillcorner | 61 | -0.004 | -0.0521 | 0.0133 | 0.721 | -0.0046
+
+===== C2a dim_players key columns =====
+column_name
+canonical_player_id
+canonical_player_key
+player_key
+
+===== C2a canonical spanning >1 tracking provider =====
+total_canonical | span_multi_tracking
+0 | 
+
+===== C3 fct_gk_shot_stopping_pooled columns =====
+column_name
+gk_pooled_id
+player_key
+competition_key
+season_id
+data_source
+shots_faced
+shots_faced_total
+goals_conceded_on_shots
+psxg_faced
+goals_prevented
+goals_prevented_ci_low
+goals_prevented_ci_high
+low_sample
+ranking_enabled
+goals_prevented_pctile
+_loaded_at
+
+===== C3 fct_gk_shot_stopping columns =====
+column_name
+gk_shot_stopping_id
+player_key
+match_key
+competition_key
+season_id
+data_source
+shots_faced
+shots_faced_total
+goals_conceded_on_shots
+psxg_faced
+goals_prevented
+psxg_variance_sum
+low_sample
+psxg_calibration
+model_version
+platt_version
+normalization_version
+_loaded_at
+
+===== C2b per-provider sweeper means (fct_gk_tracking_stats) =====
+data_source | gkm | avg_reach | avg_pc | avg_close | avg_def
+gradientsports | 201 | 5.9 | 0.1367 | 1.54 | 447.0
+idsse | 14 | 6.0 | 0.1888 | 1.84 | 602.0
+metrica | 6 | 5.4 | 0.1833 | 1.49 | 1027.0
+skillcorner | 21 | 5.9 | 0.1996 | 1.79 | 561.0
+
+DONE
+EXIT=0

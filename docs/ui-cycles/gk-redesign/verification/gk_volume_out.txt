@@ -1,0 +1,63 @@
+Installed 20 packages in 922ms
+[WARN] pyarrow is not installed by default since databricks-sql-connector 4.0.0,any arrow specific api (e.g. fetchmany_arrow) and cloud fetch will be disabled.If you need these features, please run pip install pyarrow or pip install databricks-sql-connector[pyarrow] to install
+
+===== LOCATE fct_action_context =====
+SELECT table_catalog, table_schema
+FROM system.information_schema.tables
+WHERE table_name = 'fct_action_context'
+ORDER BY table_catalog, table_schema
+table_catalog | table_schema
+soccer_analytics | dev_gold
+
+>>> Using schema: soccer_analytics.dev_gold
+
+===== OFFENSIVE — distributions per GK (per provider) =====
+WITH g AS (
+      SELECT gk_player_key, data_source, SUM(n_distributions) AS nd
+      FROM soccer_analytics.dev_gold.fct_gk_tracking_stats
+      WHERE n_distributions IS NOT NULL
+      GROUP BY gk_player_key, data_source
+    )
+    SELECT data_source,
+           COUNT(*) AS gks,
+           ROUND(AVG(nd),1) AS avg_dist,
+           MAX(nd) AS max_dist,
+           SUM(CASE WHEN nd>=50  THEN 1 ELSE 0 END) AS gks_ge50,
+           SUM(CASE WHEN nd>=100 THEN 1 ELSE 0 END) AS gks_ge100
+    FROM g GROUP BY data_source ORDER BY data_source
+data_source | gks | avg_dist | max_dist | gks_ge50 | gks_ge100
+gradientsports | 62 | 55.8 | 184 | 32 | 16
+idsse | 17 | 35.4 | 277 | 1 | 1
+metrica | 6 | 19.5 | 27 | 0 | 0
+skillcorner | 61 | 9.0 | 110 | 3 | 1
+
+===== DEFENSIVE — sweeper-family non-null vs shots, per GK (per provider) =====
+WITH d AS (
+      SELECT defending_gk_player_key AS gk, data_source,
+             COUNT(*) AS defended_actions,
+             COUNT(gk_pitch_control_share_weighted) AS pc_nn,
+             COUNT(gk_reachable_area_m2)            AS ra_nn,
+             COUNT(gk_closing_time_min_s__six_yard_box) AS ct_nn,
+             SUM(CASE WHEN pre_shot_gk_x IS NOT NULL THEN 1 ELSE 0 END) AS shots_faced
+      FROM soccer_analytics.dev_gold.fct_action_context
+      WHERE defending_gk_player_key IS NOT NULL
+      GROUP BY defending_gk_player_key, data_source
+    )
+    SELECT data_source,
+           COUNT(*) AS gks,
+           ROUND(AVG(defended_actions),0) AS avg_def_actions,
+           ROUND(AVG(pc_nn),0) AS avg_pc_nn,
+           ROUND(AVG(ra_nn),0) AS avg_ra_nn,
+           ROUND(AVG(ct_nn),0) AS avg_ct_nn,
+           ROUND(AVG(shots_faced),1) AS avg_shots,
+           MAX(shots_faced) AS max_shots,
+           SUM(CASE WHEN pc_nn>=50 THEN 1 ELSE 0 END) AS gks_pc_ge50
+    FROM d GROUP BY data_source ORDER BY data_source
+data_source | gks | avg_def_actions | avg_pc_nn | avg_ra_nn | avg_ct_nn | avg_shots | max_shots | gks_pc_ge50
+gradientsports | 103 | 873.0 | 873.0 | 873.0 | 873.0 | 13.7 | 68 | 41
+idsse | 10 | 843.0 | 843.0 | 843.0 | 843.0 | 16.4 | 52 | 10
+metrica | 12 | 16.0 | 16.0 | 16.0 | 16.0 | 0.3 | 1 | 0
+skillcorner | 81 | 145.0 | 145.0 | 145.0 | 145.0 | 2.8 | 28 | 30
+
+DONE
+EXIT=0

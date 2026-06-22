@@ -31,6 +31,7 @@ def test_architecture_md_has_appendix_d_academic_references() -> None:
         "Bourbousson",
         "Singh",  # Karun Singh — short surname
         "Donnelly",
+        "Eyestone",  # xT-GK (Expected Threat for Goalkeepers) — Goalkeeper Analytics distribution view
         "Danesi",
         "Sotudeh",
         "Spearman",

@@ -234,13 +234,13 @@ INDEXES: list[tuple[str, str, str]] = [
     ("idx_action_context_match_key", "fct_action_context_synced", "match_key"),
     ("idx_action_context_match_team_key", "fct_action_context_synced", "match_key, team_key"),
     ("idx_action_context_match_player_key", "fct_action_context_synced", "match_key, player_key"),
-    # ── fct_gk_tracking_actions_synced — GK tracking page (ADR-051) ──────
-    # 116K rows (>100K → filtered columns MUST be indexed). 3 query shapes from
-    # hf_taipy_app/src/queries/gk_tracking.py::build_gk_actions_sql:
-    #   distribution:        WHERE ... player_key = %s            ORDER BY match_key, period_id, time_seconds
-    #   defensive/pre-shot:  WHERE ... defending_gk_player_key = %s ORDER BY match_key, period_id, time_seconds
-    # match_key as the trailing index column also serves the ORDER BY. The
-    # (match_key, action_id) index covers the natural grain (dual-defense dedup).
+    # ── fct_gk_tracking_actions_synced — Goalkeeper Analytics page (ADR-051/061) ──
+    # 116K rows (>100K → filtered columns MUST be indexed). The distribution profile
+    # (hf_taipy_app/src/queries/gk_analytics.py::build_distribution_profile_sql) groups by
+    # player_key and joins match_key → dim_matches; the player_key + match_key index serves
+    # that GROUP BY/JOIN, and (match_key, action_id) covers the natural grain (dual-defense
+    # dedup). The defending_gk_player_key index dates from the retired pre-shot query shape
+    # and is kept pending a perf review.
     # Stats mart (242 rows) needs no custom index — seq scan is optimal <50K.
     ("idx_gk_tracking_actions_defgk_match", "fct_gk_tracking_actions_synced", "defending_gk_player_key, match_key"),
     ("idx_gk_tracking_actions_player_match", "fct_gk_tracking_actions_synced", "player_key, match_key"),

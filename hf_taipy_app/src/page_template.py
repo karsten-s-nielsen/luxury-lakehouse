@@ -299,6 +299,9 @@ class ContentBlock:
     caption_var: str = ""  # dynamic caption (state variable)
     caption_condition: str = ""  # render condition for caption
     chart_height: str = "450px"  # chart kind only: CSS height for the chart container
+    plot_config_var: str = (
+        ""  # chart kind only: state var holding a plotly.js config dict (e.g. {"displayModeBar": False})
+    )
     on_action: str = ""  # table/expandable_table: callback function name
     click_bridge_var: str = ""  # html kind: hidden input var for iframe→Taipy callback
     click_bridge_callback: str = ""  # html kind: callback triggered by click bridge
@@ -451,6 +454,10 @@ class SubView:
     content: list[ContentRow] = field(default_factory=list)
     # Scale reference notes rendered above the content grid as ll-reference blocks.
     scale_notes: list[str] = field(default_factory=list)
+    # Top KPI tile row (ll-stats-bar, reuses the dashboard StatCard renderer). When set,
+    # tiles render full-width above the content; pair with empty `metrics` for full-width
+    # content (no right rail) — the dashboard look on a multi-view page.
+    stats: list[StatCard] = field(default_factory=list)
     # Right column
     metrics: list[Metric] = field(default_factory=list)
     # Empty state (primary)
@@ -572,7 +579,9 @@ def _build_content_block(block: ContentBlock, page_title: str) -> str:
         parts.append(f"<|{{{block.var}}}|table|page_size={block.table_page_size}{action_attr}{ccn_attr}|>")
         parts.append("|>")
     elif block.kind == "chart":
-        parts.append(f"<|{{{block.var}}}|chart|figure={{{block.var}}}|height={block.chart_height}|>")
+        # Optional plotly.js config passthrough (e.g. hide the modebar on presentation charts).
+        cfg_attr = f"|plot_config={{{block.plot_config_var}}}" if block.plot_config_var else ""
+        parts.append(f"<|{{{block.var}}}|chart|figure={{{block.var}}}|height={block.chart_height}{cfg_attr}|>")
     elif block.kind == "html":
         css_class = block.container_class or "ll-html-content"
         height_attr = f"|height={{{block.height_var}}}" if block.height_var else ""
@@ -660,44 +669,48 @@ def _build_sub_view(sv: SubView, page_title: str) -> str:
         parts.append("|>")
         parts.append("")
 
-    # ALWAYS use 3fr/1fr grid — right column reserved even if empty
-    parts.append("<|part|class_name=ll-grid-3-1|")
-    parts.append("")
-
-    # Left column: content
-    parts.append("<|part|")
-
-    for row in sv.content:
-        parts.append(_build_content_row(row, page_title))
+    # Top KPI tile row (full-width, above content) — reuses the dashboard stats bar.
+    if sv.stats:
+        parts.append(_build_stats_bar(sv.stats))
         parts.append("")
 
-    if sv.empty_condition:
-        parts.append(f"<|part|render={{{sv.empty_condition}}}|class_name=ll-info-box|")
-        parts.append(sv.empty_message)
-        parts.append("|>")
+    def _emit_content() -> None:
+        for row in sv.content:
+            parts.append(_build_content_row(row, page_title))
+            parts.append("")
+        if sv.empty_condition:
+            parts.append(f"<|part|render={{{sv.empty_condition}}}|class_name=ll-info-box|")
+            parts.append(sv.empty_message)
+            parts.append("|>")
+        if sv.fallback_empty_condition:
+            parts.append(f"<|part|render={{{sv.fallback_empty_condition}}}|class_name=ll-info-box|")
+            parts.append(sv.fallback_empty_message)
+            parts.append("|>")
+        if sv.warning_var:
+            parts.append(f"<|part|render={{len({sv.warning_var}) > 0}}|class_name=ll-warning-box|")
+            parts.append(f"<|{{{sv.warning_var}}}|text|>")
+            parts.append("|>")
 
-    if sv.fallback_empty_condition:
-        parts.append(f"<|part|render={{{sv.fallback_empty_condition}}}|class_name=ll-info-box|")
-        parts.append(sv.fallback_empty_message)
-        parts.append("|>")
-
-    if sv.warning_var:
-        parts.append(f"<|part|render={{len({sv.warning_var}) > 0}}|class_name=ll-warning-box|")
-        parts.append(f"<|{{{sv.warning_var}}}|text|>")
-        parts.append("|>")
-
-    parts.append("|>")  # close left column
-    parts.append("")
-
-    # Right column: metrics (or empty reserved space)
-    parts.append("<|part|class_name=ll-metrics-column|")
-    for m in sv.metrics:
-        parts.append(_build_metric(m))
+    if sv.metrics:
+        # 3fr/1fr grid — content left, metrics right.
+        parts.append("<|part|class_name=ll-grid-3-1|")
         parts.append("")
-    parts.append("|>")
-    parts.append("")
-
-    parts.append("|>")  # close grid part
+        parts.append("<|part|")
+        _emit_content()
+        parts.append("|>")  # close left column
+        parts.append("")
+        parts.append("<|part|class_name=ll-metrics-column|")
+        for m in sv.metrics:
+            parts.append(_build_metric(m))
+            parts.append("")
+        parts.append("|>")
+        parts.append("")
+        parts.append("|>")  # close grid part
+    else:
+        # Full-width content (no right rail) — for tile-top views.
+        parts.append("<|part|")
+        _emit_content()
+        parts.append("|>")
 
     parts.append("")
     parts.append("|>")  # close render condition part

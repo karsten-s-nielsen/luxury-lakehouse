@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Offensive view v4 — signed xT-GK, per-provider</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#0d1521;color:#dfe7f0;display:flex;min-height:100vh;}
+  .nav{width:190px;flex-shrink:0;background:#0a111b;border-right:1px solid #1c2636;padding:14px 0;font-size:12px;}
+  .nav .grp{color:#5d7290;font-size:10px;letter-spacing:.08em;padding:12px 16px 4px;text-transform:uppercase;}
+  .nav .item{padding:6px 16px;color:#aab8cc;}
+  .nav .item.on{background:#13202f;color:#f0a23c;border-left:2px solid #f0a23c;}
+  .main{flex:1;padding:20px 26px 60px;max-width:1000px;}
+  .brand{color:#f0a23c;font-size:19px;font-weight:700;margin-bottom:12px;}
+  h2{font-size:18px;font-weight:650;margin-bottom:4px;}
+  .blurb{color:#8b9bb0;font-size:12px;margin-bottom:12px;max-width:840px;}
+  .blurb a{color:#f0a23c;text-decoration:underline;}
+  .ctx{display:flex;gap:22px;background:#101a27;border-left:3px solid #f0a23c;border-radius:6px;padding:9px 16px;font-size:12px;margin-bottom:14px;flex-wrap:wrap;}
+  .ctx b{color:#5d7290;font-weight:600;margin-right:6px;}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px;}
+  .kpi{background:#131c2b;border:1px solid #243043;border-radius:8px;padding:11px 13px;}
+  .kpi .k{font-size:10px;letter-spacing:.05em;color:#5d7290;text-transform:uppercase;}
+  .kpi .v{font-size:21px;font-weight:700;margin:3px 0 2px;}
+  .kpi .s{font-size:11px;color:#8b9bb0;}
+  .kpi.verdict{border-color:#f0a23c;}.kpi.verdict .v{color:#f0a23c;font-size:15px;}
+  .pos{color:#3fb950;}.neg{color:#e5675e;}
+  .story{border:1px solid #f0a23c;border-radius:8px;padding:13px 16px;margin-bottom:14px;background:#13141a;}
+  .story .h{color:#f0a23c;font-size:11px;letter-spacing:.08em;font-weight:700;margin-bottom:5px;}
+  .story p{font-size:13px;line-height:1.5;}
+  .story .inf{color:#8b9bb0;font-style:italic;font-size:11px;margin-top:5px;}
+  .card{background:#131c2b;border:1px solid #243043;border-radius:8px;padding:13px 16px;margin-bottom:14px;}
+  .card .ct{font-size:13px;font-weight:600;}
+  .card .cs{font-size:11px;color:#8b9bb0;margin-bottom:6px;}
+  table{width:100%;border-collapse:collapse;font-size:12px;}
+  th{text-align:left;color:#5d7290;font-weight:600;font-size:10px;letter-spacing:.04em;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid #243043;}
+  td{padding:6px 8px;border-bottom:1px solid #1a2330;}
+  tr.star td{background:#161b22;}
+  .dir{color:#aab8cc;}
+  .foot{font-size:10px;color:#5d7290;margin-top:9px;line-height:1.5;}
+  .chip{display:inline-block;font-size:10px;padding:1px 7px;border-radius:9px;background:#15263a;color:#7fb0e6;border:1px solid #2c4a6b;margin-left:4px;}
+  .banner{font-size:11px;color:#8b9bb0;background:#0f1a14;border:1px solid #234034;border-left:3px solid #3fb950;border-radius:6px;padding:7px 12px;margin-bottom:14px;}
+</style>
+</head>
+<body>
+  <div class="nav">
+    <div class="grp">Player Analysis</div>
+    <div class="item on">🧤 Goalkeeper Analytics</div>
+    <div class="grp">View</div>
+    <div class="item on" style="border-left-color:#3fb950;color:#3fb950;">▸ Distribution Value</div>
+    <div class="item">Shot Review</div>
+  </div>
+
+  <div class="main">
+    <div class="brand">⚽ (Right! Luxury!) Lakehouse</div>
+    <h2>🧤 Goalkeeper Analytics — Distribution Value</h2>
+    <div class="blurb">Which game model best fits his passing. Each of his distributions is re-valued under all six models (within-keeper, robust at any volume). <b>xT-GK is signed</b>: 0 = neutral, negative = conservative / risk-carrying — most GK distribution is mildly negative, so the question is <b>where he is least-negative / net-positive</b>, not "who creates the most." Eyestone xT-GK via <a>silly-kicks</a>.</div>
+
+    <div class="banner">No leaderboard / percentile — GK ranking is gated off. Cross-keeper context is a signed Δ vs <b>his own provider's</b> cohort (median ± IQR), never a rank.</div>
+
+    <div class="ctx">
+      <span><b>COHORT</b> his provider's keepers</span>
+      <span><b>KEEPER</b> Y. Sommer</span>
+      <span><b>MEASURED CONTEXT</b> deep, narrow block <span class="chip">measured</span></span>
+      <span><b>SAMPLE</b> n=41 distributions</span>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi"><div class="k">Best-fit model</div><div class="v pos">+0.004</div><div class="s">Counter — his only net-positive system</div></div>
+      <div class="kpi"><div class="k">Typical (median model)</div><div class="v neg">−0.018</div><div class="s">added/removed threat per dist</div></div>
+      <div class="kpi"><div class="k">Fit spread</div><div class="v">0.042</div><div class="s">wide → system-sensitive</div></div>
+      <div class="kpi verdict"><div class="k">Our verdict</div><div class="v">Transition-fit (hypothesis)</div><div class="s">net-positive only on the counter</div></div>
+    </div>
+
+    <div class="story">
+      <div class="h">★ BIG STORY</div>
+      <p><b>Net-positive in transition only.</b> Under five of six models his distribution slightly <i>removes</i> threat (the conservative norm for keepers); under a <b style="color:#3fb950;">Counter</b> model it turns <b style="color:#3fb950;">net-positive (+0.004/dist)</b> — and sits well above his provider-cohort median (−0.020). He is a transition distributor.</p>
+      <p class="inf">His measured context is a deep, narrow block (observed line height + shape — NOT a game-model label). Whether that block generates enough transitions to use his counter strength is the open question — a fit hypothesis, not an asserted verdict.</p>
+    </div>
+
+    <div class="card">
+      <div class="ct">His distribution value under each game model — signed</div>
+      <div class="cs">mean xT-GK per distribution (his own 41 passes re-valued) · <span style="color:#3fb950;">right of 0 = adds threat</span> / <span style="color:#e5675e;">left = removes</span> · dashed = his provider-cohort median · amber = best fit</div>
+      <svg width="100%" viewBox="0 0 880 234">
+        <!-- value axis -0.05..+0.03 -> x 180..820 ; px(v)=180+((v+0.05)/0.08)*640 ; 0-line x=580 -->
+        <g stroke="#1d2838" stroke-width="1">
+          <line x1="180" y1="26" x2="180" y2="196"/><line x1="380" y1="26" x2="380" y2="196"/>
+          <line x1="780" y1="26" x2="780" y2="196"/>
+        </g>
+        <!-- cohort median dashed at -0.020 -> x=420 -->
+        <line x1="420" y1="26" x2="420" y2="196" stroke="#6e7681" stroke-dasharray="3 3"/>
+        <text x="420" y="20" fill="#6e7681" font-size="9" text-anchor="middle">provider median −0.020</text>
+        <!-- 0 line prominent at x=580 -->
+        <line x1="580" y1="26" x2="580" y2="204" stroke="#aab8cc" stroke-width="1.5"/>
+        <text x="580" y="218" fill="#aab8cc" font-size="10" text-anchor="middle">0 — neutral</text>
+        <g fill="#5d7290" font-size="9" text-anchor="middle">
+          <text x="180" y="218">−0.05</text><text x="780" y="218">+0.03</text>
+        </g>
+        <!-- rows: bars from 0-line (580) to px(value) -->
+        <g font-size="12">
+          <!-- Counter +0.004 -> px=612 (positive, green, right) -->
+          <text x="170" y="44" text-anchor="end" fill="#3fb950" font-weight="700">Counter</text>
+          <rect x="580" y="36" width="32" height="13" fill="#3fb950"/><circle cx="612" cy="42" r="6" fill="#f0a23c"/>
+          <text x="624" y="46" fill="#f0a23c" font-size="10">+0.004 · best fit</text>
+          <!-- Direct -0.008 -> px=516 -->
+          <text x="170" y="72" text-anchor="end" fill="#aab8cc">Direct</text>
+          <rect x="516" y="64" width="64" height="13" fill="#c0564e"/><text x="508" y="75" text-anchor="end" fill="#8b9bb0" font-size="10">−0.008</text>
+          <!-- Possession -0.018 -> px=436 -->
+          <text x="170" y="100" text-anchor="end" fill="#aab8cc">Possession</text>
+          <rect x="436" y="92" width="144" height="13" fill="#c0564e"/><text x="428" y="103" text-anchor="end" fill="#8b9bb0" font-size="10">−0.018</text>
+          <!-- High Press -0.022 -> px=404 -->
+          <text x="170" y="128" text-anchor="end" fill="#aab8cc">High Press</text>
+          <rect x="404" y="120" width="176" height="13" fill="#c0564e"/><text x="396" y="131" text-anchor="end" fill="#8b9bb0" font-size="10">−0.022</text>
+          <!-- Default -0.026 -> px=372 -->
+          <text x="170" y="156" text-anchor="end" fill="#aab8cc">Default</text>
+          <rect x="372" y="148" width="208" height="13" fill="#c0564e"/><text x="364" y="159" text-anchor="end" fill="#8b9bb0" font-size="10">−0.026</text>
+          <!-- Low Block -0.038 -> px=276 -->
+          <text x="170" y="184" text-anchor="end" fill="#aab8cc">Low Block</text>
+          <rect x="276" y="176" width="304" height="13" fill="#c0564e"/><text x="268" y="187" text-anchor="end" fill="#8b9bb0" font-size="10">−0.038</text>
+        </g>
+      </svg>
+    </div>
+
+    <div class="card">
+      <div class="ct">Per-system breakdown — signed, with plain-language read</div>
+      <table>
+        <thead><tr><th>Game model</th><th>xT-GK / dist</th><th>vs provider median</th><th>Direction</th></tr></thead>
+        <tbody>
+          <tr class="star"><td>★ Counter</td><td class="pos">+0.004</td><td class="pos">+0.024 ▲</td><td class="dir">His only net-positive model — adds threat in transition</td></tr>
+          <tr><td>Direct</td><td class="neg">−0.008</td><td class="pos">+0.012 ▲</td><td class="dir">Above his provider median; comfortable going long</td></tr>
+          <tr><td>Possession</td><td class="neg">−0.018</td><td class="pos">+0.002 ▲</td><td class="dir">About median — conservative in slow build-up</td></tr>
+          <tr><td>High Press</td><td class="neg">−0.022</td><td class="neg">−0.002 ▼</td><td class="dir">Slightly below median when pressed to play out</td></tr>
+          <tr><td>Default</td><td class="neg">−0.026</td><td class="neg">−0.006 ▼</td><td class="dir">Below median with no tactical tilt</td></tr>
+          <tr><td>Low Block</td><td class="neg">−0.038</td><td class="neg">−0.018 ▼</td><td class="dir">Well below — loses most threat parked deep</td></tr>
+        </tbody>
+      </table>
+      <div class="foot">xT-GK is signed (0 = neutral; negative = conservative/risk — the keeper norm). Within-keeper: his 41 passes re-valued under each model — the ORDERING is stable; absolute levels carry sampling noise. "vs provider median" = his own provider's cohort median ± IQR (≥8-GK min, else no band), sub-floor keepers excluded — a signed Δ, NOT a rank. "Measured context" is observed (line height/shape), NOT a game-model classification. Values illustrative.</div>
+    </div>
+  </div>
+</body>
+</html>

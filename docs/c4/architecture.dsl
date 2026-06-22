@@ -6,7 +6,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         developer = person "Developer" "Deploys updates, triggers pipeline runs, monitors costs"
         operator = person "Platform Operator" "Triggers retrain cycles, reviews job runs, manages synced tables"
 
-        taipyApp = softwareSystem "Taipy Dashboard" "18-page interactive analytics app on HF Spaces (1 page staging-gated via env flag, ADR-051). Shot maps, player comparisons, goalkeeper tracking, defensive impact, workflow monitoring." {
+        taipyApp = softwareSystem "Taipy Dashboard" "17-page interactive analytics app on HF Spaces. Shot maps, player comparisons, goalkeeper analytics (distribution + shot review, ADR-061), defensive impact, workflow monitoring." {
             guiLayer = container "Taipy GUI" "Root template with sidebar nav, glossary panels, page routing. CSP defense-in-depth via Flask after_request." "Python, Taipy 4.1"
             adminApi = container "Admin API" "Flask blueprint for cache clear and synced table refresh. HF org membership auth." "Python, Flask"
             templateEngine = container "Template Engine" "Three layout builders (standard, sub-view, dashboard). Typed PageConfig dataclasses." "Python"
@@ -40,7 +40,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             hfPublish = container "HF Publish Helper" "README delivery (ADR-014) + restricted-data split policy (ADR-049): RESTRICTED_HF_PROVIDERS, split_restricted, restricted_repo_id — single source of truth for publishers and trainers." "Python"
             databricksSqlFetch = container "Databricks SQL Fetch" "HTTP helper for HF Jobs trainers querying gold marts (no Spark)" "Python, requests"
             ingestionPipelines = container "Compute Pipelines" "38 @workflow-decorated Databricks ingestion/compute pipelines across 6 providers. GS bronze dedup (ADR-030), per-provider ET-direction derivers (ADR-029), DFL parse delegated to silly-kicks (ADR-055)." "Python, PySpark, silly-kicks 4.34.0"
-            refreshSyncedTables = container "Synced Table Refresh" "Triggers refresh on 42 synced tables; detect-only for checkpoint-broken TRIGGERED tables — flags + dispatches the heal, never deletes (ADR-041)" "Python, databricks-sdk"
+            refreshSyncedTables = container "Synced Table Refresh" "Triggers refresh on 46 synced tables; detect-only for checkpoint-broken TRIGGERED tables — flags + dispatches the heal, never deletes (ADR-041)" "Python, databricks-sdk"
             migrateSyncedTables = container "Synced Table Migration" "SDK-managed lifecycle: delete, CDF enable, create, wait (ADR-026). Replaces Terraform module." "Python, databricks-sdk"
             rederiveSyncedMarts = container "Strand-safe Re-derive" "Operator re-derive of TRIGGERED synced marts (ADR-043): D MERGE-reprocess / T plain-rebuild / B delete+full-refresh+recreate. Pure planner + thin executor." "Python, databricks-sdk"
             dbtRunner = container "dbt Runner" "python_wheel_task entry point. OAuth token exchange, warehouse start." "Python, dbt-core"
@@ -62,15 +62,15 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             telemetryTable = container "Telemetry Table" "Cycle log: items, smoke-gate pass/fail, cost tracking, heartbeat rows." "Delta Lake" "Database"
         }
 
-        dbtProject = softwareSystem "dbt Project" "Medallion transformation: 99 models (42 staging, 11 intermediate, 46 marts). Kimball dims, liquid clustering. on-run-start tripwire blocks --full-refresh of TRIGGERED synced marts (ADR-043)." {
+        dbtProject = softwareSystem "dbt Project" "Medallion transformation: 100 models (42 staging, 11 intermediate, 47 marts). Kimball dims, liquid clustering. on-run-start tripwire blocks --full-refresh of TRIGGERED synced marts (ADR-043)." {
             fctWorkflowCosts = container "fct_workflow_costs" "Gold-layer cost attribution with billing JOIN. 90-day rolling window." "SQL, dbt" "Database"
-            goldModels = container "Gold Models" "42 fact + 4 dim tables. Enforced contracts, liquid clustering. PSxG subsystem (ADR-059): fct_shot_psxg (atomic, all-provider) -> fct_gk_shot_stopping (+ pooled)." "SQL, dbt" "Database"
+            goldModels = container "Gold Models" "43 fact + 4 dim tables. Enforced contracts, liquid clustering. PSxG subsystem (ADR-059): fct_shot_psxg (atomic, all-provider) -> fct_gk_shot_stopping (+ pooled); GK insight-views (ADR-061): fct_gk_defensive_line." "SQL, dbt" "Database"
         }
 
         # Data stores
         unityCatalog = softwareSystem "Unity Catalog" "Governed Delta Lake: bronze (raw), gold (analytics), observability (metadata)" "External" {
             bronzeSchema = container "Bronze Schema" "Raw events, tracking, SPADL actions, VAEP scores, PSxG tracking predictions, compute results" "Delta Lake" "Database"
-            goldSchema = container "Gold Schema" "42 fact + 4 dim tables. Analytics-ready." "Delta Lake" "Database"
+            goldSchema = container "Gold Schema" "43 fact + 4 dim tables. Analytics-ready." "Delta Lake" "Database"
             observabilitySchema = container "Observability Schema" "workflow_cost_live, workflow_import_checksums, workflow_watermarks, definer's-rights views" "Delta Lake" "Database"
         }
 

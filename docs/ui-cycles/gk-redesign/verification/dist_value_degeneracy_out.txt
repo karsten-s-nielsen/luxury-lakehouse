@@ -1,0 +1,24 @@
+D:\Development\karstenskyt__luxury-lakehouse-d32\docs\ui-cycles\gk-redesign\verification\dist_value_degeneracy_check.py:33: FutureWarning: errors='ignore' is deprecated and will raise in a future version. Use to_numeric without passing `errors` and catch exceptions explicitly instead
+  return df.apply(pd.to_numeric, errors="ignore")
+D:\Development\karstenskyt__luxury-lakehouse-d32\docs\ui-cycles\gk-redesign\verification\dist_value_degeneracy_check.py:33: FutureWarning: errors='ignore' is deprecated and will raise in a future version. Use to_numeric without passing `errors` and catch exceptions explicitly instead
+  return df.apply(pd.to_numeric, errors="ignore")
+N keepers=62  xT-GK pct_negative=97%  mean=-0.0226
+[1] between-keeper level SD=0.0152  within-keeper preset spread(med)=0.0045  ratio=3.4x
+[2] keeper-ranking Spearman across preset pairs: min=0.989 mean=0.995
+[3] best-fit across cohort: {'m_counter': 55, 'm_direct': 3, 'm_poss': 2, 'm_lowblock': 2}
+[4] suggested vs-cohort-delta ladder: level SD=0.0152  residual SHAPE SD=0.0018 (=noise)
+
+[5] action-grain n>=20 keepers=39
+    value        mean=-0.0222 sd=0.0047 range=[-0.0339,-0.0126]
+    adds_threat  mean=+0.1258 sd=0.0582 range=[+0.0303,+0.2353]
+    completion   mean=+0.7444 sd=0.0665 range=[+0.6178,+0.8714]
+    progress_m   mean=+22.5352 sd=4.5307 range=[+13.5837,+32.5055]
+    dzv          mean=-0.0074 sd=0.0031 range=[-0.0166,-0.0003]
+    pev          mean=+0.0000 sd=0.0000 range=[+0.0000,+0.0001]
+[6] correlations:
+             value  adds_threat  completion  progress_m   dzv
+value         1.00         0.80        0.39       -0.26  0.93
+adds_threat   0.80         1.00        0.36       -0.33  0.71
+completion    0.39         0.36        1.00       -0.91  0.10
+progress_m   -0.26        -0.33       -0.91        1.00  0.05
+dzv           0.93         0.71        0.10        0.05  1.00

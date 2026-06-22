@@ -241,8 +241,11 @@ SYNCED_TABLES: list[SyncedTableConfig] = [
     # ── Dimension tables ─────────────────────────────────────────────────────
     SyncedTableConfig("dim_players_synced", "dim_players", ("player_key",)),
     SyncedTableConfig("dim_teams_synced", "dim_teams", ("team_key",)),
-    SyncedTableConfig("dim_competitions_synced", "dim_competitions", ("competition_id",)),
+    SyncedTableConfig("dim_competitions_synced", "dim_competitions", ("competition_key",)),
     SyncedTableConfig("dim_matches_synced", "dim_matches", ("match_key",)),
+    # GK insight-views redesign: pooled shot-stopping (goals-prevented band) + per-GK defensive line.
+    SyncedTableConfig("fct_gk_shot_stopping_pooled_synced", "fct_gk_shot_stopping_pooled", ("gk_pooled_id",)),
+    SyncedTableConfig("fct_gk_defensive_line_synced", "fct_gk_defensive_line", ("gk_defensive_line_id",)),
 ]
 
 POLL_INTERVAL_S = 30

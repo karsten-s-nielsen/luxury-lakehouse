@@ -352,24 +352,12 @@ PAGE_TERMS: dict[str, list[str]] = {
         "Decision Value",
     ],
     "Player-Similarity": ["Cosine Distance", "Behavioral Vector", "Statistical Vector"],
-    "Goalkeeper-Tracking": [
-        "xT-GK",
-        "Game-Model Preset",
-        "Ghost GK",
-        "Closing Time",
-        "Reachable Area",
-        "Line Height",
-        "Pitch Control",
-    ],
     "Goalkeeper-Analytics": [
+        "xT-GK",
+        "Ghost GK",
         "PSxG (Post-Shot Expected Goals)",
         "Goals Prevented",
-        "Save %",
-        "Launch Rate",
-        "xT / Pass (Distribution)",
-        "Claim Success %",
         "Sweeper Distance",
-        "Outside Box/90",
     ],
     "Movement-Pressing": ["PPDA", "xT (Expected Threat)", "Off-Ball xT", "Pitch Control", "Progression"],
     "Pitch-Control": ["Pitch Control"],
@@ -442,7 +430,7 @@ def _build_glossary_panels() -> str:
 _glossary_panels = _build_glossary_panels()
 
 # fmt: off
-_COMP_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary", "Player-Impact", "Player-Comparison", "Goalkeeper-Analytics", "Conversion-Funnel")
+_COMP_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary", "Player-Impact", "Player-Comparison", "Conversion-Funnel")
 # Team: required on pages that cannot display data without a specific team;
 # optional on pages that work with "All" (competition-wide view).
 _TEAM_REQUIRED_PAGES = ("Conversion-Funnel", "Pass-Map", "Pass-Network")
@@ -456,10 +444,9 @@ _PLAYER_MULTI_PAGES = ("Player-Comparison",)
 _XG_MODEL_PAGES = ("Shot-Map",)
 _MIN_PASSES_PAGES = ("Pass-Network",)
 _MIN_MINUTES_PAGES = ("Player-Impact", "Player-Comparison")
-_GK_PAGES = ("Goalkeeper-Analytics",)
-_GKT_PAGES = ("Goalkeeper-Tracking",)  # ADR-051 staging-gated page (flag-registered)
+_GKA_PAGES = ("Goalkeeper-Analytics",)  # insight-views redesign (replaces legacy GK + gkt pages)
 _TRACKING_PROVIDER_PAGES = ("Pitch-Control",)
-_SUB_VIEW_PAGES = ("Player-Impact", "Movement-Pressing", "Team-Shape", "Goalkeeper-Analytics", "Tactical-Positions", "Goalkeeper-Tracking")
+_SUB_VIEW_PAGES = ("Player-Impact", "Movement-Pressing", "Team-Shape", "Goalkeeper-Analytics", "Tactical-Positions")
 _PASS_OVERLAY_PAGES = ("Pass-Map",)
 _SIMILARITY_PAGES = ("Player-Similarity",)
 _PASS_TIMING_PAGES = ("Pass-Timing",)
@@ -470,10 +457,13 @@ _TACTICAL_POSITIONS_PAGES = ("Tactical-Positions",)
 _WF_PAGES = ("AI-ML-Workflows",)
 _CONVERSION_FUNNEL_PAGES = ("Conversion-Funnel",)
 _FILTER_HEADER_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary",
-                        "Player-Impact", "Player-Comparison", "Goalkeeper-Analytics", "Movement-Pressing",
+                        "Player-Impact", "Player-Comparison", "Movement-Pressing",
                         "Pitch-Control", "Team-Shape", "Tactical-Positions", "Pass-Timing",
                         "Defensive-Impact", "AI-ML-Workflows", "Conversion-Funnel",
-                        "Goalkeeper-Tracking")
+                        # GK Analytics: filter SECTION must render (holds the sub-view selector +
+                        # Provider/Keeper widgets). Global comp/team/match widgets are individually
+                        # gated out (not in _COMP_PAGES etc.), so only GK controls show.
+                        "Goalkeeper-Analytics")
 # fmt: on
 
 # ---------------------------------------------------------------------------
@@ -625,70 +615,28 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         depends_on="selected_competition",
         help="Minimum total minutes played to include a player in rankings. Filters low-sample entries.",
     ),
-    # Goalkeeper Analytics — coverage-aware Team selector (replaces the shared
-    # Team dropdown on this page; only teams with GK stats for the selected
-    # competition appear, per fix/gk-team-coverage-filter).
+    # Goalkeeper Analytics (insight-views redesign): competition-first -> keeper. Competitions are
+    # restricted to the supported tracking providers; cohorts are within-competition.
     SidebarWidget(
         "dropdown",
-        "gk_selected_team",
-        "Team",
-        "gk_on_gk_team_change",
-        condition=f"current_page in {_GK_PAGES}",
-        lov="gk_team_lov",
-        depends_on="selected_competition",
-        required=False,
-        help=(
-            "Only teams with StatsBomb GK event data for the selected competition "
-            "are listed. Coverage is uneven in the open dataset — e.g., the Premier "
-            "League shows Leicester City 2015/16 fully plus scattered matches from "
-            "other clubs, so Manchester United and Liverpool may not appear."
-        ),
-    ),
-    # Goalkeeper Analytics — GK-only player selector + min minutes
-    SidebarWidget(
-        "combobox",
-        "gk_selected_player",
-        "Goalkeeper",
-        "gk_on_gk_player_change",
-        condition=f"current_page in {_GK_PAGES} and selected_sub_view != 'Rankings'",
-        lov="gk_player_lov",
-        depends_on="selected_competition",
-        search_var="gk_player_search_query",
-        on_search_change="gk_on_gk_player_search_change",
-        search_label="Search goalkeepers",
-        help="Select a goalkeeper to view their shot stopping and distribution. Only goalkeepers with GK stats are listed.",
+        "gka_selected_competition",
+        "Competition",
+        "gka_on_competition_change",
+        condition=f"current_page in {_GKA_PAGES}",
+        lov="gka_competition_lov",
+        help="Tracking-data competition (e.g. FIFA Men's World Cup, A-League, 1./2. Bundesliga). The keeper "
+        "list and all cohort comparisons are within the selected competition.",
     ),
     SidebarWidget(
         "dropdown",
-        "gkt_selected_player",
-        "Goalkeeper",
-        "gkt_on_player_change",
-        condition=f"current_page in {_GKT_PAGES}",
-        lov="gkt_player_lov",
-        help="Select a goalkeeper from the tracking-data providers (GradientSports, IDSSE, SkillCorner). Only GKs with tracked actions are listed.",
-    ),
-    SidebarWidget(
-        "dropdown",
-        "gkt_selected_preset",
-        "Game-Model Preset",
-        "gkt_on_preset_change",
-        condition=f"current_page in {_GKT_PAGES}",
-        lov="gkt_preset_lov",
-        help="xT-GK philosophy preset (Eyestone): re-values every distribution under a different team game model. Switching is instant — all presets are precomputed.",
-    ),
-    SidebarWidget(
-        "slider",
-        "min_minutes",
-        "Min. minutes played",
-        "on_min_minutes_change",
-        condition=f"current_page in {_GK_PAGES} and selected_sub_view == 'Rankings'",
-        slider_min="0",
-        slider_max="2000",
-        slider_step="45",
-        slider_range_labels=("0", "2000"),
-        change_delay=300,
-        depends_on="selected_competition",
-        help="Minimum total minutes played to include a GK in rankings. Filters low-sample entries.",
+        "gka_selected_keeper",
+        "Keeper",
+        "gka_on_keeper_change",
+        condition=f"current_page in {_GKA_PAGES}",
+        lov="gka_keeper_lov",
+        depends_on="gka_selected_competition",
+        help="Select a goalkeeper within the chosen competition. Both views (Distribution Value, "
+        "Shot Review) update to this keeper.",
     ),
     SidebarWidget(
         "toggle",

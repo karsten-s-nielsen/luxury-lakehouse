@@ -1,8 +1,8 @@
 """Ghost-GK density grid service (hexagonal port; ADR-051 section 3).
 
-Port: GhostGridProvider.grid(...) -> GhostGrid. Adapters are PURE computation — the STATE layer
-fetches the frame from Lakebase (queries.gk_tracking.fetch_scene_frame) and passes it in
-(architecture-audit A2: no service-side I/O; both adapters unit-testable without a DB).
+Port: GhostGridProvider.grid(...) -> GhostGrid. Adapters are PURE computation — the caller
+fetches any frame data and passes it in (architecture-audit A2: no service-side I/O; both
+adapters unit-testable without a DB).
 
 Adapters:
 - StoredSpreadProvider: Gaussian blob from the stored optimum + density_spread. Always works.

@@ -65,7 +65,8 @@ banded as (
         (c.n_above_floor >= {{ ranking_min_gks }})        as ranking_enabled
     from pooled p
     inner join cohort c
-        on p.competition_key = c.competition_key and p.season_id = c.season_id
+        on p.competition_key = c.competition_key
+        and p.season_id <=> c.season_id   -- NULL-safe: IDSSE season_id is NULL; plain = drops all IDSSE
 
 )
 

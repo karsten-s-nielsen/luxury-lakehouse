@@ -908,6 +908,7 @@ Consolidated list of academic citations referenced across UI pages and analytics
 | Danesi, P. (2025) | "Football2Vec: Transformer-Based Player Embeddings." | Player Similarity, `src/analytics/football2vec_transformer.py`, `wf-football2vec-v2` |
 | Decroos, Bransen, Van Haaren & Davis (2019) | "Actions Speak Louder than Goals: Valuing Player Actions in Soccer." *KDD* | Action Values, Player Radar, Match Summary (Big Story VAEP ranking), `wf-vaep` |
 | Donnelly (2024) | "Systematic Approach to Performance Analysis." (course materials) | Conversion Funnel page |
+| Eyestone (course materials) | "xT-GK: Expected Threat for Goalkeepers." (course materials) | Goalkeeper Analytics (Distribution Value — signed xT-GK per distribution), `wf-goalkeeper` |
 | Frencken, Lemmink, Delleman & Visscher (2011) | "Oscillations of centroid position and surface area of soccer teams in small-sided games." *Journal of Sports Sciences 29(14)* | Team Shape page |
 | Ganin et al. (2016) | "Domain-Adversarial Training of Neural Networks." *JMLR 17* | Player Similarity (gradient reversal for adversarial debiasing) |
 | Karakus, O. & Arkadas, H. (2026) | "Structural Pass Analysis in Football: Learning Pass Archetypes and Tactical Impact from Spatio-Temporal Tracking Data." *arXiv:2603.28916* | Structural pass (`structural_lbs`/`structural_sgm`/`structural_sdi`) in `fct_action_context`, `wf-action-context` |
