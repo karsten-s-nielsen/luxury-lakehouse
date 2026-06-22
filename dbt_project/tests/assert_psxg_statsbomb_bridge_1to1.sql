@@ -1,9 +1,9 @@
 -- C4 / 2.2: the StatsBomb shot -> SPADL action bridge must be 1:1.
 -- A native event_id mapping to >1 shot action would fan out fct_shot_psxg's
 -- (match_key, action_id) grain and double-count StatsBomb psxg. Returns the
--- offending event_ids (test passes when empty). Promote to severity='error'
--- after the first clean deploy.
-{{ config(enabled=var('goalkeeper_enabled', false), severity='warn') }}
+-- offending event_ids (test passes when empty). Promoted to severity='error'
+-- after the first clean deploy (2026-06-21, ADR-060 4-feature v2 cutover) — hard gate.
+{{ config(enabled=var('goalkeeper_enabled', false), severity='error') }}
 
 select
     s.event_id,
