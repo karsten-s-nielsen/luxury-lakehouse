@@ -126,10 +126,41 @@ sb_shots as (
 
 sb_action as (
 
-    select original_event_id, action_id, defending_gk_player_id
+    select original_event_id, action_id
     from {{ ref('fct_action_values') }}
     where data_source = 'statsbomb'
       and action_type in ('shot', 'shot_freekick', 'shot_penalty')
+
+),
+
+-- Defending GK per (StatsBomb match, team) via the LINEUP — the GK who played for
+-- each team (the opposing team's GK is who faces a shot). Mirrors the legacy
+-- psxg_agg `gk_matches` attribution: the per-shot `fct_action_values.defending_gk_player_id`
+-- is ~97% NULL ("GK not identifiable"), which collapsed per-GK psxg_faced. For multi-GK
+-- (sub) matches the GK with the most actions is chosen (the primary keeper); sub-window
+-- mis-attribution is a documented limitation (A2). Tracking providers are unaffected —
+-- they carry defending_gk_player_key directly from fct_action_context.
+sb_gk_per_match as (
+
+    select match_key, team_key, gk_player_key
+    from (
+        select
+            av.match_key,
+            av.team_key,
+            dp.player_key as gk_player_key,
+            row_number() over (
+                partition by av.match_key, av.team_key
+                order by count(*) desc, dp.player_key
+            ) as rn
+        from {{ ref('fct_action_values') }} av
+        inner join {{ ref('dim_players') }} dp
+            on dp.player_id = av.player_id
+           and dp.position_group = 'Goalkeeper'
+        where av.data_source = 'statsbomb'
+          and av.team_key is not null
+        group by av.match_key, av.team_key, dp.player_key
+    )
+    where rn = 1
 
 ),
 
@@ -143,7 +174,7 @@ statsbomb as (
         cast('statsbomb_freeze_frame' as string)                      as psxg_input_source,
         cast(s.player_key as bigint)                                  as player_key,
         cast(s.team_key as bigint)                                    as team_key,
-        cast(dpg.player_key as bigint)                                as defending_gk_player_key,
+        cast(gk.gk_player_key as bigint)                              as defending_gk_player_key,
         cast(ma.competition_key as bigint)                            as competition_key,
         cast(ma.season_id as int)                                     as season_id,
         cast(null as double)                                          as shot_crossing_y,
@@ -167,8 +198,9 @@ statsbomb as (
         on p.event_id = s.shot_id
     inner join sb_action a
         on a.original_event_id = s.event_id
-    left join {{ ref('dim_players') }} dpg
-        on dpg.provider = 'statsbomb' and dpg.native_player_id = a.defending_gk_player_id
+    left join sb_gk_per_match gk
+        on gk.match_key = s.match_key
+       and gk.team_key != s.team_key
     left join match_attrs ma
         on s.match_key = ma.match_key
 
