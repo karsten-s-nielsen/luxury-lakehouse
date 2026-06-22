@@ -3,9 +3,9 @@
 -- (stg_psxg__predictions joined to fct_shots on-target). This isolates the bridge +
 -- value pass-through from the GK-attribution change (A2) — the per-GK attribution
 -- reconciliation (legacy lineup vs per-shot) is a separate deploy-data step. Returns
--- mismatching matches (test passes when empty). Promote to severity='error' after the
--- first clean deploy.
-{{ config(enabled=var('goalkeeper_enabled', false), severity='warn') }}
+-- mismatching matches (test passes when empty). Promoted to severity='error' after the
+-- first clean deploy (2026-06-21, ADR-060 4-feature v2 cutover) — now a hard gate.
+{{ config(enabled=var('goalkeeper_enabled', false), severity='error') }}
 
 with legacy as (
 
