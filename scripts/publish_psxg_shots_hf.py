@@ -9,10 +9,18 @@
 #     "huggingface-hub>=1.5.0",
 # ]
 # ///
-"""Publish action context features (fct_action_context) to HF Hub.
+"""Publish shot-grain PSxG (fct_shot_psxg) to HF Hub.
 
-Datasets: luxury-lakehouse/spadl-action-context (public)
-          luxury-lakehouse/spadl-action-context-restricted (private companion, ADR-049)
+Datasets: luxury-lakehouse/psxg-shots (public)
+          luxury-lakehouse/psxg-shots-restricted (private companion, ADR-049)
+
+One row per on-target shot, all providers (provider is the ``data_source`` column,
+not a code fork): the post-shot xG plus the projected/measured goalmouth geometry
+and the resolved shooter + defending-GK keys. Mirrors the action-context publisher:
+GradientSports partitions are license-restricted and route to the private companion
+repo via ``ingestion.hf_publish.split_restricted``; StatsBomb / SkillCorner / IDSSE
+publish to the public repo. Files are flat per-provider (``data/<provider>.parquet``)
+so the card declares one HF config per provider (ADR-054).
 """
 
 from __future__ import annotations
@@ -43,21 +51,20 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 HF_ORG = "luxury-lakehouse"
-DATASET_REPO = f"{HF_ORG}/spadl-action-context"
+DATASET_REPO = f"{HF_ORG}/psxg-shots"
 # PRIVATE companion repo for license-gated partitions (ADR-049; org-members only).
-# Naming + split criterion are owned by ingestion.hf_publish — single source of
-# truth shared with every other ADR-049 publisher and with trainers. The pair is
-# PERMANENT infrastructure: both repos are ensured on every run, even when the
-# restricted set is empty.
+# Naming + split criterion are owned by ingestion.hf_publish — the single source of
+# truth shared with every other ADR-049 publisher. The pair is PERMANENT infrastructure:
+# both repos are ensured on every run, even when the restricted set is empty.
 RESTRICTED_DATASET_REPO = restricted_repo_id(DATASET_REPO)
 
 # The SQL pulls ALL providers; the HF license gate is applied at the PUBLISH split
-# (ingestion.hf_publish.split_restricted — ADR-049): restricted rows go to the PRIVATE
-# RESTRICTED_DATASET_REPO, the rest to the public DATASET_REPO. Granting a provider
-# full permission = remove it from RESTRICTED_HF_PROVIDERS; the next publish migrates
-# its partition to the public repo and sweeps it from the restricted one.
-_ACTION_CONTEXT_SQL = """\
-SELECT * FROM soccer_analytics.dev_gold.fct_action_context
+# (ingestion.hf_publish.split_restricted — ADR-049): restricted rows (GradientSports)
+# go to the PRIVATE RESTRICTED_DATASET_REPO, the rest to the public DATASET_REPO.
+# Granting a provider full permission = remove it from RESTRICTED_HF_PROVIDERS; the
+# next publish migrates its partition to the public repo and sweeps the restricted one.
+_PSXG_SHOTS_SQL = """\
+SELECT * FROM soccer_analytics.dev_gold.fct_shot_psxg
 """
 
 _POLL_INTERVAL_S = 2.0
@@ -111,10 +118,10 @@ def query_databricks_sql(host: str, token: str, sql: str, warehouse_id: str) -> 
 
 
 def publish_to_hf_hub(df: pd.DataFrame, hf_token: str, *, repo_id: str = DATASET_REPO, private: bool = False) -> str:
-    """Write partitioned Parquet and upload to a HF dataset repo.
+    """Write flat per-provider Parquet and upload to a HF dataset repo.
 
     Args:
-        df: Action context DataFrame to publish (may be empty — see below).
+        df: PSxG shots DataFrame to publish (may be empty — see below).
         hf_token: HuggingFace API token.
         repo_id: Target dataset repo (default: the public DATASET_REPO; the
             restricted companion passes RESTRICTED_DATASET_REPO).
@@ -136,22 +143,11 @@ def publish_to_hf_hub(df: pd.DataFrame, hf_token: str, *, repo_id: str = DATASET
             logger.info("0 partitions for %s — sweep-only publish (delete_patterns clears stale data/)", repo_id)
         for source, sub_df in df.groupby("data_source"):
             # Flat per-provider files (data/<provider>.parquet) and KEEP the data_source
-            # column. This lets the dataset card declare one HF config per provider so
-            # consumers can pull a single provider (e.g. load_dataset(repo, "skillcorner"))
-            # and the viewer shows a per-provider subset selector. data_source stays an
-            # explicit column so EVERY config (incl. the default "all") carries it — we do
-            # NOT rely on Hive `data_source=<x>/` path-key recovery, which HF does not apply
-            # to explicitly-listed `data_files`. See the card's `configs:` block.
-            sub_df.to_parquet(
-                staging_dir / f"{source}.parquet",
-                index=False,
-                engine="pyarrow",
-            )
-        # delete_patterns match paths RELATIVE to path_in_repo ("data/"), so the
-        # pattern must be "**" — a "data/"-prefixed pattern matches nothing and
-        # silently no-ops (ADR-049; the no-op left stale Spark part-files in
-        # spadl-vaep partitions for months). Re-uploaded files are pruned from
-        # the delete set by upload_folder itself.
+            # column, so the card can declare one HF config per provider (ADR-054) — we do
+            # NOT rely on Hive path-key recovery, which HF does not apply to explicit data_files.
+            sub_df.to_parquet(staging_dir / f"{source}.parquet", index=False, engine="pyarrow")
+        # delete_patterns match RELATIVE to path_in_repo ("data/"), so the pattern MUST be
+        # "**" — a "data/"-prefixed pattern matches nothing and silently no-ops (ADR-049).
         api.upload_folder(
             folder_path=str(staging_dir),
             path_in_repo="data",
@@ -176,15 +172,15 @@ def main() -> None:
     db_token = os.environ["DATABRICKS_TOKEN"]
     warehouse_id = os.environ["DATABRICKS_SQL_WAREHOUSE_ID"]
 
-    df = query_databricks_sql(host, db_token, _ACTION_CONTEXT_SQL, warehouse_id)
+    df = query_databricks_sql(host, db_token, _PSXG_SHOTS_SQL, warehouse_id)
     if df.empty:
-        raise RuntimeError("0 rows from fct_action_context — verify dbt build")
-    logger.info("Retrieved %s action context rows", f"{len(df):,}")
+        raise RuntimeError("0 rows from fct_shot_psxg — verify dbt build / goalkeeper_enabled")
+    logger.info("Retrieved %s PSxG shot rows", f"{len(df):,}")
 
     # License-gate split (ADR-049): restricted rows → PRIVATE companion repo.
     public_df, restricted_df = split_restricted(df)
 
-    logger.info("Publishing PUBLIC action context to HF Hub: %s", DATASET_REPO)
+    logger.info("Publishing PUBLIC PSxG shots to HF Hub: %s", DATASET_REPO)
     url = publish_to_hf_hub(public_df, hf_token)
 
     # Fail-loud ONLY when the restricted set expects data the mart doesn't have
@@ -193,25 +189,25 @@ def main() -> None:
     # partitions while this run's public publish carries them.
     if RESTRICTED_HF_PROVIDERS and restricted_df.empty:
         raise RuntimeError(
-            f"No rows for restricted providers {sorted(RESTRICTED_HF_PROVIDERS)} in fct_action_context — "
+            f"No rows for restricted providers {sorted(RESTRICTED_HF_PROVIDERS)} in fct_shot_psxg — "
             "refusing to publish an empty restricted dataset while the policy expects data."
         )
     logger.info(
-        "Publishing RESTRICTED action context (%s rows) to PRIVATE repo: %s",
+        "Publishing RESTRICTED PSxG shots (%s rows) to PRIVATE repo: %s",
         f"{len(restricted_df):,}",
         RESTRICTED_DATASET_REPO,
     )
     publish_to_hf_hub(restricted_df, hf_token, repo_id=RESTRICTED_DATASET_REPO, private=True)
 
-    # Inject a data-driven per-provider `configs:` block into each card so the viewer shows a
-    # per-provider subset selector and consumers can pull one provider —
-    # `load_dataset(repo, "<provider>")` — without downloading the rest. Providers are taken
-    # from the data actually published to each repo, so the card never drifts from the dataset.
+    # Inject a data-driven per-provider `configs:` block into each card (ADR-054) so the
+    # viewer shows a per-provider subset selector and consumers can pull one provider —
+    # load_dataset(repo, "<provider>") — without downloading the rest. Providers come from
+    # the data actually published to each repo, so the card never drifts from the dataset.
     public_providers = sorted(public_df["data_source"].unique())
     restricted_providers = sorted(restricted_df["data_source"].unique())
     for repo, card, providers in (
-        (DATASET_REPO, "spadl-action-context.md", public_providers),
-        (RESTRICTED_DATASET_REPO, "spadl-action-context-restricted.md", restricted_providers),
+        (DATASET_REPO, "psxg-shots.md", public_providers),
+        (RESTRICTED_DATASET_REPO, "psxg-shots-restricted.md", restricted_providers),
     ):
         upload_hf_readme(
             repo_id=repo,

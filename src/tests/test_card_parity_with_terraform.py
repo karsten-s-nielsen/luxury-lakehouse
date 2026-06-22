@@ -240,6 +240,11 @@ _HF_JOBS_SCRIPT_TO_CARD: dict[str, str | None] = {
     "publish_pitch_control_tracking_hf.py": None,
     "publish_tracking_context_hf.py": None,
     "publish_action_context_hf.py": None,
+    # Operator-run (PEP 723), like publish_action_context_hf.py: publishes the gold
+    # shot-grain PSxG fact (fct_shot_psxg) to psxg-shots + the ADR-049 private
+    # companion. Dataset cards governed by ADR-014; the PSxG model's per-player
+    # governance lives in wf-goalkeeper. No independent owning card.
+    "publish_psxg_shots_hf.py": None,
 }
 
 
