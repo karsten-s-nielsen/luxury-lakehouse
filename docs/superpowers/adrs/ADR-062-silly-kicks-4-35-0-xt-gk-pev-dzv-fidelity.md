@@ -6,6 +6,14 @@
 | **Status** | Accepted |
 | **Deciders** | Karsten Nielsen, Claude |
 
+> **Amendment (2026-06-27, same day):** PR #409 originally shipped this adoption WITHOUT a wheel
+> bump, on the mistaken reasoning that "the math is upstream-only, so no lakehouse code changed."
+> That was wrong: the sentinel dance edits `exec_visibility._REQUIRED_SK_MIN`, which ships in the
+> wheel and is the ADR-044 env-drift guard — leaving the wheel un-bumped deployed a stale `(4,34,0)`
+> guard that would NOT fail-loud on a stale env. Per project discipline the lakehouse wheel is
+> bumped on every change. Corrected here: wheel `0.5.52 → 0.5.53`; the Decision/Alternatives below
+> reflect the wheel bump. No data impact (the cancelled-then-rerun recompute uses 4.35.0 either way).
+
 ## Context
 
 silly-kicks 4.34.0 → 4.35.0 ships a single lakehouse-relevant change (upstream ADR-024
@@ -35,16 +43,21 @@ No completion-model, geometry, or provider-variant change. The composite shape i
 
 Adopt 4.35.0 everywhere (pyproject `[spadl]` floor + `uv.lock` + terraform `==` pins +
 `submit_ac1_oneshot.py` mirror + the seven `_REQUIRED_SK_MIN` constants + the orchestrator
-sentinel) per [ADR-046](ADR-046-serverless-env-exact-pins.md) lockstep, and **re-materialize the
-`xt_gk_*` columns of `fct_action_context`** for all tracking-backed matches.
+sentinel) per [ADR-046](ADR-046-serverless-env-exact-pins.md) lockstep, **bump the lakehouse wheel
+`0.5.52 → 0.5.53`** (`bump_wheel.py` propagates to all consumers; CI rebuilds + redeploys on merge),
+and **re-materialize the `xt_gk_*` columns of `fct_action_context`** for all tracking-backed matches.
 
-**No lakehouse code change.** The xT-GK math lives entirely in `compute_xt_gk`; the enrichment
-(`analytics.action_context.enrich._enrich_tracking_match`) calls `XtGkParams.for_philosophy(preset)`
-and stores `xt_gk` per preset. `XtGkParams.v_def` (removed upstream in 4.35.0) was never passed by
-the lakehouse, and the new `dzv_alpha/dzv_beta/dzv_d_max` fields carry correct canonical defaults —
-so the call site is unchanged and the **AC schema is unchanged**. The wheel is therefore **not
-rebuilt** (no code delta); the recompute runs the existing wheel + silly-kicks 4.35.0 pinned in
-the serverless `analytics` env.
+**Wheel bumped 0.5.52 → 0.5.53.** The xT-GK *math* lives entirely in `compute_xt_gk` (silly-kicks),
+delivered via the serverless `analytics` env's `==4.35.0` pin — so the AC enrichment call site
+(`analytics.action_context.enrich._enrich_tracking_match` → `XtGkParams.for_philosophy(preset)`) is
+unchanged (`XtGkParams.v_def`, removed upstream, was never passed; the new `dzv_alpha/beta/d_max`
+carry canonical defaults) and the **AC schema is unchanged**. But the PR DOES change lakehouse code
+that ships in the wheel — `exec_visibility._REQUIRED_SK_MIN=(4,35,0)`, the [ADR-044](ADR-044-executor-env-drift-guard.md)
+executor env-drift guard. That floor only protects the recompute if it is actually **deployed**, so
+the wheel MUST be rebuilt + redeployed (CI build + HF-Hub upload + `deploy_wheel.py` on merge; the
+serverless env then references the new wheel filename). Per project discipline the lakehouse wheel
+version is bumped on **every** change regardless — same-version redeploy is unreliable for cached
+serverless envs. The recompute runs AFTER the new wheel (and the `==4.35.0` env) are deployed.
 
 ## Alternatives considered
 
@@ -52,8 +65,8 @@ the serverless `analytics` env.
 |---|---|---|---|
 | A. Pin-only bump, defer recompute | trivial PR | stale `xt_gk_pev/dzv/composite` values in the live mart contradict the adopted method | the values ARE the deliverable for the Eyestone report |
 | B. Amend ADR-048 in place instead of a new ADR | one xT-GK record | buries a value-changing re-materialization inside a closed adoption record | each value-changing silly-kicks adoption gets its own ADR (050/052/055/056/057/058 precedent) |
-| C. Rebuild + republish the wheel | "clean" version bump | no code changed; an unnecessary republish + a needless `WHEEL_VERSION` bump | terraform pins silly-kicks `==4.35.0` directly — the env gets the new library regardless of wheel version |
-| D. Pin-bump + recompute, no wheel rebuild (chosen) | one schema-stable re-materialization, lockstep pins | requires `terraform apply` to roll the env before the recompute | — |
+| C. Pin-bump but skip the wheel rebuild | smaller PR | the `(4,35,0)` guard floor never deploys → the env-drift guard silently accepts a stale 4.34.0 env; plus same-version-redeploy cache staleness | the wheel is the deployed source of truth; the guard must ship to protect anything (this was the initial mistake — corrected in the amendment) |
+| D. Pin-bump + wheel bump 0.5.53 + recompute (chosen) | guard floor actually deploys; disciplined cache-bust; one schema-stable re-materialization | CI wheel build/deploy + `terraform apply` must roll before the recompute | — |
 
 ## Consequences
 
