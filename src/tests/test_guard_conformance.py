@@ -1241,6 +1241,10 @@ class TestWatermarkGuardHasCardInputs:
         "wf-dbt-build-input-marts",
         "wf-dbt-build-intermediate-marts",
         "wf-dbt-build-output-marts",
+        # ADR-063: xT-grid producer + the two grid consumers that watermark on the grid.
+        "wf-xt-grids",
+        "wf-action-context",
+        "wf-off-ball-xt",
     ]
 
     @pytest.mark.parametrize("card_id", _WATERMARK_CARDS)
@@ -1276,6 +1280,10 @@ class TestWatermarkRecordAfterSuccess:
         "ingestion.model_validation",
         "ingestion.dbt_runner",
         "ingestion.refresh_synced_tables",
+        # ADR-063: grid producer + consumers record the xT-grid watermark after a successful run.
+        "ingestion.expected_threat",
+        "ingestion.off_ball_xt",
+        "ingestion.action_context",
     ]
 
     @pytest.mark.parametrize("module_path", _STANDALONE_MODULES)

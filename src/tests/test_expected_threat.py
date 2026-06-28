@@ -469,11 +469,13 @@ class TestXTGridStructuralValidation:
         with pytest.raises(ValueError, match="range too narrow"):
             grid.validate_structural()
 
-    def test_rejects_non_monotonic_rows(self) -> None:
-        # Reversed gradient → row means decrease left-to-right
+    def test_rejects_inverted_grid_when_directional(self) -> None:
+        # Reversed gradient (defensive-high) → fails the directionality assert (ADR-063).
+        # NOTE: comprehensive ADR-063 directionality tests live in test_xt_grid_directionality.py
+        # (this module is gated on `importorskip("jax")`; the directionality check is jax-free).
         grid = _make_xt_grid(pattern="reverse_x", max_value=0.30)
-        with pytest.raises(ValueError, match="monoton"):
-            grid.validate_structural()
+        with pytest.raises(ValueError, match="directional"):
+            grid.validate_structural(require_directional=True)
 
 
 # ---------------------------------------------------------------------------

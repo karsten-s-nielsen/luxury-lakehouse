@@ -7,8 +7,9 @@ xT grids via Markov chain value iteration, and writes results to Delta.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+import numpy as np
 import pandas as pd
 
 from ingestion.guards import FilterResult, timed_check
@@ -50,15 +51,124 @@ _RELEVANT_TYPES = (
 logger = logging.getLogger(__name__)
 _guard_logger = logging.getLogger(f"{__name__}.guard")
 
+_WORKFLOW_ID = "wf-xt-grids"
+
+
+def _decide_rebuild(
+    find_new: list[str],
+    all_comps: list[str],
+    *,
+    upstream_changed: bool,
+    global_exists: bool,
+) -> tuple[list[str], bool]:
+    """Pure guard decision (ADR-063, review L10 — testable without Spark).
+
+    Returns ``(competitions_to_build, need_global)``.
+
+    - When the upstream mart (``fct_action_values``) was re-derived (watermark changed), rebuild **all**
+      competition grids + global — ``find_new_ids`` only catches genuinely-new competitions and would otherwise
+      leave every existing per-comp grid stale (the build-if-absent bug this ADR fixes).
+    - Otherwise build only genuinely-new competitions; rebuild global only if it is absent.
+    """
+    need_global = upstream_changed or not global_exists
+    comps = sorted(set(find_new) | set(all_comps)) if upstream_changed else sorted(set(find_new))
+    return comps, need_global
+
+
+# Per-comp grids at/above this action count get the directionality assert; smaller ones are exempt
+# (ADR-063 M5/M6 — small/noisy competitions must not false-fail).
+_MIN_ACTIONS_DIRECTIONAL = 5000
+# Write-if-changed materiality (ADR-063 R4). Cells below the floor are noise; a grid is written +
+# propagated only if the max relative change among above-floor cells (vs the last-PROPAGATED grid =
+# the current table contents) reaches the threshold. PROVISIONAL — tune after observing the drift
+# logged each run; gating vs the current table (only ever holds propagated grids) bounds cumulative drift.
+_MATERIALITY_VALUE_FLOOR = 0.005
+_MATERIALITY_REL_THRESHOLD = 0.10
+
+
+def _grid_drift(new_values: np.ndarray, previous_values: np.ndarray | None) -> float | None:
+    """Max relative per-cell change vs the last-propagated grid, among cells above the value floor.
+
+    Returns ``None`` when there is no comparable baseline (treat as material → write). ADR-063 R4(iv):
+    the baseline is the CURRENT table grid which — because we only write on material change — IS the
+    last-propagated grid, so slow sub-threshold drift cannot accumulate unbounded.
+    """
+    if previous_values is None or previous_values.shape != new_values.shape:
+        return None
+    mask = previous_values >= _MATERIALITY_VALUE_FLOOR
+    if not bool(mask.any()):
+        return None
+    rel = np.abs(new_values[mask] - previous_values[mask]) / previous_values[mask]
+    return float(rel.max())
+
+
+def _write_grid_if_material(
+    spark: SparkSession,
+    grid: Any,
+    *,
+    catalog: str,
+    schema: str,
+    comp_id: str,
+    logger: logging.Logger,
+) -> bool:
+    """WARN-only differential + write-only-on-material-change (ADR-063 R4/H3). Returns True if written.
+
+    ``grid`` is an ``analytics.expected_threat.XTGrid`` (duck-typed here to keep this guard-adjacent
+    module free of module-level analytics imports).
+    """
+    previous = _load_previous_grid(spark, catalog, schema, comp_id, logger)
+    # Differential is advisory only now (ADR-063 H3): never raise — the directionality assert is the
+    # hard gate, and a hard differential would deadlock the auto-rebuild on a legitimate large shift.
+    try:
+        grid.validate_differential(previous)
+    except ValueError as exc:
+        logger.warning("xT grid '%s' differential WARN (not blocking, ADR-063 H3): %s", comp_id, exc)
+    prev_values = previous.values if previous is not None else None
+    drift = _grid_drift(grid.values, prev_values)
+    logger.info(
+        "xT grid '%s' drift vs last-propagated: %s",
+        comp_id,
+        "n/a (no baseline)" if drift is None else f"{drift:.4f}",
+    )
+    if drift is not None and drift < _MATERIALITY_REL_THRESHOLD:
+        logger.info(
+            "xT grid '%s' immaterial (drift %.4f < %.2f) — skip write, no version bump (ADR-063 R4)",
+            comp_id,
+            drift,
+            _MATERIALITY_REL_THRESHOLD,
+        )
+        return False
+    spark_df = spark.createDataFrame(grid.to_dataframe())  # type: ignore[union-attr]
+    write_delta_table(
+        spark_df,
+        catalog=catalog,
+        schema=schema,
+        table_name=_TABLE_NAME,
+        replace_where=f"competition_id = '{comp_id}'",
+        logger=logger,
+    )
+    return True
+
 
 class _ExpectedThreatGuard:
     """SkipGuard adapter for expected threat grid computation."""
 
-    workflow_id = "wf-xt-grids"
+    workflow_id = _WORKFLOW_ID
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
-        """Check which competitions need xT grid computation."""
-        from ingestion.guards import ensure_table, find_new_ids
+        """Check which xT grids need (re)computation.
+
+        Watermark-aware (ADR-063): if the upstream gold mart ``fct_action_values`` was re-derived
+        (e.g. the SPADL->LTR migration), rebuild ALL grids — not just absent ones — because the
+        build-if-absent pattern silently froze the grid for ~2 months. ``find_new_ids`` still catches
+        genuinely-new competitions; ``check_upstream_freshness`` catches in-place re-derivation.
+        """
+        from ingestion.guards import (
+            check_upstream_freshness,
+            ensure_table,
+            find_new_ids,
+            resolve_upstream_tables_from_card,
+        )
 
         results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
         ensure_table(spark, results_table, _RESULTS_SCHEMA)
@@ -71,28 +181,31 @@ class _ExpectedThreatGuard:
             source_filter=f"action_type IN ({types_sql}) AND competition_id IS NOT NULL",
         )
 
-        # Check global sentinel separately — find_new_ids only handles
-        # real competition IDs from the source table.
-        need_global = False
         try:
             existing = {
                 str(row["competition_id"])
-                for row in spark.table(f"{catalog}.{schema}.{_TABLE_NAME}")
-                .select("competition_id")
-                .distinct()
-                .collect()
+                for row in spark.table(results_table).select("competition_id").distinct().collect()
             }
-            need_global = "global" not in existing
+            global_exists = "global" in existing
         except Exception:  # noqa: BLE001 — first-run fallback: any table-read failure means rebuild global grid
-            need_global = True
+            global_exists = False
 
-        total = len(new_comps) + (1 if need_global else 0)
+        # Watermark on the upstream mart (the card pins `{catalog}.dev_gold.fct_action_values`).
+        upstream = resolve_upstream_tables_from_card(self.workflow_id, catalog, schema)
+        upstream_changed = check_upstream_freshness(spark, catalog, self.workflow_id, upstream).count > 0
+
+        all_comps = _list_relevant_competition_ids(spark, catalog) if upstream_changed else []
+        comps, need_global = _decide_rebuild(
+            new_comps, all_comps, upstream_changed=upstream_changed, global_exists=global_exists
+        )
+
+        total = len(comps) + (1 if need_global else 0)
         if total == 0:
             return FilterResult(workflow_id=self.workflow_id, count=0)
         return FilterResult(
             workflow_id=self.workflow_id,
             count=total,
-            metadata={"new_competition_ids": sorted(new_comps), "need_global": need_global},
+            metadata={"new_competition_ids": comps, "need_global": need_global},
         )
 
 
@@ -290,27 +403,15 @@ def run_pipeline(
 
             xt_grid = xt_grid_from_counters(comp_counters, params, competition_id=comp_id)
 
-            # Differential validation against the previous run's grid for this competition.
-            previous = _load_previous_grid(spark, catalog, schema, comp_id, logger)
-            xt_grid.validate_differential(previous)
+            # Directionality gate for substantial competitions only (ADR-063 M5/M6): small/noisy
+            # per-comp grids are exempt to avoid false-fails; large ones must not be silently inverted.
+            if n_events >= _MIN_ACTIONS_DIRECTIONAL:
+                xt_grid.assert_directional()
 
-            grid_df = xt_grid.to_dataframe()
-            spark_df = spark.createDataFrame(grid_df)  # type: ignore[union-attr]
-            write_delta_table(
-                spark_df,
-                catalog=catalog,
-                schema=schema,
-                table_name=_TABLE_NAME,
-                replace_where=f"competition_id = '{comp_id}'",
-                logger=logger,
-            )
-            competitions_written += 1
-            logger.info(
-                "Competition %s: %d events, max xT=%.5f",
-                comp_id,
-                n_events,
-                float(xt_grid.values.max()),
-            )
+            # WARN-only differential + write-only-on-material-change (ADR-063 R4/H3).
+            if _write_grid_if_material(spark, xt_grid, catalog=catalog, schema=schema, comp_id=comp_id, logger=logger):
+                competitions_written += 1
+                logger.info("Competition %s: %d events, max xT=%.5f", comp_id, n_events, float(xt_grid.values.max()))
 
     # ── Global grid (built from accumulated per-comp counters) ────────
     if need_global:
@@ -319,30 +420,21 @@ def run_pipeline(
         else:
             global_xt_grid = xt_grid_from_counters(global_counters, params, competition_id="global")
 
-            # Structural validation (legacy v1 max_value=0.50 preserved here;
-            # ExT v2 conditional grids will pass max_value=None or a higher ceiling).
-            global_xt_grid.validate_structural(max_value=0.50)
+            # HARD gate (ADR-063 R1): a non-directional global grid is a build FAILURE — raises before
+            # any watermark is recorded, so a stale/broken grid forces a re-run rather than silently
+            # propagating (the negative-DZV root cause). max_value=0.50 is the legacy v1 ceiling.
+            global_xt_grid.validate_structural(max_value=0.50, require_directional=True)
 
-            # Differential validation against the previous global grid.
-            previous_global = _load_previous_grid(spark, catalog, schema, "global", logger)
-            global_xt_grid.validate_differential(previous_global)
-
-            global_df = global_xt_grid.to_dataframe()
-            spark_df = spark.createDataFrame(global_df)  # type: ignore[union-attr]
-            write_delta_table(
-                spark_df,
-                catalog=catalog,
-                schema=schema,
-                table_name=_TABLE_NAME,
-                replace_where="competition_id = 'global'",
-                logger=logger,
-            )
-            logger.info(
-                "Global grid: %d events accumulated across %d competitions, max xT=%.5f",
-                global_counters.total_actions,
-                len(comps_to_visit),
-                float(global_xt_grid.values.max()),
-            )
+            # WARN-only differential + write-only-on-material-change (ADR-063 R4/H3).
+            if _write_grid_if_material(
+                spark, global_xt_grid, catalog=catalog, schema=schema, comp_id="global", logger=logger
+            ):
+                logger.info(
+                    "Global grid: %d events accumulated across %d competitions, max xT=%.5f",
+                    global_counters.total_actions,
+                    len(comps_to_visit),
+                    float(global_xt_grid.values.max()),
+                )
 
     logger.info(
         "Done — wrote %d competition grids%s (streamed %d total actions across %d competitions)",
@@ -351,6 +443,14 @@ def run_pipeline(
         total_actions_accumulated,
         len(comps_to_visit),
     )
+
+    # Record the upstream watermark ONLY after a validated, successful run (ADR-063 H3). If the
+    # directionality assert raised above, we never reach here → the guard re-fires next run rather
+    # than recording "fresh" on an un-rebuilt grid (the silent-staleness failure this ADR targets).
+    from ingestion.guards import record_watermarks, resolve_upstream_tables_from_card
+
+    upstream = resolve_upstream_tables_from_card(_WORKFLOW_ID, catalog, schema)
+    record_watermarks(spark, catalog, _WORKFLOW_ID, upstream)
     return 0
 
 

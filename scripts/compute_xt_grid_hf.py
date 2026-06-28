@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.53-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.54-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -31,7 +31,6 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 from analytics.expected_threat import compute_expected_threat_grid
@@ -84,82 +83,15 @@ _RELEVANT_TYPES = _MOVE_TYPES | _SHOT_TYPES
 
 
 def _normalize_attack_direction(df: pd.DataFrame, params: ExpectedThreatParams) -> pd.DataFrame:
-    """Normalize coordinates so all actions attack toward x=pitch_length.
+    """No-op (ADR-063): the lakehouse SPADL is canonically LTR (ADR-022) — shots are 99.8-100%
+    in the attacking half across every provider/period, so no orientation normalization is needed.
 
-    SPADL coordinates should have x increasing in the attacking direction, but
-    some data exports (particularly Wyscout) have inconsistent orientation where
-    approximately half the actions have flipped coordinates.
-
-    Fix: for each (match_id, team_id, period), check if shots cluster in the
-    defensive half (x < pitch_length/2). If so, flip all coordinates for that group.
-    For groups without shots, infer from the same team's other period (teams swap
-    sides each half).
+    The legacy shot-cluster + per-period "teams swap sides" inference actively CORRUPTED already-LTR
+    data: shot-bearing team-periods correctly stayed unflipped, but no-shot team-periods whose other
+    period had shots were spuriously flipped, pushing the grid toward symmetric. Retained as a
+    documented no-op (this HF script is NOT the live bronze writer — `ingestion.expected_threat` is —
+    but keep both paths orientation-safe). See ADR-063.
     """
-    pitch_l = params.pitch_length
-    pitch_w = params.pitch_width
-    midfield = pitch_l / 2.0
-
-    df = df.copy()
-
-    # Identify shots
-    is_shot = df["type_name"].isin(_SHOT_TYPES)
-    shots = df[is_shot]
-
-    if shots.empty:
-        return df
-
-    # Compute mean shot x per (match_id, team_id, period)
-    shot_means = shots.groupby(["match_id", "team_id", "period"])["start_x"].mean()
-
-    # Build flip lookup: True if shots are in defensive half
-    flip_lookup: dict[tuple, bool] = {}
-    for key, mean_x in shot_means.items():
-        flip_lookup[key] = mean_x < midfield  # type: ignore[index]
-
-    # For groups without shots, infer from the same team's other period
-    group_keys = set(df.groupby(["match_id", "team_id", "period"]).groups.keys())
-
-    for key in group_keys:
-        if key not in flip_lookup:
-            match_id, team_id, period = key  # type: ignore[misc]
-            # Try the other period (1↔2)
-            other_period = 2 if period == 1 else 1
-            other_key = (match_id, team_id, other_period)
-            if other_key in flip_lookup:
-                # Opposite of the other period (teams swap sides)
-                flip_lookup[key] = not flip_lookup[other_key]
-            # If neither period has shots, don't flip (assume correct)
-
-    # Count flips for logging
-    n_flip = sum(1 for v in flip_lookup.values() if v)
-    n_total = len(flip_lookup)
-    print(f"  Coordinate normalization: {n_flip}/{n_total} team-period groups flipped")
-
-    if n_flip == 0:
-        return df
-
-    # Apply flips vectorized: build a flip mask
-    flip_mask = np.zeros(len(df), dtype=bool)
-    for key, should_flip in flip_lookup.items():
-        if should_flip:
-            match_id, team_id, period = key  # type: ignore[misc]
-            group_mask = (df["match_id"] == match_id) & (df["team_id"] == team_id) & (df["period"] == period)
-            flip_mask |= group_mask.values
-
-    # Flip coordinates where needed
-    for col in ["start_x", "end_x"]:
-        if col in df.columns:
-            df.loc[flip_mask, col] = pitch_l - df.loc[flip_mask, col]
-    for col in ["start_y", "end_y"]:
-        if col in df.columns:
-            df.loc[flip_mask, col] = pitch_w - df.loc[flip_mask, col]
-
-    # Verify: shots should now cluster in attacking half
-    post_shots = df[is_shot]
-    post_mean = post_shots["start_x"].mean()
-    post_pct_attacking = (post_shots["start_x"] > midfield).mean() * 100
-    print(f"  Post-normalization: shot mean x={post_mean:.1f}, {post_pct_attacking:.0f}% in attacking half")
-
     return df
 
 
@@ -266,7 +198,7 @@ def main() -> None:
     # ------------------------------------------------------------------
     print("\n=== Computing global xT grid ===")
     global_grid = compute_expected_threat_grid(all_actions, params, competition_id="global")
-    global_grid.validate_structural(max_value=0.50)
+    global_grid.validate_structural(max_value=0.50, require_directional=True)
     global_df = global_grid.to_dataframe()
     all_grids.append(global_df)
     print(f"  Global: {len(all_actions):,} events, max xT={global_grid.values.max():.5f}")
