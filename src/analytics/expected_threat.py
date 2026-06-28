@@ -8,11 +8,14 @@ Reference: Karun Singh (2018) "Introducing Expected Threat (xT)"
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 try:
     import jax
@@ -133,7 +136,7 @@ class XTGrid:
         *,
         max_value: float | None = None,
         require_directional: bool = False,
-        min_attack_ratio: float = 5.0,
+        min_attack_ratio: float = 3.0,
         min_rank_corr: float = 0.6,
     ) -> None:
         """Validate grid structure and value characteristics.
@@ -152,7 +155,13 @@ class XTGrid:
                 tolerance that let the stale symmetric/U-shaped grid (the
                 negative-DZV root cause) pass undetected.
             min_attack_ratio: Minimum attacking-third-mean / defensive-third-
-                mean ratio (default 5.0; a correct global grid is ~9.5).
+                mean ratio (default 3.0). The real correct global grid measures
+                ~4.5 on this thirds-mean metric (the stale symmetric grid was
+                ~0.96; inverted grids < 1), so 3.0 separates them with margin.
+                NOTE: this is the *thirds-mean* ratio, structurally lower than
+                the single-column x11/x0 ratio (~9.5 on the same grid). The
+                measured value is logged each build (monitor and consider
+                raising toward 3.5 once values settle).
             min_rank_corr: Minimum Spearman rank correlation between zone_x
                 and per-zone_x mean (default 0.6) — a coarse shape gate so a
                 grid cannot pass the 2-point ratio while dipping mid-pitch.
@@ -176,12 +185,16 @@ class XTGrid:
         if require_directional:
             self.assert_directional(min_attack_ratio=min_attack_ratio, min_rank_corr=min_rank_corr)
 
-    def assert_directional(self, *, min_attack_ratio: float = 5.0, min_rank_corr: float = 0.6) -> None:
+    def assert_directional(self, *, min_attack_ratio: float = 3.0, min_rank_corr: float = 0.6) -> None:
         """Assert the grid rises toward the attacking goal (ADR-063, review M5).
 
         Two robust checks (vs the fragile single-extreme-column ratio):
         (1) thirds-mean ratio = mean(attacking third) / mean(defensive third) >= min_attack_ratio;
         (2) Spearman rank correlation between zone_x and per-zone_x mean >= min_rank_corr.
+
+        Both measured values are logged at INFO every build (for ``competition_id``-tagged grids), so the
+        threshold can be tuned data-drivenly — monitor the logged thirds-ratio and consider raising
+        ``min_attack_ratio`` toward 3.5 once it settles comfortably above.
         """
         row_means = self.values.mean(axis=1)  # per-zone_x mean; index 0 = own goal, -1 = attacking goal
         n = row_means.shape[0]
@@ -189,6 +202,26 @@ class XTGrid:
         def_mean = float(row_means[:third].mean())
         att_mean = float(row_means[-third:].mean())
         ratio = att_mean / def_mean if def_mean > 0 else float("inf")
+        # Spearman rank corr = Pearson on the ranks of row_means vs the (already sorted) zone indices.
+        order = np.argsort(row_means, kind="stable")
+        ranks = np.empty(n, dtype=np.float64)
+        ranks[order] = np.arange(n, dtype=np.float64)
+        zone_idx = np.arange(n, dtype=np.float64)
+        rank_corr = float(np.corrcoef(ranks, zone_idx)[0, 1]) if n > 1 else 1.0
+
+        # Always log the measured directionality (monitoring signal for threshold tuning, ADR-063).
+        logger.info(
+            "xT grid '%s' directionality: thirds-ratio=%.2f (threshold %.1f), rank-corr=%.2f (threshold %.1f), "
+            "defensive-third=%.5f attacking-third=%.5f",
+            self.competition_id or "?",
+            ratio,
+            min_attack_ratio,
+            rank_corr,
+            min_rank_corr,
+            def_mean,
+            att_mean,
+        )
+
         if ratio < min_attack_ratio:
             msg = (
                 f"XTGrid is not attacking-directional: attacking-third / defensive-third mean ratio "
@@ -197,12 +230,6 @@ class XTGrid:
                 f"(ADR-063)."
             )
             raise ValueError(msg)
-        # Spearman rank corr = Pearson on the ranks of row_means vs the (already sorted) zone indices.
-        order = np.argsort(row_means, kind="stable")
-        ranks = np.empty(n, dtype=np.float64)
-        ranks[order] = np.arange(n, dtype=np.float64)
-        zone_idx = np.arange(n, dtype=np.float64)
-        rank_corr = float(np.corrcoef(ranks, zone_idx)[0, 1]) if n > 1 else 1.0
         if rank_corr < min_rank_corr:
             msg = (
                 f"XTGrid shape is not monotone attacking-directional: zone_x↔xT rank correlation "

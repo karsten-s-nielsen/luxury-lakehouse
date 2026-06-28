@@ -83,8 +83,8 @@ outputs stale. The framework **already** ships the correct primitive — `guards
 
 1. **Add a directionality assertion to the xT grid build** (review M5 — robust form). `XTGrid.validate_structural(
    ..., require_directional=…)` asserts the global grid is materially attacking-directional using a **thirds-mean
-   ratio** (mean xT over the attacking third ÷ mean over the defensive third) `>= 5` (the correct grid is ~9.5;
-   ≥5 has margin) **and** a coarse shape check (Spearman rank correlation between `zone_x` and per-zone_x mean
+   ratio** (mean xT over the attacking third ÷ mean over the defensive third) `>= 3` **and** a coarse shape
+   check (Spearman rank correlation between `zone_x` and per-zone_x mean
    `>= 0.6`). This replaces both the too-lax `np.diff(...) >= -0.01` tolerance and the fragile single-extreme-column
    ratio. Build fails loud on a non-directional grid. Applied to the **global** grid only — per the rev-2 decision to
    **delete the per-competition grids** (§6), there are no per-comp grids to gate.
