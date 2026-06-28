@@ -49,7 +49,9 @@ class TestGridDrift:
     def test_relative_change_above_floor(self) -> None:
         prev = self._g([0.10, 0.20])
         new = self._g([0.11, 0.20])  # +10% on the first cell
-        assert abs(_grid_drift(new, prev) - 0.10) < 1e-9
+        drift = _grid_drift(new, prev)
+        assert drift is not None
+        assert abs(drift - 0.10) < 1e-9
 
     def test_below_floor_cells_ignored(self) -> None:
         # A huge relative swing on a sub-floor cell (0.001 -> 0.002) must NOT count as material.

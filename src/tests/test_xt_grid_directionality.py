@@ -14,7 +14,7 @@ import pytest
 from analytics.expected_threat import XTGrid
 
 
-def _grid(col: np.ndarray, n_y: int = 8) -> XTGrid:
+def _grid(col: list[float] | np.ndarray, n_y: int = 8) -> XTGrid:
     """Build a (len(col), n_y) grid whose every y-column equals ``col`` (per-zone_x profile = col)."""
     values = np.repeat(np.asarray(col, dtype=float)[:, None], n_y, axis=1)
     return XTGrid(values=values, pitch_length=105.0, pitch_width=68.0, coord_system="spadl")

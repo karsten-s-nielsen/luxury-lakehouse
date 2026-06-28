@@ -16,6 +16,7 @@ error-log queries — the 2026-04-12 warm-tier blocker class).
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -43,7 +44,7 @@ class StaleArtifact:
 
 def find_stale_artifacts(
     stored: list[tuple[str, str, int]],
-    current_versions: dict[str, int | None],
+    current_versions: Mapping[str, int | None],
 ) -> list[StaleArtifact]:
     """Pure detection (ADR-063 H4 — testable without Spark).
 
