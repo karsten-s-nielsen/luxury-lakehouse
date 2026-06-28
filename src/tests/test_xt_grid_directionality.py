@@ -26,6 +26,9 @@ _U_SHAPED = [0.18, 0.16, 0.10, 0.07, 0.06, 0.05, 0.05, 0.06, 0.07, 0.10, 0.16, 0
 _INVERTED = [0.17, 0.15, 0.13, 0.11, 0.09, 0.07, 0.06, 0.05, 0.04, 0.03, 0.02, 0.01]
 # Correct: monotone rise toward the attacking goal (att/def ratio ~5.4).
 _DIRECTIONAL = [0.007, 0.007, 0.007, 0.008, 0.009, 0.010, 0.011, 0.014, 0.018, 0.024, 0.048, 0.067]
+# Real production global grid shape: thirds-mean ratio ~4.7 — directional, but BELOW the original
+# (mis-calibrated) 5.0 threshold. The default is 3.0 so this legitimate grid passes (ADR-063 follow-up).
+_REAL_LIKE = [0.011, 0.011, 0.012, 0.013, 0.016, 0.021, 0.029, 0.039, 0.046, 0.052, 0.058, 0.065]
 
 
 def test_u_shaped_grid_rejected_when_directional() -> None:
@@ -53,6 +56,17 @@ def test_below_min_actions_comp_not_false_failed() -> None:
     below the min-action threshold, so it is NOT directionality-checked (ADR-063 / review M5)."""
     noisy = [0.02, 0.10, 0.01, 0.12, 0.03, 0.08, 0.05, 0.02, 0.11, 0.01, 0.09, 0.03]
     _grid(noisy).validate_structural(max_value=0.50, require_directional=False)  # should not raise
+
+
+def test_real_grid_shape_passes_at_default_threshold() -> None:
+    # The real production grid (thirds-ratio ~4.7) is directional and must pass the default 3.0 bar...
+    _grid(_REAL_LIKE).validate_structural(max_value=0.50, require_directional=True)
+
+
+def test_real_grid_shape_would_fail_old_5_threshold() -> None:
+    # ...but it tripped the original mis-calibrated 5.0 (set from the single-column metric); regression lock.
+    with pytest.raises(ValueError, match="ratio"):
+        _grid(_REAL_LIKE).validate_structural(max_value=0.50, require_directional=True, min_attack_ratio=5.0)
 
 
 def test_thirds_ratio_threshold_is_configurable() -> None:

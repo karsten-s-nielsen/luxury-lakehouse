@@ -134,7 +134,7 @@ regenerate bite-sized TDD steps and implement.
 
 Code complete + tested (266 passed / 14 skipped in the affected-subsystem sweep; ruff clean; pyright 0 errors):
 - **R1** `analytics/expected_threat.py::validate_structural(require_directional=…)` + public `assert_directional()`
-  (thirds-mean ratio ≥5 + Spearman rank-corr ≥0.6); jax-free tests `test_xt_grid_directionality.py`.
+  (thirds-mean ratio ≥3 + Spearman rank-corr ≥0.6); jax-free tests `test_xt_grid_directionality.py`.
 - **R2/R3** `ingestion/expected_threat.py` watermark guard (`check_upstream_freshness` on `fct_action_values`) + pure
   `_decide_rebuild`; `_WORKFLOW_ID` const; card input already present. Tests `test_expected_threat_guard.py`.
 - **R4** write-if-changed (`_write_grid_if_material` + `_grid_drift`, gate vs current=last-propagated grid, floor
@@ -149,10 +149,20 @@ Code complete + tested (266 passed / 14 skipped in the affected-subsystem sweep;
   all card/parity/conformance tests green.
 - HF `_normalize_attack_direction` → no-op; wheel 0.5.53 → 0.5.54 (`bump_wheel.py`, 29 files, lock).
 
+### Revision 6 — threshold recalibration (2026-06-28, post-deploy)
+
+The first corrective-rebuild run FAILED the directionality assert: the real global grid measures a **thirds-mean
+ratio of 4.54**, below the 5.0 bar. Root cause: the 5.0 threshold was calibrated from the **single-column** `x11/x0`
+ratio (~9.5 in the investigation) but the assert (per review M5) uses the structurally-lower **thirds-mean** ratio.
+The grid is correct/directional (4.5×; stale symmetric was ~0.96). Fix: default `min_attack_ratio` **5.0 → 3.0**
+(separates 4.54 from ~1.0 symmetric/inverted with margin), and `assert_directional` now **logs the measured
+thirds-ratio + rank-corr at INFO every build** so the bar can be raised toward 3.5 data-drivenly later. Tests
+`test_real_grid_shape_{passes_at_default,would_fail_old_5}_threshold`. Wheel 0.5.54 → 0.5.55.
+
 **Remaining (post-merge ops only — no code left):** R7 corrective rebuild is automatic (first daily run rebuilds the
 grid → the R5b edges re-materialize `fct_action_context` + off-ball xT); confirm + ping the analysis side. R4's `ε`
 (`_MATERIALITY_REL_THRESHOLD`, provisional 0.10) to be tuned from the per-run drift the producer logs once real data
-accrues.
+accrues; likewise monitor the logged thirds-ratio and consider raising `min_attack_ratio` toward 3.5.
 
 ---
 
