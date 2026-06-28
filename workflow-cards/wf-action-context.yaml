@@ -39,6 +39,9 @@ inputs:
     - id: "{catalog}.bronze.statsbomb_360"
       source: delta-table
       description: "StatsBomb 360 freeze-frame snapshots (SB360 tier)"
+    - id: "{catalog}.bronze.expected_threat_grids"
+      source: delta-table
+      description: "Global xT grid — the xt_gk_* surface; a material change forces a full re-materialize (ADR-063)"
 
 outputs:
   tables:

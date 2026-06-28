@@ -1399,6 +1399,34 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
+  # ── Task: Derived-artifact staleness monitor (ADR-063 H4) ──────────────
+  # Detect-and-alert backstop: ERROR-logs any workflow whose recorded watermark
+  # lags its upstream's current data version (the stale-grid class that produced
+  # the negative xt_gk_dzv). Read-only; runs late (post output-marts) so today's
+  # watermarks are current. Sibling of run_model_validation — a staleness alert
+  # must never block the daily job (signal, not gate).
+  task {
+    task_key        = "run_staleness_monitor"
+    timeout_seconds = 600
+    max_retries     = 0
+
+    depends_on {
+      task_key = "dbt_build_output_marts"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "run_staleness_monitor"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "default"
+  }
+
   # ── Environment for SPADL/VAEP task (includes analytics extras) ─────────
   # No statsbombpy needed — pipeline reads from bronze, not the API.
   #

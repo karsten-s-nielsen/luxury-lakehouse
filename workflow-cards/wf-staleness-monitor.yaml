@@ -1,0 +1,86 @@
+---
+name: Derived-Artifact Staleness Monitor
+id: wf-staleness-monitor
+version: "1.0"
+status: production
+type: validation
+domain: observability
+owners:
+  - karsten
+tags:
+  - monitoring
+  - staleness
+  - watermark
+  - observability
+
+# No academic methodology — this is an operational watermark-freshness monitor
+# (Delta version comparison), not a published technique.
+references: []
+
+inputs:
+  datasets:
+    - id: "{catalog}.observability.workflow_watermarks"
+      source: delta-table
+      description: "Per-(workflow, upstream) Delta-version watermarks scanned for lag"
+
+outputs:
+  tables:
+    - id: "{catalog}.observability.workflow_watermarks"
+      destination: delta-table
+
+execution:
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: run_staleness_monitor
+    module: ingestion.staleness_monitor
+    distribution: driver-bound
+    schedule: "daily 07:30 UTC"
+    timeout: "600s"
+    environment: default
+
+depends_on:
+  - wf-dbt-build-output-marts
+
+idempotency:
+  strategy: upsert
+  key: run_id
+  description: "Read-only scan + ERROR-level alert; stateless and safe to re-run anytime (ADR-063 H4)."
+
+performance:
+  inference_timeout: "600s"
+  memory_ceiling: "16 GB driver"
+
+cost:
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 5
+    typical_cost_usd: 0.35
+
+monitoring:
+  freshness_sla_hours: 24
+
+links:
+  source_code:
+    - "src/ingestion/staleness_monitor.py"
+---
+
+## Overview
+
+Cross-cutting **detect-and-alert** backstop (ADR-063 H4). For every workflow that records a
+Delta-version watermark in `observability.workflow_watermarks`, the monitor compares the recorded
+watermark against the upstream table's *current* data version and emits an ERROR-level alert when a
+workflow's output lags its upstream — i.e. a derived artifact has gone stale.
+
+This is the safety net that would have caught the 2-month-stale `global` xT grid (the negative-DZV
+root cause) in week 1. It covers all freshness tiers, including the deferred Tier B (expensive model
+retrains) and the Tier C per-id pipelines that otherwise rely on a human remembering to wipe-and-
+recompute after an upstream re-derivation.
+
+## Behaviour
+
+Read-only: scans the watermarks table, reads `DESCRIBE HISTORY` for each distinct upstream, and logs
+one ERROR per stale `(workflow, upstream)` pair. No table is written and nothing is rebuilt —
+alerting is orthogonal to any auto-rebuild trigger. ERROR-level logging is the alert sink per
+CLAUDE.md (warning-level telemetry is invisible to error-log queries).

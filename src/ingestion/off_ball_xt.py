@@ -212,16 +212,28 @@ class _OffBallXtGuard:
     workflow_id = "wf-off-ball-xt"
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
-        """Check which tracking matches need off-ball xT computation."""
-        from ingestion.guards import ensure_table, find_new_ids
+        """Check which tracking matches need off-ball xT computation.
+
+        ADR-063 R5b/H1: off-ball xT's surface is the global xT grid. If the grid was materially
+        re-derived (watermark on ``bronze.expected_threat_grids``), every match's off-ball xT is
+        invalid → recompute ALL matches, not just unprocessed ones. The grid bumps its version only
+        on a MATERIAL change (ADR-063 R4), so this fires rarely.
+        """
+        from ingestion.guards import check_upstream_freshness, ensure_table, find_new_ids
 
         results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+        frames_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_tracking_frames"
         ensure_table(spark, results_table, _RESULTS_SCHEMA)
-        new_match_ids = find_new_ids(
-            spark,
-            source_table=f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_tracking_frames",
-            results_table=results_table,
-        )
+
+        grid = [f"{catalog}.bronze.expected_threat_grids"]
+        if check_upstream_freshness(spark, catalog, self.workflow_id, grid).count > 0:
+            # ADR-063 R5b/H1: grid changed → wipe results so the anti-join below re-discovers EVERY match
+            # and the run recomputes each on the new surface. The grid bumps its version only on a MATERIAL
+            # change (ADR-063 R4), so this fires rarely. record_watermarks (run_pipeline) then closes the edge.
+            _guard_logger.info("off-ball xT: global xT grid changed (ADR-063) — wiping results for full recompute")
+            spark.sql(f"DELETE FROM {results_table}")  # noqa: S608
+
+        new_match_ids = find_new_ids(spark, source_table=frames_table, results_table=results_table)
 
         if not new_match_ids:
             return FilterResult(workflow_id=self.workflow_id, count=0)
@@ -375,6 +387,12 @@ def run_pipeline(
 
     total = _process_matches(spark, catalog, schema, logger, xt_grid, params, pc_params, filter_result=filter_result)
     logger.info("Off-Ball xT pipeline complete — %d total rows written", total)
+
+    # ADR-063 R5b: record the xT-grid watermark after a successful run so the full-recompute edge
+    # (guard) fires once per material grid change, not every run.
+    from ingestion.guards import record_watermarks
+
+    record_watermarks(spark, catalog, "wf-off-ball-xt", [f"{catalog}.bronze.expected_threat_grids"])
     return total
 
 

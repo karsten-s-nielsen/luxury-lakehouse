@@ -459,10 +459,17 @@ any pre-release/local suffix)."""
 # Load-bearing silly-kicks submodules the AC UDF executes. Each MUST resolve from the
 # same install root as ``silly_kicks`` itself; a split (e.g. ``tracking._ghost_gk`` from a
 # stale 4.12.0 layer while ``__init__`` is 4.20.1) is exactly the contamination class above.
+# The xt-gk trio (``_xt_gk`` value math, ``_gk_completion`` RAV model, ``_gk_geometry``
+# coord resolver) was added 2026-06-28: the xT-GK DZV investigation found these were
+# OUTSIDE the guard, so a split shadowing only ``_xt_gk`` (PEV/DZV) would have passed
+# undetected (that investigation cleared the actual 4.35.0 run, but the coverage gap is real).
 _SK_GUARD_SUBMODULES: tuple[str, ...] = (
     "silly_kicks.tracking._ghost_gk",
     "silly_kicks.tracking.features",
     "silly_kicks.tracking.pitch_control",
+    "silly_kicks.tracking._xt_gk",
+    "silly_kicks.tracking._gk_completion",
+    "silly_kicks.tracking._gk_geometry",
     "silly_kicks.xthreat",
     "silly_kicks.spadl",
 )

@@ -58,6 +58,30 @@ def test_split_install_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         ev.assert_executor_silly_kicks_sane(batch_key="m10504_p1_b277")
 
 
+def test_split_install_xt_gk_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The xT-GK value surface is guarded: a split shadowing only ``tracking._xt_gk``
+    (PEV/DZV) — the coverage gap found in the 2026-06-28 xT-GK DZV investigation — fails
+    loud, not silently producing wrong xt_gk_* columns while ``__version__`` reads healthy."""
+    import silly_kicks
+    import silly_kicks.tracking._xt_gk as xtgk
+
+    monkeypatch.setattr(silly_kicks, "__version__", ".".join(map(str, ev._REQUIRED_SK_MIN)), raising=False)
+    monkeypatch.setattr(xtgk, "__file__", "/stale/pythonEnv-deadbeef/silly_kicks/tracking/_xt_gk.py")
+    with pytest.raises(RuntimeError, match=r"split install on executor.*_xt_gk"):
+        ev.assert_executor_silly_kicks_sane(batch_key="m10502_p1_b3")
+
+
+def test_xt_gk_surface_guarded() -> None:
+    """The full xT-GK surface (value math + completion model + geometry resolver) is in the
+    guard's submodule list — regression lock for the 2026-06-28 coverage-gap fix."""
+    for name in (
+        "silly_kicks.tracking._xt_gk",
+        "silly_kicks.tracking._gk_completion",
+        "silly_kicks.tracking._gk_geometry",
+    ):
+        assert name in ev._SK_GUARD_SUBMODULES, f"{name} missing from _SK_GUARD_SUBMODULES"
+
+
 def test_idempotent_short_circuit(monkeypatch: pytest.MonkeyPatch) -> None:
     """After a clean pass, a subsequently-poisoned version is NOT re-checked (process-stable)."""
     import silly_kicks

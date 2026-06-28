@@ -128,7 +128,14 @@ class XTGrid:
         zone_y = max(zone_y, 0)
         return float(self.values[zone_x, zone_y])
 
-    def validate_structural(self, *, max_value: float | None = None) -> None:
+    def validate_structural(
+        self,
+        *,
+        max_value: float | None = None,
+        require_directional: bool = False,
+        min_attack_ratio: float = 5.0,
+        min_rank_corr: float = 0.6,
+    ) -> None:
         """Validate grid structure and value characteristics.
 
         Args:
@@ -137,6 +144,18 @@ class XTGrid:
                 conditional grids where near-box values may approach 1.0).
                 The legacy v1 default was 0.50; pass it explicitly to
                 preserve old behavior.
+            require_directional: When True, assert the grid is materially
+                attacking-directional (ADR-063). The caller passes True for
+                the global grid (always) and for per-competition grids above
+                a min-action threshold; small/noisy grids are exempt. This
+                replaces the too-lax per-step ``diff >= -0.01`` monotonicity
+                tolerance that let the stale symmetric/U-shaped grid (the
+                negative-DZV root cause) pass undetected.
+            min_attack_ratio: Minimum attacking-third-mean / defensive-third-
+                mean ratio (default 5.0; a correct global grid is ~9.5).
+            min_rank_corr: Minimum Spearman rank correlation between zone_x
+                and per-zone_x mean (default 0.6) — a coarse shape gate so a
+                grid cannot pass the 2-point ratio while dipping mid-pitch.
 
         Raises:
             ValueError: if the grid violates a structural invariant.
@@ -154,11 +173,41 @@ class XTGrid:
                 f"coordinate orientation issue or insufficient training data"
             )
             raise ValueError(msg)
-        row_means = self.values.mean(axis=1)
-        if not np.all(np.diff(row_means) >= -0.01):
+        if require_directional:
+            self.assert_directional(min_attack_ratio=min_attack_ratio, min_rank_corr=min_rank_corr)
+
+    def assert_directional(self, *, min_attack_ratio: float = 5.0, min_rank_corr: float = 0.6) -> None:
+        """Assert the grid rises toward the attacking goal (ADR-063, review M5).
+
+        Two robust checks (vs the fragile single-extreme-column ratio):
+        (1) thirds-mean ratio = mean(attacking third) / mean(defensive third) >= min_attack_ratio;
+        (2) Spearman rank correlation between zone_x and per-zone_x mean >= min_rank_corr.
+        """
+        row_means = self.values.mean(axis=1)  # per-zone_x mean; index 0 = own goal, -1 = attacking goal
+        n = row_means.shape[0]
+        third = max(1, n // 3)
+        def_mean = float(row_means[:third].mean())
+        att_mean = float(row_means[-third:].mean())
+        ratio = att_mean / def_mean if def_mean > 0 else float("inf")
+        if ratio < min_attack_ratio:
             msg = (
-                "XTGrid row means not approximately monotonically increasing "
-                "left-to-right — likely attacking-direction flip"
+                f"XTGrid is not attacking-directional: attacking-third / defensive-third mean ratio "
+                f"{ratio:.2f} < {min_attack_ratio} (defensive third {def_mean:.5f}, attacking third "
+                f"{att_mean:.5f}). Likely a STALE grid built on pre-LTR data or an orientation regression "
+                f"(ADR-063)."
+            )
+            raise ValueError(msg)
+        # Spearman rank corr = Pearson on the ranks of row_means vs the (already sorted) zone indices.
+        order = np.argsort(row_means, kind="stable")
+        ranks = np.empty(n, dtype=np.float64)
+        ranks[order] = np.arange(n, dtype=np.float64)
+        zone_idx = np.arange(n, dtype=np.float64)
+        rank_corr = float(np.corrcoef(ranks, zone_idx)[0, 1]) if n > 1 else 1.0
+        if rank_corr < min_rank_corr:
+            msg = (
+                f"XTGrid shape is not monotone attacking-directional: zone_x↔xT rank correlation "
+                f"{rank_corr:.2f} < {min_rank_corr} (dips/spikes mid-pitch). Likely an orientation "
+                f"regression (ADR-063)."
             )
             raise ValueError(msg)
 

@@ -886,6 +886,8 @@ def test_main_preflight_builds_queue_and_task_values(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(ac, "get_spark_session", lambda: object())
     monkeypatch.setattr(bs, "bootstrap_hooks", lambda *a, **k: None)
     monkeypatch.setattr(ac, "timed_check", lambda g, s, c, sc: FilterResult(workflow_id="x", count=20))
+    # ADR-063 R5b grid-watermark edge needs spark.sql; this test mocks spark as a bare object — no-op it.
+    monkeypatch.setattr(ac, "_force_full_rematerialize_on_grid_change", lambda *a, **k: None)
     units = [WorkUnit(provider="statsbomb", match_id=f"s{i}") for i in range(20)]
     monkeypatch.setattr(ac._ActionContextGuard, "discover_units", lambda self, s, c, sc: units)
 
@@ -933,6 +935,8 @@ def test_main_preflight_empty_emits_empty_worker_ids(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(ac, "get_spark_session", lambda: object())
     monkeypatch.setattr(bs, "bootstrap_hooks", lambda *a, **k: None)
     monkeypatch.setattr(ac, "timed_check", lambda g, s, c, sc: FilterResult(workflow_id="x", count=0))
+    # ADR-063 R5b grid-watermark edge needs spark.sql; this test mocks spark as a bare object — no-op it.
+    monkeypatch.setattr(ac, "_force_full_rematerialize_on_grid_change", lambda *a, **k: None)
 
     set_values: dict[str, object] = {}
     monkeypatch.setattr(ac, "_set_task_value", lambda key, value, log: set_values.__setitem__(key, value))

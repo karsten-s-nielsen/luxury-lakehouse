@@ -16,7 +16,7 @@ None of our pinning controls `sys.path` layering or warm-process module caching 
 
 ## Decision
 
-Add an **executor-side guard** (`ingestion.exec_visibility.assert_executor_silly_kicks_sane`) called at the top of the action-context UDF, immediately after the env fingerprint. It (1) asserts `silly_kicks.__version__ >= _REQUIRED_SK_MIN` (kept in lockstep with the pyproject floor by a sentinel test), and (2) — because `__version__` is fooled by a split install — asserts every load-bearing silly-kicks submodule (`tracking._ghost_gk`, `tracking.features`, `tracking.pitch_control`, `xthreat`, `spadl`) loads from the **same install root** as `silly_kicks` itself. Any mismatch raises `RuntimeError` on the first batch the contaminated executor handles.
+Add an **executor-side guard** (`ingestion.exec_visibility.assert_executor_silly_kicks_sane`) called at the top of the action-context UDF, immediately after the env fingerprint. It (1) asserts `silly_kicks.__version__ >= _REQUIRED_SK_MIN` (kept in lockstep with the pyproject floor by a sentinel test), and (2) — because `__version__` is fooled by a split install — asserts every load-bearing silly-kicks submodule (`tracking._ghost_gk`, `tracking.features`, `tracking.pitch_control`, `tracking._xt_gk`, `tracking._gk_completion`, `tracking._gk_geometry`, `xthreat`, `spadl`) loads from the **same install root** as `silly_kicks` itself. Any mismatch raises `RuntimeError` on the first batch the contaminated executor handles.
 
 ## Alternatives considered
 
@@ -49,6 +49,19 @@ Add an **executor-side guard** (`ingestion.exec_visibility.assert_executor_silly
 - **Issues / PRs:** #358 (the 4.20.1 adoption whose executor never reached the UDF sandbox)
 - **ADRs:** complements ADR-031 (executor visibility on Spark Connect), ADR-030/ADR-029 (GS ghost-GK / dual-GK lineage)
 - **Code:** `ingestion/exec_visibility.py::assert_executor_silly_kicks_sane`, `ingestion/action_context.py` UDF, `src/tests/test_executor_env_guard.py`
+
+## Amendment (2026-06-28) — xT-GK surface added to the guarded submodules
+
+The xT-GK DZV investigation (silly-kicks 4.35.0 adoption) flagged a **coverage gap**: the
+guarded-submodule list omitted the xT-GK surface (`tracking._xt_gk`, `tracking._gk_completion`,
+`tracking._gk_geometry`). A split shadowing only `_xt_gk` (the PEV/DZV/base/RAV math) would have
+passed the guard while silently producing wrong `xt_gk_*` columns. The three xt-gk submodules are
+now in `_SK_GUARD_SUBMODULES` (regression tests `test_split_install_xt_gk_raises` +
+`test_xt_gk_surface_guarded`). Note: that investigation determined the actual 4.35.0 recompute was
+**not** affected by a split — the negative `xt_gk_dzv` values were the genuine output of released
+4.35.0 on the lakehouse's flat/coarse global xT grid (the global `V_GK` max falls inside the
+defensive third, inverting `(M−1)·V_GK`). This amendment closes the guard gap as defense-in-depth;
+it was not the cause of that finding.
 
 ## Notes
 

@@ -845,6 +845,24 @@ def _set_task_value(key: str, value: object, task_logger: logging.Logger) -> Non
 # ── Entry points ──────────────────────────────────────────────────────
 
 
+def _force_full_rematerialize_on_grid_change(spark: SparkSession, catalog: str, schema: str, logger: Any) -> None:
+    """ADR-063 R5b/H1: on a material global-xT-grid change, delete the tracking-provider
+    action-context rows so the preflight re-discovers every match and the drain recomputes its
+    ``xt_gk_*`` on the new surface. The grid bumps its version only on a MATERIAL change (ADR-063 R4),
+    so this fires rarely. The watermark is recorded here (preflight); if the drain is incomplete, the
+    normal per-unit anti-join self-heals the remainder on subsequent runs.
+    """
+    from ingestion.guards import check_upstream_freshness, record_watermarks
+
+    grid = [f"{catalog}.bronze.expected_threat_grids"]
+    if check_upstream_freshness(spark, catalog, "wf-action-context", grid).count <= 0:
+        return
+    providers = ", ".join(f"'{p}'" for p in ("idsse", "metrica", "skillcorner", "gradientsports"))
+    logger.info("Action context: global xT grid changed (ADR-063) — deleting tracking AC rows for full re-materialize")
+    spark.sql(f"DELETE FROM {catalog}.{schema}.{_TABLE_NAME} WHERE data_source IN ({providers})")  # noqa: S608
+    record_watermarks(spark, catalog, "wf-action-context", grid)
+
+
 def main_preflight() -> None:
     """CLI entry point for action context preflight (ADR-037 worker-drain).
 
@@ -910,6 +928,10 @@ def main_preflight() -> None:
             provider_filter,
             max_units,
         )
+    else:
+        # ADR-063 R5b/H1 (daily/full path only): on a MATERIAL global-xT-grid change, force a full
+        # re-materialize of the tracking providers' action-context (their xt_gk_* are grid-derived).
+        _force_full_rematerialize_on_grid_change(spark, args.catalog, args.schema, task_logger)
     guard = _ActionContextGuard(provider_filter=provider_filter, max_units=max_units)
     fr = timed_check(guard, spark, args.catalog, args.schema)  # telemetry (count + skip); discovery memoised
     if fr.count == 0:

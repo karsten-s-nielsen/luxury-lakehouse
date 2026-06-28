@@ -194,6 +194,8 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     # Databricks task so wf-obso-pausa can declare an explicit dependency.
     "import_obso_results": "wf-import-obso",
     "run_model_validation": "wf-model-validation",
+    # ADR-063 H4: cross-cutting derived-artifact staleness monitor (detect-and-alert).
+    "run_staleness_monitor": "wf-staleness-monitor",
     # Metadata extraction plumbing — reads tracking player/team names from
     # IDSSE DFL match info XMLs into a bronze Delta table for dbt resolution.
     # No ML, no methodology.
