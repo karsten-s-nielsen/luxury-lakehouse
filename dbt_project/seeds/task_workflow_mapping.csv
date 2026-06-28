@@ -8,6 +8,7 @@ compute_formations_efpi,wf-formations
 compute_formations_shape_graph,wf-shape-graphs
 compute_line_breaking,wf-line-breaking
 run_model_validation,wf-model-validation
+run_staleness_monitor,wf-staleness-monitor
 compute_pausa,wf-obso-pausa
 compute_off_ball_xt,wf-off-ball-xt
 compute_pitch_control,wf-pitch-control

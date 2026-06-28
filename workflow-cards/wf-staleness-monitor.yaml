@@ -13,6 +13,8 @@ tags:
   - watermark
   - observability
 
+# No academic methodology — this is an operational watermark-freshness monitor
+# (Delta version comparison), not a published technique.
 references: []
 
 inputs:
