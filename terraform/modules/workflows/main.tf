@@ -1418,7 +1418,7 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path,
-        "silly-kicks[das,ghost-gk,parse-dfl]==4.34.0",
+        "silly-kicks[das,ghost-gk,parse-dfl]==4.35.0",
         "accessible-space==2.0.15",
         # numba: silly-kicks ships @njit kernels for pitch control + ball-carrier
         # (tracking/pitch_control/_{spearman,fernandez_bornn}.py, tracking/_ball_carrier.py)
@@ -1530,7 +1530,7 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path,
-        "databricks-sdk==0.118.0",
+        "databricks-sdk==0.119.0",
       ]
     }
   }

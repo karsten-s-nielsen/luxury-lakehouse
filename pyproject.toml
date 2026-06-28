@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.5.52"
+version = "0.5.53"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -44,7 +44,7 @@ dependencies = [
 
 [project.optional-dependencies]
 spadl = [
-    "silly-kicks[das,ghost-gk,parse-dfl]>=4.34.0,<5",
+    "silly-kicks[das,ghost-gk,parse-dfl]>=4.35.0,<5",
 ]
 analytics = [
     "luxury-lakehouse[spadl]",
@@ -79,7 +79,7 @@ dbt = [
     "dbt-databricks>=1.10.0",
 ]
 sdk = [
-    "databricks-sdk==0.118.0",
+    "databricks-sdk==0.119.0",
     # psycopg2 lives here so the grants automation (GitHub Actions
     # lakebase-grants.yml + scripts/run_lakebase_grants.py) can install a
     # minimal dependency set without pulling the full taipy-app extra.
@@ -122,7 +122,7 @@ taipy-app = [
     # Floored to >=2.14.2 to resolve GHSA-4xgf-cpjx-pc3j (pydantic-settings < 2.14.2).
     "pydantic-settings>=2.14.2",
     "requests>=2.33.0",
-    "databricks-sdk==0.118.0",
+    "databricks-sdk==0.119.0",
     "huggingface-hub>=1.5.0",
     "scipy>=1.15.0",
     "plotly>=6.7.0,<7",
