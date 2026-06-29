@@ -35,6 +35,25 @@ from analytics.action_context.enrich import (
 from analytics.action_context.schema import RESULT_COLUMNS, build_output
 from analytics.action_context.time_base_guard import assert_frames_time_base, assert_work_unit_time_base
 
+
+def _resolve_match_access_tier(actions: pd.DataFrame, provider: str) -> str:
+    """Per-match HF redistribution tier for the AC output (spec 2026-06-29).
+
+    DIRECT resolution — never a dim_matches join (unmatched→NULL→fail-safe-restricted would
+    silently drop public data, spec D3/M1). The per-match SPADL actions carry ``access_tier``
+    (constant per match, stamped at SPADL conversion); read it. Falls back to the provider
+    default ``classify_access_tier(provider, visibility=None)`` when the column is absent
+    (e.g. pre-migration bronze), which is correct for the four no-feed providers.
+    """
+    if "access_tier" in actions.columns:
+        vals = actions["access_tier"].dropna()
+        if len(vals):
+            return str(vals.iloc[0])
+    from shared.access_tier import classify_access_tier
+
+    return classify_access_tier(provider=provider, visibility=None).value
+
+
 if TYPE_CHECKING:
     import pandas as pd
 
@@ -320,7 +339,7 @@ def enrich_batch(
         # arguments; the tracking branch reconstructs the same below (ADR-039).
         xt = _reconstruct_xt(xt_grid_data, xt_l, xt_w)
         result = _enrich_sb360_match(actions, frames_pdf, resolve_home_team_id(actions), xt, kde_backend=kde_backend)
-        return build_output(result, native_match_id, provider)
+        return build_output(result, native_match_id, provider, _resolve_match_access_tier(actions, provider))
 
     if tier != "tracking":
         raise ValueError(f"unknown action-context tier {tier!r} (frames-required; ADR-057)")
@@ -378,7 +397,7 @@ def enrich_batch(
     result = _enrich_tracking_match(
         actions_df=actions, tracking_df=frames, xt=xt, home_team_id=meta.home_team_id, kde_backend=kde_backend
     )
-    out = build_output(result, native_match_id, provider)
+    out = build_output(result, native_match_id, provider, _resolve_match_access_tier(actions, provider))
     if owned_action_ids is not None and "action_id" in out.columns:
         out = out[out["action_id"].isin(owned_action_ids)].copy()
     return out

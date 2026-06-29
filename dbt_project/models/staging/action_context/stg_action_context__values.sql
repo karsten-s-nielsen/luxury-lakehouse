@@ -221,7 +221,11 @@ cleaned as (
         cast(gk_completion as double) as gk_completion,
         cast(pitch_control_method as string) as pitch_control_method,
         -- ghost-GK backend provenance (ADR-035 amendment)
-        cast(ghost_gk_method as string) as ghost_gk_method
+        cast(ghost_gk_method as string) as ghost_gk_method,
+        -- Per-match HF redistribution tier (spec 2026-06-29 §6.4). Stamped per
+        -- row at AC write time from the match's access_tier; rides through to
+        -- fct_action_context for the publish-time split.
+        cast(access_tier as string) as access_tier
 
     from deduplicated
     where _row_num = 1

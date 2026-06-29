@@ -64,7 +64,7 @@ class TestParseMetadata:
     def test_basic_parse(self) -> None:
         from ingestion.gradientsports_metadata import parse_metadata
 
-        df = parse_metadata(_SAMPLE_METADATA, match_id="10502")
+        df = parse_metadata(_SAMPLE_METADATA, match_id="10502", visibility="public")
         assert len(df) == 1
         assert df["match_id"].iloc[0] == "10502"
         assert "_ingested_at" in df.columns
@@ -75,26 +75,36 @@ class TestParseMetadata:
     def test_from_json_string(self) -> None:
         from ingestion.gradientsports_metadata import parse_metadata
 
-        df = parse_metadata(json.dumps(_SAMPLE_METADATA), match_id="10502")
+        df = parse_metadata(json.dumps(_SAMPLE_METADATA), match_id="10502", visibility="public")
         assert len(df) == 1
+
+    def test_stamps_visibility_and_access_tier(self) -> None:
+        from ingestion.gradientsports_metadata import parse_metadata
+
+        pub = parse_metadata(_SAMPLE_METADATA, match_id="10502", visibility="public")
+        assert pub["visibility"].iloc[0] == "public"
+        assert pub["access_tier"].iloc[0] == "public"
+        priv = parse_metadata(_SAMPLE_METADATA, match_id="10502", visibility="private")
+        assert priv["visibility"].iloc[0] == "private"
+        assert priv["access_tier"].iloc[0] == "restricted"
 
     def test_match_id_validated(self) -> None:
         from ingestion.gradientsports_metadata import parse_metadata
 
         with pytest.raises(ValueError, match="invalid Gradient Sports match id"):
-            parse_metadata(_SAMPLE_METADATA, match_id="bad_id")
+            parse_metadata(_SAMPLE_METADATA, match_id="bad_id", visibility="public")
 
     def test_int_columns_widened_to_float64(self) -> None:
         from ingestion.gradientsports_metadata import parse_metadata
 
-        df = parse_metadata(_SAMPLE_METADATA, match_id="10502")
+        df = parse_metadata(_SAMPLE_METADATA, match_id="10502", visibility="public")
         int_cols = df.select_dtypes(include=["int64", "int32"]).columns
         assert len(int_cols) == 0, f"Expected no int columns, got: {list(int_cols)}"
 
     def test_list_fields_serialized_to_json_string(self) -> None:
         from ingestion.gradientsports_metadata import parse_metadata
 
-        df = parse_metadata(_SAMPLE_METADATA, match_id="10502")
+        df = parse_metadata(_SAMPLE_METADATA, match_id="10502", visibility="public")
         pitches_val = df["stadium.pitches"].iloc[0]
         assert isinstance(pitches_val, str)
         parsed = json.loads(pitches_val)

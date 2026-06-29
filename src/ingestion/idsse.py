@@ -558,6 +558,11 @@ def ingest_idsse(
                 expected_cols=set(_IDSSE_TRACKING_BRONZE_COLS),
                 dtype_overrides=_IDSSE_TRACKING_DTYPE_OVERRIDES,
             )
+            # Per-match HF redistribution tier (spec 2026-06-29). IDSSE has no per-match visibility
+            # feed → provider default (public). DIRECT stamp via the policy core (never hand-encoded).
+            from shared.access_tier import classify_access_tier
+
+            df["access_tier"] = classify_access_tier(provider="idsse", visibility=None).value
             sdf = spark.createDataFrame(df)
             row_count = validate_dataframe(sdf, required_cols, "idsse_tracking", logger)
             replace_expr = f"match_id = '{idsse_native_match_id(mid)}' AND period = {period_int}"

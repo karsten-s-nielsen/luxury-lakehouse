@@ -14,14 +14,19 @@ import numpy as np
 if TYPE_CHECKING:
     import pandas as pd
 
-# Identity (12) + linkage (4) + GK (11) + features (76)
+# Identity (13) + linkage (4) + GK (11) + features (76)
 # + xShotOccurrence (1) + shot_goalmouth (11) + xT-GK (16) + xT-GK coords (4) + gk_completion (1)
-# + provenance (2) + audit (1) = 139
+# + provenance (2) + audit (1) = 140
 # (ADR-056: game_state + GK action-sequence flags removed — actions-level, served
 #  by fct_action_values; defending_gk_player_id_native kept for the key resolution.)
 RESULT_COLUMNS: list[str] = [
-    # Identity (12)
+    # Identity (13)
     "data_source",
+    # Per-match HF redistribution tier (spec 2026-06-29). Provider-native passthrough →
+    # canonical name (ADR-016). Stamped DIRECTLY per (provider, match) in build_output —
+    # never a dim_matches join (unmatched→NULL→fail-safe-restricted silently drops public
+    # data, spec D3/M1). "public" | "restricted".
+    "access_tier",
     "match_id",
     "action_id",
     "period_id",
@@ -227,7 +232,7 @@ RESULT_COLUMNS: list[str] = [
 ]
 
 ACTION_CONTEXT_DDL = (
-    "data_source STRING, match_id STRING, action_id BIGINT, period_id BIGINT, "
+    "data_source STRING, access_tier STRING, match_id STRING, action_id BIGINT, period_id BIGINT, "
     "time_seconds DOUBLE, team_id STRING, player_id STRING, type_name STRING, "
     "start_x DOUBLE, start_y DOUBLE, end_x DOUBLE, end_y DOUBLE, "
     # game_state + GK action-sequence flags removed (ADR-056) — actions-level,
@@ -353,18 +358,39 @@ def _ddl_string_columns(ddl: str) -> frozenset[str]:
 _STRING_OUTPUT_COLUMNS = _ddl_string_columns(ACTION_CONTEXT_DDL)
 
 
-def build_output(actions: pd.DataFrame, match_id_native: str, data_source: str) -> pd.DataFrame:
+def build_output(
+    actions: pd.DataFrame,
+    match_id_native: str,
+    data_source: str,
+    access_tier: str | None = None,
+) -> pd.DataFrame:
     """Post-enrichment: renames + column selection for bronze write.
 
     1. game_id -> match_id (silly-kicks uses game_id, we use match_id)
     2. defending_gk_player_id -> defending_gk_player_id_native (ADR-018)
     3. type_id -> type_name via silly-kicks add_names
-    4. Column selection to RESULT_COLUMNS, dtype-correct fill for missing cols (numeric -> NaN,
+    4. access_tier stamp (per-match HF redistribution tier, spec 2026-06-29) — DIRECT, never a
+       dim_matches join. Resolution order: explicit ``access_tier`` arg (caller derived it from the
+       per-match SPADL actions) > carry-through of a non-NULL ``access_tier`` already on ``actions``
+       (constant per match) > provider default via ``classify_access_tier(provider, visibility=None)``.
+       An unmatched join would yield NULL → fail-safe-restricted → silently drop public data (spec
+       D3/M1), so we never join: the provider default is the floor and is correct for the four
+       no-feed providers (statsbomb/wyscout/idsse/metrica → public; gradientsports → restricted).
+    5. Column selection to RESULT_COLUMNS, dtype-correct fill for missing cols (numeric -> NaN,
        STRING -> object/None so the explicit-schema Arrow write never sees float64-vs-StringType).
     """
     out = actions.copy()
     out["match_id"] = match_id_native
     out["data_source"] = data_source
+
+    if access_tier is None:
+        if "access_tier" in actions.columns and actions["access_tier"].notna().any():
+            access_tier = str(actions["access_tier"].dropna().iloc[0])
+        else:
+            from shared.access_tier import classify_access_tier
+
+            access_tier = classify_access_tier(provider=data_source, visibility=None).value
+    out["access_tier"] = access_tier
 
     if "type_name" not in out.columns and "type_id" in out.columns:
         from silly_kicks.spadl.utils import add_names

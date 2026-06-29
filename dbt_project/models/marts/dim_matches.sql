@@ -50,7 +50,12 @@ statsbomb_matches as (
         m.home_team_name,
         m.away_team_name,
         cast(htm.team_id as string)    as home_team_id_native,
-        cast(atm.team_id as string)    as away_team_id_native
+        cast(atm.team_id as string)    as away_team_id_native,
+        -- Per-match HF redistribution tier (spec 2026-06-29 §6.4). StatsBomb has
+        -- no per-match `visibility` feed → no signal → provider-default PUBLIC
+        -- (classify_access_tier('statsbomb', None) == 'public').
+        cast(null as string)           as visibility,
+        'public'                       as access_tier
     from {{ ref('stg_statsbomb__matches') }} m
     left join sb_event_team_ids htm
         on m.match_id = htm.match_id and m.home_team_name = htm.team_name
@@ -82,7 +87,10 @@ wyscout_matches as (
         cast(null as string)           as home_team_name,
         cast(null as string)           as away_team_name,
         cast(ws.home_team_id as string) as home_team_id_native,
-        cast(ws.away_team_id as string) as away_team_id_native
+        cast(ws.away_team_id as string) as away_team_id_native,
+        -- No per-match visibility feed → provider-default PUBLIC.
+        cast(null as string)           as visibility,
+        'public'                       as access_tier
     from {{ ref('stg_wyscout__matches') }} m
     left join (
         select
@@ -107,7 +115,10 @@ idsse_matches as (
         home_team_name,
         away_team_name,
         home_team_id                   as home_team_id_native,
-        away_team_id                   as away_team_id_native
+        away_team_id                   as away_team_id_native,
+        -- No per-match visibility feed → provider-default PUBLIC.
+        cast(null as string)           as visibility,
+        'public'                       as access_tier
     from {{ ref('stg_idsse__matches') }}
 
 ),
@@ -131,7 +142,10 @@ metrica_matches as (
         home_team_name,
         away_team_name,
         concat('metrica_', native_match_id, '_home') as home_team_id_native,
-        concat('metrica_', native_match_id, '_away') as away_team_id_native
+        concat('metrica_', native_match_id, '_away') as away_team_id_native,
+        -- No per-match visibility feed → provider-default PUBLIC.
+        cast(null as string)           as visibility,
+        'public'                       as access_tier
     from {{ ref('stg_metrica__matches') }}
 
 ),
@@ -151,7 +165,14 @@ skillcorner_matches as (
         max(case when team_id = home_team_id then team_name end)            as home_team_name,
         max(case when team_id = away_team_id then team_name end)            as away_team_name,
         cast(max(home_team_id) as string)                                   as home_team_id_native,
-        cast(max(away_team_id) as string)                                   as away_team_id_native
+        cast(max(away_team_id) as string)                                   as away_team_id_native,
+        -- Per-match HF redistribution tier (spec 2026-06-29 §6.4). SkillCorner
+        -- carries a real pining `visibility` feed → raw value + the derived
+        -- access_tier ride through bronze.skillcorner_matches. Aggregate across
+        -- roster rows (all share one match's visibility). NULL until the row is
+        -- (re-)ingested with the visibility signal → fail-safe restricted.
+        max(visibility)                                                     as visibility,
+        max(access_tier)                                                    as access_tier
     from {{ ref('stg_skillcorner__matches') }}
     group by match_id
 
@@ -168,7 +189,12 @@ gradientsports_matches as (
         home_team_name,
         away_team_name,
         home_team_id                   as home_team_id_native,
-        away_team_id                   as away_team_id_native
+        away_team_id                   as away_team_id_native,
+        -- Per-match HF redistribution tier (spec 2026-06-29 §6.4). GradientSports
+        -- carries a real pining `visibility` feed (provider-default RESTRICTED
+        -- when absent); raw value + derived access_tier ride through bronze.
+        visibility,
+        access_tier
     from {{ ref('stg_gradientsports__metadata') }}
 
 ),
@@ -204,7 +230,12 @@ final as (
         home_team_name,
         away_team_name,
         home_team_id_native,
-        away_team_id_native
+        away_team_id_native,
+        -- Per-match HF redistribution attributes (spec 2026-06-29 §6.4):
+        -- raw provider `visibility` (NULL when no feed) + derived `access_tier`
+        -- ('public'/'restricted'). Per-match source of truth for the publish split.
+        visibility,
+        access_tier
 
     from unioned
 

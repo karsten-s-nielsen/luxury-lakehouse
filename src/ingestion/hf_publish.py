@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 from huggingface_hub import HfApi
 
 import ingestion as _ingestion
+from shared.access_tier import RESTRICTED_HF_PROVIDERS, AccessTier
 
 logger = logging.getLogger(__name__)
 
@@ -77,13 +78,15 @@ _WHEEL_INGESTION_FILE: Path = Path(_ingestion.__file__).resolve()
 # while the same run's public publish carries them, so granting a provider
 # full permission is exactly one edit here: remove it from this set).
 #
-# SINGLE SOURCE OF TRUTH: publishers AND trainers import from here (trainers
-# install the wheel), so the publish split and the training-corpus expectation
-# can never drift.
+# SINGLE SOURCE OF TRUTH: ``RESTRICTED_HF_PROVIDERS`` is defined in the pure stdlib core
+# ``shared.access_tier`` and re-exported here (spec D5) so publishers AND trainers can keep importing
+# it from ``ingestion.hf_publish`` while the stdlib-only core never imports this pandas/HF adapter
+# (no zero-dep violation, no import cycle). It is the per-match classifier's NULL-fallback provider set;
+# the per-row ``access_tier`` column (stamped at ingestion) is the authoritative split key.
 #
-# Current policy (user, 2026-06-10): gradientsports is computed internally but
-# not publicly published until the license is secured.
-RESTRICTED_HF_PROVIDERS: frozenset[str] = frozenset({"gradientsports"})
+# Current policy: gradientsports is the provider-default RESTRICTED set; SkillCorner is mixed and
+# classified per-match by ``shared.access_tier.classify_access_tier`` from its pining ``visibility``.
+# (``RESTRICTED_HF_PROVIDERS`` is imported at module top; this block documents the re-export.)
 
 
 def restricted_repo_id(repo_id: str) -> str:
@@ -91,23 +94,22 @@ def restricted_repo_id(repo_id: str) -> str:
     return f"{repo_id}-restricted"
 
 
-def split_restricted(df: pd.DataFrame, column: str = "data_source") -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Split a publish DataFrame into ``(public_df, restricted_df)`` (ADR-049).
+def split_restricted(df: pd.DataFrame, column: str = "access_tier") -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Split a publish DataFrame into ``(public_df, restricted_df)`` (ADR-049 / per-match access tiers).
 
-    The split CRITERION lives only here — call sites depend on this function,
-    not on ``RESTRICTED_HF_PROVIDERS`` directly. Today the mask is
-    provider-level (``column ∈ RESTRICTED_HF_PROVIDERS``).
+    The split CRITERION lives only here — call sites depend on this function, not on the constant.
 
-    FUTURE — row-level access tiers (designed-in, not yet implemented): when a
-    provider has BOTH public and restricted data (e.g. a restricted SkillCorner
-    feed alongside the open one), ingestion modules will stamp an
-    ``access_tier`` column on bronze at retrieval ('public'/'restricted',
-    defaulting per source module) and carry it through SPADL → marts (the
-    result_source/LL1 passthrough template). The mask here then becomes
-    ``access_tier == 'restricted'`` with the provider set as the NULL
-    fallback — call sites unchanged. Both repos may then hold partitions for
-    the SAME provider; consumers already concat + dedup.
+    Default ``access_tier`` mode (per-match): a row is PUBLIC **only if** its tier is exactly
+    ``"public"``; ``restricted`` AND ``NULL``/unknown route to the restricted partition — **fail-safe
+    (spec D1): never leak an unclassified row.** Both repos may hold partitions for the SAME provider
+    (public + private SkillCorner in one frame); consumers already concat + dedup.
+
+    Legacy ``column="data_source"`` mode (provider-level) is retained for any un-migrated caller:
+    restricted = ``data_source ∈ RESTRICTED_HF_PROVIDERS``.
     """
+    if column == "access_tier":
+        is_public = df[column] == AccessTier.PUBLIC.value  # NaN/None/unknown -> not public -> restricted
+        return df[is_public], df[~is_public]
     mask = df[column].isin(RESTRICTED_HF_PROVIDERS)
     return df[~mask], df[mask]
 

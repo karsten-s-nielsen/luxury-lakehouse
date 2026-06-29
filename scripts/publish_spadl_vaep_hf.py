@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.56-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.57-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -40,6 +40,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 
+from ingestion.hf_leak_guard import assert_no_private_leak
 from ingestion.hf_publish import (
     RESTRICTED_HF_PROVIDERS,
     get_hf_card_path,
@@ -105,7 +106,8 @@ SELECT
     defensive_value,
     vaep_value,
     original_event_id,
-    data_source
+    data_source,
+    access_tier                  -- per-match HF redistribution tier (spec 2026-06-29 §6.5)
 FROM soccer_analytics.dev_gold.fct_action_values
 """
 # NOTE: the SQL pulls ALL providers; the HF license gate is applied at the PUBLISH split
@@ -447,7 +449,30 @@ def main() -> None:
     # ------------------------------------------------------------------
     # 4. Publish to HF Hub — license-gate split (ADR-049)
     # ------------------------------------------------------------------
-    public_df, restricted_df = split_restricted(actions_df)
+    # Per-match split keyed on access_tier (spec §6.5): public rows -> public repo, restricted
+    # AND NULL/unknown -> the private companion (fail-safe; split_restricted never leaks).
+    public_df, restricted_df = split_restricted(actions_df, column="access_tier")
+
+    # Fail-closed leak guard on the PUBLIC frame BEFORE upload — needs access_tier present.
+    assert_no_private_leak(public_df, publisher="publish_spadl_vaep_hf")
+
+    # Per-tier observability (spec C7): row counts per repo at INFO.
+    pub_by = public_df["data_source"].value_counts().to_dict()
+    res_by = restricted_df["data_source"].value_counts().to_dict() if not restricted_df.empty else {}
+    logger.info(
+        "Per-tier publish counts — public: %d rows %s; restricted: %d rows %s",
+        len(public_df),
+        pub_by,
+        len(restricted_df),
+        res_by,
+    )
+
+    # R2: drop the internal access_tier column from BOTH frames AFTER the split + guard and
+    # BEFORE upload — it is constant per repo ("public" in every public artifact); keeping it
+    # would be a Hyrum additive-schema change to the existing public dataset. Order is strict:
+    # split -> guard -> drop -> upload.
+    public_df = public_df.drop(columns=["access_tier"], errors="ignore")
+    restricted_df = restricted_df.drop(columns=["access_tier"], errors="ignore")
 
     logger.info("Publishing PUBLIC action values to HF Hub: %s", DATASET_REPO)
     dataset_url = publish_to_hf_hub(public_df, hf_token)

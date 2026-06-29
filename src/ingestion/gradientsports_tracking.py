@@ -427,6 +427,13 @@ def write_tracking(
         raise ValueError(msg)
     try:
         sdf = spark.read.parquet(staging_parquet)
+        # Per-match HF redistribution tier (spec 2026-06-29). GS is in RESTRICTED_HF_PROVIDERS and
+        # has no public matches → provider default (restricted). DIRECT stamp via the policy core.
+        from pyspark.sql.functions import lit
+
+        from shared.access_tier import classify_access_tier
+
+        sdf = sdf.withColumn("access_tier", lit(classify_access_tier(provider="gradientsports", visibility=None).value))
         row_count = validate_dataframe(
             sdf,
             ["match_id", "frame_num", "period"],

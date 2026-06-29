@@ -165,7 +165,9 @@ with action_raw as (
         xt_gk_dest_y,
         gk_completion,
         pitch_control_method,
-        ghost_gk_method
+        ghost_gk_method,
+        -- Per-match HF redistribution tier (spec 2026-06-29 §6.4) — per-row passthrough.
+        access_tier
     from {{ ref('stg_action_context__values') }}
 
 ),
@@ -349,7 +351,9 @@ final as (
         xt_gk_dest_y,
         gk_completion,
         pitch_control_method,
-        ghost_gk_method
+        ghost_gk_method,
+        -- Per-match HF redistribution tier (spec 2026-06-29 §6.4).
+        access_tier
 
     from keyed
     -- No QUALIFY needed: staging dedup + single Kimball join = guaranteed unique grain.

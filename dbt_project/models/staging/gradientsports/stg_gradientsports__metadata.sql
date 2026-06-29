@@ -20,5 +20,9 @@ select
     `homeTeamStartLeftExtraTime`      as home_team_start_left_extra_time,
     `fps`,
     cast(`week` as int)               as matchweek,
+    -- Per-match HF redistribution signal (spec 2026-06-29 §6.2): raw pining
+    -- `visibility` + the derived `access_tier`, stamped on bronze at ingestion.
+    visibility,
+    access_tier,
     _ingested_at
 from {{ source('gradientsports', 'gradientsports_metadata') }}

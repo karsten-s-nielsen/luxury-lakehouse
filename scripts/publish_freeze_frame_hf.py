@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.56-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.57-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -40,7 +40,9 @@ from pathlib import Path
 import pandas as pd
 import requests
 
+from ingestion.hf_leak_guard import assert_no_private_leak
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
+from shared.access_tier import classify_access_tier
 
 # ---------------------------------------------------------------------------
 # Structured logging
@@ -402,6 +404,15 @@ def main() -> None:
     # ------------------------------------------------------------------
     # 4. Publish to HF Hub
     # ------------------------------------------------------------------
+    # Fail-closed leak guard (spec §6.7/D11). This dataset is StatsBomb-only by construction
+    # (the SQL reads only stg_statsbomb__*), so its single per-match tier is the StatsBomb
+    # provider default (public). Stamp it via the classifier so the guard is a real check — if a
+    # future source change ever pulls in a restricted provider, the guard halts the publish. Drop
+    # the internal column AFTER the guard, before upload (R2).
+    freeze_df["access_tier"] = classify_access_tier(provider="statsbomb", visibility=None).value
+    assert_no_private_leak(freeze_df, publisher="publish_freeze_frame_hf")
+    freeze_df = freeze_df.drop(columns=["access_tier"], errors="ignore")
+
     logger.info("Publishing freeze-frame data to HF Hub")
     dataset_url = publish_to_hf_hub(freeze_df, hf_token)
 

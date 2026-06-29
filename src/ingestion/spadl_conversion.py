@@ -130,6 +130,8 @@ def _make_sb_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
                 "competition_id",
                 "season_id",
                 "data_source",
+                # Per-match HF redistribution tier (spec 2026-06-29); see stamp_access_tier.
+                "access_tier",
                 # Provider-namespaced StatsBomb-native fields (silly-kicks 1.5.0+).
                 "statsbomb_possession_id",
                 "statsbomb_possession_team_id",
@@ -225,6 +227,11 @@ def _make_sb_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
         actions["competition_id"] = competition_id
         actions["season_id"] = season_id
         actions["data_source"] = "statsbomb"
+        # Per-match HF redistribution tier (spec 2026-06-29). No-feed provider → provider default
+        # (public). DIRECT stamp, never a dim_matches join (spec D3/M1).
+        from ingestion.spadl_udf_shared import stamp_access_tier as _stamp_tier
+
+        actions = _stamp_tier(actions, source="statsbomb")
 
         # Provider-namespace the preserved fields. silly-kicks returns them with
         # their input names (``possession``, ``possession_team_id``, etc.); the
@@ -402,6 +409,8 @@ def _convert_statsbomb_from_bronze(
             StructField("competition_id", LongType()),
             StructField("season_id", LongType()),
             StructField("data_source", StringType()),
+            # Per-match HF redistribution tier (spec 2026-06-29); stamped via stamp_access_tier.
+            StructField("access_tier", StringType()),
             # Provider-namespaced StatsBomb-native fields (silly-kicks 1.5.0+).
             # Wyscout / IDSSE / SkillCorner produce NULL.
             StructField("statsbomb_possession_id", LongType()),
@@ -520,6 +529,8 @@ def _make_ws_spadl_udf(goalkeeper_ids: set[int] | None = None) -> Callable[[pd.D
                 "competition_id",
                 "season_id",
                 "data_source",
+                # Per-match HF redistribution tier (spec 2026-06-29); see stamp_access_tier.
+                "access_tier",
                 # Multi-source schema parity: Wyscout has no analogues to the
                 # StatsBomb-native ``possession`` / ``play_pattern`` /
                 # ``under_pressure`` fields, so these columns are NULL on the
@@ -609,6 +620,10 @@ def _make_ws_spadl_udf(goalkeeper_ids: set[int] | None = None) -> Callable[[pd.D
         actions["competition_id"] = competition_id
         actions["season_id"] = season_id
         actions["data_source"] = "wyscout"
+        # Per-match HF redistribution tier (spec 2026-06-29). No-feed provider → public.
+        from ingestion.spadl_udf_shared import stamp_access_tier as _stamp_tier
+
+        actions = _stamp_tier(actions, source="wyscout")
 
         from ingestion.spadl_enrichments import apply_spadl_enrichments as _enrich
 
@@ -792,6 +807,8 @@ def _convert_wyscout_from_bronze(
             StructField("competition_id", LongType()),
             StructField("season_id", LongType()),
             StructField("data_source", StringType()),
+            # Per-match HF redistribution tier (spec 2026-06-29); stamped via stamp_access_tier.
+            StructField("access_tier", StringType()),
             StructField("statsbomb_possession_id", LongType()),
             StructField("statsbomb_possession_team_id", LongType()),
             StructField("statsbomb_play_pattern", StringType()),
@@ -934,6 +951,8 @@ def _make_idsse_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
                 "competition_id",
                 "season_id",
                 "data_source",
+                # Per-match HF redistribution tier (spec 2026-06-29); see stamp_access_tier.
+                "access_tier",
                 # statsbomb_* NULL on the IDSSE code path (multi-source parity).
                 "statsbomb_possession_id",
                 "statsbomb_possession_team_id",
@@ -1115,6 +1134,10 @@ def _make_idsse_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
         actions["competition_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
         actions["season_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
         actions["data_source"] = "idsse"
+        # Per-match HF redistribution tier (spec 2026-06-29). No-feed provider → public.
+        from ingestion.spadl_udf_shared import stamp_access_tier as _stamp_tier
+
+        actions = _stamp_tier(actions, source="idsse")
 
         # LL2 post-conversion enrichments (provider-agnostic).
         from ingestion.spadl_enrichments import apply_spadl_enrichments as _enrich
@@ -1257,6 +1280,8 @@ def _convert_idsse_from_bronze(
             StructField("competition_id", LongType()),
             StructField("season_id", LongType()),
             StructField("data_source", StringType()),
+            # Per-match HF redistribution tier (spec 2026-06-29); stamped via stamp_access_tier.
+            StructField("access_tier", StringType()),
             StructField("statsbomb_possession_id", LongType()),
             StructField("statsbomb_possession_team_id", LongType()),
             StructField("statsbomb_play_pattern", StringType()),
@@ -1389,6 +1414,9 @@ def _make_metrica_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
                 "competition_id",
                 "season_id",
                 "data_source",
+                # Per-match HF redistribution tier (spec 2026-06-29). Stamped via
+                # stamp_access_tier right after data_source; provider-native passthrough (ADR-016).
+                "access_tier",
                 "statsbomb_possession_id",
                 "statsbomb_possession_team_id",
                 "statsbomb_play_pattern",
@@ -1530,6 +1558,10 @@ def _make_metrica_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
         actions["competition_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
         actions["season_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
         actions["data_source"] = "metrica"
+        # Per-match HF redistribution tier (spec 2026-06-29). No-feed provider → public.
+        from ingestion.spadl_udf_shared import stamp_access_tier as _stamp_tier
+
+        actions = _stamp_tier(actions, source="metrica")
 
         from ingestion.spadl_enrichments import apply_spadl_enrichments as _enrich
 
@@ -1677,6 +1709,8 @@ def _convert_metrica_from_bronze(
             StructField("competition_id", LongType()),
             StructField("season_id", LongType()),
             StructField("data_source", StringType()),
+            # Per-match HF redistribution tier (spec 2026-06-29); stamped via stamp_access_tier.
+            StructField("access_tier", StringType()),
             StructField("statsbomb_possession_id", LongType()),
             StructField("statsbomb_possession_team_id", LongType()),
             StructField("statsbomb_play_pattern", StringType()),
@@ -1808,6 +1842,9 @@ def _make_skillcorner_spadl_udf(*, match_metadata: dict[str, object]) -> Callabl
                 "competition_id",
                 "season_id",
                 "data_source",
+                # Per-match HF redistribution tier (spec 2026-06-29). Stamped via
+                # stamp_access_tier right after data_source; provider-native passthrough (ADR-016).
+                "access_tier",
                 "statsbomb_possession_id",
                 "statsbomb_possession_team_id",
                 "statsbomb_play_pattern",
@@ -1926,6 +1963,12 @@ def _make_skillcorner_spadl_udf(*, match_metadata: dict[str, object]) -> Callabl
         actions["competition_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
         actions["season_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
         actions["data_source"] = "skillcorner"
+        # Per-match HF redistribution tier (spec 2026-06-29). SkillCorner carries a real per-match
+        # `visibility` feed (pining): private RM matches MUST become restricted. DIRECT stamp from
+        # the match_metadata visibility (None pre-migration → provider default public). Never a join.
+        from ingestion.spadl_udf_shared import stamp_access_tier as _stamp_tier
+
+        actions = _stamp_tier(actions, source="skillcorner", visibility=_match_meta.get("visibility"))  # type: ignore[union-attr]
 
         from ingestion.spadl_enrichments import apply_spadl_enrichments as _enrich
 
@@ -2029,6 +2072,8 @@ def _convert_skillcorner_from_bronze(
             StructField("competition_id", LongType()),
             StructField("season_id", LongType()),
             StructField("data_source", StringType()),
+            # Per-match HF redistribution tier (spec 2026-06-29); stamped via stamp_access_tier.
+            StructField("access_tier", StringType()),
             StructField("statsbomb_possession_id", LongType()),
             StructField("statsbomb_possession_team_id", LongType()),
             StructField("statsbomb_play_pattern", StringType()),
@@ -2081,12 +2126,20 @@ def _convert_skillcorner_from_bronze(
     # (b) each match needs a unique match_metadata dict in the closure; (c)
     # batching would require a UDF that dispatches on match_id at runtime,
     # which is more complex for negligible gain at this scale.
+    # Per-match HF redistribution: `visibility` (pining) drives access_tier (spec 2026-06-29).
+    # The column was added to bronze.skillcorner_matches by the 2026-06-30 migration + ingestion
+    # stamp; guard for its presence so a pre-migration bronze still converts (→ provider default).
+    _has_visibility = "visibility" in {f.name for f in spark.table(matches_table).schema.fields}
+    _sc_meta_cols = ["match_id", "pitch_length", "pitch_width", "home_team_id"]
+    if _has_visibility:
+        _sc_meta_cols.append("visibility")
+
     for mid in new_match_ids:
         # Build match_metadata from bronze.skillcorner_matches (driver-side)
         matches_pdf = (
             spark.table(matches_table)
             .filter(spark_fn.col("match_id") == mid)
-            .select("match_id", "pitch_length", "pitch_width", "home_team_id")
+            .select(*_sc_meta_cols)
             .limit(1)
             .toPandas()
         )
@@ -2096,11 +2149,13 @@ def _convert_skillcorner_from_bronze(
             continue
 
         row = matches_pdf.iloc[0]
+        _visibility = str(row["visibility"]) if _has_visibility and row["visibility"] is not None else None
         match_metadata: dict[str, object] = {
             "id": str(row["match_id"]),
             "pitch_length": int(row["pitch_length"]),
             "pitch_width": int(row["pitch_width"]),
             "home_team": {"id": int(row["home_team_id"])},
+            "visibility": _visibility,
         }
 
         # Build UDF with this match's metadata
@@ -2213,6 +2268,9 @@ def _make_gradientsports_spadl_udf(
                 "competition_id",
                 "season_id",
                 "data_source",
+                # Per-match HF redistribution tier (spec 2026-06-29). Stamped via
+                # stamp_access_tier right after data_source; provider-native passthrough (ADR-016).
+                "access_tier",
                 "statsbomb_possession_id",
                 "statsbomb_possession_team_id",
                 "statsbomb_play_pattern",
@@ -2334,6 +2392,12 @@ def _make_gradientsports_spadl_udf(
 
         # data_source
         actions["data_source"] = "gradientsports"
+        # Per-match HF redistribution tier (spec 2026-06-29). GS is in RESTRICTED_HF_PROVIDERS, so
+        # the no-feed provider default is already `restricted` (fail-safe; there is no public GS).
+        # DIRECT stamp via the classifier — never a dim_matches join (spec D3/M1).
+        from ingestion.spadl_udf_shared import stamp_access_tier as _stamp_tier
+
+        actions = _stamp_tier(actions, source="gradientsports")
 
         # enrichments
         from ingestion.spadl_enrichments import apply_spadl_enrichments as _enrich
@@ -2540,6 +2604,8 @@ def _convert_gradientsports_from_bronze(
             StructField("competition_id", LongType()),
             StructField("season_id", LongType()),
             StructField("data_source", StringType()),
+            # Per-match HF redistribution tier (spec 2026-06-29); stamped via stamp_access_tier.
+            StructField("access_tier", StringType()),
             StructField("statsbomb_possession_id", LongType()),
             StructField("statsbomb_possession_team_id", LongType()),
             StructField("statsbomb_play_pattern", StringType()),

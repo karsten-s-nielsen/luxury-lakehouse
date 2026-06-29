@@ -186,6 +186,10 @@ final as (
         dt.team_key,
         wl.source_provider,
         wl.source_provider                              as data_source,
+        -- Per-match HF redistribution tier (spec 2026-06-29 §6.4). Resolved from
+        -- dim_matches (the per-match source of truth) via the same join that
+        -- supplies match_key; an unmatched match → NULL → fail-safe restricted.
+        dm.access_tier                                  as access_tier,
         gk.player_key is not null                          as is_goalkeeper,
         wl.frame_rate,
         wl.x,

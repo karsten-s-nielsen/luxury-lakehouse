@@ -60,18 +60,18 @@ def _make_match_json() -> dict:
 class TestParseMatchJson:
     def test_roster_row_count(self) -> None:
         data = _make_match_json()
-        df = parse_match_json(json.dumps(data), match_id="1886347")
+        df = parse_match_json(json.dumps(data), match_id="1886347", visibility="public")
         # 3 players = 3 rows
         assert len(df) == 3
 
     def test_match_id_is_raw_native(self) -> None:
         data = _make_match_json()
-        df = parse_match_json(json.dumps(data), match_id="1886347")
+        df = parse_match_json(json.dumps(data), match_id="1886347", visibility="public")
         assert df["match_id"].iloc[0] == "1886347"
 
     def test_player_fields(self) -> None:
         data = _make_match_json()
-        df = parse_match_json(json.dumps(data), match_id="1886347")
+        df = parse_match_json(json.dumps(data), match_id="1886347", visibility="public")
         row = df[df["player_id"] == 38673].iloc[0]
         assert row["player_name"] == "A. Player"
         assert row["first_name"] == "Andrew"
@@ -82,7 +82,7 @@ class TestParseMatchJson:
 
     def test_team_resolution(self) -> None:
         data = _make_match_json()
-        df = parse_match_json(json.dumps(data), match_id="1886347")
+        df = parse_match_json(json.dumps(data), match_id="1886347", visibility="public")
         # Home player
         home_row = df[df["player_id"] == 38673].iloc[0]
         assert home_row["team_id"] == 4177
@@ -96,7 +96,7 @@ class TestParseMatchJson:
 
     def test_competition_metadata(self) -> None:
         data = _make_match_json()
-        df = parse_match_json(json.dumps(data), match_id="1886347")
+        df = parse_match_json(json.dumps(data), match_id="1886347", visibility="public")
         row = df.iloc[0]
         assert row["competition_id"] == 382
         assert row["competition_name"] == "A-League Men"
@@ -105,20 +105,20 @@ class TestParseMatchJson:
 
     def test_pitch_dimensions(self) -> None:
         data = _make_match_json()
-        df = parse_match_json(json.dumps(data), match_id="1886347")
+        df = parse_match_json(json.dumps(data), match_id="1886347", visibility="public")
         row = df.iloc[0]
         assert row["pitch_length"] == 105
         assert row["pitch_width"] == 68
 
     def test_period_boundaries_serialized(self) -> None:
         data = _make_match_json()
-        df = parse_match_json(json.dumps(data), match_id="1886347")
+        df = parse_match_json(json.dumps(data), match_id="1886347", visibility="public")
         periods = json.loads(df["period_boundaries"].iloc[0])
         assert len(periods) == 2
         assert periods[0]["period"] == 1
 
     def test_goalkeeper_position(self) -> None:
         data = _make_match_json()
-        df = parse_match_json(json.dumps(data), match_id="1886347")
+        df = parse_match_json(json.dumps(data), match_id="1886347", visibility="public")
         gk_row = df[df["player_id"] == 44001].iloc[0]
         assert gk_row["position_name"] == "Goalkeeper"

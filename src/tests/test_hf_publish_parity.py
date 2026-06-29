@@ -59,6 +59,11 @@ _DATASET_CARD_ORPHAN_EXEMPT: frozenset[str] = frozenset(
         # picks them up the moment they exist).
         "spadl-vaep-action-values-restricted",
         "spadl-action-context-restricted",
+        # Per-match access_tier feature (spec 2026-06-29 §6.5): new restricted
+        # companions for pitch_control_tracking + tracking_context, created when
+        # those publishers gained the split. Remove each once its first run lands.
+        "pitch-control-tracking-restricted",
+        "spadl-tracking-context-restricted",
     }
 )
 
@@ -269,6 +274,11 @@ def _imported_names_from_hf_publish(py_file: Path) -> set[str]:
 _ADR049_SPLIT_PUBLISHER_CARDS: dict[str, str] = {
     "publish_action_context_hf.py": "spadl-action-context-restricted.md",
     "publish_spadl_vaep_hf.py": "spadl-vaep-action-values-restricted.md",
+    # Per-match access_tier feature (spec 2026-06-29 §6.5): psxg was already a split
+    # publisher; pitch_control_tracking + tracking_context migrated to the split here.
+    "publish_psxg_shots_hf.py": "psxg-shots-restricted.md",
+    "publish_pitch_control_tracking_hf.py": "pitch-control-tracking-restricted.md",
+    "publish_tracking_context_hf.py": "spadl-tracking-context-restricted.md",
 }
 
 
@@ -305,6 +315,20 @@ class TestRestrictedPublishLockstep:
         source = (_REPO_SCRIPTS_DIR / publisher).read_text(encoding="utf-8")
         assert "data_source !=" not in source and "data_source <>" not in source, (
             f"{publisher} filters providers in SQL — move the gate to split_restricted (ADR-049)."
+        )
+
+    @pytest.mark.parametrize("publisher", sorted(_ADR049_SPLIT_PUBLISHER_CARDS))
+    def test_publisher_splits_on_access_tier_and_calls_leak_guard(self, publisher: str) -> None:
+        # Per-match boundary (spec 2026-06-29 §6.5): the split keys on access_tier (NOT provider),
+        # and the PUBLIC frame is enforced by the fail-closed leak guard before upload.
+        source = (_REPO_SCRIPTS_DIR / publisher).read_text(encoding="utf-8")
+        assert 'column="access_tier"' in source, (
+            f'{publisher} must call split_restricted(df, column="access_tier") — a provider-level '
+            f"split cannot express the per-match SkillCorner boundary and would leak restricted rows."
+        )
+        assert "assert_no_private_leak" in source, (
+            f"{publisher} must call assert_no_private_leak(public_df, publisher=...) on the PUBLIC "
+            f"frame before upload (fail-closed leak guard, spec C3/§9.7)."
         )
 
     @pytest.mark.parametrize("publisher", sorted(_ADR049_SPLIT_PUBLISHER_CARDS))

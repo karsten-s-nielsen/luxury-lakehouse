@@ -97,6 +97,7 @@ INNER JOIN soccer_analytics.dev_silver.stg_statsbomb__360 ff
 INNER JOIN soccer_analytics.dev_gold.dim_players dp
     ON av.player_key = dp.player_key
 WHERE av.data_source = 'statsbomb'
+  AND av.access_tier = 'public'
   AND av.player_id IS NOT NULL
   AND dp.canonical_player_id IS NOT NULL
   AND av.action_type IS NOT NULL
@@ -105,6 +106,8 @@ WHERE av.data_source = 'statsbomb'
   AND ff.location_x IS NOT NULL
   AND ff.location_y IS NOT NULL
 """
+# access_tier = 'public': co-occurrence training means a private action shapes EVERY co-occurring
+# public player's vector, so the CORPUS — not just the output — must be public-only (spec §6.8 (2)).
 
 
 def _transform_360_to_training_data(raw: pd.DataFrame) -> pd.DataFrame:

@@ -22,6 +22,26 @@ def test_build_output_fills_missing_and_selects() -> None:
     assert list(out.columns) == expected
     assert out["match_id"].iloc[0] == "M"
     assert out["data_source"].iloc[0] == "wyscout"
+    # Per-match HF redistribution (spec 2026-06-29): no-feed provider → provider default public.
+    assert out["access_tier"].iloc[0] == "public"
+
+
+def test_build_output_access_tier_explicit_and_provider_default() -> None:
+    """access_tier resolution: explicit arg wins; else carry-through; else provider default."""
+    raw = pd.DataFrame({"action_id": [1, 2], "start_x": [50.0, 60.0]})
+    # Explicit (e.g. a private SkillCorner match) overrides the provider default.
+    out = build_output(raw, match_id_native="M", data_source="skillcorner", access_tier="restricted")
+    assert (out["access_tier"] == "restricted").all()
+    # No explicit arg, no carried column → provider default (skillcorner not in RESTRICTED set → public).
+    out_default = build_output(raw, match_id_native="M", data_source="skillcorner")
+    assert (out_default["access_tier"] == "public").all()
+    # gradientsports has no per-match visibility feed → restricted by provider default.
+    out_gs = build_output(raw, match_id_native="M", data_source="gradientsports")
+    assert (out_gs["access_tier"] == "restricted").all()
+    # Carry-through: a non-NULL access_tier already on the frame is honored (constant per match).
+    carried = pd.DataFrame({"action_id": [1], "start_x": [1.0], "access_tier": ["restricted"]})
+    out_carry = build_output(carried, match_id_native="M", data_source="skillcorner")
+    assert (out_carry["access_tier"] == "restricted").all()
 
 
 def test_string_columns_are_object_none_when_absent() -> None:
@@ -33,8 +53,8 @@ def test_string_columns_are_object_none_when_absent() -> None:
     raw = pd.DataFrame({"action_id": [1, 2], "start_x": [50.0, 60.0]})
     out = build_output(raw, match_id_native="M", data_source="statsbomb")
     for col in _ddl_string_columns(ACTION_CONTEXT_DDL):
-        if col in ("match_id", "data_source"):
-            continue  # set to concrete scalars above
+        if col in ("match_id", "data_source", "access_tier"):
+            continue  # set to concrete scalars above (access_tier stamped by build_output)
         assert out[col].dtype == object, f"{col} must be object dtype (got {out[col].dtype})"
         assert out[col].isna().all() and all(v is None for v in out[col]), f"{col} all-absent must be None"
 

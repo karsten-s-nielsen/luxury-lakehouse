@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.56-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.57-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -109,6 +109,8 @@ DEFAULT_BATCH_SIZE = 256
 # vs the prior 1e-4 baseline of 0.569). See docs/evolve/ev1-football2vec/SUMMARY.md.
 DEFAULT_LR = 3e-4
 DEFAULT_PATIENCE = 5
+# Fixed RNG seed for reproducible training (spec §6.8 — enables the §9.8 differential-recompute test).
+_TORCH_SEED = 42
 
 CATALOG = "soccer_analytics"
 SCHEMA = "dev_gold"
@@ -680,6 +682,10 @@ def main() -> None:
         repo_type="model",
     )
     recorder.start()
+    # Seed torch RNG: stage-1/2 training is stochastic (DataLoader(shuffle=True), dropout, weight init).
+    # A fixed seed restores byte-reproducibility so the spec §9.8 differential-recompute test applies and
+    # a public-only corpus rebuild is verifiable. See spec §6.8 ("Recommended regardless: seed the model").
+    torch.manual_seed(_TORCH_SEED)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info("Using device: %s", device)
     t0 = time.time()

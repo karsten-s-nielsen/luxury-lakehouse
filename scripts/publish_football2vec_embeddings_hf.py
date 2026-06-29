@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.56-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.57-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -33,6 +33,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 
+from ingestion.hf_leak_guard import LeakDetectedError, assert_no_private_leak
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 
 logging.basicConfig(
@@ -45,10 +46,23 @@ logger = logging.getLogger(__name__)
 HF_ORG = "luxury-lakehouse"
 DATASET_REPO = f"{HF_ORG}/football2vec-player-embeddings"
 
+# Registry key (ingestion.hf_leak_guard.PUBLISHER_REGISTRY mode "derived"): the embeddings are
+# pre-aggregated + stochastic, so a publish-time row filter cannot fix a private contribution that was
+# already baked into a career/season average. The redistribution boundary is enforced by (spec §6.8 / D10):
+#   (a) input assertion  — the materialized source had ZERO access_tier != 'public' rows;
+#   (b) output assertion — the published player vocabulary is a subset of players with >=1 public row
+#                          (a private-only player's id is itself an existence leak and must be absent);
+#   (c) fail-closed       — if the public career/season aggregate is not provably public-recomputed,
+#                          publish ONLY the per-match (split) embeddings and raise.
+PUBLISHER_NAME = "publish_football2vec_embeddings_hf"
+
+# career/season are the pre-mixed aggregates: SELECT access_tier so the input assertion can prove the
+# upstream dbt aggregate was rebuilt public-only (Task 17). If the mart does not expose access_tier the
+# query raises -> caller fails closed (career/season withheld, per-match still published).
 _CAREER_SQL = """\
 SELECT e.canonical_player_id, p.player_name,
        e.behavioral_vector, e.stat_vector,
-       e.total_matches, e.data_sources
+       e.total_matches, e.data_sources, e.access_tier
 FROM soccer_analytics.dev_gold.fct_player_embeddings_career e
 LEFT JOIN soccer_analytics.dev_gold.dim_players p
   ON e.canonical_player_id = p.canonical_player_id
@@ -56,14 +70,16 @@ LEFT JOIN soccer_analytics.dev_gold.dim_players p
 
 _SEASON_SQL = """\
 SELECT embedding_season_id, canonical_player_id, competition_id, season_id,
-       behavioral_vector, stat_vector, matches_in_sample, data_sources
+       behavioral_vector, stat_vector, matches_in_sample, data_sources, access_tier
 FROM soccer_analytics.dev_gold.fct_player_embeddings_season
 """
 
+# per-match IS row-level -> split at publish: filter to public tier (the public-eligible vocabulary).
 _PER_MATCH_SQL = """\
 SELECT embedding_id, canonical_player_id, match_id, data_source,
-       behavioral_vector, stat_vector
+       behavioral_vector, stat_vector, access_tier
 FROM soccer_analytics.dev_gold.fct_player_embeddings
+WHERE access_tier = 'public'
 """
 
 _POLL_INTERVAL_S = 2.0
@@ -116,12 +132,80 @@ def query_databricks_sql(host: str, token: str, sql: str, warehouse_id: str) -> 
     return pa.concat_tables(arrow_tables).to_pandas()
 
 
-def publish_to_hf_hub(
-    career_df: pd.DataFrame,
-    season_df: pd.DataFrame,
+def _drop_access_tier(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop the internal access_tier column before upload (spec R2 — never a Hyrum schema change)."""
+    return df.drop(columns=["access_tier"], errors="ignore")
+
+
+def public_player_vocabulary(per_match_df: pd.DataFrame) -> set[str]:
+    """The public-eligible player vocabulary: players with >=1 public per-match embedding row.
+
+    The per-match frame is SQL-filtered to ``access_tier = 'public'`` upstream, so its player set is
+    exactly the set of players who have at least one publicly-redistributable contribution. This is the
+    reference set every published table's vocabulary must be a subset of (spec §6.8 output assertion).
+    """
+    return set(per_match_df["canonical_player_id"].astype(str).tolist())
+
+
+def assert_output_vocabulary_subset(df: pd.DataFrame, *, public_ids: set[str], table_label: str) -> None:
+    """Raise if ``df`` publishes any ``canonical_player_id`` not in the public-eligible vocabulary.
+
+    A private-only player's id appearing as a key in a public artifact is itself an existence leak —
+    even if the vector were somehow zeroed, the presence of the id reveals the player participated in a
+    restricted match (spec §6.8 output assertion).
+    """
+    published = set(df["canonical_player_id"].astype(str).tolist())
+    leaked = published - public_ids
+    if leaked:
+        sample = sorted(leaked)[:10]
+        logger.error(
+            "LEAK BLOCKED: %s %s table publishes %d player id(s) absent from the public vocabulary: %s",
+            PUBLISHER_NAME,
+            table_label,
+            len(leaked),
+            sample,
+        )
+        raise LeakDetectedError(
+            f"{PUBLISHER_NAME}: {table_label} table has {len(leaked)} player id(s) not in the public "
+            f"vocabulary (existence leak): {sample}"
+        )
+
+
+def select_publishable_tables(
     per_match_df: pd.DataFrame,
-    hf_token: str,
-) -> str:
+    career_df: pd.DataFrame | None,
+    season_df: pd.DataFrame | None,
+) -> tuple[dict[str, pd.DataFrame], str | None]:
+    """Decide which embedding tables are safe to publish; returns ``(tables, withheld_reason)``.
+
+    ``tables`` maps ``subdir -> frame`` with ``access_tier`` dropped (ready for upload, spec R2). The
+    per-match table always publishes (row-level split, already public-filtered) and is asserted clean
+    HARD (input + output). The career/season aggregates publish ONLY if provably public-recomputed —
+    all-public input AND vocabulary subset; otherwise they are withheld (``withheld_reason`` set) so the
+    caller fails closed (spec §6.8 (c): publish only the per-match embeddings and raise).
+    """
+    # (a) input + (b) output assertions for per-match — must pass (the row-level split is authoritative).
+    assert_no_private_leak(per_match_df, publisher=PUBLISHER_NAME)
+    public_ids = public_player_vocabulary(per_match_df)
+    assert_output_vocabulary_subset(per_match_df, public_ids=public_ids, table_label="per_match")
+    tables: dict[str, pd.DataFrame] = {"per_match": _drop_access_tier(per_match_df)}
+
+    if career_df is None or season_df is None:
+        return tables, "career/season aggregate unavailable (not provably public-recomputed)"
+
+    try:
+        for label, agg_df in (("career", career_df), ("season", season_df)):
+            assert_no_private_leak(agg_df, publisher=PUBLISHER_NAME)  # (a) input: all-public
+            assert_output_vocabulary_subset(agg_df, public_ids=public_ids, table_label=label)  # (b) output
+    except LeakDetectedError as exc:
+        return tables, f"career/season not provably public-recomputed: {exc}"
+
+    tables["career"] = _drop_access_tier(career_df)
+    tables["season"] = _drop_access_tier(season_df)
+    return tables, None
+
+
+def publish_to_hf_hub(tables: dict[str, pd.DataFrame], hf_token: str) -> str:
     from huggingface_hub import HfApi
 
     api = HfApi(token=hf_token)
@@ -129,22 +213,21 @@ def publish_to_hf_hub(
 
     with tempfile.TemporaryDirectory() as tmpdir:
         staging_dir = Path(tmpdir) / "data"
-        for sub_dir, sub_df in (
-            ("career", career_df),
-            ("season", season_df),
-            ("per_match", per_match_df),
-        ):
+        for sub_dir, sub_df in tables.items():
             target_dir = staging_dir / sub_dir
             target_dir.mkdir(parents=True, exist_ok=True)
             sub_df.to_parquet(target_dir / "data.parquet", index=False, engine="pyarrow")
             logger.info("Wrote %s/%s: %s rows", sub_dir, "data.parquet", f"{len(sub_df):,}")
+        # Scope delete patterns to the subdirs being published (relative to path_in_repo per ADR-049),
+        # so a fail-closed per-match-only publish never wipes a previously-published career/season table.
+        delete_patterns = [f"{sub_dir}/**" for sub_dir in tables]
         api.upload_folder(
             folder_path=str(staging_dir),
             path_in_repo="data",
             repo_id=DATASET_REPO,
             repo_type="dataset",
             token=hf_token,
-            delete_patterns=["data/*"],
+            delete_patterns=delete_patterns,
         )
     return f"https://huggingface.co/datasets/{DATASET_REPO}"
 
@@ -162,32 +245,55 @@ def main() -> None:
     db_token = os.environ["DATABRICKS_TOKEN"]
     warehouse_id = os.environ["DATABRICKS_SQL_WAREHOUSE_ID"]
 
-    logger.info("Querying career embeddings")
-    career_df = query_databricks_sql(host, db_token, _CAREER_SQL, warehouse_id)
-    logger.info("Querying season embeddings")
-    season_df = query_databricks_sql(host, db_token, _SEASON_SQL, warehouse_id)
-    logger.info("Querying per-match embeddings")
+    logger.info("Querying per-match embeddings (access_tier='public')")
     per_match_df = query_databricks_sql(host, db_token, _PER_MATCH_SQL, warehouse_id)
+    if per_match_df.empty:
+        raise RuntimeError("per-match embedding mart returned 0 public rows — nothing to publish")
 
-    if career_df.empty or season_df.empty or per_match_df.empty:
-        raise RuntimeError(
-            f"One or more embedding marts empty: career={len(career_df)} "
-            f"season={len(season_df)} per_match={len(per_match_df)}"
-        )
+    # career/season are pre-mixed aggregates: they publish only if the public-only rebuild (Task 17)
+    # is provably present. A missing access_tier column (mart not yet rebuilt public-only) raises here
+    # -> fail closed: withhold career/season, still ship the per-match split (spec §6.8 (c)).
+    career_df: pd.DataFrame | None = None
+    season_df: pd.DataFrame | None = None
+    try:
+        logger.info("Querying career embeddings")
+        career_df = query_databricks_sql(host, db_token, _CAREER_SQL, warehouse_id)
+        logger.info("Querying season embeddings")
+        season_df = query_databricks_sql(host, db_token, _SEASON_SQL, warehouse_id)
+        if career_df.empty or season_df.empty:
+            logger.error(
+                "career/season aggregate empty (career=%d season=%d) — withholding (fail-closed)",
+                len(career_df),
+                len(season_df),
+            )
+            career_df, season_df = None, None
+    except RuntimeError as exc:
+        logger.error("career/season query failed — not provably public-recomputed, fail-closed: %s", exc)
+        career_df, season_df = None, None
 
-    url = publish_to_hf_hub(career_df, season_df, per_match_df, hf_token)
+    tables, withheld_reason = select_publishable_tables(per_match_df, career_df, season_df)
+
+    url = publish_to_hf_hub(tables, hf_token)
     upload_hf_readme(
         repo_id=DATASET_REPO,
         readme_path=get_hf_card_path("football2vec-player-embeddings.md", kind="dataset"),
         hf_token=hf_token,
     )
     logger.info(
-        "Pipeline complete: %s (career=%s season=%s per_match=%s)",
+        "Published tables=%s to %s (%s)",
+        sorted(tables),
         url,
-        f"{len(career_df):,}",
-        f"{len(season_df):,}",
-        f"{len(per_match_df):,}",
+        ", ".join(f"{name}={len(df):,}" for name, df in tables.items()),
     )
+
+    if withheld_reason is not None:
+        # Fail-closed: the per-match split shipped, but career/season were withheld. Raise so the
+        # operator sees the career/season aggregate was not provably public-recomputed.
+        raise RuntimeError(
+            f"football2vec career/season embeddings WITHHELD (fail-closed, spec §6.8): {withheld_reason}. "
+            "Per-match (split) embeddings were published; rebuild the public-only career/season aggregate "
+            "(Task 17) and re-run."
+        )
 
 
 if __name__ == "__main__":

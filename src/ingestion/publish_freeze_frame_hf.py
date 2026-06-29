@@ -19,8 +19,10 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from ingestion.hf_leak_guard import assert_no_private_leak
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
+from shared.access_tier import classify_access_tier
 from workflows import workflow
 
 if TYPE_CHECKING:
@@ -120,6 +122,13 @@ def run_pipeline(
 
     if row_count == 0:
         raise RuntimeError("No player positions parsed from freeze frames")
+
+    # Fail-closed leak guard (spec §6.7/D11). StatsBomb-only by construction → single per-match
+    # tier is the StatsBomb provider default (public), stamped via the classifier so the guard is
+    # a real check. Drop the internal column AFTER the guard, before upload (R2).
+    freeze_df["access_tier"] = classify_access_tier(provider="statsbomb", visibility=None).value
+    assert_no_private_leak(freeze_df, publisher="publish_freeze_frame_hf")
+    freeze_df = freeze_df.drop(columns=["access_tier"], errors="ignore")
 
     api = HfApi(token=hf_token)
     api.create_repo(DATASET_REPO, exist_ok=True, repo_type="dataset", token=hf_token)

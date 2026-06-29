@@ -115,6 +115,11 @@ cleaned as (
         cast(competition_id as int)                      as competition_id,
         cast(season_id as int)                          as season_id,
 
+        -- Per-match HF redistribution tier (spec 2026-06-29 §6.4). Stamped per
+        -- row at SPADL/VAEP write time from the match's access_tier; rides
+        -- through to fct_action_values for the publish-time split.
+        access_tier,
+
         -- Provider-namespaced StatsBomb-native fields (silly-kicks 1.5.0+
         -- preserve_native passthrough). NULL for non-StatsBomb sources.
         statsbomb_possession_id,

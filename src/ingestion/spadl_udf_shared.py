@@ -85,6 +85,27 @@ def cast_enrichment_dtypes(actions: pd.DataFrame) -> pd.DataFrame:
     return actions
 
 
+def stamp_access_tier(
+    actions: pd.DataFrame,
+    *,
+    source: str,
+    visibility: str | None = None,
+) -> pd.DataFrame:
+    """Stamp the per-match HF redistribution ``access_tier`` (spec 2026-06-29).
+
+    DIRECT stamp from the match's ingestion-time signals — never a dim_matches join
+    (unmatched→NULL→fail-safe-restricted silently drops public data, spec D3/M1). The converter
+    already knows ``source`` (provider) + the per-match ``visibility``; the pure classifier resolves
+    the tier. ``visibility=None`` (the four no-feed providers + GS) yields the provider default:
+    public for statsbomb/wyscout/idsse/metrica/skillcorner, restricted for gradientsports. The
+    value is constant per match, so a scalar assignment broadcasts across the action rows.
+    """
+    from shared.access_tier import classify_access_tier
+
+    actions["access_tier"] = classify_access_tier(provider=source, visibility=visibility).value
+    return actions
+
+
 def ensure_is_synthetic(actions: pd.DataFrame) -> pd.DataFrame:
     """Normalise the silly-kicks 4.13.0 ``is_synthetic`` provenance flag (sk ADR-018).
 

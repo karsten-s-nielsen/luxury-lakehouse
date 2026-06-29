@@ -48,6 +48,11 @@ select
     e.match_id,
     dm.match_key,
     e.data_source,
+    -- Per-match HF redistribution tier (spec 2026-06-29 §6.4). Resolved from
+    -- dim_matches (per-match source of truth); the per-match grain keeps ALL
+    -- tiers — only the career/season aggregates filter to public (§6.8). Rows
+    -- whose match is absent from dim_matches → NULL → fail-safe restricted.
+    dm.access_tier as access_tier,
     e.behavioral_vector,
     e.stat_vector
 from {{ ref('stg_player_embeddings') }} e

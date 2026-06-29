@@ -103,7 +103,10 @@ WHERE av.player_id IS NOT NULL
   AND av.action_type IS NOT NULL
   AND av.start_x IS NOT NULL
   AND av.start_y IS NOT NULL
+  AND av.access_tier = 'public'
 """
+# access_tier = 'public': co-occurrence training means a private action shapes EVERY co-occurring
+# public player's vector, so the CORPUS — not just the output — must be public-only (spec §6.8 (2)).
 
 
 def _transform_to_training_data(raw: pd.DataFrame) -> pd.DataFrame:
