@@ -492,12 +492,34 @@ class TestHfLicenseGate:
         )
 
     def test_publish_tracking_context_excludes_gs(self) -> None:
-        """publish_tracking_context_hf.py SQL must exclude gradientsports."""
+        """publish_tracking_context_hf.py gates GS via the per-match access_tier split.
+
+        Phase 6 (spec 2026-06-29 §6.5/D6) retired the legacy
+        ``WHERE data_source != 'gradientsports'`` SQL filter and migrated this
+        publisher onto the uniform per-match split: pull ALL providers + the
+        per-row ``access_tier``, split via ``ingestion.hf_publish.split_restricted``
+        (restricted + NULL/unknown → the PRIVATE companion repo, fail-safe), and
+        enforce the PUBLIC frame with ``assert_no_private_leak``. The canonical
+        two-mode guard lives in test_gradientsports_hf_exclusion.py — this
+        assertion only pins THIS publisher's mode.
+        """
         from pathlib import Path
 
         script = Path("scripts/publish_tracking_context_hf.py").read_text()
-        assert "gradientsports" in script, "HF gate missing -- SQL must filter out gradientsports"
-        assert "!= 'gradientsports'" in script or "!= \\'gradientsports\\'" in script
+        assert "split_restricted" in script, (
+            "HF gate missing -- publisher must split via ingestion.hf_publish.split_restricted (spec §6.5)"
+        )
+        assert 'column="access_tier"' in script, (
+            "publisher must split on access_tier -- a provider-level split leaks restricted SkillCorner (spec §6.5)"
+        )
+        assert "assert_no_private_leak" in script, (
+            "publisher must call assert_no_private_leak(public_df, publisher=...) on the PUBLIC frame "
+            "(fail-closed leak guard)"
+        )
+        assert "!= 'gradientsports'" not in script and "<> 'gradientsports'" not in script, (
+            "legacy SQL-side `data_source != 'gradientsports'` filter is retired (spec D6) -- "
+            "the redistribution gate is the access_tier split, never a SQL provider filter"
+        )
 
 
 class TestExtraTimeIntegration:
