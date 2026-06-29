@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.56-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.57-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -70,6 +70,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 
+from ingestion.hf_leak_guard import assert_no_private_leak
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 
 # ---------------------------------------------------------------------------
@@ -127,7 +128,11 @@ SELECT
     s.is_first_time,
     s.play_pattern,
     s.statsbomb_xg,
-    s.data_source
+    s.data_source,
+    -- Per-match HF redistribution tier (spec §6.7/D11). fct_shots carries no SkillCorner today
+    -- (safe-by-absence); derived from dim_matches so the fail-closed leak guard halts the publish
+    -- if a restricted match ever appears. NULL (unmatched) → guard fails closed.
+    dm.access_tier
 FROM soccer_analytics.dev_gold.fct_shots s
 LEFT JOIN soccer_analytics.dev_gold.dim_matches dm
     ON s.match_key = dm.match_key
@@ -462,6 +467,12 @@ def main() -> None:
     # ------------------------------------------------------------------
     # 4. Publish to HF Hub
     # ------------------------------------------------------------------
+    # Fail-closed leak guard (spec §6.7/D11): this mart carries no SkillCorner today, but the guard
+    # halts the publish (rather than leaking) if a restricted row ever appears. Drop the internal
+    # access_tier column AFTER the guard, before upload (R2).
+    assert_no_private_leak(shots_df, publisher="publish_xg_shots_hf")
+    shots_df = shots_df.drop(columns=["access_tier"], errors="ignore")
+
     logger.info("Publishing shot data to HF Hub: %s", DATASET_REPO)
     dataset_url = publish_to_hf_hub(shots_df, hf_token)
 

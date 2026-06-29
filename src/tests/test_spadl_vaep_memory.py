@@ -49,6 +49,9 @@ def _build_synthetic_spadl_group(n_rows: int = 2711, *, random_state: int = 42) 
             "competition_id": np.int64(11),
             "season_id": np.int64(90),
             "data_source": "statsbomb",
+            # Per-match HF redistribution tier (spec 2026-06-29); _SPADL_SCHEMA places it
+            # immediately after data_source, before the StatsBomb-native fields.
+            "access_tier": "public",
             # StatsBomb-native fields (NULL for non-StatsBomb, but we test StatsBomb path)
             "statsbomb_possession_id": rng.integers(1, 200, n_rows).astype(np.int64),
             "statsbomb_possession_team_id": rng.choice([10, 20], n_rows).astype(np.int64),

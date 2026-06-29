@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.56-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.57-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -35,6 +35,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 
+from ingestion.hf_leak_guard import assert_no_private_leak
 from ingestion.hf_publish import (
     RESTRICTED_HF_PROVIDERS,
     get_hf_card_path,
@@ -177,8 +178,29 @@ def main() -> None:
         raise RuntimeError("0 rows from fct_shot_psxg — verify dbt build / goalkeeper_enabled")
     logger.info("Retrieved %s PSxG shot rows", f"{len(df):,}")
 
-    # License-gate split (ADR-049): restricted rows → PRIVATE companion repo.
-    public_df, restricted_df = split_restricted(df)
+    # Per-match split keyed on access_tier (spec §6.5): restricted AND NULL/unknown rows →
+    # PRIVATE companion repo (fail-safe; split_restricted never leaks an unclassified row).
+    public_df, restricted_df = split_restricted(df, column="access_tier")
+
+    # Fail-closed leak guard on the PUBLIC frame BEFORE upload — needs access_tier present.
+    assert_no_private_leak(public_df, publisher="publish_psxg_shots_hf")
+
+    # Per-tier observability (spec C7): row counts per repo at INFO.
+    pub_by = public_df["data_source"].value_counts().to_dict()
+    res_by = restricted_df["data_source"].value_counts().to_dict() if not restricted_df.empty else {}
+    logger.info(
+        "Per-tier publish counts — public: %d rows %s; restricted: %d rows %s",
+        len(public_df),
+        pub_by,
+        len(restricted_df),
+        res_by,
+    )
+
+    # R2: drop the internal access_tier column from BOTH frames AFTER split + guard, before
+    # upload — constant per repo; keeping it is a Hyrum additive-schema change to the public
+    # dataset. Order: split -> guard -> drop -> upload.
+    public_df = public_df.drop(columns=["access_tier"], errors="ignore")
+    restricted_df = restricted_df.drop(columns=["access_tier"], errors="ignore")
 
     logger.info("Publishing PUBLIC PSxG shots to HF Hub: %s", DATASET_REPO)
     url = publish_to_hf_hub(public_df, hf_token)

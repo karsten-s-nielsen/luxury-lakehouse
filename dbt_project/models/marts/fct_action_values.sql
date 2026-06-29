@@ -63,6 +63,7 @@ with action_values as (
         defensive_value,
         vaep_value,
         data_source,
+        access_tier,
         competition_id,
         season_id,
         statsbomb_possession_id,
@@ -254,6 +255,8 @@ actions_with_score as (
 
         -- Provenance
         av.data_source,
+        -- Per-match HF redistribution tier (spec 2026-06-29 §6.4) — per-row passthrough.
+        av.access_tier,
         av.original_event_id
 
     from action_values av
@@ -403,6 +406,8 @@ final as (
             else 'losing'
         end                                         as game_state,
         data_source,
+        -- Per-match HF redistribution tier (spec 2026-06-29 §6.4).
+        access_tier,
         original_event_id,
         current_timestamp()                         as _loaded_at
 

@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.56-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.57-py3-none-any.whl",
 #     "databricks-sdk>=0.20",
 #     "gensim>=4.3",
 #     "huggingface-hub>=1.5.0",
@@ -126,9 +126,12 @@ FROM soccer_analytics.dev_gold.fct_action_values a
 INNER JOIN soccer_analytics.dev_gold.dim_players p
     ON a.player_key = p.player_key
 WHERE a.data_source IN ('statsbomb', 'wyscout')
+  AND a.access_tier = 'public'
   AND a.start_x IS NOT NULL
   AND a.start_y IS NOT NULL
 """
+# access_tier = 'public': co-occurrence training means a private action shapes EVERY co-occurring
+# public player's vector, so the CORPUS — not just the output — must be public-only (spec §6.8 (2)).
 
 _POLL_INTERVAL_S = 2.0
 _TIMEOUT_SUBMIT = (10, 120)

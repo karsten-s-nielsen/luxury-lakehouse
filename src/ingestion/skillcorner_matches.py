@@ -15,7 +15,8 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from ingestion.utils import validate_dataframe, write_delta_table
+from ingestion.utils import tolerate_missing_table, validate_dataframe, write_delta_table
+from shared.access_tier import classify_access_tier
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -44,7 +45,7 @@ _MATCHES_DTYPE_OVERRIDES: dict[str, str] = {
 }
 
 
-def parse_match_json(source: str, *, match_id: str) -> pd.DataFrame:
+def parse_match_json(source: str, *, match_id: str, visibility: str) -> pd.DataFrame:
     """Parse match.json content into a roster-format DataFrame.
 
     Produces one row per player-match with match-level metadata
@@ -53,6 +54,9 @@ def parse_match_json(source: str, *, match_id: str) -> pd.DataFrame:
     Args:
         source: JSON string content of the match.json artifact.
         match_id: Raw native SkillCorner match ID (e.g. "1886347").
+        visibility: The pining ``MatchInfo.visibility`` for this match ("public" | "private").
+            Persisted RAW (provenance) and used to derive ``access_tier`` (per-match HF redistribution
+            policy — spec §6.2). REQUIRED: a missing value must hard-error upstream, never default.
 
     Returns:
         DataFrame in roster format per spec section 5.3.
@@ -127,8 +131,32 @@ def parse_match_json(source: str, *, match_id: str) -> pd.DataFrame:
     for col, dtype in _MATCHES_DTYPE_OVERRIDES.items():
         if col in df.columns:
             df[col] = df[col].astype(dtype)  # type: ignore[arg-type]
+    # Per-match HF redistribution policy (spec §6.2 / C1): persist RAW visibility + derived access_tier.
+    df["visibility"] = visibility
+    df["access_tier"] = classify_access_tier(provider="skillcorner", visibility=visibility).value
     df["_ingested_at"] = datetime.now(timezone.utc)
     return df
+
+
+def _assert_visibility_not_flipped(
+    spark: SparkSession, catalog: str, schema: str, match_id: str, new_visibility: str, logger: logging.Logger
+) -> None:
+    """Raise if a non-NULL stored ``visibility`` would change to a DIFFERENT non-NULL value (spec A3 / R1).
+
+    pining forbids in-place re-tiering, so a flip is a producer-side violation. A stored NULL/absent row
+    (a backfilled or first-seen match) is "unset" and may be populated — so the Task 24 re-ingest after a
+    Task 8b backfill never trips this.
+    """
+    table = f"{catalog}.{schema}.skillcorner_matches"
+    with tolerate_missing_table(logger, f"{table} absent on first ingest — visibility check skipped"):
+        rows = spark.sql(
+            f"SELECT DISTINCT visibility FROM {table} WHERE match_id = '{match_id}'"  # noqa: S608
+        ).collect()
+        for r in rows:
+            old = r["visibility"]
+            if old is not None and old != new_visibility:
+                msg = f"visibility flip for skillcorner match {match_id}: {old!r} -> {new_visibility!r}"
+                raise RuntimeError(msg)
 
 
 def write_matches(
@@ -140,6 +168,8 @@ def write_matches(
     logger: logging.Logger,
 ) -> int:
     """Write parsed matches DataFrame to bronze.skillcorner_matches."""
+    if "visibility" in df.columns and len(df) > 0:
+        _assert_visibility_not_flipped(spark, catalog, schema, match_id, str(df["visibility"].iloc[0]), logger)
     sdf = spark.createDataFrame(df)
     row_count = validate_dataframe(
         sdf,

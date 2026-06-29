@@ -28,7 +28,12 @@ with player_best_dim as (
     -- dimensionally-homogeneous aggregation.
     select canonical_player_id, max(size(behavioral_vector)) as best_dim
     from {{ ref('fct_player_embeddings') }}
-    where data_source != 'football2vec_360'
+    -- Public-only aggregate (spec 2026-06-29 §6.8 / Task 17): a season vector is
+    -- a pre-mix of per-match embeddings that CANNOT be split at publish time, so
+    -- restricted matches must be excluded UPSTREAM. Filtered on both the best-dim
+    -- pass and the aggregation pass so the dimension cohort matches.
+    where access_tier = 'public'
+      and data_source != 'football2vec_360'
       and size(behavioral_vector) != 32   -- PR-Cycle-C 2026-05-02 (PR-β Phase 0): exclude 32d v1 Doc2Vec.
                                           -- data_source is provider label ('wyscout'/'statsbomb'/etc),
                                           -- NOT model version — v1 + v2 wyscout share data_source='wyscout',
@@ -57,7 +62,9 @@ embeddings_with_context as (
         on e.canonical_player_id = p.canonical_player_id
         and size(e.behavioral_vector) = p.best_dim
     -- D62 2026-04-15: 360-enriched embeddings live in their own mart; exclude here.
-    where e.data_source != 'football2vec_360'
+    -- Public-only aggregate (spec 2026-06-29 §6.8 / Task 17): exclude restricted matches.
+    where e.access_tier = 'public'
+      and e.data_source != 'football2vec_360'
 
 ),
 

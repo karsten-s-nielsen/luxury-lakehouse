@@ -37,7 +37,7 @@ def tracking_df() -> pd.DataFrame:
 def matches_df(match_metadata: dict) -> pd.DataFrame:
     from ingestion.skillcorner_matches import parse_match_json
 
-    return parse_match_json(json.dumps(match_metadata), match_id="1886347")
+    return parse_match_json(json.dumps(match_metadata), match_id="1886347", visibility="public")
 
 
 class TestSkillCornerE2E:

@@ -30,16 +30,16 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             dbtBuildAndRefresh = container "dbt_build_and_refresh.py" "Chains dbt build with synced table refresh" "Python, subprocess"
         }
 
-        pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "47 workflow-card-registered workflows. Centralized hooks, lifecycle tracking, three-tier cost tracking." {
+        pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "48 workflow-card-registered workflows. Centralized hooks, lifecycle tracking, three-tier cost tracking." {
             workflowFramework = container "Workflow Framework" "Registry, @workflow decorator, lifecycle runner with hook dispatch" "Python"
-            workflowCards = container "Workflow Cards" "47 YAML manifests: inputs, outputs, deps, cost estimates, provenance" "YAML" "Database"
+            workflowCards = container "Workflow Cards" "48 YAML manifests: inputs, outputs, deps, cost estimates, provenance" "YAML" "Database"
             costEstimateHook = container "CostEstimateHook" "Writes run state, entity_count, row_count, cost to Delta via MERGE" "Python, PySpark"
             hfCostRecorder = container "HFJobsCostRecorder" "Cost recorder for HF Jobs. Writes to HF Hub repos. 90-day pruning." "Python"
             guardRegistry = container "Guard Registry" "SkipGuard protocol, FilterResult, find_new_ids(), timed_check(), watermark guards (ADR-024)" "Python"
             artifactDeploy = container "Artifact Deploy" "Training-to-production contract (ADR-012). MLflow + UC Volume helpers." "Python"
-            hfPublish = container "HF Publish Helper" "README delivery (ADR-014) + restricted-data split policy (ADR-049): RESTRICTED_HF_PROVIDERS, split_restricted, restricted_repo_id — single source of truth for publishers and trainers." "Python"
+            hfPublish = container "HF Publish Helper" "README delivery (ADR-014) + per-match HF redistribution (ADR-064): access_tier classifier (shared core), split_restricted on access_tier, enumerate-all fail-closed leak guard over every publisher." "Python"
             databricksSqlFetch = container "Databricks SQL Fetch" "HTTP helper for HF Jobs trainers querying gold marts (no Spark)" "Python, requests"
-            ingestionPipelines = container "Compute Pipelines" "38 @workflow-decorated Databricks ingestion/compute pipelines across 6 providers. GS bronze dedup (ADR-030), per-provider ET-direction derivers (ADR-029), DFL parse delegated to silly-kicks (ADR-055)." "Python, PySpark, silly-kicks 4.35.0"
+            ingestionPipelines = container "Compute Pipelines" "38 @workflow-decorated Databricks ingestion/compute pipelines across 6 providers. GS bronze dedup (ADR-030), per-provider ET-direction derivers (ADR-029), DFL parse delegated to silly-kicks (ADR-055)." "Python, PySpark, silly-kicks 4.36.0"
             refreshSyncedTables = container "Synced Table Refresh" "Triggers refresh on 46 synced tables; detect-only for checkpoint-broken TRIGGERED tables — flags + dispatches the heal, never deletes (ADR-041)" "Python, databricks-sdk"
             migrateSyncedTables = container "Synced Table Migration" "SDK-managed lifecycle: delete, CDF enable, create, wait (ADR-026). Replaces Terraform module." "Python, databricks-sdk"
             rederiveSyncedMarts = container "Strand-safe Re-derive" "Operator re-derive of TRIGGERED synced marts (ADR-043): D MERGE-reprocess / T plain-rebuild / B delete+full-refresh+recreate. Pure planner + thin executor." "Python, databricks-sdk"
@@ -47,14 +47,14 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             evolveEngine = container "Evolve Engine" "LLM-guided architecture search. AST validation, restricted exec." "Python, OpenEvolve"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models: xG, xT, VAEP, OBSO, pitch control, PSxG (incl. tracking scorer + GroupKFold calibration, ADR-059), embeddings" "Python, PyTorch"
             execVisibility = container "Executor Visibility (exec_visibility)" "Driver heartbeat + executor env-fingerprint/faulthandler markers + silly-kicks env-drift guard (ADR-044). Spark-Connect-safe applyInPandas progress + hang diagnostics (ADR-031)." "Python"
-            actionContextHexagon = container "Action Context Hexagon" "Pure-domain AC enrichment (ADR-028): ports + enrich_batch, one Spark+local UDF. Frames-required (ADR-057); sb360 cogroup (ADR-058); SC/metrica frames via silly-kicks (TF-23); LTR net deleted." "Python, pandas, silly-kicks 4.35.0"
-            sharedLibrary = container "Shared Library" "Cross-package constants. Zero external deps." "Python"
+            actionContextHexagon = container "Action Context Hexagon" "Pure-domain AC enrichment (ADR-028): ports + enrich_batch, one Spark+local UDF. Frames-required (ADR-057); sb360 cogroup (ADR-058); SC/metrica frames via silly-kicks (TF-23); LTR net deleted." "Python, pandas, silly-kicks 4.36.0"
+            sharedLibrary = container "Shared Library" "Cross-package constants, identifiers, and the per-match access_tier redistribution policy/classifier (ADR-064). Zero external deps." "Python"
         }
 
         # SK3-MIG-B Retrain Orchestrator (new)
         sk3MigBOrch = softwareSystem "Retrain Orchestrator" "Idempotent retrain cycle: pre-flight gates, input publish, HF Jobs trainers, dbt build, output publish, Lakebase refresh." {
             orchestratorScript = container "sk3_mig_b_retrain.py" "PEP 723 single-file orchestrator. Resumable, cost-capped, walltime-capped." "Python"
-            hfInputPublishers = container "Input Dataset Publishers" "3 scripts: SPADL/VAEP, xG shots, freeze frames. Publish to HF Hub pre-training; SPADL/VAEP routes license-restricted partitions to a private companion repo (ADR-049)." "Python"
+            hfInputPublishers = container "Input Dataset Publishers" "3 scripts: SPADL/VAEP, xG shots, freeze frames. Publish to HF pre-training; restricted rows split to a private companion repo by per-match access_tier, fail-closed leak guard (ADR-064)." "Python"
             hfOutputPublishers = container "Output Dataset Publishers" "5 scripts: embeddings, OBSO grids, line-breaking, pitch control, shots-on-target." "Python"
             hfJobsTrainers = container "HF Jobs Trainers" "Cloud-GPU training: VAEP, xG v2, PSxG, Football2Vec v2/360, ScoutGPT." "Python, PyTorch"
             extV2Gates = container "ExT Smoke Gates" "Local NLL validation for Expected Threat Phase 0/1. Baseline thresholds." "pytest"
@@ -64,7 +64,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
 
         dbtProject = softwareSystem "dbt Project" "Medallion transformation: 100 models (42 staging, 11 intermediate, 47 marts). Kimball dims, liquid clustering. on-run-start tripwire blocks --full-refresh of TRIGGERED synced marts (ADR-043)." {
             fctWorkflowCosts = container "fct_workflow_costs" "Gold-layer cost attribution with billing JOIN. 90-day rolling window." "SQL, dbt" "Database"
-            goldModels = container "Gold Models" "43 fact + 4 dim tables. Enforced contracts, liquid clustering. PSxG subsystem (ADR-059): fct_shot_psxg (atomic, all-provider) -> fct_gk_shot_stopping (+ pooled); GK insight-views (ADR-061): fct_gk_defensive_line." "SQL, dbt" "Database"
+            goldModels = container "Gold Models" "43 fact + 4 dim tables, contracts, liquid clustering, per-row access_tier (ADR-064). PSxG (ADR-059): fct_shot_psxg -> fct_gk_shot_stopping; GK insight-views (ADR-061)." "SQL, dbt" "Database"
         }
 
         # Data stores
@@ -76,10 +76,10 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
 
         lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL endpoint syncing 42 Delta tables (75 indexes: 69 btree + 6 HNSW). SDK-managed (ADR-026)." "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth, synced table metadata, pipeline triggers, state polling" "External"
-        databricksWorkflows = softwareSystem "Databricks Workflows" "38-task daily DAG: 7 ingest, 15 compute, 5 preflight, 3 dbt_build, 2 backfill, 6 other (hf_sync, import, extract, refresh, resolve, validate)" "External"
+        databricksWorkflows = softwareSystem "Databricks Workflows" "40-task daily DAG: 7 ingest, 15 compute, 5 preflight, 3 dbt_build, 2 backfill, 8 other (hf_sync, import, extract, refresh, resolve, validate, staleness monitor)" "External"
         hfIdentity = softwareSystem "HuggingFace Identity API" "Token validation via /api/whoami-v2. Org membership check." "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds Dockerfile, serves port 7860." "External"
-        hfHub = softwareSystem "HuggingFace Hub" "16 models, 20 public datasets + private -restricted companion repos (ADR-049), 3 Spaces, build-artifacts wheel. READMEs via ADR-014." "External"
+        hfHub = softwareSystem "HuggingFace Hub" "16 models, 20+ public datasets + private -restricted companion repos split by per-match access_tier (ADR-064/049), 3 Spaces, build-artifacts wheel. READMEs via ADR-014." "External"
         hfJobs = softwareSystem "HuggingFace Jobs" "L40S GPU / cpu-basic compute for training and batch analytics" "External"
         openRouter = softwareSystem "OpenRouter" "LLM API: Claude Sonnet 4 (80%), Haiku 4.5 (20%) for Evolve mutations" "External"
 

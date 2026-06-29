@@ -88,6 +88,9 @@ def _build_two_team_fixture(n_actions: int = 100) -> pd.DataFrame:
             "competition_id": pd.array([1] * n_actions, dtype="Int64"),
             "season_id": pd.array([2025] * n_actions, dtype="Int64"),
             "data_source": "idsse",
+            # Per-match HF redistribution tier (spec 2026-06-29); _SPADL_SCHEMA places it
+            # immediately after data_source. The scoring UDF carries it through.
+            "access_tier": "restricted",
         }
     )
 

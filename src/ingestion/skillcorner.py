@@ -113,7 +113,7 @@ def ingest_skillcorner(
 
         # 1. Match metadata (needed by SPADL conversion)
         match_resp = fetch_artifact(mid, f"{mid}_match", token)
-        match_df = parse_match_json(match_resp.text, match_id=mid)
+        match_df = parse_match_json(match_resp.text, match_id=mid, visibility=match.visibility)
         write_matches(spark, match_df, catalog, schema, mid, logger)
         logger.info("Wrote %d roster rows for match %s", len(match_df), mid)
 

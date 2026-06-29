@@ -205,7 +205,7 @@ def ingest_gradientsports(
         for artifact_key in match.artifacts:
             if "metadata" in artifact_key.lower():
                 metadata_resp = fetch_artifact(mid, artifact_key, token)
-                metadata_df = parse_metadata(metadata_resp.text, match_id=mid)
+                metadata_df = parse_metadata(metadata_resp.text, match_id=mid, visibility=match.visibility)
                 logger.info("Parsed metadata for match %s", mid)
                 break
 
@@ -295,7 +295,7 @@ def _backfill_artifacts(
         for artifact_key in match.artifacts:
             if "metadata" in artifact_key.lower():
                 resp = fetch_artifact(mid, artifact_key, token)
-                df = parse_metadata(resp.text, match_id=mid)
+                df = parse_metadata(resp.text, match_id=mid, visibility=match.visibility)
                 write_metadata(spark, df, catalog, schema, mid, logger)
                 logger.info("Wrote metadata for match %s", mid)
                 break

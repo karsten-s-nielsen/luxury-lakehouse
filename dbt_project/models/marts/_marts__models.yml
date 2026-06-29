@@ -908,6 +908,16 @@ models:
           - accepted_values:
               arguments:
                 values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner', 'gradientsports']
+      - name: access_tier
+        data_type: string
+        description: >
+          Per-match HF redistribution tier (spec 2026-06-29 §6.4): 'public' or
+          'restricted'. NULL is treated as restricted by the publish-time fail-safe
+          split. Per-row passthrough from the match's access_tier.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['public', 'restricted']
       - name: original_event_id
         data_type: string
         description: Original event ID from source data (NULL for synthetic dribbles)
@@ -1504,6 +1514,16 @@ models:
       - name: data_source
         data_type: string
         description: Data provider (alias of source_provider for cross-mart consistency).
+      - name: access_tier
+        data_type: string
+        description: >
+          Per-match HF redistribution tier (spec 2026-06-29 §6.4): 'public' or
+          'restricted'. Resolved per-frame from dim_matches (same join as match_key).
+          NULL is treated as restricted by the publish-time fail-safe split.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['public', 'restricted']
 
   - name: fct_player_embeddings
     config:
@@ -1581,6 +1601,17 @@ models:
           - accepted_values:
               arguments:
                 values: ['statsbomb', 'wyscout', 'football2vec_360']
+      - name: access_tier
+        data_type: string
+        description: >
+          Per-match HF redistribution tier (spec 2026-06-29 §6.4): 'public' or
+          'restricted'. Resolved from dim_matches. The per-match grain keeps ALL
+          tiers; only the career/season aggregates filter to public (§6.8). NULL is
+          treated as restricted by the publish-time fail-safe split.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['public', 'restricted']
       - name: behavioral_vector
         data_type: array<double>
         description: >
@@ -4702,6 +4733,23 @@ models:
         description: >
           Provider-native away team ID, stringified. Same resolution
           strategy as home_team_id_native.
+      - name: visibility
+        data_type: string
+        description: >
+          Raw provider redistribution signal (spec 2026-06-29 §6.4). pining
+          `visibility` ('public'/'private') for SkillCorner + GradientSports;
+          NULL for providers with no per-match feed (StatsBomb/Wyscout/IDSSE/Metrica).
+      - name: access_tier
+        data_type: string
+        description: >
+          Per-match HF redistribution tier (spec 2026-06-29 §6.4): 'public' or
+          'restricted', derived from `visibility` via classify_access_tier at
+          ingestion. Per-match source of truth for the publish-time split. NULL is
+          treated as restricted by the fail-safe split.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['public', 'restricted']
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -4957,6 +5005,16 @@ models:
           - accepted_values:
               arguments:
                 values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner', 'gradientsports']
+      - name: access_tier
+        data_type: string
+        description: >
+          Per-match HF redistribution tier (spec 2026-06-29 §6.4): 'public' or
+          'restricted'. NULL is treated as restricted by the publish-time fail-safe
+          split. Per-row passthrough from the match's access_tier.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['public', 'restricted']
       # game_state + GK action-sequence flags (gk_was_distributing/gk_was_engaged/
       # gk_actions_in_possession) removed (ADR-056): actions-level, served by
       # fct_action_values; join on (match_id, action_id).
@@ -5567,6 +5625,16 @@ models:
       - name: data_source
         data_type: string
         description: Provider (gradientsports / skillcorner / idsse; statsbomb in Phase 2).
+      - name: access_tier
+        data_type: string
+        description: >
+          Per-match HF redistribution tier (spec 2026-06-29 §6.4): 'public' or
+          'restricted'. Resolved from dim_matches for both shot branches. NULL is
+          treated as restricted by the publish-time fail-safe split.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['public', 'restricted']
       - name: psxg_input_source
         data_type: string
         description: Modality — 'tracking_trajectory' or 'statsbomb_freeze_frame'.

@@ -48,6 +48,7 @@ def _read_on_target_tracking_shots(spark: SparkSession, catalog: str, gold_schem
         SELECT ac.match_key,
                ac.action_id,
                ac.data_source,
+               ac.access_tier,
                ac.start_x,
                ac.start_y,
                ac.shot_crossing_y,
@@ -110,11 +111,24 @@ def build_predictions(shots: pd.DataFrame, model: PSxGModel, *, model_version: s
     recal = np.where(scored["psxg_gated"].to_numpy(dtype=bool), np.nan, recal)
     platt_version = f"platt-gkf-n{report.n_shots}-g{report.n_groups}"
 
+    # Per-match HF redistribution tier (spec 2026-06-29): carry the per-row value from the gold
+    # fct_action_context source (constant per match). Fall back to the provider default if the
+    # source predates the access_tier mart wiring (fail-safe; keeps build_predictions unit-testable).
+    if "access_tier" in scored.columns:
+        access_tier = scored["access_tier"].astype(str).to_numpy()
+    else:
+        from shared.access_tier import classify_access_tier
+
+        access_tier = (
+            scored["data_source"].map(lambda p: classify_access_tier(provider=str(p), visibility=None).value).to_numpy()
+        )
+
     out = pd.DataFrame(
         {
             "match_key": scored["match_key"].to_numpy(),
             "action_id": scored["action_id"].to_numpy(),
             "data_source": scored["data_source"].astype(str).to_numpy(),
+            "access_tier": access_tier,
             "psxg": raw,
             "psxg_recalibrated": recal,
             "psxg_gated": scored["psxg_gated"].astype("boolean").to_numpy(),

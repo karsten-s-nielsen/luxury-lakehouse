@@ -80,6 +80,8 @@ def _build_statsbomb_spadl_struct():  # type: ignore[no-untyped-def]
             StructField("competition_id", LongType()),
             StructField("season_id", LongType()),
             StructField("data_source", StringType()),
+            # Per-match HF redistribution tier (spec 2026-06-29); mirrors _SPADL_SCHEMA / _VAEP_SCHEMA.
+            StructField("access_tier", StringType()),
             StructField("statsbomb_possession_id", LongType()),
             StructField("statsbomb_possession_team_id", LongType()),
             StructField("statsbomb_play_pattern", StringType()),
@@ -143,6 +145,8 @@ def _build_wyscout_spadl_struct():  # type: ignore[no-untyped-def]
             StructField("competition_id", LongType()),
             StructField("season_id", LongType()),
             StructField("data_source", StringType()),
+            # Per-match HF redistribution tier (spec 2026-06-29); mirrors _SPADL_SCHEMA / _VAEP_SCHEMA.
+            StructField("access_tier", StringType()),
             StructField("statsbomb_possession_id", LongType()),
             StructField("statsbomb_possession_team_id", LongType()),
             StructField("statsbomb_play_pattern", StringType()),
@@ -252,6 +256,26 @@ class TestSpadlVaepWriterDdlParity:
 
         ddl = _parse_ddl(spadl_vaep._SPADL_SCHEMA)
         assert "action_id" in ddl, "_SPADL_SCHEMA missing action_id (LL2)"
+
+    def test_spadl_ddl_includes_access_tier(self) -> None:
+        """Per-match HF redistribution (spec 2026-06-29): access_tier STRING in _SPADL_SCHEMA."""
+        from ingestion import spadl_vaep
+
+        ddl = _parse_ddl(spadl_vaep._SPADL_SCHEMA)
+        assert "access_tier" in ddl, "_SPADL_SCHEMA missing access_tier (per-match HF redistribution)"
+        assert ddl["access_tier"] == "string", (
+            f"_SPADL_SCHEMA access_tier type drift: got {ddl['access_tier']!r}, expected 'string'"
+        )
+
+    def test_vaep_ddl_includes_access_tier(self) -> None:
+        """access_tier must propagate through to vaep_action_values (spec 2026-06-29)."""
+        from ingestion import spadl_vaep
+
+        ddl = _parse_ddl(spadl_vaep._VAEP_SCHEMA)
+        assert "access_tier" in ddl, "_VAEP_SCHEMA missing access_tier (per-match HF redistribution)"
+        assert ddl["access_tier"] == "string", (
+            f"_VAEP_SCHEMA access_tier type drift: got {ddl['access_tier']!r}, expected 'string'"
+        )
 
     def test_spadl_ddl_includes_enrichment_columns(self) -> None:
         """LL2: 6 enrichment columns from apply_spadl_enrichments must be in _SPADL_SCHEMA."""
@@ -663,6 +687,8 @@ def _build_idsse_spadl_struct():  # type: ignore[no-untyped-def]
             StructField("competition_id", LongType()),
             StructField("season_id", LongType()),
             StructField("data_source", StringType()),
+            # Per-match HF redistribution tier (spec 2026-06-29); mirrors _SPADL_SCHEMA / _VAEP_SCHEMA.
+            StructField("access_tier", StringType()),
             StructField("statsbomb_possession_id", LongType()),
             StructField("statsbomb_possession_team_id", LongType()),
             StructField("statsbomb_play_pattern", StringType()),
@@ -737,6 +763,8 @@ def _build_vaep_scoring_struct():  # type: ignore[no-untyped-def]
             StructField("competition_id", LongType()),
             StructField("season_id", LongType()),
             StructField("data_source", StringType()),
+            # Per-match HF redistribution tier (spec 2026-06-29); mirrors _SPADL_SCHEMA / _VAEP_SCHEMA.
+            StructField("access_tier", StringType()),
             # LL2: action_id surfaced through to vaep_action_values
             StructField("action_id", LongType()),
             # PR-LL1 statsbomb_* (closes LL1 latent bug — must be in vaep_schema)

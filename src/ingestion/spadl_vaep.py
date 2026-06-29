@@ -56,7 +56,10 @@ _SPADL_SCHEMA = (
     "game_id BIGINT, original_event_id STRING, period_id BIGINT, time_seconds DOUBLE, "
     "team_id BIGINT, player_id BIGINT, start_x DOUBLE, start_y DOUBLE, end_x DOUBLE, end_y DOUBLE, "
     "type_id BIGINT, result_id BIGINT, bodypart_id BIGINT, action_id BIGINT, "
-    "competition_id BIGINT, season_id BIGINT, data_source STRING, _ingested_at TIMESTAMP, match_id BIGINT, "
+    "competition_id BIGINT, season_id BIGINT, data_source STRING, "
+    # Per-match HF redistribution tier (spec 2026-06-29). Provider-native passthrough → canonical
+    # name (ADR-016); stamped per (provider, match) at SPADL conversion via stamp_access_tier.
+    "access_tier STRING, _ingested_at TIMESTAMP, match_id BIGINT, "
     # Provider-namespaced StatsBomb-native fields surfaced via silly-kicks 1.5.0+
     # ``preserve_native`` kwarg on convert_to_actions. NULL for non-StatsBomb sources.
     "statsbomb_possession_id BIGINT, statsbomb_possession_team_id BIGINT, "
@@ -126,7 +129,9 @@ _VAEP_SCHEMA = (
     "end_x DOUBLE, end_y DOUBLE, type_id BIGINT, action_type STRING, result_id BIGINT, "
     "action_result STRING, bodypart_id BIGINT, bodypart STRING, offensive_value DOUBLE, "
     "defensive_value DOUBLE, vaep_value DOUBLE, competition_id BIGINT, season_id BIGINT, "
-    "data_source STRING, _ingested_at TIMESTAMP, "
+    "data_source STRING, "
+    # Per-match HF redistribution tier (spec 2026-06-29) carried through from spadl_actions.
+    "access_tier STRING, _ingested_at TIMESTAMP, "
     # LL2: action_id surfaced through to vaep_action_values (was never carried
     # through pre-LL2 — bronze.spadl_actions.action_id existed but was 100% NULL).
     "action_id BIGINT, "
@@ -552,6 +557,8 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                 "competition_id",
                 "season_id",
                 "data_source",
+                # Per-match HF redistribution tier (spec 2026-06-29) carried through from spadl_actions.
+                "access_tier",
                 # LL2: action_id surfaced through (was 100% NULL pre-LL2).
                 "action_id",
                 # Provider-namespaced StatsBomb-native fields carried through from
@@ -692,6 +699,9 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                                 "result_name",
                                 "bodypart_id",
                                 "bodypart_name",
+                                # Per-match HF redistribution tier (spec 2026-06-29) carried through
+                                # per-row from spadl_actions (constant per match).
+                                "access_tier",
                                 # LL2: action_id carried through from spadl_actions.
                                 "action_id",
                                 # Carry through provider-namespaced StatsBomb-native
@@ -961,6 +971,8 @@ def _vaep_output_schema() -> Any:
             StructField("competition_id", LongType()),
             StructField("season_id", LongType()),
             StructField("data_source", StringType()),
+            # Per-match HF redistribution tier (spec 2026-06-29) carried through from spadl_actions.
+            StructField("access_tier", StringType()),
             StructField("action_id", LongType()),
             StructField("statsbomb_possession_id", LongType()),
             StructField("statsbomb_possession_team_id", LongType()),

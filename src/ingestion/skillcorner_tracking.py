@@ -123,6 +123,33 @@ def parse_tracking_jsonl(source: str, *, match_id: str) -> pd.DataFrame:
     return df
 
 
+def _lookup_skillcorner_visibility(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    match_id: str,
+    logger: logging.Logger,
+) -> str | None:
+    """Read the per-match ``visibility`` from bronze.skillcorner_matches (the authoritative signal).
+
+    Returns ``None`` (→ provider-default public via the classifier) when the column or row is
+    absent (e.g. pre-migration bronze) — never raises. The publish-time fail-safe is the backstop.
+    """
+    from pyspark.sql import functions as spark_fn
+
+    from ingestion.utils import tolerate_missing_table
+
+    matches_table = f"{catalog}.{schema}.skillcorner_matches"
+    with tolerate_missing_table(logger, "skillcorner_matches not found -- access_tier defaults to provider policy"):
+        matches_sdf = spark.table(matches_table)
+        if "visibility" not in {f.name for f in matches_sdf.schema.fields}:
+            return None
+        rows = matches_sdf.filter(spark_fn.col("match_id") == match_id).select("visibility").limit(1).collect()
+        if rows and rows[0]["visibility"] is not None:
+            return str(rows[0]["visibility"])
+    return None
+
+
 def write_tracking(
     spark: SparkSession,
     df: pd.DataFrame,
@@ -132,6 +159,17 @@ def write_tracking(
     logger: logging.Logger,
 ) -> int:
     """Write parsed tracking DataFrame to bronze.skillcorner_tracking."""
+    # Per-match HF redistribution tier (spec 2026-06-29). SkillCorner carries a real per-match
+    # `visibility` feed: private matches MUST become restricted so they never reach a public HF
+    # repo (the pitch-control publisher splits on access_tier). DIRECT stamp from the authoritative
+    # match-info bronze visibility (NOT a dim_matches join). Missing column/row → provider default
+    # (public) with no failure (pre-migration safety; fail-safe is enforced at publish time).
+    from shared.access_tier import classify_access_tier
+
+    visibility = _lookup_skillcorner_visibility(spark, catalog, schema, match_id, logger)
+    df = df.copy()
+    df["access_tier"] = classify_access_tier(provider="skillcorner", visibility=visibility).value
+
     sdf = spark.createDataFrame(df)
     row_count = validate_dataframe(
         sdf,

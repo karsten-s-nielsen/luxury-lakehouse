@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.56-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.57-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -31,6 +31,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 
+from ingestion.hf_leak_guard import assert_no_private_leak
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 
 logging.basicConfig(
@@ -55,7 +56,12 @@ SELECT p.pass_id,
        p.pass_outcome, p.is_cross, p.is_switch, p.is_through_ball,
        p.is_complete, p.is_progressive,
        p.pass_direction, p.is_line_breaking, p.lines_broken, p.line_breaking_type,
-       p.data_source
+       p.data_source,
+       -- Per-match HF redistribution tier (spec §6.7/D11). fct_passes carries no SkillCorner
+       -- today (safe-by-absence); derived from dim_matches so the fail-closed leak guard halts
+       -- the publish if a restricted match ever appears in this mart. NULL (unmatched) → guard
+       -- fails closed (never silently public).
+       dm.access_tier
 FROM soccer_analytics.dev_gold.fct_passes p
 LEFT JOIN soccer_analytics.dev_gold.dim_matches dm ON p.match_key = dm.match_key
 """
@@ -154,6 +160,12 @@ def main() -> None:
     if df.empty:
         raise RuntimeError("0 rows from fct_passes — verify dbt build")
     logger.info("Retrieved %s passes (%s line-breaking)", f"{len(df):,}", f"{int(df['is_line_breaking'].sum()):,}")
+
+    # Fail-closed leak guard (spec §6.7/D11): this mart carries no SkillCorner today, but the guard
+    # halts the publish (rather than leaking) if a restricted row ever appears. Drop the internal
+    # access_tier column AFTER the guard, before upload (R2).
+    assert_no_private_leak(df, publisher="publish_line_breaking_passes_hf")
+    df = df.drop(columns=["access_tier"], errors="ignore")
 
     url = publish_to_hf_hub(df, hf_token)
     upload_hf_readme(

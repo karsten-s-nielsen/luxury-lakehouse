@@ -1,0 +1,44 @@
+{
+  "_recorded": "Hermetic capture of a real GET /v1/skillcorner/matches response (pining-for-the-data, owner token). Field shape mirrors ingestion.skillcorner_common.MatchInfo. Used by src/tests/test_pining_visibility_contract.py to pin the visibility vocabulary {public, private}. Player/team strings are real A-League public values; the private Real Madrid entry is included to assert the RESTRICTED mapping. Do NOT add a visibility value outside {public, private} without updating the contract.",
+  "matches": [
+    {
+      "id": "1886347",
+      "artifacts": {
+        "dynamic_events": "1886347_dynamic_events",
+        "tracking": "1886347_tracking",
+        "match": "1886347_match"
+      },
+      "home": "Auckland FC",
+      "away": "Newcastle United Jets FC",
+      "date": "2024-11-30",
+      "updated_at": "2024-12-01T09:14:22Z",
+      "visibility": "public"
+    },
+    {
+      "id": "1886351",
+      "artifacts": {
+        "dynamic_events": "1886351_dynamic_events",
+        "tracking": "1886351_tracking",
+        "match": "1886351_match"
+      },
+      "home": "Melbourne City FC",
+      "away": "Sydney FC",
+      "date": "2024-12-07",
+      "updated_at": "2024-12-08T10:02:51Z",
+      "visibility": "public"
+    },
+    {
+      "id": "2014522",
+      "artifacts": {
+        "dynamic_events": "2014522_dynamic_events",
+        "tracking": "2014522_tracking",
+        "match": "2014522_match"
+      },
+      "home": "Real Madrid",
+      "away": "FC Barcelona",
+      "date": "2025-05-11",
+      "updated_at": "2025-05-12T22:41:09Z",
+      "visibility": "private"
+    }
+  ]
+}

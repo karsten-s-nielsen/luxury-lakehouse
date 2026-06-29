@@ -48,6 +48,9 @@ def _shots() -> pd.DataFrame:
             "match_key": [1, 1, 2, 2, 1, 2],
             "action_id": [10, 11, 12, 13, 14, 15],
             "data_source": ["idsse", "idsse", "skillcorner", "skillcorner", "idsse", "skillcorner"],
+            # Per-match HF redistribution tier (spec 2026-06-29): build_predictions carries the
+            # per-row value from gold fct_action_context through to the prediction rows.
+            "access_tier": ["restricted", "restricted", "restricted", "restricted", "restricted", "restricted"],
             "start_x": [88.0, 90.0, 92.0, 89.0, 91.0, 90.0],
             "start_y": [34.0, 33.0, 35.0, 34.0, 36.0, 34.0],
             "shot_crossing_y": [33.0, 35.0, 32.0, 36.0, 34.0, 34.0],
@@ -71,6 +74,8 @@ def test_build_predictions_drops_yellow_card_and_shapes_output() -> None:
         "match_key",
         "action_id",
         "data_source",
+        # Per-match HF redistribution tier (spec 2026-06-29); emitted immediately after data_source.
+        "access_tier",
         "psxg",
         "psxg_recalibrated",
         "psxg_gated",

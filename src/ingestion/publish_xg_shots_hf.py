@@ -15,6 +15,7 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ingestion.hf_leak_guard import assert_no_private_leak
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
 from workflows import workflow
@@ -55,7 +56,11 @@ SELECT
     s.is_first_time,
     s.play_pattern,
     s.statsbomb_xg,
-    s.data_source
+    s.data_source,
+    -- Per-match HF redistribution tier (spec §6.7/D11). fct_shots carries no SkillCorner today;
+    -- derived from dim_matches so the fail-closed leak guard halts the publish if a restricted
+    -- match ever appears. NULL (unmatched) → guard fails closed.
+    dm.access_tier
 FROM {catalog}.{schema}.fct_shots s
 LEFT JOIN {catalog}.{schema}.dim_matches dm
     ON s.match_key = dm.match_key
@@ -87,6 +92,11 @@ def run_pipeline(
 
     if row_count == 0:
         raise RuntimeError("Query returned no rows — check that fct_shots has been built by dbt")
+
+    # Fail-closed leak guard (spec §6.7/D11): halts the publish if a restricted row ever appears.
+    # Drop the internal access_tier column AFTER the guard, before upload (R2).
+    assert_no_private_leak(df, publisher="publish_xg_shots_hf")
+    df = df.drop(columns=["access_tier"], errors="ignore")
 
     api = HfApi(token=hf_token)
     api.create_repo(DATASET_REPO, exist_ok=True, repo_type="dataset", token=hf_token)

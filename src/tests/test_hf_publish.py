@@ -441,7 +441,7 @@ class TestRestrictedPublishing:
             }
         )
         with patch.object(hf_publish, "RESTRICTED_HF_PROVIDERS", frozenset({"gradientsports"})):
-            public_df, restricted_df = hf_publish.split_restricted(df)
+            public_df, restricted_df = hf_publish.split_restricted(df, column="data_source")
 
         assert set(public_df["data_source"]) == {"statsbomb", "wyscout"}
         assert set(restricted_df["data_source"]) == {"gradientsports"}
@@ -456,10 +456,38 @@ class TestRestrictedPublishing:
 
         df = pd.DataFrame({"data_source": ["statsbomb", "gradientsports"]})
         with patch.object(hf_publish, "RESTRICTED_HF_PROVIDERS", frozenset()):
-            public_df, restricted_df = hf_publish.split_restricted(df)
+            public_df, restricted_df = hf_publish.split_restricted(df, column="data_source")
 
         assert len(public_df) == len(df)
         assert restricted_df.empty
+
+    def test_split_restricted_access_tier_mode_fail_safe(self) -> None:
+        # Default access_tier mode: only an explicit "public" row is public; restricted AND NULL/unknown
+        # are held back (fail-safe, spec D1).
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "data_source": ["skillcorner", "skillcorner", "gradientsports", "statsbomb"],
+                "access_tier": ["public", "restricted", "restricted", None],
+                "v": [1, 2, 3, 4],
+            }
+        )
+        public_df, restricted_df = hf_publish.split_restricted(df, column="access_tier")
+        assert sorted(public_df["v"].tolist()) == [1]
+        assert sorted(restricted_df["v"].tolist()) == [2, 3, 4]
+        assert len(public_df) + len(restricted_df) == len(df)
+
+    def test_split_restricted_same_provider_in_both_partitions(self) -> None:
+        # The new capability: one provider (SkillCorner) appears in BOTH repos.
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {"data_source": ["skillcorner", "skillcorner"], "access_tier": ["public", "restricted"], "v": [1, 2]}
+        )
+        public_df, restricted_df = hf_publish.split_restricted(df, column="access_tier")
+        assert public_df["data_source"].tolist() == ["skillcorner"]
+        assert restricted_df["data_source"].tolist() == ["skillcorner"]
 
     def test_split_restricted_custom_column(self) -> None:
         # FUTURE row-level seam: the column parameter is how access_tier

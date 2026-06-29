@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.56-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.57-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -105,6 +105,23 @@ from ingestion.hf_publish import RESTRICTED_HF_PROVIDERS, restricted_repo_id  # 
 
 RESTRICTED_DATASET = restricted_repo_id(SPADL_DATASET)
 MODEL_REPO = f"{HF_ORG}/vaep-model"
+
+# --- Policy-can-produce-restricted gate (spec D4 / C6) -----------------------------------------------
+# The restricted partition is REQUIRED whenever the redistribution POLICY can emit a restricted row —
+# NOT when restricted rows happen to be observed in this run. Two independent policy sources:
+#   1. RESTRICTED_HF_PROVIDERS non-empty  -> provider-default restriction (e.g. gradientsports);
+#   2. a per-match visibility feed can emit visibility=private -> access_tier=restricted. pining (the
+#      SkillCorner discovery API) carries a real `visibility` field with a "private" value, so the
+#      policy can ALWAYS produce restricted SkillCorner rows even though SkillCorner is NOT a
+#      provider-default-restricted source.
+#
+# TOKEN-MISCONFIG CANARY (spec C6 — DO NOT SOFTEN to "observed rows exist"): if the pining owner token
+# regresses to a public token, the API silently drops every visibility=private match -> the restricted
+# partitions vanish -> the `-restricted` companion repo goes EMPTY -> this gate raises and fails the
+# training run LOUD. Keying on observed rows instead would convert that credential regression into a
+# silently-shrunk public-only corpus (exactly the Champion-v10 GS-dropped class of bug, one tier up).
+_POLICY_EMITS_PRIVATE_VISIBILITY = True  # pining `visibility` feed is wired for SkillCorner discovery.
+POLICY_CAN_PRODUCE_RESTRICTED = bool(RESTRICTED_HF_PROVIDERS) or _POLICY_EMITS_PRIVATE_VISIBILITY
 
 # VAEP feature extraction (matches src/ingestion/spadl_vaep.py)
 _FEATURE_FNS: list[Any] = [
@@ -339,13 +356,14 @@ def main() -> None:
     # the training corpus: the publisher writes their partitions to the
     # PRIVATE companion repo, keeping full publish->version->train lineage
     # (commit hash recorded below, same as the public repo). The expectation
-    # derives from the SAME constant the publisher splits on:
-    #   - RESTRICTED_HF_PROVIDERS non-empty -> partitions for those providers
-    #     are REQUIRED (fail-loud: a silent skip is exactly how Champions
-    #     v10-and-earlier trained WITHOUT gradientsports unnoticed);
-    #   - empty -> the full corpus is public; skip with a log line.
+    # derives from POLICY_CAN_PRODUCE_RESTRICTED (spec D4/C6 — see its definition at module top for the
+    # token-misconfig canary rationale), NOT from observed rows:
+    #   - policy CAN produce restricted -> restricted partitions are REQUIRED (fail-loud: a silent skip
+    #     is exactly how Champions v10-and-earlier trained WITHOUT gradientsports unnoticed, and how a
+    #     pining-token regression would silently drop every private SkillCorner match);
+    #   - policy CANNOT produce restricted -> the full corpus is public; skip with a log line.
     restricted_commit_hash = "unrequired-empty-policy"
-    if RESTRICTED_HF_PROVIDERS:
+    if POLICY_CAN_PRODUCE_RESTRICTED:
         logger.info(
             "=== Loading restricted partitions %s from %s ===",
             sorted(RESTRICTED_HF_PROVIDERS),
@@ -379,7 +397,7 @@ def main() -> None:
         )
         all_actions = pd.concat([all_actions, restricted_actions], ignore_index=True)
     else:
-        logger.info("RESTRICTED_HF_PROVIDERS is empty — full corpus is public; no restricted supplement.")
+        logger.info("Policy cannot produce restricted rows — full corpus is public; no restricted supplement.")
 
     # Deduplicate in case of overlapping exports
     if "action_value_id" in all_actions.columns:

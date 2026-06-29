@@ -57,7 +57,9 @@ shot_goal as (
 
 match_attrs as (
 
-    select match_key, competition_key, season_id from {{ ref('dim_matches') }}
+    -- access_tier is a per-match attribute on dim_matches (spec 2026-06-29 §6.4);
+    -- resolved here for BOTH the tracking and StatsBomb shot branches.
+    select match_key, competition_key, season_id, access_tier from {{ ref('dim_matches') }}
 
 ),
 
@@ -89,7 +91,9 @@ tracking as (
         cast(coalesce(sg.is_goal, false) as boolean)                  as is_goal,
         cast(p.model_version as string)                               as model_version,
         cast(p.platt_version as string)                               as platt_version,
-        cast(p.normalization_version as string)                       as normalization_version
+        cast(p.normalization_version as string)                       as normalization_version,
+        -- Per-match HF redistribution tier (spec 2026-06-29 §6.4).
+        cast(ma.access_tier as string)                                as access_tier
     from tracking_pred p
     inner join ac_shots ac
         on p.match_key = ac.match_key and p.action_id = ac.action_id
@@ -192,7 +196,10 @@ statsbomb as (
         cast(s.is_goal = 1 as boolean)                                as is_goal,
         cast(null as string)                                          as model_version,
         cast(null as string)                                          as platt_version,
-        cast(null as string)                                          as normalization_version
+        cast(null as string)                                          as normalization_version,
+        -- Per-match HF redistribution tier (spec 2026-06-29 §6.4). StatsBomb is
+        -- always public, but resolve from dim_matches for uniform provenance.
+        cast(ma.access_tier as string)                                as access_tier
     from sb_pred p
     inner join sb_shots s
         on p.event_id = s.shot_id

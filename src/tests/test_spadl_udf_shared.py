@@ -36,6 +36,9 @@ _EXPECTED_COLUMNS = [
     "competition_id",
     "season_id",
     "data_source",
+    # Per-match HF redistribution tier (spec 2026-06-29); stamped via stamp_access_tier,
+    # emitted by the UDF StructType immediately after data_source.
+    "access_tier",
     "statsbomb_possession_id",
     "statsbomb_possession_team_id",
     "statsbomb_play_pattern",

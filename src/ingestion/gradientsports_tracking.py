@@ -427,6 +427,15 @@ def write_tracking(
         raise ValueError(msg)
     try:
         sdf = spark.read.parquet(staging_parquet)
+        # Per-match HF redistribution tier (spec 2026-06-29). GS is in RESTRICTED_HF_PROVIDERS and
+        # has no public matches → provider default (restricted). DIRECT stamp via the policy core.
+        # selectExpr with a SQL literal (not pyspark.sql.functions.lit) keeps this stamp import-free
+        # so the mock-based, pyspark-less writer test can exercise the path. The tier is a controlled
+        # enum value ("public"/"restricted"), so the f-string interpolation is injection-safe.
+        from shared.access_tier import classify_access_tier
+
+        _tier = classify_access_tier(provider="gradientsports", visibility=None).value
+        sdf = sdf.selectExpr("*", f"'{_tier}' AS access_tier")
         row_count = validate_dataframe(
             sdf,
             ["match_id", "frame_num", "period"],

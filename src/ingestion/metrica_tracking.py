@@ -415,6 +415,11 @@ def ingest_tracking(
             expected_cols=_METRICA_TRACKING_BRONZE_COLS,
             dtype_overrides=_METRICA_TRACKING_DTYPE_OVERRIDES,
         )
+        # Per-match HF redistribution tier (spec 2026-06-29). Metrica has no per-match visibility
+        # feed → provider default (public). DIRECT stamp via the policy core (never hand-encoded).
+        from shared.access_tier import classify_access_tier
+
+        tracking_df["access_tier"] = classify_access_tier(provider="metrica", visibility=None).value
         sdf = spark.createDataFrame(tracking_df)
         row_count = validate_dataframe(sdf, required_cols, "metrica_tracking", logger)
         write_delta_table(
@@ -449,6 +454,11 @@ def ingest_tracking(
             dtype_overrides=_METRICA_TRACKING_DTYPE_OVERRIDES,
         )
         logger.info("Parsed %d EPTS tracking frames for %s", len(tracking_df), match_id)
+        # Per-match HF redistribution tier (spec 2026-06-29). Metrica has no per-match visibility
+        # feed → provider default (public). DIRECT stamp via the policy core (never hand-encoded).
+        from shared.access_tier import classify_access_tier
+
+        tracking_df["access_tier"] = classify_access_tier(provider="metrica", visibility=None).value
         sdf = spark.createDataFrame(tracking_df)
         row_count = validate_dataframe(sdf, required_cols, "metrica_tracking", logger)
         write_delta_table(

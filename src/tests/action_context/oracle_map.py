@@ -161,7 +161,7 @@ INVARIANT_ONLY: dict[str, tuple[str, float | None, float | None]] = {
 IDENTITY_PASSTHROUGH: frozenset[str] = frozenset({
     "data_source", "match_id", "action_id", "period_id", "time_seconds",
     "team_id", "player_id", "type_name", "start_x", "start_y", "end_x", "end_y",
-    "defending_gk_player_id_native",
+    "defending_gk_player_id_native", "access_tier",
 })  # fmt: skip
 
 # DAS columns: oracle infers ball-carrier on the WHOLE match (contiguous hysteresis);
