@@ -794,13 +794,13 @@ class TestParquetStaging:
         mock_ensure_dir.assert_called_once()
         # spark.read.parquet must be called with the staging path
         mock_spark.read.parquet.assert_called_once_with(staging_path)
-        # Per-match HF redistribution tier (spec 2026-06-29): the writer stamps access_tier
-        # on the Spark frame AFTER reading the staged Parquet — sdf.withColumn("access_tier", ...).
-        # (The staged Parquet itself carries only the narrow tracking columns; the tier is a
-        # post-read withColumn, so it is not part of the staging schema.)
+        # Per-match HF redistribution tier (spec 2026-06-29): the writer stamps access_tier on the
+        # Spark frame AFTER reading the staged Parquet via selectExpr (a SQL literal — import-free, so
+        # this pyspark-less mock test can run it). The staged Parquet itself carries only the narrow
+        # tracking columns; the tier is a post-read projection, not part of the staging schema.
         staged_sdf = mock_spark.read.parquet.return_value
-        staged_sdf.withColumn.assert_called_once()
-        assert staged_sdf.withColumn.call_args.args[0] == "access_tier"
+        staged_sdf.selectExpr.assert_called_once()
+        assert "access_tier" in staged_sdf.selectExpr.call_args.args[1]
         # Delta write must happen
         mock_write_delta.assert_called_once()
 
