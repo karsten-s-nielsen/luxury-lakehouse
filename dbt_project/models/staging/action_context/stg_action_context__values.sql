@@ -213,6 +213,11 @@ cleaned as (
         cast(xt_gk_origin_confidence as double) as xt_gk_origin_confidence,
         cast(xt_gk_completion_variant as string) as xt_gk_completion_variant,
         cast(xt_gk_completion_source as string) as xt_gk_completion_source,
+        -- xT-GK resolved-coordinate audit (silly-kicks 4.36.0; LTR SPADL m, NaN off-scope)
+        cast(xt_gk_origin_x as double) as xt_gk_origin_x,
+        cast(xt_gk_origin_y as double) as xt_gk_origin_y,
+        cast(xt_gk_dest_x as double) as xt_gk_dest_x,
+        cast(xt_gk_dest_y as double) as xt_gk_dest_y,
         cast(gk_completion as double) as gk_completion,
         cast(pitch_control_method as string) as pitch_control_method,
         -- ghost-GK backend provenance (ADR-035 amendment)

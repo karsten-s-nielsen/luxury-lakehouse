@@ -144,6 +144,11 @@ INVARIANT_ONLY: dict[str, tuple[str, float | None, float | None]] = {
     "xt_gk_origin_confidence": ("float", 0.0, 1.0),
     "xt_gk_completion_variant": ("categorical", None, None),
     "xt_gk_completion_source": ("categorical", None, None),
+    # Resolved-coordinate audit (silly-kicks 4.36.0): LTR SPADL meters, NaN off-scope.
+    "xt_gk_origin_x": ("float", 0.0, 105.0),
+    "xt_gk_origin_y": ("float", 0.0, 68.0),
+    "xt_gk_dest_x": ("float", 0.0, 105.0),
+    "xt_gk_dest_y": ("float", 0.0, 68.0),
     "gk_completion": ("float", 0.0, 1.0),
     # Pitch-control provenance (ADR-039): categorical {spearman, voronoi}; NULL on event-only rows.
     "pitch_control_method": ("categorical", None, None),

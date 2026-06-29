@@ -227,7 +227,7 @@ def _extract_pep723_block(src: str) -> str:
 def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     """No trainer may pin `silly-kicks` in its PEP 723 deps.
 
-    The wheel's ``[spadl]`` extra (silly-kicks>=4.35.0,<5) is the single source
+    The wheel's ``[spadl]`` extra (silly-kicks>=4.36.0,<5) is the single source
     of truth. Trainers install ``luxury-lakehouse[spadl] @ ...wheel`` which
     resolves silly-kicks transitively. uv silently picks a conflicting
     top-level pin over the wheel's transitive pin (verified empirically
@@ -254,14 +254,15 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     )
 
 
-# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 35, 0) ──────────
+# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 36, 0) ──────────
 # Floor advanced 4.34.0 -> 4.35.0 (2026-06-27) for the silly-kicks xT-GK PEV/DZV
-# fidelity fix (ADR-024 amendment upstream; Eyestone Q1-Q3). PEV now measures forward
-# gain on the GK-revalued surface V_GK = xT (.) phi(z,d); DZV adopts Eyestone's
-# published defensive-zone revaluation multiplier M(z). Changes xt_gk_pev / xt_gk_dzv
-# / xt_gk (composite); xt_gk_base / xt_gk_rav / xt_gk_pressure byte-identical. No
-# lakehouse code change (XtGkParams.for_philosophy is upstream-owned; v_def never
-# passed); re-materializes fct_action_context. See lakehouse ADR-062.
+# fidelity fix (ADR-024 amendment upstream; Eyestone Q1-Q3), then 4.35.0 -> 4.36.0
+# (2026-06-29) for the xT-GK resolved-coordinate audit columns. 4.36.0 ADDS the four
+# `xt_gk_{origin,dest}_{x,y}` audit cols (additive — no xt_gk_* value change). The floor
+# advances because the AC bronze contract now REQUIRES those coords: a stale 4.35.0
+# worker would silently NaN-fill them (build_output missing-col fallback), defeating the
+# audit. The runtime guard's job is to catch exactly that stale-install drift, so 4.36.0
+# is the true minimum. See lakehouse ADR-062 (4.35.0) + the 4.36.0 coord migration.
 # Floor advanced 4.31.0 -> 4.32.0 (2026-06-17) for the silly-kicks add_* input-purity
 # CI gate + the add_gk_distribution_metrics in-place-mutation fix (identity/row-order
 # only, no value miscompute, no recompute) + the pitch_control_at_action ->
@@ -322,11 +323,11 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
 # metrica/skillcorner bronze-frame LTR-orientation helper; ADR-029) plus the 4.21-4.26
 # adoptions already shipped (space-creation lean contract, GS null-actor NaN identifiers,
 # tracking-geometry action-LTR frame unification). See ADR-052 / 4.27.0 adoption.
-# Matches the pyproject [spadl] pin `silly-kicks>=4.35.0,<5`.
+# Matches the pyproject [spadl] pin `silly-kicks>=4.36.0,<5`.
 
 
 def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
-    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 35, 0)`.
+    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 36, 0)`.
 
     Per spec §2.10.5: the runtime check inside `main()` is not directly
     introspectable post-hoc, so we assert the constant. Code review covers
@@ -344,11 +345,11 @@ def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
         if not hasattr(trainer, "_REQUIRED_SK_MIN"):
             missing.append(item)
             continue
-        expected = (4, 35, 0)
+        expected = (4, 36, 0)
         actual = trainer._REQUIRED_SK_MIN
         if actual != expected:
             wrong_value[item] = actual
     assert not missing, (
-        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 35, 0)`: {missing}"
+        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 36, 0)`: {missing}"
     )
-    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 35, 0): {wrong_value}"
+    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 36, 0): {wrong_value}"
