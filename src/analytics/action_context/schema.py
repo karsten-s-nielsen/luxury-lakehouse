@@ -15,8 +15,8 @@ if TYPE_CHECKING:
     import pandas as pd
 
 # Identity (12) + linkage (4) + GK (11) + features (76)
-# + xShotOccurrence (1) + shot_goalmouth (11) + xT-GK (16) + gk_completion (1)
-# + provenance (2) + audit (1) = 135
+# + xShotOccurrence (1) + shot_goalmouth (11) + xT-GK (16) + xT-GK coords (4) + gk_completion (1)
+# + provenance (2) + audit (1) = 139
 # (ADR-056: game_state + GK action-sequence flags removed — actions-level, served
 #  by fct_action_values; defending_gk_player_id_native kept for the key resolution.)
 RESULT_COLUMNS: list[str] = [
@@ -207,6 +207,15 @@ RESULT_COLUMNS: list[str] = [
     "xt_gk_origin_confidence",
     "xt_gk_completion_variant",
     "xt_gk_completion_source",
+    # Resolved-coordinate audit (silly-kicks 4.36.0 `_COORD_COLS`) — the EXACT origin/destination the
+    # grid lookups used, including the imputed ~67% of goal-kick origins. LTR SPADL meters
+    # (x∈[0,105], y∈[0,68]); NaN off-scope. Audit-only: deliberately NOT VAEP features (upstream keeps
+    # them out of `_OUTPUT_COLS`), carried for per-row external auditability + end-to-end orientation
+    # verification of every `xt_gk`. Additive — no existing `xt_gk_*` value changes (4.36.0 CHANGELOG). (4)
+    "xt_gk_origin_x",
+    "xt_gk_origin_y",
+    "xt_gk_dest_x",
+    "xt_gk_dest_y",
     # GK-distribution completion probability — the exact P(success) RAV consumes (1)
     "gk_completion",
     # Pitch-control provenance for the persisted pitch-control-derived metrics (1)
@@ -288,6 +297,7 @@ ACTION_CONTEXT_DDL = (
     "xt_gk_pressure DOUBLE, "
     "xt_gk_origin_source STRING, xt_gk_dest_source STRING, xt_gk_origin_confidence DOUBLE, "
     "xt_gk_completion_variant STRING, xt_gk_completion_source STRING, "
+    "xt_gk_origin_x DOUBLE, xt_gk_origin_y DOUBLE, xt_gk_dest_x DOUBLE, xt_gk_dest_y DOUBLE, "
     "gk_completion DOUBLE, "
     "pitch_control_method STRING, ghost_gk_method STRING, "
     "_ingested_at TIMESTAMP"

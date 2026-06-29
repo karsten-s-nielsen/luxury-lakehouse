@@ -5261,6 +5261,18 @@ models:
       - name: xt_gk_completion_source
         data_type: string
         description: "Per-type serve mode: model / base_rate (silly-kicks 4.21.4 honesty gate)."
+      - name: xt_gk_origin_x
+        data_type: double
+        description: "Resolved origin x the grid lookup used (LTR SPADL m, [0,105]); NaN off-scope. silly-kicks 4.36.0 audit col."
+      - name: xt_gk_origin_y
+        data_type: double
+        description: "Resolved origin y the grid lookup used (LTR SPADL m, [0,68]); NaN off-scope."
+      - name: xt_gk_dest_x
+        data_type: double
+        description: "Resolved destination x the grid lookup used (LTR SPADL m, [0,105]); NaN off-scope."
+      - name: xt_gk_dest_y
+        data_type: double
+        description: "Resolved destination y the grid lookup used (LTR SPADL m, [0,68]); NaN off-scope."
       - name: gk_completion
         data_type: double
         description: "P(success) for in-scope GK distributions — the exact probability xt_gk_rav consumes. [0,1]."

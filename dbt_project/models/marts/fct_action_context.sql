@@ -159,6 +159,10 @@ with action_raw as (
         xt_gk_origin_confidence,
         xt_gk_completion_variant,
         xt_gk_completion_source,
+        xt_gk_origin_x,
+        xt_gk_origin_y,
+        xt_gk_dest_x,
+        xt_gk_dest_y,
         gk_completion,
         pitch_control_method,
         ghost_gk_method
@@ -339,6 +343,10 @@ final as (
         xt_gk_origin_confidence,
         xt_gk_completion_variant,
         xt_gk_completion_source,
+        xt_gk_origin_x,
+        xt_gk_origin_y,
+        xt_gk_dest_x,
+        xt_gk_dest_y,
         gk_completion,
         pitch_control_method,
         ghost_gk_method

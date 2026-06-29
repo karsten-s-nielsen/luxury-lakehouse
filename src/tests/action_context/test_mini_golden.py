@@ -139,16 +139,19 @@ _XT_GK_COLS = [
     "xt_gk", "xt_gk_possession", "xt_gk_counter", "xt_gk_direct", "xt_gk_high_press",
     "xt_gk_low_block", "xt_gk_base", "xt_gk_pev", "xt_gk_rav", "xt_gk_dzv", "xt_gk_pressure",
     "xt_gk_origin_source", "xt_gk_dest_source", "xt_gk_origin_confidence",
-    "xt_gk_completion_variant", "xt_gk_completion_source", "gk_completion",
+    "xt_gk_completion_variant", "xt_gk_completion_source",
+    "xt_gk_origin_x", "xt_gk_origin_y", "xt_gk_dest_x", "xt_gk_dest_y",
+    "gk_completion",
 ]  # fmt: skip
 
 
 def test_xt_gk_fields_present_and_scope_contract() -> None:
-    """ADR-048 (silly-kicks 4.21.0/4.22.0): the 17 xT-GK + gk_completion columns.
+    """ADR-048 (silly-kicks 4.21.0/4.22.0) + 4.36.0 coords: the xT-GK + 4 resolved-coord + gk_completion columns.
 
     The mini slice (3 IDSSE open-play actions) contains NO GK-distribution action, so the
     scope contract here is all-NaN/None — a non-null value on an open-play row would mean the
-    upstream in-scope mask drifted. Presence is asserted column-by-column (build_output wiring);
+    upstream in-scope mask drifted (incl. the 4.36.0 origin/dest coords). Presence is asserted
+    column-by-column (build_output wiring);
     EMIT coverage lives in test_full_golden_xt_gk_emits (the full anchor has 2 goalkicks).
     """
     result = _recompute()

@@ -7,7 +7,7 @@ bronze.spadl_action_context.
 
 Providers: ALL (StatsBomb, Wyscout, IDSSE, Metrica, SkillCorner, GradientSports).
 Event-only providers get game_state + GK resolution; tracking providers get the full
-104-col schema (``analytics.action_context.schema.RESULT_COLUMNS``).
+139-col schema (``analytics.action_context.schema.RESULT_COLUMNS``).
 Architecture: "Read from bronze, compute, write to bronze."
 """
 

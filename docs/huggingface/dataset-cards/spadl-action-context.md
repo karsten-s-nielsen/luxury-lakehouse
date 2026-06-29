@@ -24,7 +24,7 @@ Unified per-action context features for football matches from the [luxury-lakeho
 
 | Tier | Providers | Feature Coverage |
 |------|-----------|-----------------|
-| Tracking | IDSSE, Metrica, SkillCorner, GradientSports | Full tracking columns: pitch control, team shape, line-breaking, OBSO, PAUSA, gk_influence zones, xShotOccurrence, structural context, xCross, player influence, shot-goalmouth crossing geometry, GK pass-completion (`gk_completion_*`), and the xT-GK goalkeeper distribution family (`xt_gk_*`, five philosophy presets) |
+| Tracking | IDSSE, Metrica, SkillCorner, GradientSports | Full tracking columns: pitch control, team shape, line-breaking, OBSO, PAUSA, gk_influence zones, xShotOccurrence, structural context, xCross, player influence, shot-goalmouth crossing geometry, GK pass-completion (`gk_completion_*`), and the xT-GK goalkeeper distribution family (`xt_gk_*`, five philosophy presets) — including the four resolved-coordinate audit columns `xt_gk_origin_x/y` + `xt_gk_dest_x/y` (the exact origin/destination the grid lookups used, incl. imputed goal-kick origins; LTR SPADL metres, `null` off-scope) |
 | SB360 | StatsBomb (with 360 freeze-frames) | Partial/sparse single-frame subset of the tracking columns — freeze-frames carry no velocity, so pitch control is `voronoi` and the velocity-dependent families (DAS, cover-shadows, off-ball, xCross, pre-shot GK position) stay `null` |
 
 Event-only matches are not part of this dataset (frames-required; ADR-057). GradientSports partitions are license-restricted: they publish to a private org-members-only companion repo (`spadl-action-context-restricted`) rather than this public dataset, per lakehouse ADR-049. The partition migrates here automatically once the license permits publication.
