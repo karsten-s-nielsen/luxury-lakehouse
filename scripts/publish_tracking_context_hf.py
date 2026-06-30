@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.57-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.58-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -54,7 +54,7 @@ RESTRICTED_DATASET_REPO = restricted_repo_id(DATASET_REPO)
 # (the per-match source of truth) via match_key, then split at publish time (spec §6.5/D6). NO
 # SQL-side provider filter — the redistribution gate is ingestion.hf_publish.split_restricted.
 _TRACKING_CONTEXT_SQL = """\
-SELECT t.*, dm.access_tier
+SELECT t.*, dm.access_tier, dm.visibility
 FROM soccer_analytics.dev_gold.fct_tracking_context t
 LEFT JOIN soccer_analytics.dev_gold.dim_matches dm
     ON t.match_key = dm.match_key
@@ -194,9 +194,10 @@ def main() -> None:
             sorted(RESTRICTED_HF_PROVIDERS),
         )
 
-    # R2: drop the internal access_tier column from BOTH frames AFTER split + guard, before upload.
-    public_df = public_df.drop(columns=["access_tier"], errors="ignore")
-    restricted_df = restricted_df.drop(columns=["access_tier"], errors="ignore")
+    # R2: drop the internal access_tier + visibility columns from BOTH frames AFTER split + guard, before upload.
+    # (visibility is carried only so the leak guard's divergence check can fire on-path; it never ships.)
+    public_df = public_df.drop(columns=["access_tier", "visibility"], errors="ignore")
+    restricted_df = restricted_df.drop(columns=["access_tier", "visibility"], errors="ignore")
 
     logger.info("Publishing PUBLIC tracking context to HF Hub: %s", DATASET_REPO)
     url = publish_to_hf_hub(public_df, hf_token)

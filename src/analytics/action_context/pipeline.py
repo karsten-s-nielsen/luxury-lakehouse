@@ -90,6 +90,32 @@ _JERSEY_RE = re.compile(r"Player\s*(\d+)")
 logger = logging.getLogger(__name__)
 
 
+def _log_xt_gk_provenance(result: pd.DataFrame, native_match_id: str) -> None:
+    """M2 observability (silly-kicks 4.37.0): surface the xT-GK origin-resolution provenance + the S4
+    native-goalkick-out-of-region count, BEFORE build_output drops the per-row flag. The origin-source
+    counts at INFO calibrate the goal-kick fix (tracking_gk vs goalkick_prior split — both land in-box);
+    n_native_goalkick_out_of_region at ERROR (CLAUDE.md telemetry rule) flags a data-quality signal.
+    """
+    if "xt_gk_origin_source" not in result.columns:
+        return  # event-only / no xt_gk in this batch — nothing to report
+    from silly_kicks.tracking._xt_gk import XtGkReport
+
+    rep = XtGkReport.from_frame(result)
+    logger.info(
+        "AC observability: xt_gk match=%s scored=%d origin_sources=%s",
+        native_match_id,
+        rep.n_scored,
+        rep.origin_source_counts,
+    )
+    if rep.n_native_goalkick_out_of_region:
+        logger.error(
+            "AC observability: %d native goal-kick origin(s) out-of-region (S4) for match %s — "
+            "a native goal-kick coordinate sits implausibly far from goal",
+            rep.n_native_goalkick_out_of_region,
+            native_match_id,
+        )
+
+
 def _empty_result() -> pd.DataFrame:
     import pandas as pd
 
@@ -163,9 +189,18 @@ def _convert_tracking_batch(
         game_id = int(actions["game_id"].iloc[0])
         _prt = pdf[["frame", "period", "timestamp"]].drop_duplicates()
         _prt = _prt.rename(columns={"frame": "frame_id", "period": "period_id", "timestamp": "time_seconds"})
-        result_frames, _ = convert_skillcorner_bronze_to_frames(
+        result_frames, _sc_report = convert_skillcorner_bronze_to_frames(
             pdf, game_id=game_id, home_team_id=meta.home_team_id, period_relative_time=_prt
         )
+        # M2 observability (silly-kicks 4.37.0 S1): surface the within-pitch gross-off-pitch count at ERROR
+        # (CLAUDE.md telemetry rule — alerts are ERROR, never warning) so a transform regression is visible.
+        if getattr(_sc_report, "n_gross_off_pitch", 0):
+            logger.error(
+                "AC observability: skillcorner convert_to_frames flagged %d gross-off-pitch row(s) (S1 "
+                "within-pitch) for game %s — investigate the native->SPADL transform upstream",
+                _sc_report.n_gross_off_pitch,
+                game_id,
+            )
 
     elif provider == "gradientsports":
         from silly_kicks.tracking import PreprocessConfig as _PreprocessConfig
@@ -397,6 +432,7 @@ def enrich_batch(
     result = _enrich_tracking_match(
         actions_df=actions, tracking_df=frames, xt=xt, home_team_id=meta.home_team_id, kde_backend=kde_backend
     )
+    _log_xt_gk_provenance(result, native_match_id)
     out = build_output(result, native_match_id, provider, _resolve_match_access_tier(actions, provider))
     if owned_action_ids is not None and "action_id" in out.columns:
         out = out[out["action_id"].isin(owned_action_ids)].copy()

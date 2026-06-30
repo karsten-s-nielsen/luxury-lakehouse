@@ -32,9 +32,13 @@ def test_build_output_access_tier_explicit_and_provider_default() -> None:
     # Explicit (e.g. a private SkillCorner match) overrides the provider default.
     out = build_output(raw, match_id_native="M", data_source="skillcorner", access_tier="restricted")
     assert (out["access_tier"] == "restricted").all()
-    # No explicit arg, no carried column → provider default (skillcorner not in RESTRICTED set → public).
+    # No explicit arg, no carried column → provider default. P1 allowlist flip: skillcorner is NOT on the
+    # public-by-license allowlist (it is mixed-license), so a no-signal default now FAILS SAFE to restricted.
     out_default = build_output(raw, match_id_native="M", data_source="skillcorner")
-    assert (out_default["access_tier"] == "public").all()
+    assert (out_default["access_tier"] == "restricted").all()
+    # An allowlisted open-data provider (statsbomb) still defaults public.
+    out_sb = build_output(raw, match_id_native="M", data_source="statsbomb")
+    assert (out_sb["access_tier"] == "public").all()
     # gradientsports has no per-match visibility feed → restricted by provider default.
     out_gs = build_output(raw, match_id_native="M", data_source="gradientsports")
     assert (out_gs["access_tier"] == "restricted").all()

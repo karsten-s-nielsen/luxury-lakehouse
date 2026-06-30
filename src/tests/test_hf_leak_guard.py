@@ -40,6 +40,39 @@ def test_missing_access_tier_column_fails_closed() -> None:
         assert_no_private_leak(df, publisher="publish_action_context_hf")
 
 
+def test_divergence_non_allowlisted_public_row_with_nonpublic_visibility_fails_closed() -> None:
+    # H1.3 approach A: a skillcorner (non-allowlisted) row that is access_tier='public' but whose true visibility
+    # is NOT public is a stamp divergence — the on-the-guard, fail-closed backstop must catch it.
+    df = pd.DataFrame(
+        {
+            "access_tier": ["public", "public"],
+            "data_source": ["skillcorner", "skillcorner"],
+            "visibility": ["public", None],
+        }
+    )
+    with pytest.raises(LeakDetectedError, match="divergence"):
+        assert_no_private_leak(df, publisher="publish_action_context_hf")
+
+
+def test_divergence_allowlisted_provider_needs_no_visibility() -> None:
+    # statsbomb is open-data (allowlist) — access_tier='public' with NULL visibility is fine, no divergence.
+    df = pd.DataFrame({"access_tier": ["public"], "data_source": ["statsbomb"], "visibility": [None]})
+    assert_no_private_leak(df, publisher="publish_action_context_hf")  # no raise
+
+
+def test_divergence_non_allowlisted_with_public_visibility_passes() -> None:
+    df = pd.DataFrame({"access_tier": ["public"], "data_source": ["skillcorner"], "visibility": ["public"]})
+    assert_no_private_leak(df, publisher="publish_action_context_hf")  # no raise
+
+
+def test_divergence_check_inert_when_visibility_column_absent() -> None:
+    # Row-level marts without a visibility column rely on access_tier (which post-P1 encodes the decision) + the
+    # dim_matches source dbt test; the per-row divergence check simply does not fire (it never falsely passes a
+    # non-public access_tier — that is still caught above).
+    df = pd.DataFrame({"access_tier": ["public", "public"], "data_source": ["skillcorner", "statsbomb"]})
+    assert_no_private_leak(df, publisher="publish_action_context_hf")  # no raise
+
+
 def test_registry_covers_every_publisher_module() -> None:
     """A publisher in EITHER scripts/ or src/ingestion/ with no registry entry FAILS (B2 — the
     src/ingestion/ twins are the wired pyproject entry points; the guard must not be blind to them)."""

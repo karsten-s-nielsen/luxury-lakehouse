@@ -5307,7 +5307,9 @@ models:
         data_type: double
       - name: xt_gk_origin_source
         data_type: string
-        description: "Origin-coordinate provenance: native / tracking / rule_point tiers."
+        description: "Origin-coordinate provenance (silly-kicks 4.37.0): native (the common value — open-play keeps
+          the keeper-at-feet native origin) / tracking_gk (detected-keeper goal-kick) / goalkick_prior (rule-point
+          fallback) / unresolved (rare; xt_gk NULL, never imputed)."
       - name: xt_gk_dest_source
         data_type: string
       - name: xt_gk_origin_confidence
