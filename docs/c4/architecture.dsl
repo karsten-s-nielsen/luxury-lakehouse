@@ -39,7 +39,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             artifactDeploy = container "Artifact Deploy" "Training-to-production contract (ADR-012). MLflow + UC Volume helpers." "Python"
             hfPublish = container "HF Publish Helper" "README delivery (ADR-014) + per-match HF redistribution (ADR-064): access_tier classifier (shared core), split_restricted on access_tier, enumerate-all fail-closed leak guard over every publisher." "Python"
             databricksSqlFetch = container "Databricks SQL Fetch" "HTTP helper for HF Jobs trainers querying gold marts (no Spark)" "Python, requests"
-            ingestionPipelines = container "Compute Pipelines" "38 @workflow-decorated Databricks ingestion/compute pipelines across 6 providers. GS bronze dedup (ADR-030), per-provider ET-direction derivers (ADR-029), DFL parse delegated to silly-kicks (ADR-055)." "Python, PySpark, silly-kicks 4.36.0"
+            ingestionPipelines = container "Compute Pipelines" "38 @workflow-decorated Databricks ingestion/compute pipelines across 6 providers. GS bronze dedup (ADR-030), per-provider ET-direction derivers (ADR-029), DFL parse delegated to silly-kicks (ADR-055)." "Python, PySpark, silly-kicks 4.37.0"
             refreshSyncedTables = container "Synced Table Refresh" "Triggers refresh on 46 synced tables; detect-only for checkpoint-broken TRIGGERED tables — flags + dispatches the heal, never deletes (ADR-041)" "Python, databricks-sdk"
             migrateSyncedTables = container "Synced Table Migration" "SDK-managed lifecycle: delete, CDF enable, create, wait (ADR-026). Replaces Terraform module." "Python, databricks-sdk"
             rederiveSyncedMarts = container "Strand-safe Re-derive" "Operator re-derive of TRIGGERED synced marts (ADR-043): D MERGE-reprocess / T plain-rebuild / B delete+full-refresh+recreate. Pure planner + thin executor." "Python, databricks-sdk"
@@ -47,8 +47,8 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             evolveEngine = container "Evolve Engine" "LLM-guided architecture search. AST validation, restricted exec." "Python, OpenEvolve"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models: xG, xT, VAEP, OBSO, pitch control, PSxG (incl. tracking scorer + GroupKFold calibration, ADR-059), embeddings" "Python, PyTorch"
             execVisibility = container "Executor Visibility (exec_visibility)" "Driver heartbeat + executor env-fingerprint/faulthandler markers + silly-kicks env-drift guard (ADR-044). Spark-Connect-safe applyInPandas progress + hang diagnostics (ADR-031)." "Python"
-            actionContextHexagon = container "Action Context Hexagon" "Pure-domain AC enrichment (ADR-028): ports + enrich_batch, one Spark+local UDF. Frames-required (ADR-057); sb360 cogroup (ADR-058); SC/metrica frames via silly-kicks (TF-23); LTR net deleted." "Python, pandas, silly-kicks 4.36.0"
-            sharedLibrary = container "Shared Library" "Cross-package constants, identifiers, and the per-match access_tier redistribution policy/classifier (ADR-064). Zero external deps." "Python"
+            actionContextHexagon = container "Action Context Hexagon" "Pure-domain AC enrichment (ADR-028): ports + enrich_batch, one Spark+local UDF. Frames-required (ADR-057); sb360 cogroup (ADR-058); SC/metrica frames via silly-kicks (TF-23); LTR net deleted." "Python, pandas, silly-kicks 4.37.0"
+            sharedLibrary = container "Shared Library" "Cross-package constants, identifiers, and the per-match access_tier classifier — a fail-safe ALLOWLIST (ADR-064): open-data providers public, everything else restricted. Zero external deps." "Python"
         }
 
         # SK3-MIG-B Retrain Orchestrator (new)

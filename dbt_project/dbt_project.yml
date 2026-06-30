@@ -67,6 +67,15 @@ seeds:
       - "ALTER TABLE {{ this }} OWNER TO `dbt-owners-{{ env_var('LUXURY_LAKEHOUSE_ENV', 'dev') }}`"
 
 vars:
+  # Providers whose data is PUBLIC BY LICENSE (open data) — the SINGLE dbt-side mirror of
+  # shared.access_tier.PUBLIC_BY_LICENSE_PROVIDERS (review P1 guardrail 1). Used by
+  # tests/assert_access_tier_visibility_consistency.sql; drift from the Python constant is blocked by
+  # src/tests/test_access_tier_visibility_consistency_allowlist.py.
+  public_by_license_providers:
+    - 'statsbomb'
+    - 'wyscout'
+    - 'idsse'
+    - 'metrica'
   # UC grant principals — override with specific SPs for production
   # Default 'account users' is acceptable for dev with public data (L-15)
   grant_select_to:

@@ -22,7 +22,7 @@ per-action / per-frame fact tables that carry a ``data_source`` column.
 
 from __future__ import annotations
 
-from shared.access_tier import classify_access_tier
+from shared.access_tier import AccessTier, classify_access_tier
 
 # Providers with EXISTING bronze rows that carry a ``data_source`` column.
 EXISTING_PROVIDERS: tuple[str, ...] = (
@@ -35,20 +35,54 @@ EXISTING_PROVIDERS: tuple[str, ...] = (
 )
 
 # Per-action / per-frame bronze fact tables that carry a ``data_source`` column and whose rows must
-# be backfilled to the provider default. (Match-info tables are re-ingested, not backfilled — R1.)
+# be backfilled to the provider tier. ``psxg_tracking_predictions`` is data_source-keyed too.
 BACKFILL_TABLES: tuple[str, ...] = (
     "spadl_actions",
     "vaep_action_values",
     "spadl_action_context",
+    "psxg_tracking_predictions",
 )
+
+# Single-provider match-info tables (NO ``data_source`` column; also carry ``visibility``). Handled by a
+# dedicated operator migration (premise-asserted ``visibility='public'`` for the confirmed A-League), NOT the
+# data_source loop here.
+MATCH_INFO_TABLES: tuple[str, ...] = ("skillcorner_matches", "gradientsports_metadata")
+
+# Single-provider raw tracking tables. NO mart reads their per-row ``access_tier`` (the marts resolve tier from
+# ``dim_matches``), so their NULLs are functionally inert. Operator-DEFERRED (a ~300M-row rewrite for nothing read);
+# going-forward ingestion stamps new rows. Listed here so they are a CONSCIOUS exclusion, never a silent miss.
+DEFERRED_INERT_TRACKING_TABLES: tuple[str, ...] = (
+    "skillcorner_tracking",
+    "idsse_tracking",
+    "metrica_tracking",
+    "gradientsports_tracking",
+)
+
+# Complete inventory of EVERY bronze table carrying ``access_tier``. Every table here must fall into exactly one
+# category above. The completeness test asserts this partition + that it equals the live information_schema set
+# (the operator runs the live check) — so a NEW access_tier table forces a conscious backfill/defer decision and can
+# never be silently dropped (the gap that motivated review).
+ALL_ACCESS_TIER_TABLES: frozenset[str] = (
+    frozenset(BACKFILL_TABLES) | frozenset(MATCH_INFO_TABLES) | frozenset(DEFERRED_INERT_TRACKING_TABLES)
+)
+
+# Providers whose no-signal DEFAULT is now RESTRICTED (P1 allowlist flip) but whose EXISTING bronze is confirmed
+# public by inspection. SkillCorner: the existing rows are the public A-League (competition 61, verified 2026-06-30);
+# no private Real Madrid match is ingested yet. The backfill must encode this CONFIRMED fact explicitly — it can NOT
+# derive it from ``classify_access_tier(skillcorner, None)``, which (correctly) now fails safe to restricted. NEW
+# SkillCorner rows get their real per-match ``visibility`` at ingest, never this override.
+_EXISTING_CONFIRMED_PUBLIC: dict[str, str] = {"skillcorner": AccessTier.PUBLIC.value}
 
 
 def default_tier_for_provider(provider: str) -> str:
-    """Provider-default ``access_tier`` for a no-feed (existing) row.
+    """``access_tier`` for an EXISTING no-signal bronze row of ``provider``.
 
-    DERIVED from the policy core — the backfill default for a no-visibility-signal row IS
-    ``classify_access_tier(provider, visibility=None)``. No hand-encoded policy here.
+    For most providers this IS ``classify_access_tier(provider, None)`` (no hand-encoding). For a provider in
+    ``_EXISTING_CONFIRMED_PUBLIC`` (skillcorner) it is the explicit confirmed-public override — because the P1
+    allowlist flip makes the classifier default restricted, but the existing rows are verified public A-League.
     """
+    if provider in _EXISTING_CONFIRMED_PUBLIC:
+        return _EXISTING_CONFIRMED_PUBLIC[provider]
     return classify_access_tier(provider=provider, visibility=None).value
 
 

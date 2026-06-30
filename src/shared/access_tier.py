@@ -17,28 +17,36 @@ class AccessTier(str, Enum):
     RESTRICTED = "restricted"
 
 
-# Providers whose matches default to RESTRICTED when they carry NO per-match visibility signal.
-# GradientSports today; SkillCorner has a real `visibility` feed (pining) so it is NOT defaulted here.
-# This set is the NULL-fallback for `classify_access_tier`. It lives in this pure core (not
-# ingestion.hf_publish, which imports pandas/HF) so the stdlib-only core never imports an adapter —
-# hf_publish.py re-exports it from here (no zero-dep violation, no import cycle).
+# ALLOWLIST (ADR-064 amendment 2026-06-30, review P1): providers whose data is PUBLIC BY LICENSE (open data).
+# A no-per-match-signal match defaults PUBLIC *only* if its provider is on this list. EVERYTHING else — any
+# unknown/new provider, AND any provider with a `visibility` feed but no signal on this row (skillcorner, GS) —
+# fails SAFE to RESTRICTED. This is the highest-stakes default in the system: a wrong-restrict is recoverable
+# with one line here; a wrong-public of private data (e.g. the restricted SkillCorner Real Madrid games) is an
+# irreversible licence breach. A denylist ("these providers are restricted, else public") would leak any provider
+# nobody remembered to classify — the allowlist closes that. Lives in this stdlib-only core (hf_publish re-exports).
+PUBLIC_BY_LICENSE_PROVIDERS: frozenset[str] = frozenset({"statsbomb", "wyscout", "idsse", "metrica"})
+
+# Back-compat: still imported by ingestion.hf_publish / the VAEP trainer gate as "providers that produce
+# restricted rows by default". Kept as {gradientsports} — the allowlist above is the authoritative no-signal default.
 RESTRICTED_HF_PROVIDERS: frozenset[str] = frozenset({"gradientsports"})
 
 
 def classify_access_tier(*, provider: str, visibility: str | None) -> AccessTier:
-    """Classify a match's redistribution tier from its ingestion-time signals.
+    """Classify a match's redistribution tier from its ingestion-time signals (fail-safe-for-privacy).
 
     pining ``visibility`` is ``"public" | "private"`` (pining canonical model pins
     ``pattern=r"^(public|private)$"``). Mapping:
 
-    - ``"private"``        -> ``RESTRICTED``  (the positive trigger — matched on the LITERAL value)
-    - ``"public"``         -> ``PUBLIC``
-    - ``None`` (no feed)   -> provider default (``RESTRICTED`` if in ``RESTRICTED_HF_PROVIDERS`` else ``PUBLIC``)
-    - anything else        -> ``RESTRICTED``  (fail-safe — never leak an unrecognized value)
+    - ``"public"``                          -> ``PUBLIC``  (explicit per-match public signal, any provider)
+    - ``None`` AND provider on allowlist    -> ``PUBLIC``  (open-data provider, no per-match feed)
+    - ``"private"`` / unknown value /
+      ``None`` off-allowlist / unknown
+      provider                              -> ``RESTRICTED``  (FAIL SAFE — never leak)
     """
-    if visibility is None:
-        return AccessTier.RESTRICTED if provider in RESTRICTED_HF_PROVIDERS else AccessTier.PUBLIC
     if visibility == "public":
         return AccessTier.PUBLIC
-    # "private" AND any unrecognized value both route to RESTRICTED (fail-safe).
+    if visibility is None and provider in PUBLIC_BY_LICENSE_PROVIDERS:
+        return AccessTier.PUBLIC
+    # "private", any unrecognized visibility, a no-signal off-allowlist provider, OR an unknown provider:
+    # all fail safe to RESTRICTED.
     return AccessTier.RESTRICTED

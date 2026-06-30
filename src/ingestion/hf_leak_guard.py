@@ -13,7 +13,7 @@ import logging
 
 import pandas as pd
 
-from shared.access_tier import AccessTier
+from shared.access_tier import PUBLIC_BY_LICENSE_PROVIDERS, AccessTier
 
 logger = logging.getLogger(__name__)
 
@@ -58,4 +58,42 @@ def assert_no_private_leak(public_df: pd.DataFrame, *, publisher: str) -> None:
         by_tier = non_public["access_tier"].fillna("<null>").value_counts().to_dict()
         logger.error("LEAK BLOCKED: %s public artifact has %d non-public rows: %s", publisher, len(non_public), by_tier)
         raise LeakDetectedError(f"{publisher}: {len(non_public)} non-public rows in public artifact: {by_tier}")
+    _assert_no_access_tier_visibility_divergence(public_df, publisher=publisher)
     logger.info("leak guard OK: %s public artifact is all-public (%d rows)", publisher, len(public_df))
+
+
+def _assert_no_access_tier_visibility_divergence(public_df: pd.DataFrame, *, publisher: str) -> None:
+    """Fail closed if a NON-allowlisted provider's row reached `access_tier='public'` with a true `visibility`
+    that is not 'public' (H1.3 / review-P1 approach A — keyed on the SHARED `PUBLIC_BY_LICENSE_PROVIDERS`).
+
+    Why per-row `visibility` threading is NOT needed (ADR-064 amendment 2026-06-30): after the allowlist flip, a
+    provider NOT on `PUBLIC_BY_LICENSE_PROVIDERS` (skillcorner, gradientsports) can only reach `access_tier='public'`
+    via an explicit per-match `visibility='public'` (or the verified confirmed-public backfill override) — never a
+    default. So **`access_tier` already encodes the per-row visibility decision**, and the all-public check above is
+    the primary enforcement. This is the on-the-publish-path, fail-closed backstop against a *stamp divergence*
+    (`access_tier='public'` on a row whose true `visibility` is not public). It fires when the frame carries a
+    provider column + `visibility` (a publisher that joins dim_matches, e.g. publish_tracking_context, attaches it).
+    The COMPREHENSIVE, build-gating enforcement is the dbt consistency test
+    (`assert_access_tier_visibility_consistency.sql`) — it covers `dim_matches` (the source for dim-resolved marts) AND
+    the row-level facts (`fct_action_context`/`fct_action_values`, joined to dim_matches), so every mart is gated
+    before publish regardless of which publishers carry `visibility`. Allowlisted (open-data) providers need no
+    `visibility` signal. A provider MIS-TAG (private row wrongly stamped with an allowlisted provider) is an upstream
+    ingestion-integrity concern, out of scope here by design.
+    """
+    provider_col = next((c for c in ("data_source", "source_provider", "provider") if c in public_df.columns), None)
+    if provider_col is None or "visibility" not in public_df.columns:
+        return  # nothing to cross-check on this frame; access_tier all-public (above) + the source dbt test cover it
+    non_allowlisted = public_df[~public_df[provider_col].isin(PUBLIC_BY_LICENSE_PROVIDERS)]
+    diverged = non_allowlisted[non_allowlisted["visibility"] != "public"]
+    if len(diverged) > 0:
+        by = diverged[provider_col].fillna("<null>").value_counts().to_dict()
+        logger.error(
+            "LEAK BLOCKED (divergence): %s has %d non-allowlisted public rows whose visibility != 'public': %s",
+            publisher,
+            len(diverged),
+            by,
+        )
+        raise LeakDetectedError(
+            f"{publisher}: {len(diverged)} non-allowlisted public rows with visibility != 'public' "
+            f"(access_tier/visibility divergence): {by}"
+        )

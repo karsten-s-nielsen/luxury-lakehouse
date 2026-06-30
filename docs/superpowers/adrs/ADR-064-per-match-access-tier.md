@@ -48,3 +48,33 @@ Introduce a first-class **`access_tier`** domain concept (`PUBLIC | RESTRICTED`)
 - `RESTRICTED_HF_PROVIDERS` does not disappear — it relocates to the pure core as the NULL-fallback provider default (keeps GradientSports correct with no per-match data).
 - ADR-049 (companion-repo pattern) is unchanged in mechanism; this ADR only changes the split **key** (provider → per-match `access_tier`) and adds the fail-closed guard.
 - Per-match licensing requires pining to keep `visibility` aligned with the actual licence; a future non-pining SkillCorner ingestion path (e.g. Dropbox import) would re-open the classifier (default unknown-source → RESTRICTED).
+
+## Amendment — 2026-06-30 (SkillCorner mixed-license + privacy-default hardening)
+
+When the restricted SkillCorner Real Madrid games approached ingestion, two refinements landed (spec
+`docs/superpowers/specs/2026-06-30-skillcorner-keeper-origin-rebuild-and-access-tier-completion.md`, reviews H1/P1):
+
+1. **The no-signal default is now an ALLOWLIST, not a denylist (review P1).** The original
+   `classify_access_tier(provider, None)` defaulted public unless the provider was in `RESTRICTED_HF_PROVIDERS` — so
+   `skillcorner+None → PUBLIC` (a mixed-license leak shape once private SkillCorner exists) and, worse, *any unknown
+   new provider → PUBLIC*. The core now defaults public **only** for `PUBLIC_BY_LICENSE_PROVIDERS = {statsbomb,
+   wyscout, idsse, metrica}`; everything else — skillcorner/GS with no signal, AND any unknown provider — **fails safe
+   to restricted**. A wrong-restrict is one line to fix; a wrong-public of private data is unrecoverable. Existing
+   SkillCorner (the public A-League) is encoded **explicit-public** (`visibility='public'`, premise-asserted on
+   competition 61) rather than relying on the now-restricted default.
+
+2. **H1.3 publish guard — why per-row `visibility` is NOT threaded everywhere (name the fence not built).** A literal
+   reading of "no SkillCorner public row without explicit `visibility='public'`" suggests threading `visibility`
+   per-row through SPADL/AC bronze → marts → every publish frame (a ~15-file second column-migration mirroring
+   `access_tier`). It is deliberately **not** built, because after change (1) **`access_tier` already encodes the
+   per-row visibility decision**: a non-allowlisted provider can only reach `access_tier='public'` via an explicit
+   `visibility='public'` (or the verified confirmed-public override), so the all-public leak-guard check already
+   enforces "non-allowlisted public ⟹ confirmed public." The residual risk — a *stamp divergence*
+   (`access_tier='public'` on a row whose true `visibility` is not public) — is enforced by **one policy at three
+   points**: the classifier (`PUBLIC_BY_LICENSE_PROVIDERS`), the per-publish leak guard
+   (`hf_leak_guard._assert_no_access_tier_visibility_divergence`, fires when a frame carries `visibility`), and the
+   build-gating `dim_matches` dbt consistency test (`assert_access_tier_visibility_consistency.sql`, the source of
+   truth where both columns coexist). The shared constant prevents drift
+   (`test_access_tier_visibility_consistency_allowlist.py`). Out of scope by design: a provider **mis-tag** (a private
+   row wrongly stamped with an allowlisted `data_source`) — that is upstream ingestion-integrity, not the publish
+   guard.

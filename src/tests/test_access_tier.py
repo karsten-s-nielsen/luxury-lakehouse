@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from shared.access_tier import RESTRICTED_HF_PROVIDERS, AccessTier, classify_access_tier
+from shared.access_tier import (
+    PUBLIC_BY_LICENSE_PROVIDERS,
+    RESTRICTED_HF_PROVIDERS,
+    AccessTier,
+    classify_access_tier,
+)
 
 
 @pytest.mark.parametrize(
@@ -15,14 +20,17 @@ from shared.access_tier import RESTRICTED_HF_PROVIDERS, AccessTier, classify_acc
         ("skillcorner", "public", AccessTier.PUBLIC),
         ("gradientsports", "private", AccessTier.RESTRICTED),
         ("gradientsports", "public", AccessTier.PUBLIC),
-        # No feed -> provider default.
-        ("gradientsports", None, AccessTier.RESTRICTED),  # in RESTRICTED_HF_PROVIDERS
+        # No feed -> allowlist (P1): open-data providers public, everything else fail-safe restricted.
         ("statsbomb", None, AccessTier.PUBLIC),
         ("wyscout", None, AccessTier.PUBLIC),
         ("idsse", None, AccessTier.PUBLIC),
         ("metrica", None, AccessTier.PUBLIC),
-        ("skillcorner", None, AccessTier.PUBLIC),  # NOT in the default set (existing rows = public A-League)
-        # Fail-safe: any unknown value -> RESTRICTED (D1).
+        ("gradientsports", None, AccessTier.RESTRICTED),  # visibility-feed provider, no signal -> restricted
+        ("skillcorner", None, AccessTier.RESTRICTED),  # H1.1: mixed-license, no signal -> FAIL SAFE (was PUBLIC)
+        # P1: an UNKNOWN/new provider with no signal must fail safe to RESTRICTED (the leak that a denylist left open).
+        ("a_new_unclassified_provider", None, AccessTier.RESTRICTED),
+        ("a_new_unclassified_provider", "public", AccessTier.PUBLIC),  # explicit public signal still honoured
+        # Fail-safe: any unknown visibility value -> RESTRICTED (D1).
         ("skillcorner", "embargoed", AccessTier.RESTRICTED),
         ("skillcorner", "", AccessTier.RESTRICTED),
     ],
@@ -34,6 +42,13 @@ def test_classify_access_tier(provider: str, visibility: str | None, expected: A
 def test_enum_values_are_the_canonical_strings() -> None:
     assert AccessTier.PUBLIC.value == "public"
     assert AccessTier.RESTRICTED.value == "restricted"
+
+
+def test_public_by_license_allowlist_is_the_open_data_providers() -> None:
+    # The no-signal default is an ALLOWLIST (P1). If a provider is added here it becomes public-by-default —
+    # that is a deliberate, reviewed act, never an accident of omission.
+    assert PUBLIC_BY_LICENSE_PROVIDERS == frozenset({"statsbomb", "wyscout", "idsse", "metrica"})
+    assert all(p == p.lower() for p in PUBLIC_BY_LICENSE_PROVIDERS)
 
 
 def test_restricted_default_providers_is_frozenset_lowercase() -> None:
