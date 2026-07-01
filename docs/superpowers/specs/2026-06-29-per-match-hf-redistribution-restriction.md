@@ -328,6 +328,14 @@ allowed into the data flow — there is no credential to gate on (§7).
 **Until step 7, hold SkillCorner private-match ingestion and the SkillCorner-carrying publishes** (§7
 operational hold). The dev daily job is schedule-paused, so this is a hold-on-manual-trigger.
 
+**Update (2026-07-01): the hold is LIFTED — H1 (the split + leak guard, steps 1–7) is live** (per-match
+`access_tier` + `split_restricted` + the enumerate-all leak guard, PR #414 `a9e7344` + PR #415 `373a828`;
+the classification-before-data-flow order held). Restricted SkillCorner (the 98 RM matches) may now be
+ingested. Phased rollout is **mechanized via `ingest_skillcorner --max-matches N`** (job parameter
+`max_matches`): **RM-5** = trigger with `{"max_matches":"5"}`; **RM-94** = re-trigger (batch via
+`max_matches` or raise the 1200 s ingest timeout — 93 tracking JSONLs exceed it), the missing-discovery
+anti-join walking forward each run. See `feat/skillcorner-missing-discovery-max-matches`.
+
 ## 9. TDD / test plan
 
 Pure-first, hexagonal:
