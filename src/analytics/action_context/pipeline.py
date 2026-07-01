@@ -201,6 +201,17 @@ def _convert_tracking_batch(
                 _sc_report.n_gross_off_pitch,
                 game_id,
             )
+        # S2 observability (silly-kicks 4.38.0): surface implausible per-(game,team) GK resolutions at ERROR
+        # (a resolved GK count >2 or 0 per team). 4.38.0 trusts the native roster is_goalkeeper flag, so this
+        # is expected 0 on SkillCorner (clean 1/team); non-zero signals whole-squad contamination (the pre-4.38.0
+        # per-batch positional re-derivation that flagged both full squads) — a data-quality issue to investigate.
+        if getattr(_sc_report, "n_implausible_gk_teams", 0):
+            logger.error(
+                "AC observability: skillcorner convert_to_frames flagged %d implausible GK team(s) (S2 "
+                "resolved per-(game,team) GK count >2 or 0) for game %s — investigate roster is_goalkeeper upstream",
+                _sc_report.n_implausible_gk_teams,
+                game_id,
+            )
 
     elif provider == "gradientsports":
         from silly_kicks.tracking import PreprocessConfig as _PreprocessConfig

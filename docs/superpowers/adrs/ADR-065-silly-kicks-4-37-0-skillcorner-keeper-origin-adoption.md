@@ -65,3 +65,26 @@ publish-path divergence guard) rides in the **same cycle/PR** but is recorded in
   transform, not `convert_to_frames`) — a separate scoping item (spec L4), not in this adoption.
 - The private Real Madrid SkillCorner games have the same broadcast profile but `is_detected` present; the tiered fix
   applies — gated behind this adoption + the ADR-064 privacy hardening being live.
+
+## Amendment (2026-07-01): silly-kicks 4.38.0 — SkillCorner GK-identification
+
+The 4.37.0 recompute fixed goal-kick *origins* but the public SkillCorner gold exposed a **separate, pre-existing**
+defect: `xt_gk` (a goalkeeper metric) was computed for **19–24 players/match** — both full squads — not the ~1–2
+keepers. Root cause (real-data proven): the AC dispatch builds frames in **250-frame batches**, and silly-kicks
+≤4.37.0 **re-derived `is_goalkeeper` positionally per batch**, so on a 25 s window it flagged whichever outfielders
+were transiently parked near a goal (~15/team across batches). silly-kicks **4.38.0** (PR-S105, upstream ADR-007) fixes
+it by **trusting the native roster `is_goalkeeper`** (skips `derive_goalkeepers` when the roster flag is valid) —
+mirroring what the GS/sportec converters already did (they were immune). On real bronze the per-batch union drops
+**15/13 → 1/1 per team**.
+
+**Decision:** re-pin **==4.38.0** (supersedes 4.37.0 — it carries both the keeper-*origin* and this GK-*identification*
+fix) with the same thin-adoption shape (version bump + sentinel lockstep + wheel 0.5.59). One lakehouse code delta:
+surface the new **`TrackingConversionReport.n_implausible_gk_teams`** at ERROR (`pipeline.py`, mirroring
+`n_gross_off_pitch`) — a resolved per-`(game,team)` GK count `>2` or `0`; expected **0** on SkillCorner (clean roster),
+non-zero flags whole-squad contamination. No lakehouse geometry/identification code — the fix is owned upstream.
+
+**Consequences:** a second SkillCorner **AC-layer recompute** re-materializes `xt_gk` for keepers only (the row count
+scored drops sharply); goal-kick origins stay ≈100% own-box (4.37.0, unchanged); GS/idsse/metrica/sportec remain
+byte-identical (4.38.0 is SkillCorner-only, regression-gated). **Out of scope (tracked follow-up):** Metrica
+(anonymized, no roster) is contaminated the same per-batch way and 4.38.0 does **not** fix it — it needs GK derivation
+run **once per full match**, a separable silly-kicks + lakehouse change; filed, does not block SkillCorner/RM.
