@@ -19,6 +19,7 @@ import io
 import logging
 import os
 import tempfile
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from ingestion.guards import FilterResult, timed_check
@@ -41,49 +42,138 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _select_matches_to_ingest(
+    all_matches: list[MatchInfo],
+    *,
+    ingested_ids: set[str],
+    watermark: datetime | None,
+    max_matches: int | None,
+) -> list[MatchInfo]:
+    """Pure discovery core (unit-tested without Spark) — which matches to ingest.
+
+    A match is wanted if it is **MISSING** (``id`` not in ``ingested_ids`` — never
+    ingested, regardless of ``updated_at``: the "ingest anything missing" contract)
+    OR **MODIFIED** (already ingested but ``updated_at`` is newer than ``watermark``,
+    i.e. an upstream re-issue). The result is deterministically capped to
+    ``max_matches`` — sorted by ``(date, id)`` before truncation so the capped set is
+    reproducible and "next N" walks forward across triggers (the anti-join already
+    excludes ingested matches). ``max_matches is None`` => no cap, order preserved
+    (the scheduled-run path is byte-for-byte unchanged).
+    """
+
+    def _wanted(m: MatchInfo) -> bool:
+        if m.id not in ingested_ids:
+            return True  # MISSING — never ingested (any updated_at)
+        if watermark is not None:
+            mu = m.updated_at if m.updated_at.tzinfo else m.updated_at.replace(tzinfo=timezone.utc)
+            return mu > watermark  # MODIFIED — upstream re-issue since our last ingest
+        return False
+
+    wanted = [m for m in all_matches if _wanted(m)]
+    if max_matches is None:
+        return wanted
+    return sorted(wanted, key=lambda m: (m.date, m.id))[:max_matches]
+
+
 class _SkillcornerGuard:
     workflow_id = "wf-skillcorner"
 
-    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
-        """Discover new/modified SkillCorner matches via API.
+    def __init__(self, *, max_matches: int | None = None) -> None:
+        """Optional cap for a phased / one-off ingest (e.g. the RM-5 probe).
 
-        Queries MAX(_ingested_at) from bronze.skillcorner_events to determine
-        the updatedSince cutoff. Calls the discovery API. Returns match count.
+        ``max_matches`` — ingest at most ``N`` of the discovered matches this run
+        (``None`` = ingest every missing/modified match, the scheduled-run default).
+        Mirrors the action-context ``max_units`` seam. Deterministic + walks forward
+        across triggers because discovery is a missing-anti-join (see ``check``).
+        """
+        self.max_matches = max_matches
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        """Discover SkillCorner matches to ingest: anything MISSING or MODIFIED.
+
+        Full discovery + a client-side anti-join on ``bronze.skillcorner_matches``:
+        a match is ingested if it is (a) MISSING — its ``match_id`` is not yet in
+        bronze, regardless of ``updated_at`` (the "ingest anything missing" contract,
+        which the prior modified-since-only guard did NOT honour — a never-ingested
+        match with an old ``updated_at`` was silently skipped), OR (b) MODIFIED —
+        upstream ``updated_at`` is newer than our last ingest watermark
+        (``MAX(_ingested_at)``), catching upstream re-issues of an ingested match.
+
+        The result is capped by ``max_matches`` (deterministic; see
+        ``_select_matches_to_ingest``). Missing tables => first run => ingest everything.
         """
         import logging as _logging
-        from datetime import datetime, timezone
 
         _guard_logger = _logging.getLogger(__name__)
         token = resolve_pining_token()
 
-        # Determine last ingested timestamp
-        updated_since: str | None = None
+        # Full discovery — every match the owner token can see (public + private).
+        all_matches = fetch_match_list(token, updated_since=None)
+        if not all_matches:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        # Already-ingested ids (anti-join source) + last-ingest watermark (modified test).
+        ingested_ids: set[str] = set()
+        watermark = None
+        with tolerate_missing_table(_guard_logger, "SkillCorner matches table missing -- full ingestion needed"):
+            from pyspark.sql import functions as spark_fn
+
+            ids_row = (
+                spark.table(f"{catalog}.bronze.skillcorner_matches")
+                .select(spark_fn.collect_set("match_id").alias("ids"))
+                .collect()[0]
+            )
+            ingested_ids = {str(x) for x in (ids_row["ids"] or [])}
         with tolerate_missing_table(_guard_logger, "SkillCorner events table missing -- full ingestion needed"):
             from pyspark.sql import functions as spark_fn
 
-            row = (
+            ts_row = (
                 spark.table(f"{catalog}.bronze.skillcorner_events")
                 .select(spark_fn.max("_ingested_at").alias("max_ts"))
                 .collect()[0]
             )
-            if row["max_ts"] is not None:
-                ts: datetime = row["max_ts"]
-                if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=timezone.utc)
-                updated_since = ts.strftime("%Y-%m-%dT%H:%M:%SZ")
+            if ts_row["max_ts"] is not None:
+                watermark = ts_row["max_ts"]
+                if watermark.tzinfo is None:
+                    watermark = watermark.replace(tzinfo=timezone.utc)
 
-        matches = fetch_match_list(token, updated_since=updated_since)
-        if not matches:
+        to_ingest = _select_matches_to_ingest(
+            all_matches,
+            ingested_ids=ingested_ids,
+            watermark=watermark,
+            max_matches=self.max_matches,
+        )
+        if not to_ingest:
             return FilterResult(workflow_id=self.workflow_id, count=0)
 
         return FilterResult(
             workflow_id=self.workflow_id,
-            count=len(matches),
-            metadata={"matches": [m.model_dump() for m in matches]},
+            count=len(to_ingest),
+            metadata={"matches": [m.model_dump() for m in to_ingest]},
         )
 
 
 skip_guard = _SkillcornerGuard()
+
+
+def _parse_max_matches(raw: str | None) -> int | None:
+    """Coerce the optional ``--max-matches`` CLI arg to ``int | None``.
+
+    Arrives as a string: the daily job passes an empty job-parameter value, so
+    ``""`` (and whitespace) coerces to ``None`` = ingest all missing, leaving the
+    scheduled run unchanged. Mirrors action-context's ``_parse_preflight_filters``.
+    Raises ``SystemExit`` on a non-positive / non-integer value.
+    """
+    val = raw.strip() if raw and raw.strip() else None
+    if val is None:
+        return None
+    try:
+        n = int(val)
+    except ValueError:
+        raise SystemExit(f"--max-matches must be a positive integer, got {raw!r}") from None
+    if n <= 0:
+        raise SystemExit(f"--max-matches must be > 0, got {n}")
+    return n
 
 
 def ingest_skillcorner(
@@ -167,7 +257,21 @@ def run_pipeline(
 
 def main() -> None:
     """CLI entry point for SkillCorner data ingestion."""
-    args = parse_ingestion_args("Ingest SkillCorner A-League data into the bronze layer")
+    args = parse_ingestion_args(
+        "Ingest SkillCorner data into the bronze layer",
+        extra_args=[
+            (
+                "--max-matches",
+                {
+                    "default": "",
+                    "help": (
+                        "Cap the number of matches ingested this run (phased rollout — e.g. the RM-5 "
+                        "private-match probe). Empty (the daily-job default) = ingest all missing/modified."
+                    ),
+                },
+            ),
+        ],
+    )
     logger = configure_logging("skillcorner")
     spark = get_spark_session()
 
@@ -175,9 +279,16 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
+    max_matches = _parse_max_matches(getattr(args, "max_matches", None))
+    skillcorner_guard = _SkillcornerGuard(max_matches=max_matches)
+    filter_result = timed_check(skillcorner_guard, spark, args.catalog, args.schema)
 
-    logger.info("Starting SkillCorner ingestion into %s.%s", args.catalog, args.schema)
+    logger.info(
+        "Starting SkillCorner ingestion into %s.%s (max_matches=%s)",
+        args.catalog,
+        args.schema,
+        max_matches if max_matches is not None else "all",
+    )
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
     logger.info("SkillCorner ingestion complete")
 

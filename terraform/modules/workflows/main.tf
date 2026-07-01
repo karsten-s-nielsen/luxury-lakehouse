@@ -81,6 +81,13 @@ resource "databricks_job" "data_ingestion" {
     name    = "max_units"
     default = ""
   }
+  # Run-scoped cap on SkillCorner ingestion (phased private-match rollout, e.g. the RM-5
+  # probe). Empty => ingest all missing/modified matches (the scheduled-run default);
+  # override per run via job_parameters, e.g. {"max_matches":"5"} => ingest_skillcorner --max-matches 5.
+  parameter {
+    name    = "max_matches"
+    default = ""
+  }
 
   # AC-1 ghost-GK backend selection (ADR-035 amendment). The job-parameter default IS the
   # per-installation knob: serverless cannot take per-task env vars via TF, so the installation default
@@ -1064,7 +1071,9 @@ resource "databricks_job" "data_ingestion" {
 
       parameters = [
         "--catalog", var.catalog_name,
-        "--schema", "bronze"
+        "--schema", "bronze",
+        # Phased-rollout cap (RM-5 probe); empty => all missing/modified. See job parameter `max_matches`.
+        "--max-matches", "{{job.parameters.max_matches}}"
       ]
     }
 
