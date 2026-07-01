@@ -15,7 +15,7 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 
-WHEEL_VERSION = "0.5.59"
+WHEEL_VERSION = "0.5.60"
 """Must match the version in pyproject.toml. Enforced by test_wheel_constants.py."""
 
 WHEEL_REPO = "luxury-lakehouse/build-artifacts"

@@ -88,3 +88,42 @@ scored drops sharply); goal-kick origins stay ≈100% own-box (4.37.0, unchanged
 byte-identical (4.38.0 is SkillCorner-only, regression-gated). **Out of scope (tracked follow-up):** Metrica
 (anonymized, no roster) is contaminated the same per-batch way and 4.38.0 does **not** fix it — it needs GK derivation
 run **once per full match**, a separable silly-kicks + lakehouse change; filed, does not block SkillCorner/RM.
+
+## Amendment (2026-07-01): silly-kicks 4.39.0 — goal-kick actor override + mart-level contamination guard
+
+The 4.38.0 recompute exposed a residual: goal-kicks carry a **NULL SPADL taker for all four tracking providers**, so
+the AC chain fills the actor from the ball-carrier at the linked frame — which for a goal-kick is the DOWNFIELD event
+location (the 4.37.0 origin scatter), crediting whichever outfielder is near the ball 14-20 m upfield, **not** the
+keeper. This is the **actor-analog** of the origin scatter (4.37.0 fixed the origin, 4.38.0 the identity, this the
+taker). Cross-provider it spread goal-kick credit across ~53 SkillCorner takers / 86 goal-kicks (idsse ~2.4/match, GS
+~1.0); the keeper cohort lost its goal-kick credit (≈ half a keeper's distribution volume). Must land before the RM
+metric run.
+
+**Decision:** re-pin **==4.39.0** (supersedes 4.38.0; carries the resolver + all prior fixes) with **two** lakehouse
+changes:
+
+1. **Goal-kick actor override** (`analytics.action_context.enrich._override_goalkick_actor_from_frames`). A goal-kick's
+   taker is unambiguously the acting team's keeper, so override the carrier-derived `player_id` with
+   `silly_kicks.tracking.acting_gk_from_frames(actions, frames)` (per-action, roster-identity fallback for the ~40% of
+   goal-kicks where the keeper is undetected at the event frame). **Goal-kicks only** (other restarts have outfielder
+   takers at the event ball — no scatter) and **only where the resolver is non-NaN** (event-only providers keep their
+   real SPADL taker; never blanked). Placed AFTER the whole xt_gk family so it relabels the actor ONLY — values +
+   origins are invariant (they resolve from frame geometry). Sets BOTH `player_id` and `player_id_native` so
+   `build_output`'s native-id restore preserves it. Actor-analog of `_fill_possession_from_set_piece_actions` (PR-S67
+   boundary: silly-kicks is a pure resolver; the lakehouse decides WHEN to apply it).
+
+2. **Mart-level GK-contamination guard** (`fct_action_context`, a defense-in-depth control). The whole-squad
+   contamination is only visible **cross-batch at the mart** (silly-kicks' per-call `n_implausible_gk_teams` guard is
+   per-batch and structurally blind to the ~164-batch union). A `(match, team)` scoring more distinct `xt_gk` players
+   than the `var('xt_gk_max_scored_players_per_team')` bound (=4; clean ≈1-2, contaminated ≈8-17) has its **whole-match
+   xt_gk value family NULLed fail-safe** (cannot tell which flagged player is the real keeper) + a
+   `xt_gk_match_contaminated` flag; provenance/coords retained for audit. Warn-and-exclude, never crash. Catches the
+   contamination class for **every provider + future regression** at the level it is visible, and auto-neutralizes
+   stale Metrica (17/team → excluded, not silently wrong). Daily-live singular test
+   `assert_xt_gk_contamination_bounded` + merge-time SQL-text guard `test_action_context_gk_guard`.
+
+**Consequences:** goal-kick takers per `(match, team)` → ~1 keeper (SkillCorner 5.3 → ~1-2), the keeper cohort regains
+its goal-kick credit, and distinct `xt_gk`-scored players/match drops to ~1-2 (guard passes). Requires a re-recompute
+of the affected tracking providers + a `fct_action_context` rebuild (the new `xt_gk_match_contaminated` contract
+column appends via `on_schema_change`). Open-play passes + xt_gk values/origins unchanged. Metrica converter fix stays
+out of scope — the mart guard makes stale Metrica safe.

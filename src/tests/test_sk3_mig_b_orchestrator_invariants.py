@@ -227,7 +227,7 @@ def _extract_pep723_block(src: str) -> str:
 def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     """No trainer may pin `silly-kicks` in its PEP 723 deps.
 
-    The wheel's ``[spadl]`` extra (silly-kicks>=4.38.0,<5) is the single source
+    The wheel's ``[spadl]`` extra (silly-kicks>=4.39.0,<5) is the single source
     of truth. Trainers install ``luxury-lakehouse[spadl] @ ...wheel`` which
     resolves silly-kicks transitively. uv silently picks a conflicting
     top-level pin over the wheel's transitive pin (verified empirically
@@ -254,7 +254,11 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     )
 
 
-# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 38, 0) ──────────
+# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 39, 0) ──────────
+# Floor advanced 4.38.0 -> 4.39.0 (2026-07-01) for the silly-kicks goal-kick actor
+# resolver (acting_gk_from_frames): credits goal-kicks to the acting keeper via the
+# lakehouse set-piece synthesis override; supersedes 4.38.0 —
+# feat/silly-kicks-4-39-0-goalkick-actor-override.
 # Floor advanced 4.37.0 -> 4.38.0 (2026-07-01) for the silly-kicks SkillCorner
 # GK-identification fix (trust the native roster is_goalkeeper flag; supersedes
 # 4.37.0 — feat/silly-kicks-4-38-0-skillcorner-gk-identification).
@@ -328,11 +332,11 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
 # metrica/skillcorner bronze-frame LTR-orientation helper; ADR-029) plus the 4.21-4.26
 # adoptions already shipped (space-creation lean contract, GS null-actor NaN identifiers,
 # tracking-geometry action-LTR frame unification). See ADR-052 / 4.27.0 adoption.
-# Matches the pyproject [spadl] pin `silly-kicks>=4.38.0,<5`.
+# Matches the pyproject [spadl] pin `silly-kicks>=4.39.0,<5`.
 
 
 def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
-    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 38, 0)`.
+    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 39, 0)`.
 
     Per spec §2.10.5: the runtime check inside `main()` is not directly
     introspectable post-hoc, so we assert the constant. Code review covers
@@ -350,11 +354,11 @@ def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
         if not hasattr(trainer, "_REQUIRED_SK_MIN"):
             missing.append(item)
             continue
-        expected = (4, 38, 0)
+        expected = (4, 39, 0)
         actual = trainer._REQUIRED_SK_MIN
         if actual != expected:
             wrong_value[item] = actual
     assert not missing, (
-        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 38, 0)`: {missing}"
+        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 39, 0)`: {missing}"
     )
-    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 38, 0): {wrong_value}"
+    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 39, 0): {wrong_value}"

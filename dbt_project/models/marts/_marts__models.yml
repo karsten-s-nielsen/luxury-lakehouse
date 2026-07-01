@@ -5341,6 +5341,15 @@ models:
       - name: ghost_gk_method
         data_type: string
         description: "Ghost-GK KDE backend that produced this row's ghost_gk_* values (scopes to ghost_gk_* only; orthogonal to pitch_control_method). NULL on event-only rows."
+      - name: xt_gk_match_contaminated
+        data_type: boolean
+        description: >
+          Mart-level GK-contamination guard flag (2026-07-01 handoff). TRUE where a (match, team)
+          carried more distinct xt_gk-scored players than the var threshold
+          (xt_gk_max_scored_players_per_team) — the whole-squad contamination class that is only
+          visible cross-batch at the mart. On a flagged match the xt_gk VALUE family (xt_gk, the 5
+          presets, base/pev/rav/dzv/pressure, gk_completion) is NULLed fail-safe; provenance/coord
+          columns are retained for audit. FALSE on clean matches and on all event-only rows.
 
   - name: fct_gk_tracking_actions
     config:

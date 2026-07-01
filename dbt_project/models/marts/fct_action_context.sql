@@ -196,6 +196,26 @@ keyed as (
 
 ),
 
+-- Mart-level GK-contamination guard (2026-07-01 handoff). The whole-squad xt_gk
+-- contamination (non-keeper actors scored) is only visible CROSS-BATCH at the mart:
+-- silly-kicks' per-call n_implausible_gk_teams guard runs per 250-frame batch (~1/team
+-- there, silent), but the contamination is the union across ~164 batches. A (match, team)
+-- carrying more distinct xt_gk-scored players than a squad has keepers (one, occasionally
+-- a sub) is contaminated. At the mart we cannot tell which flagged player is the real
+-- keeper, so the whole match is excluded fail-safe (its xt_gk value family NULLed below) —
+-- better to lose a contaminated match than serve silently-wrong keeper metrics. Warn-and-
+-- exclude, never crash (one bad match must not kill the rebuild). Threshold pinned from the
+-- clean recompute via var (clean providers sit ≈1–2/team; contaminated ≈8–17).
+xt_gk_contaminated_matches as (
+
+    select distinct match_key as _contam_match_key
+    from keyed
+    where xt_gk is not null
+    group by match_key, team_key
+    having count(distinct player_key) > {{ var('xt_gk_max_scored_players_per_team', 4) }}
+
+),
+
 final as (
 
     select
@@ -329,17 +349,20 @@ final as (
         shot_fit_rmse,
         shot_fit_end_reason,
         shot_z_profile,
-        xt_gk,
-        xt_gk_possession,
-        xt_gk_counter,
-        xt_gk_direct,
-        xt_gk_high_press,
-        xt_gk_low_block,
-        xt_gk_base,
-        xt_gk_pev,
-        xt_gk_rav,
-        xt_gk_dzv,
-        xt_gk_pressure,
+        -- xt_gk VALUE family: NULLed for guard-flagged contaminated matches (the actor is
+        -- untrustworthy match-wide; the value itself is geometrically fine but must not be
+        -- served as a keeper metric). Provenance/coords below are retained for audit.
+        case when cm._contam_match_key is not null then null else xt_gk end as xt_gk,
+        case when cm._contam_match_key is not null then null else xt_gk_possession end as xt_gk_possession,
+        case when cm._contam_match_key is not null then null else xt_gk_counter end as xt_gk_counter,
+        case when cm._contam_match_key is not null then null else xt_gk_direct end as xt_gk_direct,
+        case when cm._contam_match_key is not null then null else xt_gk_high_press end as xt_gk_high_press,
+        case when cm._contam_match_key is not null then null else xt_gk_low_block end as xt_gk_low_block,
+        case when cm._contam_match_key is not null then null else xt_gk_base end as xt_gk_base,
+        case when cm._contam_match_key is not null then null else xt_gk_pev end as xt_gk_pev,
+        case when cm._contam_match_key is not null then null else xt_gk_rav end as xt_gk_rav,
+        case when cm._contam_match_key is not null then null else xt_gk_dzv end as xt_gk_dzv,
+        case when cm._contam_match_key is not null then null else xt_gk_pressure end as xt_gk_pressure,
         xt_gk_origin_source,
         xt_gk_dest_source,
         xt_gk_origin_confidence,
@@ -349,14 +372,20 @@ final as (
         xt_gk_origin_y,
         xt_gk_dest_x,
         xt_gk_dest_y,
-        gk_completion,
+        case when cm._contam_match_key is not null then null else gk_completion end as gk_completion,
         pitch_control_method,
         ghost_gk_method,
         -- Per-match HF redistribution tier (spec 2026-06-29 §6.4).
-        access_tier
+        access_tier,
+        -- Mart-level GK-contamination guard flag (2026-07-01): true where this match's
+        -- xt_gk value family was excluded (a (match, team) exceeded the scored-players bound).
+        (cm._contam_match_key is not null) as xt_gk_match_contaminated
 
     from keyed
-    -- No QUALIFY needed: staging dedup + single Kimball join = guaranteed unique grain.
+    left join xt_gk_contaminated_matches cm
+        on cm._contam_match_key = keyed.match_key
+    -- Grain unchanged: staging dedup + single Kimball join fix the (match_key, action_id) grain;
+    -- the guard join is a semi-join on DISTINCT contaminated match_key (0-or-1 match), no fan-out.
 
 )
 
