@@ -107,6 +107,11 @@ vars:
   goalkeeper_enabled: true
   # PAUSA/ELASTIC toggle — set to true after running ELASTIC sync + PAUSA pipelines
   pausa_enabled: true
+  # Mart-level GK-contamination guard (fct_action_context, 2026-07-01 handoff): a
+  # (match, team) with MORE distinct xt_gk-scored players than this bound is contaminated
+  # (whole-squad scoring); its xt_gk value family is NULLed fail-safe. Pinned from the clean
+  # recompute — clean providers sit ≈1–2/team, contaminated ≈8–17; 4 = clean_max + margin.
+  xt_gk_max_scored_players_per_team: 4
   progressive_pass_ratio: 0.75       # end distance < 75% of start distance to goal
   pass_direction_threshold: 5        # yards — forward/backward deadband
   # DEPRECATED: frame_duration_seconds is no longer used in fct_tracking_frames.

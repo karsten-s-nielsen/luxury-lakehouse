@@ -176,6 +176,50 @@ def _fill_possession_from_set_piece_actions(
     return out.drop(columns=["_fill_team_id"])
 
 
+def _override_goalkick_actor_from_frames(out: pd.DataFrame, frames: pd.DataFrame) -> pd.DataFrame:
+    """Credit goal-kicks to the acting keeper (silly-kicks 4.39.0 ``acting_gk_from_frames``).
+
+    Goal-kicks carry a NULL SPADL taker for all four tracking providers, so the AC chain fills
+    the actor from the ball-carrier at the linked frame — which for a goal-kick is the DOWNFIELD
+    event location (the 4.37.0 origin scatter), crediting whichever outfielder is near the ball
+    14-20 m upfield rather than the keeper (the actor-analog of the origin scatter: 4.37.0 fixed
+    the origin, 4.38.0 the identity, this the taker). A goal-kick's taker is unambiguously the
+    acting team's keeper, so override the carrier-derived ``player_id`` with the frames-resolved
+    acting GK. The 4.39.0 resolver has a roster-identity fallback, so it fires even on the ~40% of
+    goal-kicks where the keeper is undetected at the event frame.
+
+    Scope is deliberately narrow (mirrors the analysis-side handoff):
+    - **Goal-kicks only.** Other set-piece restarts (throw-in/corner/free-kick) have outfielder
+      takers whose event ball sits *at* the taker — the carrier fill is correct there; do not touch.
+    - **Only where the resolver is non-NaN.** Event-only providers carry a real SPADL taker and have
+      no frames → NaN → never blanked (this path is tracking-only anyway; the gate is defence-in-depth).
+
+    Sets BOTH ``player_id`` and ``player_id_native`` so ``build_output``'s ``_restore_native_identity``
+    (player_id ← player_id_native) preserves the correction. Called AFTER the whole xt_gk family so it
+    relabels the actor ONLY — ``xt_gk`` values + origins are unchanged (the analysis-side invariant;
+    they resolve from frame geometry, not the action's player_id). Lakehouse-owned modeling decision,
+    the actor-analog of ``_fill_possession_from_set_piece_actions`` (PR-S67 boundary: silly-kicks stays
+    a pure resolver; the lakehouse decides WHEN to apply it).
+    """
+    from silly_kicks.spadl.config import actiontypes
+    from silly_kicks.tracking import acting_gk_from_frames
+
+    goalkick_id = actiontypes.index("goalkick")
+    gk_mask = out["type_id"] == goalkick_id
+    if not gk_mask.any():
+        return out
+
+    resolved = acting_gk_from_frames(out, frames)  # index-aligned; dtype = frames' player_id dtype
+    apply_mask = gk_mask & resolved.notna()
+    if not apply_mask.any():
+        return out
+
+    out.loc[apply_mask, "player_id"] = resolved[apply_mask]
+    if "player_id_native" in out.columns:
+        out.loc[apply_mask, "player_id_native"] = resolved[apply_mask]
+    return out
+
+
 def _enrich_tracking_match(
     actions_df: pd.DataFrame,
     tracking_df: pd.DataFrame,
@@ -460,6 +504,12 @@ def _enrich_tracking_match(
     # (shared geometry + scoring path, masked to in-scope GK distributions; NaN out-of-scope).
     # Same explicitly-resolved variant as the preset composites.
     out = add_gk_completion(out, tracking_df, model=_completion, links=links)
+
+    # Step 26b: goal-kick actor override (silly-kicks 4.39.0 acting_gk_from_frames) — credit
+    # goal-kicks to the acting keeper, overriding the carrier-derived NULL-taker fill. Placed
+    # AFTER the xt_gk family so it relabels the actor only (values/origins invariant). See the
+    # helper docstring for scope (goal-kicks only, non-NaN resolver only).
+    out = _override_goalkick_actor_from_frames(out, tracking_df)
 
     # Provenance: the persisted pitch-control-derived metrics on the tracking path use spearman;
     # ghost_gk_method records which KDE backend produced ghost_gk_* (scopes to ghost_gk_* only).
