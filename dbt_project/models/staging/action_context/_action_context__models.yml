@@ -27,15 +27,9 @@ models:
           - accepted_values:
               arguments:
                 values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner', 'gradientsports']
-      - name: game_state
-        description: >
-          Score-relative game state at the moment of the action.
-          Derived from cumulative goals for the acting team vs opponent.
-        data_tests:
-          - not_null
-          - accepted_values:
-              arguments:
-                values: ['winning', 'losing', 'drawing']
+      # game_state removed (ADR-056): actions-level (frame-independent), now served by fct_action_values
+      # — it is no longer emitted by the action-context schema, so the stale not_null/accepted_values
+      # tests were removed here to match (they referenced a dropped column).
       - name: line_breaking_type__ward
         description: >
           Ward line-breaking categorical. Values are "between_lines"
