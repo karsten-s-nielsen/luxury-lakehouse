@@ -78,3 +78,29 @@ When the restricted SkillCorner Real Madrid games approached ingestion, two refi
    (`test_access_tier_visibility_consistency_allowlist.py`). Out of scope by design: a provider **mis-tag** (a private
    row wrongly stamped with an allowlisted `data_source`) — that is upstream ingestion-integrity, not the publish
    guard.
+
+## Amendment — 2026-07-02 (pre-H1 backfill + blocked-public-data guard)
+
+The 2026-06-30 fail-safe-to-restricted default (`split_restricted`: `NULL/unknown → restricted`) is correct for
+*new* data, but it exposed a **latent inverse defect on historical data**: every bronze tracking table
+(`skillcorner_tracking`, `idsse_tracking`, `metrica_tracking`, `gradientsports_tracking`) was populated **before** H1
+added tier stamping to the tracking writers, so every historical row carried `access_tier = NULL`. Fail-safe then
+mislabels that NULL as `restricted` — **withholding public open-data tracking (A-League 9.6M rows, IDSSE 21.9M,
+Metrica 430K) from the public HF datasets**. Fail-safe protects private data by restricting the unknown; it cannot
+know that a *pre-existing* NULL is public. (GS's 270M NULL rows are the one case where fail-safe→restricted is the
+correct outcome, so they are intentionally left NULL.)
+
+Two changes close it:
+
+1. **Data remediation (operator-applied):** `scripts/migrations/2026-07-02-backfill-tracking-access-tier.sql` stamps
+   the historical tracking rows to mirror `classify_access_tier` — skillcorner from its per-match `visibility`,
+   idsse/metrica → `public` (open-data), GS left NULL. Idempotent (`WHERE access_tier IS NULL`); must also be applied
+   to prod bronze, which carries the same pre-H1 NULLs.
+
+2. **Recurrence guard (daily dbt):** `dbt_project/tests/assert_tracking_access_tier_not_blocking_public.sql` — the
+   **blocked-public mirror** of `assert_access_tier_visibility_consistency.sql` (which guards the leak direction).
+   Asserts public tracking rows carry `access_tier='public'` (never NULL/restricted) for the open-data providers +
+   skillcorner public-visibility matches, so a re-ingested/wiped public table left NULL — or a new public-by-license
+   tracking provider ingested without stamping — fails the build. Shares the `public_by_license_providers` var (with a
+   compile-time drift guard). Together the two dbt tests now bound `access_tier` from **both** sides: no public tier
+   without public visibility (leak), and no public data left un-public (block).
