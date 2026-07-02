@@ -6,6 +6,7 @@ SkillCorner match artifacts (events, tracking, match metadata).
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from datetime import datetime
 from urllib.parse import quote, urlencode
@@ -40,6 +41,47 @@ class MatchInfo(pydantic.BaseModel):
             msg = f"MatchInfo.id must be numeric, got {v!r}"
             raise ValueError(msg)
         return v
+
+
+# SkillCorner ships two artifact layouts for the SAME data model (spec
+# 2026-07-02-skillcorner-rm-private-format-ingestion): the public A-League broadcast
+# feed and the private RM full-format feed. They differ ONLY in artifact-key naming +
+# serialization (JSON/CSV/JSONL vs JSON/parquet/gzip-JSON); both normalize into the same
+# bronze schema, so downstream (SPADL/AC) is serialization-blind.
+FMT_ALEAGUE = "aleague"
+FMT_RM = "rm"
+
+
+@dataclasses.dataclass(frozen=True)
+class ArtifactPlan:
+    """Per-match artifact keys + serialization format, resolved from the manifest."""
+
+    fmt: str  # FMT_ALEAGUE | FMT_RM
+    match_key: str  # artifact key for match metadata (parse_match_json)
+    events_key: str  # artifact key for events (CSV for A-League, parquet for RM)
+    tracking_key: str  # artifact key for tracking (JSONL for A-League, gzip-JSON for RM)
+
+
+def resolve_artifact_plan(match: MatchInfo) -> ArtifactPlan:
+    """Resolve artifact keys + format from ``match.artifacts`` — NOT from ``visibility``.
+
+    Format is detected from the actual artifact-key layout (decoupled from tier: a public
+    match could in principle ship either layout, and vice versa). An unrecognized manifest
+    raises loudly (never guess / never silently mis-fetch) — the fail-safe that surfaces a
+    producer-side change, mirroring the pining ``visibility``-vocabulary contract.
+    """
+    keys = set(match.artifacts.keys())
+    mid = match.id
+    if f"{mid}_match" in keys:
+        return ArtifactPlan(FMT_ALEAGUE, f"{mid}_match", f"{mid}_dynamic_events", f"{mid}_tracking_extrapolated")
+    if {"metadata", "events", "tracking"} <= keys:
+        return ArtifactPlan(FMT_RM, "metadata", "events", "tracking")
+    msg = (
+        f"Unrecognized SkillCorner artifact manifest for match {mid!r}: keys={sorted(keys)}. "
+        "Expected A-League ({id}_match / {id}_dynamic_events / {id}_tracking_extrapolated) "
+        "or RM (metadata / events / tracking)."
+    )
+    raise ValueError(msg)
 
 
 def fetch_match_list(

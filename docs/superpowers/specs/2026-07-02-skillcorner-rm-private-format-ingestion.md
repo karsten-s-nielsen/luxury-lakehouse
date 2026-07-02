@@ -86,10 +86,21 @@ from CSV-inference (e.g. a NaN-bearing int → float64 under CSV but Int32 under
 with parquet-native dtypes into the shared `bronze.skillcorner_events` would schema-conflict or land inconsistent
 column types across A-League vs RM rows. So `parse_events_parquet` MUST coerce each column to the **fixed
 `bronze.skillcorner_events` Delta schema** — NOT to "whatever `parse_events_csv` inferred on a given fixture" (review #2:
-CSV inference is file-dependent — a column all-int in one file but NaN-bearing in another infers differently, so the CSV
-output is a *moving* oracle). The **Delta table schema is the stable contract both formats satisfy**: read the target
-table's dtypes and cast the parquet frame to them (the A-League CSV writes already established that schema). The
-294-column NAME set is identical (measured); this closes the TYPE gap. `write_events` untouched.
+CSV inference is file-dependent — a column all-int in one file but NaN-bearing in another infers differently).
+
+**Two-layer coercion (final, review #3):**
+1. **Pure (PR-CI-testable):** `parse_events_parquet` normalizes the parquet frame through the **same `pd.read_csv`
+   inference** the bronze schema was built from — it reads the parquet, writes an in-memory CSV, and delegates to
+   `parse_events_csv`. So its pandas dtypes equal the A-League reader's by construction, and since
+   `spark.createDataFrame` infers the Spark schema from pandas dtypes, the two formats produce ONE Spark schema. This
+   makes the coercion assertable in a pure test (`parse_events_parquet(x).dtypes == parse_events_csv(x).dtypes`) rather
+   than only behind the Spark write. Events are ~6k rows/match, so the round-trip is negligible.
+2. **Authoritative (e2e):** `write_events → _conform_to_bronze_schema` still casts the Spark DF to the **exact live
+   `bronze.skillcorner_events` Delta schema** (both formats; A-League no-op) — the fixed-contract backstop from review #2,
+   verified in the RM-5 e2e. Defense-in-depth if pandas inference ever diverges from the live schema.
+
+The 294-column NAME set is identical (measured); layer 1 closes the TYPE gap with fast coverage, layer 2 guarantees the
+live-schema match.
 
 ### 5.3 tracking — add a gzip-JSON-array reader (memory-aware)
 The A-League path streams the response to a temp file and reads JSONL **line-by-line** (memory-safe). RM tracking is a
@@ -155,9 +166,10 @@ pining owner token ─ MatchInfo.artifacts ─▶ _resolve_artifacts (A-League C
 ## 8. Test plan (pure-first)
 
 1. **`_resolve_artifacts`** unit test: A-League manifest → CSV/JSONL plan; RM manifest → parquet/gz plan; unknown → raises. (Recorded `MatchInfo.artifacts` fixtures for both — already captured in this investigation.)
-2. **`parse_events_parquet`** — a small RM events.parquet fixture → asserts the output **columns AND per-column dtypes**
-   conform to the **fixed `bronze.skillcorner_events` Delta schema** (the stable contract — NOT a CSV fixture, which is a
-   moving oracle; review #2) + `match_id`/`_ingested_at` present. The 294 name-parity is measured; this closes the **dtype** gap.
+2. **`parse_events_parquet`** — synthetic same-data parquet+CSV fixtures → asserts **columns AND per-column dtypes** are
+   equal to `parse_events_csv`'s output (the pure proxy for the Spark-schema outcome; review #3), with a deliberately
+   drift-prone `Int32` column so the test exercises the coercion (Int32 → int64), not a no-op + `match_id` present. The
+   exact-live-Delta-schema conformance (`_conform_to_bronze_schema`) is verified in the RM-5 e2e (needs Spark).
 3. **tracking gz-array reader** — a trimmed RM tracking.json.gz fixture → asserts the narrow rows match `parse_tracking_jsonl`'s shape for the same frames (shared `_frame_to_rows`).
 4. **`frame_rate` derivation** — synthetic per-period timestamp sequences: asserts `1/median(Δt)` **snaps** to the nearest
    allowed rate within ±5% (e.g. 0.04004 s steps → 25.0), that a metadata-vs-derived disagreement beyond tolerance

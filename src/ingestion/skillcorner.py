@@ -23,10 +23,17 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from ingestion.guards import FilterResult, timed_check
-from ingestion.skillcorner_common import MatchInfo, fetch_artifact, fetch_match_list, resolve_pining_token
-from ingestion.skillcorner_events import parse_events_csv, write_events
+from ingestion.skillcorner_common import (
+    FMT_RM,
+    MatchInfo,
+    fetch_artifact,
+    fetch_match_list,
+    resolve_artifact_plan,
+    resolve_pining_token,
+)
+from ingestion.skillcorner_events import parse_events_csv, parse_events_parquet, write_events
 from ingestion.skillcorner_matches import parse_match_json, write_matches
-from ingestion.skillcorner_tracking import parse_tracking_jsonl, write_tracking
+from ingestion.skillcorner_tracking import parse_tracking_gz, parse_tracking_jsonl, write_tracking
 from ingestion.utils import (
     configure_logging,
     get_spark_session,
@@ -192,36 +199,48 @@ def ingest_skillcorner(
 
     for i, match in enumerate(matches):
         mid = match.id
+        # Resolve artifact keys + serialization format from the manifest (A-League CSV/JSONL
+        # vs RM parquet/gzip-JSON). Both normalize into the SAME bronze schema — downstream
+        # is serialization-blind. Raises loud on an unrecognized manifest (never mis-fetch).
+        plan = resolve_artifact_plan(match)
         logger.info(
-            "Processing SkillCorner match %s (%d/%d): %s vs %s",
+            "Processing SkillCorner match %s (%d/%d, fmt=%s): %s vs %s",
             mid,
             i + 1,
             len(matches),
+            plan.fmt,
             match.home,
             match.away,
         )
 
-        # 1. Match metadata (needed by SPADL conversion)
-        match_resp = fetch_artifact(mid, f"{mid}_match", token)
+        # 1. Match metadata (JSON both formats; needed by SPADL conversion)
+        match_resp = fetch_artifact(mid, plan.match_key, token)
         match_df = parse_match_json(match_resp.text, match_id=mid, visibility=match.visibility)
         write_matches(spark, match_df, catalog, schema, mid, logger)
         logger.info("Wrote %d roster rows for match %s", len(match_df), mid)
 
-        # 2. Events (needed by SPADL conversion)
-        events_resp = fetch_artifact(mid, f"{mid}_dynamic_events", token)
-        events_df = parse_events_csv(io.StringIO(events_resp.text), match_id=mid)
+        # 2. Events (A-League CSV | RM parquet) — SAME 294-column schema
+        events_resp = fetch_artifact(mid, plan.events_key, token)
+        if plan.fmt == FMT_RM:
+            events_df = parse_events_parquet(events_resp.content, match_id=mid)
+        else:
+            events_df = parse_events_csv(io.StringIO(events_resp.text), match_id=mid)
         write_events(spark, events_df, catalog, schema, mid, logger)
         logger.info("Wrote %d event rows for match %s", len(events_df), mid)
 
-        # 3. Tracking (JSONL -- stream to temp file to avoid holding full response in memory)
-        tracking_resp = fetch_artifact(mid, f"{mid}_tracking_extrapolated", token, stream=True)
-        with tempfile.NamedTemporaryFile(mode="wb", suffix=".jsonl", delete=False) as tmp:
+        # 3. Tracking (A-League JSONL | RM gzip-JSON) — stream to temp file to bound download memory
+        suffix = ".json.gz" if plan.fmt == FMT_RM else ".jsonl"
+        tracking_resp = fetch_artifact(mid, plan.tracking_key, token, stream=True)
+        with tempfile.NamedTemporaryFile(mode="wb", suffix=suffix, delete=False) as tmp:
             for chunk in tracking_resp.iter_content(chunk_size=8192):
                 tmp.write(chunk)
             tmp_path = tmp.name
 
         try:
-            tracking_df = parse_tracking_jsonl(tmp_path, match_id=mid)
+            if plan.fmt == FMT_RM:
+                tracking_df = parse_tracking_gz(tmp_path, match_id=mid)
+            else:
+                tracking_df = parse_tracking_jsonl(tmp_path, match_id=mid)
             write_tracking(spark, tracking_df, catalog, schema, mid, logger)
             logger.info("Wrote %d tracking rows for match %s", len(tracking_df), mid)
         finally:
