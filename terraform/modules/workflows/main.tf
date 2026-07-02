@@ -10,7 +10,8 @@
 #   wyscout           — Match events and player attributes
 #   idsse             — Bundesliga DFL tracking (25fps, 7 matches from UC Volume)
 #   idsse_events      — Bundesliga DFL event XML (7 matches, depends on idsse)
-#   skillcorner       — A-League broadcast tracking (10fps, 10 matches via kloppy)
+#   skillcorner       — SkillCorner tracking via pining API: public A-League broadcast (10fps, CSV/JSONL)
+#                       + private RM full-format (parquet/gzip); serialization auto-detected per match
 #   backfill_statsbomb_extra — Backfill _raw_extra_json for GK sub-types (depends on statsbomb)
 #   compute_spadl_vaep — SPADL conversion + VAEP scoring (depends on backfill_extra + wyscout)
 #   compute_xg_model_v2 — v2 Deep Sets + MC dropout xG (depends on SPADL/VAEP; v1 retired SK3-MIG-B)
