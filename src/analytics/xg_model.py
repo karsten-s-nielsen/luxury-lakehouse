@@ -15,6 +15,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import math
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -41,9 +42,16 @@ _NUMERIC_FEATURES = [
     "end_location_y",
     "period",
     "minute",
+    "set_cardinality",
 ]
 _BOOLEAN_FEATURES = ["is_first_time"]
 _BASELINE_FEATURES = ["distance_to_goal", "shot_angle"]
+
+# Canonical SPADL pitch geometry (105x68 m). Goal centred at (105, 34);
+# goal width 7.32 m per the Laws of the Game.
+_SPADL_GOAL_X = 105.0
+_SPADL_GOAL_Y = 34.0
+_SPADL_GOAL_HALF_WIDTH = 7.32 / 2.0
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -131,6 +139,23 @@ def build_features(
         y = pd.Series(np.zeros(len(df)), dtype=int)
 
     return x, y
+
+
+def spadl_shot_geometry(x: float, y: float) -> tuple[float, float]:
+    """Distance-to-goal (m) and subtended shot angle (rad) in canonical SPADL 105x68.
+
+    The subtended angle is the angle of the goal mouth as seen from the shot
+    location, computed via the law of cosines on the triangle formed by the
+    shot point and the two goal posts. A central shot subtends a wide angle;
+    an acute shot from the byline subtends ~0.
+    """
+    dx = _SPADL_GOAL_X - x
+    dist = math.hypot(dx, _SPADL_GOAL_Y - y)
+    post_a = math.hypot(dx, (_SPADL_GOAL_Y - _SPADL_GOAL_HALF_WIDTH) - y)
+    post_b = math.hypot(dx, (_SPADL_GOAL_Y + _SPADL_GOAL_HALF_WIDTH) - y)
+    goal_w = 2 * _SPADL_GOAL_HALF_WIDTH
+    cos_ang = (post_a**2 + post_b**2 - goal_w**2) / (2 * post_a * post_b + 1e-12)
+    return dist, float(math.acos(max(-1.0, min(1.0, cos_ang))))
 
 
 # ---------------------------------------------------------------------------

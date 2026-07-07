@@ -40,7 +40,16 @@ keyed as (
 with_outcome as (
     select
         k.*,
-        av.action_result
+        av.action_result,
+        -- game_state (winning/losing/drawing, from running score) and gk_was_distributing
+        -- (GVM distribution flag, ADR-056) are VAEP-stream attributes — their canonical home
+        -- is fct_action_values, NOT the action-context feature stream (ac.*). Sourced here
+        -- explicitly so the mart no longer depends on the AC schema incidentally carrying
+        -- them (it doesn't — that orphaned the final-select references and broke --full-refresh;
+        -- the daily incremental masked it). Verified: game_state + gk_was_distributing are the
+        -- ONLY av-sourced columns beyond action_result; all 43 others resolve from ac.*.
+        av.game_state,
+        av.gk_was_distributing
     from keyed k
     left join {{ ref('fct_action_values') }} av
         on av.match_key = k.match_key and av.action_id = k.action_id

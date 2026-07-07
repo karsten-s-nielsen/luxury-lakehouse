@@ -104,3 +104,27 @@ Two changes close it:
    tracking provider ingested without stamping — fails the build. Shares the `public_by_license_providers` var (with a
    compile-time drift guard). Together the two dbt tests now bound `access_tier` from **both** sides: no public tier
    without public visibility (leak), and no public data left un-public (block).
+
+## Amendment — 2026-07-06 (event/action-fact backfill + guard on the published gold fact)
+
+The 2026-07-02 guard covers the **bronze tracking** sources but explicitly excludes the **event providers**
+(statsbomb/wyscout are event-only, no tracking). That left the **published gold fact `fct_action_values`** — the table
+`publish_spadl_vaep_hf.py` actually `split_restricted`s — unguarded. `bronze.spadl_actions` / `bronze.vaep_action_values`
+carry the correct per-match `access_tier` for every provider, but the gold mart carried it only on rows built *after* the
+`av.access_tier` passthrough existed; the old event-provider rows (statsbomb 7.06M, wyscout 2.45M, idsse, metrica, GS)
+were never re-derived (incremental-skip) and sat `access_tier = NULL`. A full-split republish then fail-safed those NULLs
+→ restricted, **routing the public open data into the private companion repo and sweeping the public dataset** (no leak —
+the public repo held zero restricted data — but the open data was withheld).
+
+Two changes close it, mirroring the 2026-07-02 pair:
+
+1. **Data remediation (operator-applied):** `scripts/migrations/2026-07-06-backfill-fct-action-values-access-tier.sql` —
+   `MERGE ... WHEN MATCHED AND access_tier IS NULL THEN UPDATE SET access_tier = dim_matches.access_tier` (dim_matches is
+   the authoritative per-match tier). Idempotent (`access_tier IS NULL`); must also be applied to prod gold.
+
+2. **Recurrence guard (daily dbt):** `dbt_project/tests/assert_action_values_access_tier_not_blocking_public.sql` — the
+   event-fact sibling of the tracking guard, over `fct_action_values` (the published fact, not just bronze). Asserts every
+   public-by-license provider row (statsbomb/wyscout/idsse/metrica) + public-visibility skillcorner carries
+   `access_tier='public'` (never NULL/restricted), so a stale-NULL gold fact fails the build **before** any publish can
+   mis-route. Shares the `public_by_license_providers` var + compile-time drift guard. `access_tier` is now bounded from
+   both sides on **both** the bronze sources AND the published gold fact.
