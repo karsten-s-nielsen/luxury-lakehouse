@@ -22,6 +22,9 @@ from analytics.action_context.sb360_snapshots import build_sb360_snapshots
 from analytics.action_context.tracking_snapshots import _shot_type_id, build_tracking_snapshots
 
 _NON_SHOT_TYPE_ID = -1  # sentinel that is never the canonical 'shot' type_id
+# Red-herring value the converted frame carries in its own team_attacking_direction column; it must
+# NEVER appear in the output (the meta-derived ltr/rtl wins). If it does, the merge-collision fix broke.
+_FRAME_DIR_SENTINEL = "frame_dir_DROP_ME"
 
 
 def _shot_row(team_id: str = "1") -> pd.DataFrame:
@@ -40,12 +43,50 @@ def _shot_row(team_id: str = "1") -> pd.DataFrame:
 
 
 def _frames() -> pd.DataFrame:
-    # one frame linked to action_id 7; frame team_id is the native string id (matches action team_id)
+    # Models the AC-converted frame shape (sk_frame_adapters / silly-kicks builder output): native
+    # string team_id, plus the builder's OWN per-frame ``team_attacking_direction`` (a RED HERRING —
+    # the freeze-frame builder must use its home/away-DERIVED value, not the frame's, and must not
+    # KeyError on the merge collision) and other passthrough columns the real frame emits. The
+    # sentinel value would be visible in the output if the frame's column ever leaked (live GS/SC
+    # 2026-07-07 regression).
     return pd.DataFrame(
         [
-            {"action_id": 7, "player_id": "a", "team_id": "1", "is_goalkeeper": False, "x": 95.0, "y": 40.0},
-            {"action_id": 7, "player_id": "b", "team_id": "2", "is_goalkeeper": True, "x": 105.0, "y": 34.0},
-            {"action_id": 7, "player_id": "c", "team_id": "2", "is_goalkeeper": False, "x": 90.0, "y": 20.0},
+            {
+                "action_id": 7,
+                "player_id": "a",
+                "team_id": "1",
+                "is_goalkeeper": False,
+                "x": 95.0,
+                "y": 40.0,
+                "team_attacking_direction": _FRAME_DIR_SENTINEL,
+                "period_id": 1,
+                "frame_id": 500,
+                "game_id": 42,
+            },
+            {
+                "action_id": 7,
+                "player_id": "b",
+                "team_id": "2",
+                "is_goalkeeper": True,
+                "x": 105.0,
+                "y": 34.0,
+                "team_attacking_direction": _FRAME_DIR_SENTINEL,
+                "period_id": 1,
+                "frame_id": 500,
+                "game_id": 42,
+            },
+            {
+                "action_id": 7,
+                "player_id": "c",
+                "team_id": "2",
+                "is_goalkeeper": False,
+                "x": 90.0,
+                "y": 20.0,
+                "team_attacking_direction": _FRAME_DIR_SENTINEL,
+                "period_id": 1,
+                "frame_id": 500,
+                "game_id": 42,
+            },
         ]
     )
 
@@ -80,6 +121,21 @@ def test_orientation_home_shooter_attacks_high_x() -> None:
     snaps = build_tracking_snapshots(_shot_row(team_id="1"), _frames(), home_team_id="1")
     assert bool(snaps.shooter_attacks_high_x.iloc[0]) is True
     assert snaps.team_attacking_direction.iloc[0] == "ltr"
+
+
+def test_frame_team_attacking_direction_does_not_shadow_meta() -> None:
+    """Live GS/SC 2026-07-07 regression: the AC-converted frame carries its OWN per-frame
+    ``team_attacking_direction``; ``fr.merge(meta, on="action_id")`` suffixed the collision so
+    ``fr["team_attacking_direction"]`` KeyError'd. The builder must (1) not raise, and (2) emit the
+    home/away-DERIVED value, NOT the frame's red-herring value.
+    """
+    frames = _frames()
+    assert (frames["team_attacking_direction"] == _FRAME_DIR_SENTINEL).all()  # frame's own column present
+    snaps = build_tracking_snapshots(_shot_row(team_id="1"), frames, home_team_id="1")  # home shooter -> ltr
+    assert len(snaps) == 3  # did not raise / drop rows on the collision
+    # meta wins: output uses the derived 'ltr', never the frame's injected sentinel.
+    assert (snaps.team_attacking_direction == "ltr").all()
+    assert _FRAME_DIR_SENTINEL not in set(snaps.team_attacking_direction.astype("string"))
 
 
 def test_orientation_away_shooter_attacks_low_x() -> None:
