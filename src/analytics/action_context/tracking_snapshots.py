@@ -204,6 +204,16 @@ def build_tracking_snapshots(
     fr = frames.copy()
     if "is_ball" in fr.columns:
         fr = fr[~fr["is_ball"].fillna(False).astype(bool)]
+    # The AC-converted frame carries its OWN copies of some meta-owned columns — notably a per-frame
+    # ``team_attacking_direction`` emitted by the silly-kicks / sk_frame_adapters builder. The
+    # freeze-frame builder OWNS the derived/meta values, so drop any frame column that ``meta`` also
+    # provides (except the ``action_id`` join key) BEFORE the merge. Otherwise pandas suffixes the
+    # collision (``team_attacking_direction_x``/``_y``) and ``fr["team_attacking_direction"]`` no
+    # longer resolves → KeyError (live GS/SC 2026-07-07). Derived FROM ``meta.columns`` so the guard
+    # can never drift as ``meta`` gains keys, and covers ALL such collisions, not just today's.
+    _meta_owned = [c for c in meta.columns if c != "action_id" and c in fr.columns]
+    if _meta_owned:
+        fr = fr.drop(columns=_meta_owned)
     fr = fr.merge(meta, on="action_id", how="inner")  # drops unlinked frames / non-shot actions
     if fr.empty:
         return pd.DataFrame(columns=_SNAPSHOT_COLUMNS)
