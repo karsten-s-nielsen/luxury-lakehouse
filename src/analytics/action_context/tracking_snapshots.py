@@ -105,6 +105,13 @@ _SHOT_FF_TYPES: dict[str, str] = {
 _HIGH_X_DIRECTION = "ltr"  # home team (attacks high x) in the home-LTR frame
 _LOW_X_DIRECTION = "rtl"  # away team (attacks low x)
 
+# Max |action_time - frame_time| (seconds) for a valid shot<->freeze-frame link. MIRRORS the default
+# of ``silly_kicks.tracking.link_actions_to_frames`` (``tolerance_seconds=0.2``) that the builder
+# relied on before we swapped to our own strictly-pre-shot ``merge_asof(direction="backward")`` — a
+# PRESERVED CONTRACT, not a magic number. A shot with no pre-shot frame within this bound is left
+# unlinked (dropped → zero-context downstream), never given a stale/post-shot frame.
+_FREEZE_FRAME_TOLERANCE_SECONDS = 0.2
+
 
 def _shot_type_id() -> int:
     """The canonical SPADL ``shot`` ``type_id`` from silly-kicks' authoritative ``actiontypes`` list.
@@ -241,6 +248,80 @@ def build_tracking_snapshots(
     return out.reset_index(drop=True)
 
 
+def _select_preshot_frame_per_action(shots: pd.DataFrame, frame_index: pd.DataFrame) -> pd.DataFrame:
+    """Pick the STRICTLY PRE-SHOT tracking frame per shot: the LAST frame at-or-before the shot's
+    event time. Returns exactly one ``(action_id, period_id, frame_id)`` per action.
+
+    A freeze frame must be the tracking instant just BEFORE the shot — a post-shot frame already
+    contains the ball's flight / players reacting. We do our own per-period ``merge_asof(
+    direction="backward", tolerance=_FREEZE_FRAME_TOLERANCE_SECONDS)`` (``time_offset_seconds =
+    action_time - frame_time`` in ``[0, tolerance]`` = the last frame at-or-before the shot AND
+    within the bound). We cannot delegate this to ``silly_kicks.tracking.link_actions_to_frames``:
+    it hard-codes ``direction="nearest"`` and returns only the single nearest frame, so a post-shot
+    frame that is marginally nearer would be all we'd get back and the pre-shot frame could not be
+    recovered downstream.
+
+    NO FALLBACK: a shot with NO pre-shot frame within the tolerance (all candidates are after it, or
+    the last one before is beyond ``_FREEZE_FRAME_TOLERANCE_SECONDS``) is simply ABSENT from the
+    output — it becomes a zero-context shot downstream, exactly what ``link_actions_to_frames`` did
+    by leaving it unlinked. We never substitute a post-shot or stale frame.
+
+    Parameters
+    ----------
+    shots : pd.DataFrame
+        Shot actions with ``action_id``, ``period_id``, ``time_seconds`` (period-relative clock).
+        Duplicate ``action_id`` rows are de-duplicated to the first.
+    frame_index : pd.DataFrame
+        Distinct ``(period_id, frame_id, frame_time)`` for the match's converted frames.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns ``action_id``, ``period_id``, ``frame_id`` — at most one row per action (shots with
+        no in-tolerance pre-shot frame are dropped). Pure / unit-testable (plain ``pd.merge_asof``).
+    """
+    cols = ["action_id", "period_id", "frame_id"]
+    if shots.empty or frame_index.empty:
+        return pd.DataFrame(columns=cols)
+
+    shots_u = (
+        shots[["action_id", "period_id", "time_seconds"]]
+        .dropna(subset=["time_seconds"])
+        .drop_duplicates("action_id")
+        .sort_values("time_seconds", kind="mergesort")
+        .reset_index(drop=True)
+    )
+    fidx = (
+        frame_index[["period_id", "frame_id", "frame_time"]]
+        .dropna(subset=["frame_time", "frame_id"])
+        .drop_duplicates(["period_id", "frame_id"])
+        .sort_values("frame_time", kind="mergesort")
+        .reset_index(drop=True)
+    )
+    if shots_u.empty or fidx.empty:
+        return pd.DataFrame(columns=cols)
+    fid_dtype = fidx["frame_id"].dtype
+
+    # Last frame AT-OR-BEFORE the shot AND within the tolerance (time_offset in [0, tolerance]), per
+    # period. ``tolerance`` restores the bound the replaced ``link_actions_to_frames`` provided; an
+    # out-of-tolerance shot gets NaN frame_id → dropped below (NO nearest/stale fallback).
+    backward = pd.merge_asof(
+        shots_u,
+        fidx,
+        left_on="time_seconds",
+        right_on="frame_time",
+        by="period_id",
+        direction="backward",
+        tolerance=_FREEZE_FRAME_TOLERANCE_SECONDS,  # type: ignore[arg-type]  # numeric-on-column accepts float; pandas-stubs limitation
+    )
+
+    out = backward.dropna(subset=["frame_id"]).copy()
+    if out.empty:
+        return pd.DataFrame(columns=cols)
+    out["frame_id"] = out["frame_id"].astype(fid_dtype)  # merge_asof can upcast to float on partial NaN
+    return out[cols].reset_index(drop=True)
+
+
 def build_tracking_snapshots_spark(
     actions_df: pd.DataFrame,
     tracking_df: pd.DataFrame,
@@ -263,28 +344,42 @@ def build_tracking_snapshots_spark(
     ``team_id``, ``is_goalkeeper``, ``is_ball``, ``x``, ``y``, ...). ``home_team_id`` (frame-compatible)
     drives ``shooter_attacks_high_x`` and is threaded to the pandas core.
 
-    Mirrors ``enrich.py``'s Step 1: ``link_actions_to_frames(out, tracking_df, on_low_coverage=
-    "ignore")`` returns ``links`` with columns ``(action_id, frame_id, ...)`` (no ``period_id`` — we
-    pull it from the action, exactly as ``_fill_possession_from_set_piece_actions`` does).
-    """
-    from silly_kicks.tracking import link_actions_to_frames
+    LINKAGE: we do NOT use ``silly_kicks.tracking.link_actions_to_frames`` here — it hard-codes
+    ``direction="nearest"`` and a freeze frame must be STRICTLY PRE-SHOT (the last tracking frame at
+    or before the shot; a post-shot frame already shows the ball's flight). We run our own per-period
+    ``merge_asof(direction="backward")`` via :func:`_select_preshot_frame_per_action`.
 
+    INVARIANT: the output has exactly ONE row per ``(action_id, player_id)`` (a shot's freeze frame is
+    a single tracking instant, one row per on-pitch player; ``set_cardinality`` ~20-24, never a
+    multiple). Enforced by FIX 1 (one PRE-SHOT frame per shot) + FIX 2 (dedup player rows in frame).
+    """
     # bronze.spadl_actions carries ``type_id`` (canonical SPADL int), NOT ``type_name``.
     shots = actions_df[actions_df["type_id"] == _shot_type_id()] if "type_id" in actions_df.columns else actions_df
     if shots.empty or tracking_df.empty:
         return pd.DataFrame(columns=_SNAPSHOT_COLUMNS)
+    if "time_seconds" not in shots.columns or "time_seconds" not in tracking_df.columns:
+        return pd.DataFrame(columns=_SNAPSHOT_COLUMNS)  # time base required for pre-shot linkage
 
-    links, _report = link_actions_to_frames(shots, tracking_df, on_low_coverage="ignore")
-    if links is None or links.empty:
+    # ── FIX 1: exactly ONE STRICTLY PRE-SHOT frame per shot (the freeze-frame instant) ──
+    # Pick the last frame at-or-before each shot (nearest fallback for the no-prior-frame edge).
+    # Without one-frame-per-shot, a shot linked to k frames would merge the full player set k times
+    # -> k*(frame size) rows (the live full-cohort fan-out: SC shots at 22/44/66/... = 1/2/3 frames).
+    frame_index = tracking_df[["period_id", "frame_id", "time_seconds"]].rename(columns={"time_seconds": "frame_time"})
+    best = _select_preshot_frame_per_action(shots, frame_index)  # (action_id, period_id, frame_id), one per action
+    if best.empty:
         return pd.DataFrame(columns=_SNAPSHOT_COLUMNS)
 
-    # links: (action_id, frame_id, ...). Pull period_id from the action (links carries none) and
-    # join to the per-player frame rows on the full (period_id, frame_id) key — frame_id can repeat
-    # across periods, so period_id disambiguates (matches enrich.py's set-piece merge key).
-    keyed = links[["action_id", "frame_id"]].merge(shots[["action_id", "period_id"]], on="action_id", how="inner")
-    linked_frames = keyed.merge(tracking_df, on=["frame_id", "period_id"], how="inner")
+    # Join to the per-player frame rows on the full (period_id, frame_id) key — frame_id can repeat
+    # across periods, so period_id disambiguates. ``best`` already carries exactly one row per action.
+    linked_frames = best.merge(tracking_df, on=["frame_id", "period_id"], how="inner")
     if linked_frames.empty:
         return pd.DataFrame(columns=_SNAPSHOT_COLUMNS)
+
+    # ── FIX 2: dedup player rows WITHIN the chosen frame ──
+    # GradientSports ships up to 16 content-divergent copies of a single (period, frame) (ADR-030),
+    # and any duplicated (frame_id, period_id) in tracking_df would otherwise contribute each player
+    # k times. Keep one row per (period_id, frame_id, player_id) — belt-and-suspenders with FIX 1.
+    linked_frames = linked_frames.drop_duplicates(["period_id", "frame_id", "player_id"], keep="first")
 
     return build_tracking_snapshots(shots, linked_frames, home_team_id=home_team_id)
 

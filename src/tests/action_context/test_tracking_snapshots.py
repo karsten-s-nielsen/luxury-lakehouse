@@ -19,7 +19,12 @@ from __future__ import annotations
 import pandas as pd
 
 from analytics.action_context.sb360_snapshots import build_sb360_snapshots
-from analytics.action_context.tracking_snapshots import _shot_type_id, build_tracking_snapshots
+from analytics.action_context.tracking_snapshots import (
+    _select_preshot_frame_per_action,
+    _shot_type_id,
+    build_tracking_snapshots,
+    build_tracking_snapshots_spark,
+)
 
 _NON_SHOT_TYPE_ID = -1  # sentinel that is never the canonical 'shot' type_id
 # Red-herring value the converted frame carries in its own team_attacking_direction column; it must
@@ -211,3 +216,140 @@ def test_actor_inclusion_matches_sb360_convention() -> None:
     trk_out = build_tracking_snapshots(_shot_row(team_id="1"), _frames(), home_team_id="1")
     assert len(trk_out) == 3
     assert "a" in set(trk_out.player_id)  # the acting player 'a' is present — matches sb360
+
+
+# ── ONE strictly-PRE-SHOT frame per shot + intra-frame player dedup (2026-07-07 full-cohort) ─────
+# Live full-cohort backfill: rows-per-shot were exact multiples of the ~22 frame size (SC shots at
+# 22/44/66/...; GS one at 374 = 17x22). A freeze frame must be ONE tracking instant per shot — the
+# STRICTLY PRE-SHOT frame (last frame at-or-before the shot) — exactly one row per (action_id,
+# player_id). FIX 1 = pre-shot merge_asof(backward); FIX 2 = dedup player rows within the frame.
+
+
+def _timed_shot(time_seconds: float = 10.0, team_id: str = "1") -> pd.DataFrame:
+    # A shot action with time_seconds (linkage is by time), skillcorner-shaped.
+    return pd.DataFrame(
+        [
+            {
+                "action_id": 7,
+                "match_key": 100,
+                "team_id": team_id,
+                "type_id": _shot_type_id(),
+                "period_id": 1,
+                "data_source": "skillcorner",
+                "time_seconds": time_seconds,
+            }
+        ]
+    )
+
+
+def _frame_players(frame_id: int, t: float, *, xa: float = 95.0) -> pd.DataFrame:
+    # One frame at time t with a 4-player on-pitch set (2 per team, one GK). ``xa`` marks the frame:
+    # player 'a' carries a frame-specific x so a test can tell WHICH frame the builder selected.
+    rows = [
+        {"player_id": "a", "team_id": "1", "is_goalkeeper": False, "x": xa, "y": 40.0},
+        {"player_id": "b", "team_id": "2", "is_goalkeeper": True, "x": 105.0, "y": 34.0},
+        {"player_id": "c", "team_id": "2", "is_goalkeeper": False, "x": 90.0, "y": 20.0},
+        {"player_id": "d", "team_id": "1", "is_goalkeeper": False, "x": 80.0, "y": 30.0},
+    ]
+    for r in rows:
+        r.update(frame_id=frame_id, period_id=1, time_seconds=t, is_ball=False)
+    return pd.DataFrame(rows)
+
+
+def _frame_index(*frames: pd.DataFrame) -> pd.DataFrame:
+    trk = pd.concat(frames, ignore_index=True)
+    return trk[["period_id", "frame_id", "time_seconds"]].rename(columns={"time_seconds": "frame_time"})
+
+
+def test_select_preshot_frame_picks_last_at_or_before_shot() -> None:
+    # shot at 10.06; PRE frame 500 @10.00 (offset +0.06), POST frame 501 @10.10 (offset -0.04, NEARER).
+    # Strictly-pre-shot must pick 500 (the last frame <= the shot), NOT the marginally-nearer post one.
+    shots = _timed_shot(10.06)
+    fidx = _frame_index(_frame_players(500, 10.00), _frame_players(501, 10.10))
+    best = _select_preshot_frame_per_action(shots, fidx)
+    assert len(best) == 1
+    assert int(best["frame_id"].iloc[0]) == 500  # pre-shot wins over nearer post-shot
+
+
+def test_select_preshot_frame_picks_latest_of_several_before() -> None:
+    # 3 pre-shot frames; shot after all of them -> the LAST (highest time <= shot) is chosen.
+    shots = _timed_shot(10.30)
+    fidx = _frame_index(_frame_players(500, 10.00), _frame_players(501, 10.10), _frame_players(502, 10.20))
+    best = _select_preshot_frame_per_action(shots, fidx)
+    assert len(best) == 1
+    assert int(best["frame_id"].iloc[0]) == 502  # last frame before the shot
+
+
+def test_select_preshot_frame_dropped_when_only_post_shot_frames() -> None:
+    # No frame at-or-before the shot (all candidates AFTER) -> DROPPED (no nearest/post-shot fallback).
+    shots = _timed_shot(9.0)
+    fidx = _frame_index(_frame_players(500, 10.00), _frame_players(501, 10.10))
+    best = _select_preshot_frame_per_action(shots, fidx)
+    assert best.empty  # zero-context shot: never substitute a post-shot frame
+
+
+def test_select_preshot_frame_dropped_when_only_stale_before() -> None:
+    # The only at-or-before frame is 0.5s before the shot — beyond the 0.2s tolerance -> DROPPED.
+    shots = _timed_shot(10.50)
+    fidx = _frame_index(_frame_players(500, 10.00))  # offset 0.50 > _FREEZE_FRAME_TOLERANCE_SECONDS
+    best = _select_preshot_frame_per_action(shots, fidx)
+    assert best.empty  # never given a stale frame
+
+
+def test_select_preshot_frame_kept_when_fresh_before() -> None:
+    # A fresh pre-shot frame 0.05s before the shot (within 0.2s tolerance) -> kept.
+    shots = _timed_shot(10.05)
+    fidx = _frame_index(_frame_players(500, 10.00))  # offset 0.05 <= tolerance
+    best = _select_preshot_frame_per_action(shots, fidx)
+    assert len(best) == 1
+    assert int(best["frame_id"].iloc[0]) == 500
+
+
+def test_spark_selects_preshot_frame_over_nearer_post_shot() -> None:
+    """Semantic end-to-end: the emitted player set comes from the PRE-SHOT frame, even though the
+    post-shot frame is marginally nearer in time."""
+    tracking = pd.concat(
+        [_frame_players(500, 10.00, xa=95.0), _frame_players(501, 10.10, xa=50.0)],  # pre xa=95, post xa=50
+        ignore_index=True,
+    )
+    out = build_tracking_snapshots_spark(_timed_shot(10.06), tracking, home_team_id="1")  # nearer post = 501
+    assert len(out) == 4  # one frame's player set
+    assert out.groupby(["action_id", "player_id"]).size().max() == 1
+    # player 'a' x is 95.0 (the PRE-SHOT frame 500), NOT 50.0 (the nearer post-shot frame 501).
+    assert float(out[out.player_id == "a"]["x"].iloc[0]) == 95.0
+
+
+def test_spark_dedups_duplicated_frame_players() -> None:
+    """FIX 2: a GS-style 16x content-divergent duplicate of one (period, frame) must contribute each
+    player ONCE — not 16x. Reproduces the 374 = 17x22 live GS case in miniature."""
+    frame = _frame_players(500, 10.0)
+    copies = [frame.assign(x=frame["x"] + k * 0.01) for k in range(16)]  # content-divergent, same identity
+    tracking = pd.concat(copies, ignore_index=True)
+    assert len(tracking) == 64  # 4 players x 16 copies
+
+    out = build_tracking_snapshots_spark(_timed_shot(10.0), tracking, home_team_id="1")
+    assert len(out) == 4  # each player ONCE (NOT 64)
+    assert out.groupby(["action_id", "player_id"]).size().max() == 1  # the invariant
+    assert int(out["set_cardinality"].iloc[0]) == 4  # on-pitch count, not a multiple
+
+
+def test_spark_one_frame_per_shot_with_many_preshot_frames() -> None:
+    """FIX 1: with several candidate frames before the shot, exactly ONE (the last pre-shot) frame's
+    player set is emitted — not k*(frame size)."""
+    tracking = pd.concat(
+        [_frame_players(500, 10.00), _frame_players(501, 10.10), _frame_players(502, 10.20)],
+        ignore_index=True,
+    )
+    out = build_tracking_snapshots_spark(_timed_shot(10.30), tracking, home_team_id="1")
+    assert len(out) == 4  # ONE frame's player set (NOT 3x4 = 12)
+    assert out.groupby(["action_id", "player_id"]).size().max() == 1  # the invariant
+    assert int(out["set_cardinality"].iloc[0]) == 4
+
+
+def test_spark_duplicate_action_id_does_not_refan() -> None:
+    """A duplicate shot row (same action_id) must not multiply the output — one player set per shot."""
+    shots = pd.concat([_timed_shot(10.05), _timed_shot(10.05)], ignore_index=True)  # action_id 7 twice
+    tracking = _frame_players(500, 10.00)  # 0.05s before -> within tolerance
+    out = build_tracking_snapshots_spark(shots, tracking, home_team_id="1")
+    assert len(out) == 4
+    assert out.groupby(["action_id", "player_id"]).size().max() == 1
