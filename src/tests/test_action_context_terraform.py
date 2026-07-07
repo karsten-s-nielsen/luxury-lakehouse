@@ -42,3 +42,18 @@ def test_terraform_preflight_passes_job_run_id() -> None:
     text = _tf()
     block = text[text.index('task_key        = "preflight_action_context"') :][:1800]
     assert '"--run-id", "{{job.run_id}}"' in block
+
+
+def test_terraform_shot_freeze_frames_task_wiring() -> None:
+    """Task 0.5: the compute_shot_freeze_frames task is registered with the right entry point,
+    dependencies (spadl + dim_matches + tracking ingests), and environment."""
+    text = _tf()
+    assert 'task_key        = "compute_shot_freeze_frames"' in text
+    block = text[text.index('task_key        = "compute_shot_freeze_frames"') :][:1400]
+    assert 'entry_point  = "compute_shot_freeze_frames"' in block
+    assert 'environment_key = "analytics"' in block
+    # bronze.spadl_actions (shots) + gold dim_matches (match_key) + the tracking bronze producers.
+    assert 'task_key = "compute_spadl_vaep"' in block
+    assert 'task_key = "dbt_build_input_marts"' in block
+    for ingest in ("ingest_gradientsports", "ingest_skillcorner", "ingest_idsse", "ingest_metrica"):
+        assert f'task_key = "{ingest}"' in block

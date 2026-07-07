@@ -96,32 +96,63 @@ _SHOT_FF_TYPES: dict[str, str] = {
     "team_attacking_direction": "string",
 }
 
-# team_attacking_direction -> does the shooting team attack the HIGH-x goal in the canonical
-# home-LTR frame. "ltr" = attacks toward x=105 (high), "rtl" = toward x=0 (low). Anything else
-# (missing / unexpected) leaves the orientation undecided (NA) for the feature-build step to handle.
-_HIGH_X_DIRECTION = "ltr"
-_LOW_X_DIRECTION = "rtl"
+# shooter_attacks_high_x -> does the shooting team attack the HIGH-x goal in the canonical
+# home-LTR frame. In home-LTR the HOME team attacks toward x=105 (high); the away team toward
+# x=0 (low). We DERIVE the flag from (shooter_team_id == home_team_id) — NOT from any
+# ``team_attacking_direction`` input column (that column does not exist on bronze.spadl_actions;
+# reading it silently produced an all-NA orientation, 2026-07-07 live finding). The output
+# ``team_attacking_direction`` string is then derived FROM the flag for provenance.
+_HIGH_X_DIRECTION = "ltr"  # home team (attacks high x) in the home-LTR frame
+_LOW_X_DIRECTION = "rtl"  # away team (attacks low x)
 
 
-def _derive_shooter_attacks_high_x(direction: pd.Series) -> pd.Series:
-    """Map a per-shot ``team_attacking_direction`` string to a nullable-boolean high-x flag."""
-    norm = direction.astype("string").str.lower()
-    out = pd.Series(pd.NA, index=direction.index, dtype="boolean")
-    out[norm == _HIGH_X_DIRECTION] = True
-    out[norm == _LOW_X_DIRECTION] = False
+def _shot_type_id() -> int:
+    """The canonical SPADL ``shot`` ``type_id`` from silly-kicks' authoritative ``actiontypes`` list.
+
+    Drift-safe (mirrors ``enrich._set_piece_restart_type_ids``): the NAME ``"shot"`` is the source of
+    truth; the id follows the canonical list. Lazy import — silly-kicks is heavyweight. Used to filter
+    shot actions by ``type_id`` (bronze.spadl_actions has ``type_id``, NOT ``type_name``).
+    """
+    from silly_kicks.spadl.config import actiontypes
+
+    return list(actiontypes).index("shot")
+
+
+def _derive_shooter_attacks_high_x(shooter_team_id: pd.Series, home_team_id: str | None) -> pd.Series:
+    """Nullable-boolean high-x flag: ``True`` iff the shooter's team is the HOME team.
+
+    In the canonical home-LTR frame the home team attacks the high-x goal. ``shooter_team_id`` and
+    ``home_team_id`` MUST both be in the frame-compatible (native) id space — the caller applies the
+    ``_resolve_enrichment_identity`` mutate contract before calling. Returns ``NA`` for rows whose
+    ``shooter_team_id`` is missing, and all-``NA`` when ``home_team_id`` is unknown (never guesses).
+    """
+    out = pd.Series(pd.NA, index=shooter_team_id.index, dtype="boolean")
+    if home_team_id is None:
+        return out
+    home = str(home_team_id)
+    known = shooter_team_id.notna()
+    out[known] = shooter_team_id[known].astype("string") == home
     return out
 
 
-def build_tracking_snapshots(shot_actions: pd.DataFrame, frames: pd.DataFrame) -> pd.DataFrame:
+def build_tracking_snapshots(
+    shot_actions: pd.DataFrame, frames: pd.DataFrame, *, home_team_id: str | None = None
+) -> pd.DataFrame:
     """Build per-player pre-shot snapshot rows for tracking-provider shots.
 
     Parameters
     ----------
     shot_actions : pd.DataFrame
         Shot actions in canonical SPADL. Required columns: ``action_id``, ``match_key``,
-        ``team_id`` (the shooter's team), ``data_source``. Optional: ``type_name`` (used to
-        defensively filter to shots when present) and ``team_attacking_direction`` (per-shot
-        shooter orientation, used to derive ``shooter_attacks_high_x``).
+        ``team_id`` (the shooter's team, in the FRAME-COMPATIBLE native id space), ``data_source``.
+        Optional: ``type_id`` (canonical SPADL int; used to defensively filter to ``shot`` actions
+        when present — bronze.spadl_actions has ``type_id``, NOT ``type_name``).
+
+        IDENTITY CONTRACT: ``team_id`` MUST be in the same id space as the frames' ``team_id`` — the
+        caller applies the AC pipeline's ``_resolve_enrichment_identity`` mutate contract first
+        (native strings for idsse/skillcorner/gradientsports, ``"Home"``/``"Away"`` for metrica).
+        A hashed BIGINT ``team_id`` (the raw bronze value) will NOT match the native frame ids and
+        makes ``is_teammate`` resolve all-zero (2026-07-07 live finding).
     frames : pd.DataFrame
         Player rows ALREADY linked to their shot's ``action_id`` (the Spark path performs the
         silly-kicks ``link_actions_to_frames`` linkage upstream; the unit tests supply pre-linked
@@ -129,38 +160,44 @@ def build_tracking_snapshots(shot_actions: pd.DataFrame, frames: pd.DataFrame) -
         ``is_goalkeeper``, ``x``, ``y``. A ``is_ball`` column, if present, is used to drop the ball
         row (full player set only — NO visibility filter). Coordinates are canonical home-LTR
         SPADL 105x68 and are passed through unchanged.
+    home_team_id : str | None
+        The HOME team's id in the frame-compatible space (from ``MatchMeta.home_team_id`` /
+        ``convert_to_frames``). ``shooter_attacks_high_x`` is derived as
+        ``(shooter_team_id == home_team_id)`` — home attacks the high-x goal in the home-LTR frame.
+        ``None`` leaves ``shooter_attacks_high_x`` NA (never guesses).
 
     Returns
     -------
     pd.DataFrame
         One row per (shot, player) with columns ``_SNAPSHOT_COLUMNS``. ``is_keeper`` /
         ``is_teammate`` are 0/1 ints; ``set_cardinality`` is the player count in that shot's frame;
-        ``shooter_attacks_high_x`` is a nullable boolean.
+        ``shooter_attacks_high_x`` is a nullable boolean and ``team_attacking_direction`` is its
+        ``"ltr"``/``"rtl"`` provenance string (derived from the flag, NA when the flag is NA).
     """
     if shot_actions.empty or frames.empty:
         return pd.DataFrame(columns=_SNAPSHOT_COLUMNS)
 
     shots = shot_actions
-    if "type_name" in shots.columns:
-        shots = shots[shots["type_name"].astype("string").str.lower() == "shot"]
+    if "type_id" in shots.columns:
+        shots = shots[shots["type_id"] == _shot_type_id()]
     if shots.empty:
         return pd.DataFrame(columns=_SNAPSHOT_COLUMNS)
 
-    # Per-shot metadata carried onto every player row. ``team_id`` is the SHOOTER's team; rename it
-    # so it does not collide with the frame's per-player ``team_id`` in the merge.
-    direction = (
-        shots["team_attacking_direction"]
-        if "team_attacking_direction" in shots.columns
-        else pd.Series(pd.NA, index=shots.index, dtype="string")
-    )
+    # Per-shot metadata carried onto every player row. ``team_id`` is the SHOOTER's team (in the
+    # frame-compatible id space per the IDENTITY CONTRACT above); rename it so it does not collide
+    # with the frame's per-player ``team_id`` in the merge. Orientation is derived from home/away,
+    # and the provenance ``team_attacking_direction`` string follows the derived flag.
+    shooter_team = shots["team_id"].astype("string")
+    shooter_attacks_high_x = _derive_shooter_attacks_high_x(shooter_team, home_team_id)
+    direction = shooter_attacks_high_x.map({True: _HIGH_X_DIRECTION, False: _LOW_X_DIRECTION}).astype("string")
     meta = pd.DataFrame(
         {
             "action_id": shots["action_id"].to_numpy(),
             "match_key": shots["match_key"].to_numpy(),
             "data_source": shots["data_source"].to_numpy(),
-            "shooter_team_id": shots["team_id"].astype("string").to_numpy(),
-            "team_attacking_direction": direction.astype("string").to_numpy(),
-            "shooter_attacks_high_x": _derive_shooter_attacks_high_x(direction).to_numpy(),
+            "shooter_team_id": shooter_team.to_numpy(),
+            "team_attacking_direction": direction.to_numpy(),
+            "shooter_attacks_high_x": shooter_attacks_high_x.to_numpy(),
         }
     ).drop_duplicates("action_id", keep="last")
 
@@ -198,20 +235,23 @@ def build_tracking_snapshots_spark(
     actions_df: pd.DataFrame,
     tracking_df: pd.DataFrame,
     *,
-    shot_type_name: str = "shot",
+    home_team_id: str | None = None,
 ) -> pd.DataFrame:
     """Per-match integration wrapper: link shot actions to frames, then run the pandas core.
 
-    This is the entry the Spark cogroup UDF (Task 0.5's writer) calls once per ``(match, period)``
-    work unit. It is NOT run in the local unit tests (no Spark / live data); its correctness is
-    covered by the pipeline e2e. It stays thin: linkage -> attach ``action_id`` to the frame player
-    rows -> delegate to :func:`build_tracking_snapshots`.
+    This is the entry the driver (Task 0.5's writer) calls once per ``(match, period)`` work unit.
+    It is NOT run in the local unit tests (no Spark / live data); its correctness is covered by the
+    pipeline e2e. It stays thin: linkage -> attach ``action_id`` to the frame player rows ->
+    delegate to :func:`build_tracking_snapshots`.
 
     ``actions_df`` is the canonical-SPADL action frame for the match (must carry ``action_id``,
-    ``match_key``, ``team_id``, ``data_source``, ``type_name``, ``period_id`` and, ideally,
-    ``team_attacking_direction``). ``tracking_df`` is the home-LTR AC result-frame set for the match
+    ``match_key``, ``team_id``, ``data_source``, ``type_id``, ``period_id``). Its ``team_id`` MUST
+    already be in the frame-compatible native id space — the caller applies
+    ``_resolve_enrichment_identity`` before calling (see :func:`build_tracking_snapshots`' IDENTITY
+    CONTRACT). ``tracking_df`` is the home-LTR AC result-frame set for the match
     (``sk_frame_adapters`` / silly-kicks builder output: ``frame_id``, ``period_id``, ``player_id``,
-    ``team_id``, ``is_goalkeeper``, ``is_ball``, ``x``, ``y``, ...).
+    ``team_id``, ``is_goalkeeper``, ``is_ball``, ``x``, ``y``, ...). ``home_team_id`` (frame-compatible)
+    drives ``shooter_attacks_high_x`` and is threaded to the pandas core.
 
     Mirrors ``enrich.py``'s Step 1: ``link_actions_to_frames(out, tracking_df, on_low_coverage=
     "ignore")`` returns ``links`` with columns ``(action_id, frame_id, ...)`` (no ``period_id`` — we
@@ -219,7 +259,8 @@ def build_tracking_snapshots_spark(
     """
     from silly_kicks.tracking import link_actions_to_frames
 
-    shots = actions_df[actions_df["type_name"].astype("string").str.lower() == shot_type_name.lower()]
+    # bronze.spadl_actions carries ``type_id`` (canonical SPADL int), NOT ``type_name``.
+    shots = actions_df[actions_df["type_id"] == _shot_type_id()] if "type_id" in actions_df.columns else actions_df
     if shots.empty or tracking_df.empty:
         return pd.DataFrame(columns=_SNAPSHOT_COLUMNS)
 
@@ -235,7 +276,7 @@ def build_tracking_snapshots_spark(
     if linked_frames.empty:
         return pd.DataFrame(columns=_SNAPSHOT_COLUMNS)
 
-    return build_tracking_snapshots(shots, linked_frames)
+    return build_tracking_snapshots(shots, linked_frames, home_team_id=home_team_id)
 
 
 def _shot_ff_struct_type() -> StructType:

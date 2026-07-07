@@ -269,7 +269,9 @@ def test_data_ingestion_parser_count_anchor() -> None:
     # + `ingest_gradientsports_iteration` (inner). Net +1 top-level block.
     # 38 → 39 (ADR-058, 2026-06-17): added `compute_action_context_statsbomb` (statsbomb sb360
     # exits the per-match drain into a single distributed cogroup job).
-    assert len(task_keys) == 40, f"expected 40 task blocks on data_ingestion, parser found {len(task_keys)}"
+    # 40 → 41 (canonical-SPADL pre-shot xG Task 0.5, 2026-07-07): added `compute_shot_freeze_frames`
+    # (populates bronze.shot_freeze_frames for the tracking providers).
+    assert len(task_keys) == 41, f"expected 41 task blocks on data_ingestion, parser found {len(task_keys)}"
 
 
 if __name__ == "__main__":

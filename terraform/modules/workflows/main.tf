@@ -610,6 +610,63 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
+  # ── Task: Compute pre-shot tracking freeze frames ──────────────────────
+  # Canonical-SPADL pre-shot xG (Task 0.5): converts each tracking shot's linked frames to
+  # canonical home-LTR AC frames (reusing analytics.action_context._convert_tracking_batch) and
+  # writes the per-(shot, player) set to bronze.shot_freeze_frames (replaceWhere per match_key).
+  # Reads bronze.spadl_actions (compute_spadl_vaep), the raw tracking bronze (tracking ingests),
+  # and gold dim_matches (dbt_build_input_marts — the match_key surrogate; ADR-013). Incremental
+  # by default; a --match-ids "provider:id,.." backfill overrides discovery.
+  #
+  # INTERIM SCOPE — GradientSports + SkillCorner only (--providers below): the current driver-side
+  # per-(match,period) conversion risks OOM on IDSSE's ~1.5M-row periods and lacks M13 boundary
+  # de-dup. IDSSE/Metrica onboard with a distributed SINK rewrite (per-(match,period) work-queue in
+  # action_context_queue + a compute_shot_freeze_frames_drain_worker entry point, mirroring
+  # compute_action_context) that moves conversion onto executors + amortizes cold-start. See the
+  # module docstring of src/ingestion/shot_freeze_frames.py + wf-shot-freeze-frames.yaml.
+  task {
+    task_key        = "compute_shot_freeze_frames"
+    timeout_seconds = 3600
+    max_retries     = 0
+
+    depends_on {
+      task_key = "compute_spadl_vaep"
+    }
+    depends_on {
+      task_key = "dbt_build_input_marts"
+    }
+    depends_on {
+      task_key = "ingest_gradientsports"
+    }
+    depends_on {
+      task_key = "ingest_idsse"
+    }
+    depends_on {
+      task_key = "ingest_idsse_events"
+    }
+    depends_on {
+      task_key = "ingest_metrica"
+    }
+    depends_on {
+      task_key = "ingest_skillcorner"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_shot_freeze_frames"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+        # INTERIM SCOPE (self-documenting; matches the driver default): GS + SkillCorner only.
+        # idsse/metrica await the distributed-sink rewrite — see the task comment above.
+        "--providers", "gradientsports,skillcorner",
+      ]
+    }
+
+    environment_key = "analytics"
+  }
+
   # ── Task: Compute SPADL actions and VAEP scores (for_each_task fan-out) ──
   # Each iteration processes one chunk: converts a single provider's matches
   # to SPADL (scoped to chunk match_ids only), then scores with VAEP.
