@@ -10,7 +10,8 @@
         where not exists (
             select 1 from {{ ref('fct_gk_tracking_actions') }} a
             where a.match_key = t.match_key
-              and (a.player_key = t.gk_player_key or a.defending_gk_player_key = t.gk_player_key)
+              and ((a.player_key = t.gk_player_key and a.xt_gk is not null)
+                   or a.defending_gk_player_key = t.gk_player_key)
         )
     """
 ) }}
@@ -27,8 +28,13 @@
 --
 -- ORPHAN SWEEP (review R2): merge never deletes — without the post_hook above, a
 -- (gk, match) row whose underlying actions disappear (AC wipe + selective recompute) lingers
--- with stale values and trips the reconciliation test. The anti-join is exact and cheap at this
--- grain. The ACTIONS mart's orphan policy is operator-driven (ADR-051 Operations note).
+-- with stale values and trips the reconciliation test. The keep-condition MUST mirror this
+-- mart's SOURCE GRAIN — a row exists only if the GK is a current DISTRIBUTOR (xt_gk-not-null
+-- actor, the `distribution` CTE grain) OR a current DEFENDER (`defense` CTE grain). A looser
+-- `a.player_key = t.gk_player_key` (ANY actor) kept GKs who are merely non-distribution actors,
+-- so their stale n_distributions (from a prior build) survived the merge and failed
+-- reconciliation across ALL tracking providers (2026-07-06 fix). The ACTIONS mart's orphan
+-- policy is operator-driven (ADR-051 Operations note).
 
 with actions as (
     select * from {{ ref('fct_gk_tracking_actions') }}

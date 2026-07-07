@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.5.63"
+version = "0.5.64"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -319,6 +319,7 @@ exclude = [
     "scripts/train_xg_model_hf.py",
     "scripts/train_xg_v2_hf.py",
     "scripts/train_xg_v2_hf_helpers.py",
+    "scripts/train_xg_v3_hf.py",
     "src/evolve/targets/*/seed_programs",
     "src/evolve/targets/*/seed_programs_stage2",
 ]

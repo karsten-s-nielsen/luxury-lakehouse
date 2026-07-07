@@ -17,6 +17,16 @@ governance:
   eu_ai_act: not-high-risk-under-current-posture
   annex_iii_category: "4 (Employment) — conditional if deployed for employment decisions"
   reference: AI_GOVERNANCE.md
+  model_artifact: xg_model_v3
+  coordinate_contract: "canonical SPADL 105x68 (goal at 105,34; width 7.32m; freeze frames normalized /105, /68)"
+  notes: >-
+    m4 decoupling: the governance card is evolved in place as wf-xg-v2 (no
+    governance-inventory churn) while the retrained MLflow artifact is
+    xg_model_v3 (canonical-SPADL-native, all-provider). The card name
+    identifies the governed system; the artifact version identifies the
+    trained weights. Tracking cohorts scored context-aware vs tabular-only
+    under a per-provider discrimination gate + per-provider Platt calibration
+    + ood_flag. See AI_GOVERNANCE.md §5 (System 1 scope note).
 
 references:
   - citation: "Zaheer et al. (2017). Deep Sets. NeurIPS."
@@ -35,20 +45,27 @@ outputs:
     - id: "luxury-lakehouse/xg-v2-model-set-encoder"
       destination: huggingface
       format: json-base64
-    - id: "xg_model_v2@Champion"
+    - id: "xg_model_v3@Champion"
       destination: mlflow-registry
-    - id: "/Volumes/{catalog}/dev_gold/model_weights/xg_model_v2/model_weights.json"
+      notes: "m4: artifact is xg_model_v3 (SPADL-native retrain); governance card stays wf-xg-v2."
+    - id: "/Volumes/{catalog}/dev_gold/model_weights/xg_model_v3/model_weights.json"
       destination: uc-volume
       format: json-base64
       notes: "SHA-256 sidecar .sha256 written by train_xg_v2_hf.py for SEC2 integrity verification"
   tables:
     - id: "{catalog}.bronze.xg_predictions_v2"
       destination: delta-table
-      description: "Raw v2 xG predictions written by the scoring pipeline."
+      description: "Raw pre-shot xG predictions written by the scoring pipeline (per-provider mode + ood_flag)."
     - id: "{catalog}.{gold_schema}.fct_xg_predictions_v2"
       destination: delta-table
       dbt_model: "fct_xg_predictions_v2"
-      description: "Contract-enforced gold mart; Kimball keys resolved via JOIN fct_shots per ADR-013."
+      description: >-
+        Contract-enforced canonical-SPADL pre-shot xG gold mart; Kimball keys
+        resolved via JOIN fct_shots per ADR-013. Being renamed to `fct_shot_xg`
+        as part of the canonical-SPADL pre-shot xG unification (ADR-066); the
+        `dbt_model` field stays `fct_xg_predictions_v2` until the mart-rename
+        task lands the `fct_shot_xg.sql` model (workflow-card parity test
+        requires the referenced .sql to exist on disk).
 
 execution:
   training:

@@ -18,13 +18,15 @@ pipeline_tag: tabular-classification
 
 # xG v2 &mdash; Context-Aware Expected Goals with Freeze-Frame Set Encoding
 
-Context-aware expected goals (xG) model that conditions on the visible player positions at the moment of each shot. Trained on **~131K shots** from [StatsBomb Open Data](https://github.com/statsbomb/open-data) and [Wyscout](https://figshare.com/collections/Soccer_match_event_dataset/4415000). Includes MC dropout uncertainty quantification &mdash; every prediction comes with a 95% confidence interval.
+Context-aware expected goals (xG) model that conditions on the visible player positions at the moment of each shot. Trained canonical-**SPADL-native** on shots from all six providers in the platform &mdash; [StatsBomb Open Data](https://github.com/statsbomb/open-data), [Wyscout](https://figshare.com/collections/Soccer_match_event_dataset/4415000), IDSSE (Bundesliga), Metrica Sports, SkillCorner, and GradientSports &mdash; including the tracking cohorts' freeze frames. Includes MC dropout uncertainty quantification &mdash; every prediction comes with a 95% confidence interval.
 
 Part of the (Right! Luxury!) Lakehouse soccer analytics platform.
 
+> **Naming note (m4 decoupling).** The governance workflow card stays `wf-xg-v2` (evolve-in-place, no governance-inventory churn) while the underlying MLflow model artifact is now **`xg_model_v3`** &mdash; the SPADL-native, all-provider retrain. The workflow-card **name** (`wf-xg-v2`) and the model-artifact **version** (`xg_model_v3`) are intentionally decoupled: "v2" identifies the governed system (the Deep Sets freeze-frame architecture); "v3" identifies the specific trained weights.
+
 ## Model Description
 
-Standard xG models treat each shot in isolation: distance, angle, body part, and a handful of tabular features. xG v2 adds **spatial context** by encoding the positions of all visible players from StatsBomb 360 freeze frames into a fixed-length context vector using a Deep Sets architecture (Zaheer et al. 2017).
+Standard xG models treat each shot in isolation: distance, angle, body part, and a handful of tabular features. xG v2 adds **spatial context** by encoding the positions of all visible players &mdash; from StatsBomb 360 freeze frames and from the tracking cohorts' shot-instant frames (IDSSE, Metrica, SkillCorner, GradientSports) &mdash; into a fixed-length context vector using a Deep Sets architecture (Zaheer et al. 2017). All geometry is expressed in canonical SPADL coordinates (105&times;68 m), so every provider's freeze frame normalizes identically.
 
 The model answers the question: *given where the shooter is, where the defenders are, and where the goalkeeper is, what is the probability this shot results in a goal?*
 
@@ -90,15 +92,22 @@ Each prediction returns a 4-tuple: `(mean, std, ci_lower, ci_upper)`.
 
 ## Training Data
 
-| Source | Shots | License |
-|--------|-------|---------|
-| [StatsBomb Open Data](https://github.com/statsbomb/open-data) | ~75K | CC-BY 4.0 |
-| [Wyscout Public Dataset](https://figshare.com/collections/Soccer_match_event_dataset/4415000) | ~56K | CC-BY-NC 4.0 |
-| **Total** | **~131K** | CC-BY-NC 4.0 (most restrictive applies) |
+The v3 retrain is **canonical-SPADL-native and all-provider**. Shots are drawn from all six providers in the platform; the tracking cohorts additionally contribute shot-instant freeze frames.
 
-Freeze-frame coverage comes from StatsBomb 360 data: approximately 15.58M freeze-frame rows across 323 matches, embedded inline within the events JSON (`shot_freeze_frame` field). Wyscout shots contribute tabular features only &mdash; no freeze frames.
+| Source | Freeze frames? | License |
+|--------|----------------|---------|
+| [StatsBomb Open Data](https://github.com/statsbomb/open-data) | Yes (StatsBomb 360) | CC-BY 4.0 |
+| [Wyscout Public Dataset](https://figshare.com/collections/Soccer_match_event_dataset/4415000) | No (tabular only) | CC-BY-NC 4.0 |
+| IDSSE (Bundesliga) | Yes (tracking) | Open data |
+| Metrica Sports | Yes (tracking) | Open data |
+| SkillCorner | Yes (tracking) | Restricted / private cohort |
+| GradientSports | Yes (tracking) | Restricted / private cohort |
 
-Coverage includes the Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Champions League, World Cup, and more.
+Freeze-frame coverage for StatsBomb comes from StatsBomb 360 data (approximately 15.58M freeze-frame rows across 323 matches, embedded inline within the events JSON `shot_freeze_frame` field). For the tracking cohorts (IDSSE, Metrica, SkillCorner, GradientSports) the freeze frame is the shot-instant tracking snapshot, converted to canonical SPADL geometry. Wyscout shots contribute tabular features only &mdash; no freeze frames, so they score in tabular-only mode (see *Per-Provider Calibration & Two-Mode Scoring*).
+
+Coverage includes the Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Champions League, World Cup, the A-League, and more.
+
+> **Restricted cohorts.** SkillCorner and GradientSports are private/restricted providers. Their rows carry `access_tier = restricted` and are never published to public HuggingFace repos (per ADR-049 / ADR-064). Public model artifacts and datasets reflect open-licensed providers only; the restricted cohorts contribute to training and scoring but not to public redistribution.
 
 Training is performed on [Hugging Face Jobs](https://huggingface.co/docs/hub/jobs) using PyTorch. Inference uses the pure NumPy forward pass exported from the trained weights.
 
@@ -110,10 +119,10 @@ These features are the same as the v1 XGBoost baseline:
 
 | Feature | Type | Description |
 |---------|------|-------------|
-| `distance_to_goal` | Numeric | Euclidean distance from shot location to goal center (yards) |
-| `shot_angle` | Numeric | Angle subtended by the goal from the shot location (radians) |
-| `location_x` | Numeric | Shot x-coordinate (StatsBomb: 0&ndash;120) |
-| `location_y` | Numeric | Shot y-coordinate (StatsBomb: 0&ndash;80) |
+| `distance_to_goal` | Numeric | Euclidean distance from shot location to goal center (SPADL metres) |
+| `shot_angle` | Numeric | Angle subtended by the goal (7.32 m width) from the shot location (radians) |
+| `location_x` | Numeric | Shot x-coordinate (SPADL: 0&ndash;105) |
+| `location_y` | Numeric | Shot y-coordinate (SPADL: 0&ndash;68) |
 | `end_location_x` | Numeric | Intended x-coordinate of shot trajectory |
 | `end_location_y` | Numeric | Intended y-coordinate of shot trajectory |
 | `period` | Numeric | Match period (1&ndash;5) |
@@ -128,8 +137,8 @@ These features are the same as the v1 XGBoost baseline:
 
 | Feature | Type | Description |
 |---------|------|-------------|
-| `x_norm` | Float \[0, 1\] | Player x-position normalized from StatsBomb 120m pitch |
-| `y_norm` | Float \[0, 1\] | Player y-position normalized from StatsBomb 80m pitch |
+| `x_norm` | Float \[0, 1\] | Player x-position normalized from the SPADL 105 m pitch (`x / 105`) |
+| `y_norm` | Float \[0, 1\] | Player y-position normalized from the SPADL 68 m pitch (`y / 68`) |
 | `is_keeper` | Binary | 1 if this player is the goalkeeper, 0 otherwise |
 | `is_teammate` | Binary | 1 if this player is on the shooter's team, 0 for opponent |
 
@@ -137,41 +146,55 @@ Player identity is never used. The set encoder sees only spatial position and ro
 
 ## Performance
 
-| Model | ROC-AUC | Brier Score | Log Loss |
-|-------|---------|-------------|----------|
+> **v3 OOS metrics are PENDING the SPADL-native, all-provider retrain, which has not yet been run.** The numbers below are placeholders. They will be refreshed &mdash; along with the `model-index` block in the YAML frontmatter &mdash; when the `xg_model_v3` Champion is registered from the live retrain. The v2 numbers previously shown here have been withdrawn to avoid misrepresenting v3: v3 changes the coordinate contract (SPADL-native), the provider mix (all six), and the calibration scheme (per-provider Platt), so v2's single split-by-competition metrics no longer describe the shipped model.
+
+| Model | Overall ROC-AUC | Brier Score | Log Loss |
+|-------|-----------------|-------------|----------|
 | v1 XGBoost + Isotonic Calibration (13 features) | 0.825 | 0.057 | 1.212 |
-| v2 Set Encoder (raw, pre-calibration) | 0.901 | 0.061 | &mdash; |
-| **v2 Set Encoder + Isotonic Calibration + MC Dropout** | **0.915** | **0.060** | **0.200** |
+| **v3 Set Encoder (SPADL-native, all-provider) + per-provider Platt + MC Dropout** | **PENDING** | **PENDING** | **PENDING** |
 
-ROC-AUC improved by **+0.090** over the v1 XGBoost baseline (0.825 &rarr; 0.915) &mdash; a large gain in discrimination for xG models, where +0.02 is typically meaningful. Isotonic calibration closed the Brier score gap to 0.003 while reducing log loss sixfold (1.212 &rarr; 0.200). MC dropout 95% CI coverage: **95.1%** (properly calibrated).
+Per-provider OOS discrimination (ROC-AUC context-aware vs tabular-only), per-provider Platt calibration curves, and MC-dropout CI coverage are all **PENDING** and will be populated from the retrain's held-out evaluation. The v1 baseline row is retained for reference only.
 
-**Training**: 153 seconds on HF Jobs A10G-small. MC dropout z-multiplier: 4.2, inference dropout rate: 0.30 (3&times; training dropout of 0.10).
-
-**Evaluation protocol**: 80/20 train/test split by competition. Metrics computed on held-out test set.
+**Evaluation protocol**: held-out split with a per-provider discrimination gate relative to StatsBomb (see *Per-Provider Calibration & Two-Mode Scoring*). Full protocol metrics pending the retrain.
 
 ## Coordinate System
 
-All spatial features use the **StatsBomb coordinate system**:
+As of the v3 (SPADL-native) retrain, all spatial features use the **canonical SPADL coordinate system**:
 
-- Pitch dimensions: 120 yards (length) &times; 80 yards (width)
+- Pitch dimensions: 105 m (length) &times; 68 m (width)
 - Origin: bottom-left corner of the pitch
-- Attacking direction: left to right (x increases toward opponent goal)
-- Goal center: approximately (120, 40)
+- Attacking direction: left to right (x increases toward the opponent goal)
+- Goal center: **(105, 34)**; goal width: **7.32 m**
+
+Every provider's shots and freeze frames are converted to SPADL geometry upstream (`silly-kicks` converters + the lakehouse SPADL adapters), so a single coordinate contract holds across StatsBomb, Wyscout, IDSSE, Metrica, SkillCorner, and GradientSports. This replaces the previous StatsBomb-native (120&times;80) contract.
 
 Set encoder inputs normalize these to `[0, 1]`:
 
 ```
-x_norm = location_x / 120.0
-y_norm = location_y / 80.0
+x_norm = location_x / 105.0
+y_norm = location_y / 68.0
 ```
 
-This normalization ensures that the per-player MLP receives consistent scale inputs regardless of pitch dimension conventions.
+**The normalization is coordinate-invariant.** Dividing SPADL coordinates by `(105, 68)` lands on exactly the same `[0, 1]` fractional pitch position that the old `÷(120, 80)` StatsBomb normalization produced &mdash; both map "halfway up the pitch" to `0.5` and "the goal line" to `1.0`. The learned per-player MLP therefore sees the same fractional geometry it always did; only the raw unit of the un-normalized features (`location_x/y`, `distance_to_goal`) changed from yards to metres. This is why the switch to SPADL is a coordinate-contract change, not a change in what the set encoder learns about relative positioning.
+
+## Per-Provider Calibration & Two-Mode Scoring
+
+Providers differ in what freeze-frame context they can supply. StatsBomb 360 and the four tracking cohorts carry shot-instant player positions; Wyscout carries none. Rather than assume every provider's freeze frame is equally informative, v3 scores each provider under a per-provider policy:
+
+- **Two-mode scoring for tracking providers.** Every tracking cohort (IDSSE, Metrica, SkillCorner, GradientSports) is scored two ways:
+  - **Context-aware mode** &mdash; the full freeze frame is encoded into the 16-dim context vector.
+  - **Tabular-only mode** &mdash; the context vector is zeroed out and the model degrades to a `~v1`-quality tabular baseline (structurally identical to the graceful-degradation path).
+- **Per-provider discrimination gate.** For each provider, out-of-sample discrimination (ROC-AUC) in context-aware mode is compared against tabular-only mode, benchmarked **relative to StatsBomb** (the reference cohort whose freeze frames are best understood). The shipped mode for that provider is the one that clears the gate: if the tracking freeze frame does not measurably improve discrimination over tabular-only, that provider ships in tabular-only mode. This prevents a noisy or mis-oriented tracking freeze frame from *degrading* a provider's xG relative to a plain tabular model.
+- **Per-provider Platt calibration.** After mode selection, each provider gets its own Platt (logistic) calibration fit so that predicted probabilities are calibrated within that provider's data distribution, rather than borrowing StatsBomb's calibration curve.
+- **`ood_flag`.** When a cohort fails **either** the discrimination gate **or** the calibration fit (e.g. too few shots, distribution shift, or a freeze frame that cannot be trusted), its predictions are stamped with an out-of-distribution flag (`ood_flag`). Downstream consumers can then surface the caveat or exclude the cohort, rather than silently trusting an uncalibrated score.
+
+The per-provider mode, discrimination deltas, calibration curves, and `ood_flag` assignments are all **PENDING** the live retrain and will be published with the `xg_model_v3` Champion.
 
 ## Inference
 
 The model is serialized as a JSON file with base64-encoded NumPy arrays &mdash; no pickle, no PyTorch dependency at inference time.
 
-**Output mart**: predictions are persisted to `{catalog}.dev_gold.fct_xg_predictions_v2` as a dbt-built mart with `contract: enforced: true`, inheriting Kimball surrogate FKs (`match_key`, `team_key`, `player_key`, `competition_key`) via INNER JOIN to `fct_shots` on `shot_id` per ADR-013 (consumer-side ML inference output). PR 7 (2026-04-27) extended the inheritance with `team_key` + `player_key`.
+**Output mart**: predictions are persisted to the canonical-SPADL pre-shot xG mart `{catalog}.dev_gold.fct_shot_xg` (introduced by ADR-066; superseding `fct_xg_predictions_v2`) as a dbt-built mart with `contract: enforced: true`, inheriting Kimball surrogate FKs (`match_key`, `team_key`, `player_key`, `competition_key`) via INNER JOIN to `fct_shots` on `shot_id` per ADR-013 (consumer-side ML inference output). Each row also carries the per-provider scoring mode and the `ood_flag` (see *Per-Provider Calibration & Two-Mode Scoring*). PR 7 (2026-04-27) extended the inheritance with `team_key` + `player_key`.
 
 ```python
 from huggingface_hub import hf_hub_download
@@ -251,9 +274,9 @@ See the [`AI_GOVERNANCE.md`](https://github.com/karsten-s-nielsen/luxury-lakehou
 ## Limitations
 
 - **Anonymous freeze frames**: The set encoder receives only position and role (keeper/teammate flag). Player identity, stamina, height, dominant foot, and tactical assignment are not encoded. Two players in identical positions produce identical context contributions.
-- **Missing freeze-frame coverage**: Only StatsBomb 360 matches include freeze frames (~323 of ~3,000 StatsBomb matches). All Wyscout shots and non-360 StatsBomb shots fall back to the zero context vector.
-- **Partial occlusion**: StatsBomb 360 freeze frames capture only *visible* players. Players behind the camera or in crowded areas may be absent. The set encoder handles this gracefully (sum over fewer players), but predictions may underestimate defensive pressure when multiple defenders are occluded.
-- **Open data only**: Trained on publicly available StatsBomb and Wyscout data. Models trained on full broadcast-quality tracking data with complete visibility would likely produce narrower uncertainty intervals and higher discrimination.
+- **Missing freeze-frame coverage**: Freeze frames come from StatsBomb 360 (~323 of ~3,000 StatsBomb matches) and from the tracking cohorts (IDSSE, Metrica, SkillCorner, GradientSports). Wyscout shots and non-360 StatsBomb shots carry no freeze frame and fall back to the zero context vector (tabular-only mode). Per the discrimination gate, some tracking cohorts may also ship in tabular-only mode if their freeze frame does not improve discrimination.
+- **Partial occlusion**: StatsBomb 360 freeze frames capture only *visible* players. Players behind the camera or in crowded areas may be absent. The set encoder handles this gracefully (sum over fewer players), but predictions may underestimate defensive pressure when multiple defenders are occluded. Tracking-cohort freeze frames have their own coverage and orientation caveats, which the per-provider discrimination gate and `ood_flag` are designed to catch.
+- **Mixed licensing**: Trained on a mix of open-data providers (StatsBomb, Wyscout, IDSSE, Metrica) and restricted/private cohorts (SkillCorner, GradientSports). Public model artifacts and datasets reflect open-licensed providers only; restricted cohorts contribute to training/scoring but are never redistributed publicly (ADR-049 / ADR-064).
 - **Static snapshot**: The freeze frame captures player positions at the instant of the shot only. Prior positioning (run-up angle, off-ball movement, pressing intensity) is not encoded.
 - **No player clustering or identity**: The set encoder cannot distinguish a massed low block from an isolated goalkeeper. Tactical shape is implicit in the aggregate position distribution, not explicit.
 
@@ -264,18 +287,21 @@ The model is published to three destinations, all in sync:
 1. **HF Hub**: [`luxury-lakehouse/xg-v2-model-set-encoder`](https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder)
    - `model_weights.json` — set encoder weights (JSON + base64, ~100 KB)
    - `metrics.json` — training metrics + dataset commit SHAs
-2. **MLflow UC Registry**: `soccer_analytics.dev_gold.xg_model_v2@Champion`
+2. **MLflow UC Registry**: `soccer_analytics.dev_gold.xg_model_v3@Champion`
    - Logged via `mlflow.pyfunc.log_model`; the `@Champion` alias points at
      the latest version. The raw weights are also logged as an artifact
      (`model_weights.json`) so the consumer can download them byte-for-byte.
-3. **Databricks UC Volume**: `/Volumes/soccer_analytics/dev_gold/model_weights/xg_model_v2/`
+   - *m4 note:* the artifact is `xg_model_v3` even though the governance card
+     remains `wf-xg-v2` &mdash; the workflow name identifies the governed
+     system, the artifact version identifies the trained weights.
+3. **Databricks UC Volume**: `/Volumes/soccer_analytics/dev_gold/model_weights/xg_model_v3/`
    - `model_weights.json` — identical bytes to the HF Hub copy
    - `model_weights.json.sha256` — hex SHA-256 sidecar for SEC2 integrity verification
 
-The Databricks serverless inference pipeline `ingestion.xg_model_v2` tries
-MLflow `@Champion` first, then falls back to the UC Volume copy; the sidecar
-lets the consumer detect tampering without trusting the MLflow registry
-metadata alone.
+The Databricks serverless inference pipeline (module `ingestion.xg_model_v2`,
+unchanged code path) tries MLflow `@Champion` first, then falls back to the UC
+Volume copy; the sidecar lets the consumer detect tampering without trusting
+the MLflow registry metadata alone.
 
 ## Citation
 
