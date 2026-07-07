@@ -172,6 +172,8 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     "compute_formations_shape_graph": "wf-shape-graphs",
     "compute_line_breaking": "wf-line-breaking",
     "compute_defcon_lite": "wf-defcon",
+    # Canonical-SPADL pre-shot xG (Task 0.5, 2026-07-07): populates bronze.shot_freeze_frames.
+    "compute_shot_freeze_frames": "wf-shot-freeze-frames",
     "resolve_players": "wf-entity-resolution",
     "compute_embeddings_v2": "wf-football2vec-v2",
     # compute_embeddings_v1 removed — v1 Doc2Vec deprecated (2026-05-07).

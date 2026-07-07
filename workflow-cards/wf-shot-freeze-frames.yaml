@@ -1,0 +1,103 @@
+---
+name: Pre-Shot Tracking Freeze Frames
+id: wf-shot-freeze-frames
+version: "1.0.0"
+status: production
+type: heuristic
+domain: soccer-analytics
+owners:
+  - karsten
+tags:
+  - freeze-frames
+  - tracking
+  - pre-shot-xg
+  - action-context
+
+# Operational plumbing: this task materializes a feature-layer fact (per-(shot, player)
+# freeze frames) by REUSING the action-context frame conversion + the published
+# build_tracking_snapshots builder. It introduces no new academic methodology of its own
+# (the pre-shot xG model that consumes it is governed by wf-xg-v2), so references are empty.
+references: []
+
+inputs:
+  datasets:
+    - id: "{catalog}.bronze.spadl_actions"
+      source: delta-table
+      description: "SPADL actions — the shot rows linked to tracking frames"
+    - id: "{catalog}.bronze.gradientsports_tracking"
+      source: delta-table
+      description: "GradientSports raw tracking data"
+    - id: "{catalog}.bronze.skillcorner_tracking"
+      source: delta-table
+      description: "SkillCorner raw tracking data"
+    - id: "{catalog}.bronze.idsse_tracking"
+      source: delta-table
+      description: "IDSSE (Sportec) raw tracking data"
+    - id: "{catalog}.bronze.metrica_tracking"
+      source: delta-table
+      description: "Metrica raw tracking data"
+    - id: "{catalog}.dev_gold.dim_matches"
+      source: delta-table
+      description: "Kimball match dimension — resolves the match_key surrogate (ADR-013)"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.shot_freeze_frames"
+      destination: delta-table
+      description: "Per-(shot, player) pre-shot freeze-frame set (canonical SPADL 105x68, home-LTR)"
+
+execution:
+  compute:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: compute_shot_freeze_frames
+    module: ingestion.shot_freeze_frames
+    schedule: "daily 06:00 UTC"
+    timeout: "3600s"
+    environment: analytics
+
+idempotency:
+  strategy: skip-guard
+  key:
+    - match_key
+  description: "Incremental discovery skips matches already present in bronze.shot_freeze_frames (by match_key); within a run, replaceWhere on match_key makes each match write idempotent."
+
+performance:
+  memory_ceiling: "16 GB driver (per-period frame conversion single-process; snapshot set is tiny)"
+  compute_estimate: "seconds per GS/SkillCorner match; IDSSE periods are large (~1.5M frame rows)"
+
+links:
+  source_code:
+    - "src/ingestion/shot_freeze_frames.py"
+    - "src/analytics/action_context/tracking_snapshots.py"
+---
+
+## Overview
+
+Materializes `bronze.shot_freeze_frames` — one row per (shot action, player) — for the
+tracking providers. For each tracking shot, the linked tracking frame is converted to canonical
+home-LTR action-context frames (reusing `analytics.action_context.pipeline._convert_tracking_batch`,
+the single source of frame conversion + orientation), and `build_tracking_snapshots_spark` emits the
+per-player rows (`x`, `y`, `is_keeper`, `is_teammate`, `set_cardinality`, `shooter_attacks_high_x`).
+
+This is a reusable feature-layer fact consumed by the SPADL-native pre-shot xG model
+(`xg_model_v3`, governed by `wf-xg-v2`). The `match_key` surrogate is resolved from gold
+`dim_matches` (bronze carries only native ids per ADR-013). Incremental by default; a
+`--match-ids "provider:id1,id2"` invocation runs an explicit backfill.
+
+## INTERIM SCOPE — GradientSports + SkillCorner only (deliberate)
+
+The daily run defaults to `--providers gradientsports,skillcorner` (the `xg_model_v3` training
+cohort). **IDSSE and Metrica are deferred**: the current implementation converts frames
+**driver-side, one `(match, period)` at a time** (`_process_match` → per-period `.toPandas()` →
+`_convert_tracking_batch`), which risks a 16 GB-driver OOM on IDSSE's ~1.5M-row periods and lacks the
+AC pipeline's M13 boundary de-dup (so batch-edge shots could double-count). GS/SkillCorner periods
+are small enough that neither concern bites.
+
+**Long-term (how IDSSE/Metrica onboard):** replace the driver-side loop with a **distributed SINK**
+mirroring `compute_action_context` — a per-`(match, period)` work-queue in
+`ingestion.action_context_queue` plus a `compute_shot_freeze_frames_drain_worker` entry point. That
+(a) moves conversion onto Spark executors (via the same `mapInPandas` frame-batching + M13 owner
+de-dup `_process_tracking_match` uses) so the dense providers scale, and (b) amortizes the serverless
+cold-start across the whole drain instead of paying it per match. Enabling
+`--providers …,idsse,metrica` is a deliberate opt-in that lands with that sink work.
