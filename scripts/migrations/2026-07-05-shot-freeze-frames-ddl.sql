@@ -35,6 +35,10 @@ CREATE TABLE IF NOT EXISTS soccer_analytics.bronze.shot_freeze_frames (
   set_cardinality INT,
   shooter_attacks_high_x BOOLEAN,
   team_attacking_direction STRING,
+  -- access_tier (ADR-064) added 2026-07-08 — driver-stamped per-match public/restricted tier for the
+  -- downstream HF publisher split. This CREATE is IF NOT EXISTS (inert on prod, canonical head schema
+  -- for fresh installs); existing tables get the column via 2026-07-08-shot-freeze-frames-access-tier.sql.
+  access_tier STRING,
   _ingested_at TIMESTAMP
 )
 USING DELTA

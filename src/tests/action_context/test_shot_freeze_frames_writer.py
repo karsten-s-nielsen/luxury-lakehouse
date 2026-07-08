@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from analytics.action_context.tracking_snapshots import _SHOT_FF_COLUMNS
+from analytics.action_context.tracking_snapshots import _SHOT_FF_COLUMNS, _SHOT_FF_TYPES
 
 _DDL_PATH = Path("scripts/migrations/2026-07-05-shot-freeze-frames-ddl.sql")
 
@@ -79,6 +79,15 @@ class TestShotFreezeFramesSchemaDriftGuard:
 
     def test_no_duplicate_columns(self) -> None:
         assert len(_SHOT_FF_COLUMNS) == len(set(_SHOT_FF_COLUMNS)), "_SHOT_FF_COLUMNS has duplicates"
+
+    def test_access_tier_is_last_data_column(self) -> None:
+        # ``access_tier`` (ADR-064) is the driver-stamped per-match tier used by the downstream HF
+        # publisher to split public vs restricted rows. It is the LAST data column (immediately
+        # before the writer-added ``_ingested_at`` in the DDL), so it must be the last entry of
+        # ``_SHOT_FF_COLUMNS`` and typed ``string``.
+        assert "access_tier" in _SHOT_FF_COLUMNS, "access_tier must be a persisted column"
+        assert _SHOT_FF_COLUMNS[-1] == "access_tier", "access_tier must be the LAST _SHOT_FF_COLUMNS entry"
+        assert _SHOT_FF_TYPES["access_tier"] == "string", "access_tier must be a STRING column"
 
 
 class TestShotFreezeFramesStructType:

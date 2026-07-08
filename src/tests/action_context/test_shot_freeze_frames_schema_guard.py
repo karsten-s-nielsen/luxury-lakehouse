@@ -90,19 +90,28 @@ _DIM_MATCHES_COLUMNS: frozenset[str] = frozenset(
         "match_date",
         "home_team_id_native",
         "away_team_id_native",
+        "access_tier",  # ADR-064 per-match tier the driver resolves alongside match_key + stamps per row
     }
 )
 
 
 def test_driver_dim_matches_join_uses_real_columns() -> None:
-    # The driver's SSOT constants must name columns that ACTUALLY exist on dim_matches.
+    # The driver's SSOT constants must name columns that ACTUALLY exist on dim_matches — including the
+    # ADR-064 access_tier the driver resolves in the SAME read as match_key (a rename would silently
+    # degrade the per-row stamp to NULL → over-restriction downstream, exactly this guard's remit).
     from ingestion.shot_freeze_frames import (
+        _DIM_MATCHES_ACCESS_TIER_COL,
         _DIM_MATCHES_KEY_COL,
         _DIM_MATCHES_NATIVE_ID_COL,
         _DIM_MATCHES_PROVIDER_COL,
     )
 
-    for col in (_DIM_MATCHES_PROVIDER_COL, _DIM_MATCHES_NATIVE_ID_COL, _DIM_MATCHES_KEY_COL):
+    for col in (
+        _DIM_MATCHES_PROVIDER_COL,
+        _DIM_MATCHES_NATIVE_ID_COL,
+        _DIM_MATCHES_KEY_COL,
+        _DIM_MATCHES_ACCESS_TIER_COL,
+    ):
         assert col in _DIM_MATCHES_COLUMNS, f"dim_matches has no column {col!r}"
 
 
