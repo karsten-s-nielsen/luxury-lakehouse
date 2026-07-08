@@ -61,9 +61,14 @@ _SNAPSHOT_COLUMNS = [
 #
 # ``_ingested_at`` is appended by ``write_delta_table`` (NOT emitted by the
 # builder), so it is DELIBERATELY absent from ``_SHOT_FF_COLUMNS`` and the
-# StructType below — mirroring ``xg_model_v2._XG_V2_BRONZE_COLS``. The column
-# order matches ``_SNAPSHOT_COLUMNS`` (the builder's output), so a snapshot frame
-# maps positionally into the persisted table.
+# StructType below — mirroring ``xg_model_v2._XG_V2_BRONZE_COLS``.
+#
+# The first 11 columns mirror ``_SNAPSHOT_COLUMNS`` (the builder's output), so a
+# snapshot frame maps positionally into the persisted table. ``access_tier``
+# (ADR-064) is the 12th and LAST data column: it is DRIVER-STAMPED per-row from the
+# match's ``dim_matches`` tier (see ``ingestion.shot_freeze_frames``), NOT computed
+# by the pure builder — so it is present here but ABSENT from ``_SNAPSHOT_COLUMNS``.
+# A downstream HF publisher splits public vs restricted rows on it.
 _TABLE_NAME = "shot_freeze_frames"
 
 _SHOT_FF_COLUMNS: tuple[str, ...] = (
@@ -78,6 +83,7 @@ _SHOT_FF_COLUMNS: tuple[str, ...] = (
     "set_cardinality",
     "shooter_attacks_high_x",
     "team_attacking_direction",
+    "access_tier",  # driver-stamped (ADR-064); NOT in _SNAPSHOT_COLUMNS
 )
 
 # Column -> Spark SQL type category, consumed by ``_shot_ff_struct_type``. Kept in
@@ -94,6 +100,7 @@ _SHOT_FF_TYPES: dict[str, str] = {
     "set_cardinality": "int",
     "shooter_attacks_high_x": "boolean",
     "team_attacking_direction": "string",
+    "access_tier": "string",
 }
 
 # shooter_attacks_high_x -> does the shooting team attack the HIGH-x goal in the canonical

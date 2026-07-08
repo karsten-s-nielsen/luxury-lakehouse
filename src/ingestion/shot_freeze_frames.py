@@ -45,11 +45,14 @@ Design notes / assumptions (surfaced for review — see the PR description):
   ``_run_profile_on_driver``; one match/period fits the 16 GB driver), NOT distributed —
   the snapshot set is tiny (~shots * players). IDSSE periods are ~1.5M rows: bounded, but
   heavy; see the ``.toPandas`` note below.
-* **``match_key`` resolution** — ``match_key`` is a Kimball surrogate resolved in the GOLD
-  ``dim_matches`` (ADR-013: bronze carries only native ids). The writer/DDL key on
+* **``match_key`` + ``access_tier`` resolution** — ``match_key`` is a Kimball surrogate resolved
+  in the GOLD ``dim_matches`` (ADR-013: bronze carries only native ids). The writer/DDL key on
   ``match_key``, so this driver resolves it from ``dim_matches`` on
   ``(data_source, match_id_native)`` and stamps it onto the shot actions before the snapshot
-  build.
+  build. The SAME ``dim_matches`` row also carries the ADR-064 per-match ``access_tier``
+  (``public``/``restricted``) — ``_resolve_match_identity`` returns both from a single read, and
+  the driver stamps ``access_tier`` per snapshot row so a downstream HF publisher can split public
+  vs restricted rows (``bronze.spadl_actions`` does not carry it; the builder does not compute it).
 """
 
 from __future__ import annotations
@@ -57,7 +60,7 @@ from __future__ import annotations
 import argparse
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from analytics.action_context.tracking_snapshots import (
     _SHOT_FF_COLUMNS,
@@ -102,6 +105,17 @@ _SPADL_TYPE_ID_COL = "type_id"
 _DIM_MATCHES_PROVIDER_COL = "provider"
 _DIM_MATCHES_NATIVE_ID_COL = "native_match_id"
 _DIM_MATCHES_KEY_COL = "match_key"
+# ADR-064 per-match access tier ('public'/'restricted'); resolved from the SAME dim_matches row as
+# match_key and stamped per-row onto shot_freeze_frames for the downstream public/restricted HF split.
+_DIM_MATCHES_ACCESS_TIER_COL = "access_tier"
+
+
+class _MatchIdentity(NamedTuple):
+    """The gold-``dim_matches`` identity for a tracking match: the Kimball ``match_key`` surrogate plus
+    the ADR-064 per-match ``access_tier`` — both resolved from a SINGLE ``dim_matches`` read."""
+
+    match_key: int
+    access_tier: str | None
 
 
 def write_shot_freeze_frames(
@@ -285,12 +299,17 @@ def _discover_missing_units(
     return []
 
 
-def _resolve_match_key(spark: SparkSession, catalog: str, gold_schema: str, provider: str, native_id: str) -> int:
-    """Resolve the Kimball ``match_key`` surrogate from gold ``dim_matches`` (ADR-013).
+def _resolve_match_identity(
+    spark: SparkSession, catalog: str, gold_schema: str, provider: str, native_id: str
+) -> _MatchIdentity:
+    """Resolve the ``(match_key, access_tier)`` identity from gold ``dim_matches`` in ONE read (ADR-013).
 
-    ``bronze.spadl_actions`` carries only native ids; the freeze-frame writer keys on ``match_key``,
-    so it must be resolved here. Raises loudly (no silent NULL key) if the match is absent from
-    ``dim_matches`` — that would mean the match has not been Kimball-dimensioned yet.
+    ``bronze.spadl_actions`` carries only native ids; the freeze-frame writer keys on ``match_key`` and
+    stamps the ADR-064 per-match ``access_tier`` per row, so both are resolved here from the SAME
+    ``dim_matches`` row (no second query). Raises loudly (no silent NULL key) if the match is absent
+    from ``dim_matches`` — that would mean the match has not been Kimball-dimensioned yet. The raw
+    ``access_tier`` value is passed through unchanged (never invented); the downstream publisher's
+    ``split_restricted`` fail-safes a NULL to restricted.
     """
     from pyspark.sql import functions as spark_fn  # type: ignore[import-not-found]
 
@@ -300,13 +319,15 @@ def _resolve_match_key(spark: SparkSession, catalog: str, gold_schema: str, prov
             (spark_fn.col(_DIM_MATCHES_PROVIDER_COL) == provider)
             & (spark_fn.col(_DIM_MATCHES_NATIVE_ID_COL).cast("string") == str(native_id))
         )
-        .select(_DIM_MATCHES_KEY_COL)
+        .select(_DIM_MATCHES_KEY_COL, _DIM_MATCHES_ACCESS_TIER_COL)
         .limit(1)
         .collect()
     )
     if not rows:
         raise RuntimeError(f"No match_key in {catalog}.{gold_schema}.dim_matches for {provider}:{native_id}")
-    return int(rows[0][_DIM_MATCHES_KEY_COL])
+    row = rows[0]
+    access_tier = row[_DIM_MATCHES_ACCESS_TIER_COL]
+    return _MatchIdentity(int(row[_DIM_MATCHES_KEY_COL]), None if access_tier is None else str(access_tier))
 
 
 # ── Per-provider match metadata + clock rebasing ──────────────────────────
@@ -576,7 +597,7 @@ def _process_match(
         if actions_pdf.empty:
             task_logger.warning("No SPADL actions for %s match %s", provider, native_id)
             return (0, 0)
-        match_key = _resolve_match_key(spark, catalog, gold_schema, provider, native_id)
+        match_key, access_tier = _resolve_match_identity(spark, catalog, gold_schema, provider, native_id)
         actions_pdf["match_key"] = match_key
 
         # ── Resolve per-provider match metadata + rebase the dispatch clock (shared with AC) ──
@@ -598,7 +619,13 @@ def _process_match(
             )
             return (match_key, 0)
 
-        all_snaps = _pd.concat(snapshot_frames, ignore_index=True)[list(_SHOT_FF_COLUMNS)]
+        # Stamp the driver-owned ADR-064 ``access_tier`` per row BEFORE the reindex: the pure builder
+        # output (``_SNAPSHOT_COLUMNS``) does not carry it, so the reindex to ``_SHOT_FF_COLUMNS`` would
+        # KeyError without it. The raw dim_matches value is stamped verbatim (a NULL fail-safes to
+        # restricted in the downstream publisher's split_restricted — never invented here).
+        all_snaps = _pd.concat(snapshot_frames, ignore_index=True)
+        all_snaps["access_tier"] = access_tier
+        all_snaps = all_snaps[list(_SHOT_FF_COLUMNS)]
         n_rows = len(all_snaps)
         snapshots_sdf = spark.createDataFrame(all_snaps, schema=_shot_ff_struct_type())
         written = write_shot_freeze_frames(snapshots_sdf, catalog, schema, [match_key], row_count=n_rows)
