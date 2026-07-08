@@ -36,6 +36,12 @@ inputs:
     - id: "{catalog}.bronze.metrica_tracking"
       source: delta-table
       description: "Metrica raw tracking data"
+    - id: "{catalog}.bronze.statsbomb_360"
+      source: delta-table
+      description: "StatsBomb 360 freeze frames — the opt-in statsbomb (SB-360) freeze-frame source"
+    - id: "{catalog}.bronze.statsbomb_matches"
+      source: delta-table
+      description: "StatsBomb match metadata — supplies shot_fidelity_version for SB-360 coordinate conversion"
     - id: "{catalog}.dev_gold.dim_matches"
       source: delta-table
       description: "Kimball match dimension — resolves the match_key surrogate (ADR-013)"
@@ -70,6 +76,7 @@ links:
   source_code:
     - "src/ingestion/shot_freeze_frames.py"
     - "src/analytics/action_context/tracking_snapshots.py"
+    - "src/analytics/action_context/sb360_freeze_frames.py"
 ---
 
 ## Overview
@@ -101,3 +108,17 @@ mirroring `compute_action_context` — a per-`(match, period)` work-queue in
 de-dup `_process_tracking_match` uses) so the dense providers scale, and (b) amortizes the serverless
 cold-start across the whole drain instead of paying it per match. Enabling
 `--providers …,idsse,metrica` is a deliberate opt-in that lands with that sink work.
+
+## StatsBomb (SB-360) — supported opt-in provider for the backfill
+
+`statsbomb` is a supported freeze-frame provider but a **deliberate opt-in** (`--providers …,statsbomb`
+or `--match-ids statsbomb:<id>,…`) for the one-time SB-360 freeze-frame backfill — it is **NOT in the
+daily default** because StatsBomb open data is historical (not continuously ingested). The statsbomb
+path is distinct from tracking: it has **no tracking frames and no per-period conversion**. It reads
+the shot's `bronze.statsbomb_360` freeze frame directly and builds canonical-SPADL snapshots via
+`analytics.action_context.sb360_freeze_frames.build_sb360_freeze_frames` — StatsBomb data is already
+shooter-normalized (so no orientation step) and the builder stamps `access_tier='public'` itself.
+`shot_fidelity_version` (from `bronze.statsbomb_matches`) is required to convert the raw 120x80
+coordinates to canonical SPADL 105x68. Incremental discovery for statsbomb additionally requires the
+match to be present in `bronze.statsbomb_360` (a non-360 match produces zero frames). The daily
+Databricks task args are unchanged (GS+SkillCorner).

@@ -1,10 +1,14 @@
-"""Static structural invariants for fct_xg_predictions_v2 (ADR-013).
+"""Static structural invariants for fct_xg_predictions_v2 without a warehouse.
 
-Asserts that the mart SQL, staging SQL, source declaration, and contract
-block follow the ADR-013 pattern without needing a live warehouse.
+Post-Task-2.4 (§C2): fct_xg_predictions_v2 is no longer the ADR-013 v2 mart —
+it is a BACK-COMPAT VIEW projecting fct_shot_xg (canonical-SPADL xg_model_v3)
+into the exact legacy schema, so existing consumers (Taipy, the
+fct_xg_predictions_v2_synced Lakebase table) keep working. These tests assert
+that view shape (materialization, bridge, legacy columns, coverage restriction)
+and that the source declaration + contract block are intact.
 
 Live data-quality checks (CI bound ordering, staging=mart row preservation)
-run in tests/data_quality/test_dbt_xg_v2_mart.py via data-quality-ci.yml.
+run in the daily dbt cron via the singular tests under dbt_project/tests/.
 """
 
 from __future__ import annotations
@@ -25,14 +29,24 @@ def test_v2_source_declared() -> None:
     assert "- name: xg_predictions_v2" in yml, "xg.xg_predictions_v2 source not declared"
 
 
-def test_mart_sql_inner_joins_fct_shots_on_shot_id() -> None:
+def test_mart_is_backcompat_view_over_shot_xg() -> None:
     text = Path("dbt_project/models/marts/fct_xg_predictions_v2.sql").read_text(encoding="utf-8")
     flat = " ".join(text.split())
-    assert "inner join {{ ref('fct_shots') }} s on p.shot_id = s.shot_id" in flat
+    # Now a VIEW over fct_shot_xg (not the ADR-013 table); enforced contract kept.
+    assert "materialized='view'" in flat
+    assert "'enforced': true" in flat
+    assert "{{ ref('fct_shot_xg') }}" in flat
+    # shot_id reconstructed via the (match_key, action_id) -> original_event_id ->
+    # fct_shots.event_id bridge; legacy Kimball columns carried from fct_shots.
+    assert "{{ ref('fct_shots') }}" in flat
+    assert "original_event_id" in flat
     assert "s.match_key" in flat
     assert "s.competition_key" in flat
-    assert "'enforced': true" in flat
-    assert "liquid_clustered_by=['match_key']" in text
+    # Legacy coverage restriction + legacy column names.
+    assert "data_source in ('statsbomb', 'wyscout')" in flat
+    assert "as xg_set_encoder" in flat
+    assert "as xg_ci_lower" in flat
+    assert "as xg_ci_upper" in flat
 
 
 def test_mart_contract_block_present() -> None:

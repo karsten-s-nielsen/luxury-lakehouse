@@ -166,6 +166,9 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     "compute_expected_threat": "wf-xt-grids",
     # compute_xg_model retired SK3-MIG-B 2026-05-03 (XG1-RETIRE per ADR-023).
     "compute_xg_model_v2": "wf-xg-v2",
+    # Canonical-SPADL pre-shot xG (Task 1.9, 2026-07-08): scores fct_action_values with
+    # xg_model_v3@Champion -> bronze.xg_shot_predictions (two-mode gate + per-provider calibration).
+    "compute_xg_shot_scores": "wf-shot-xg-scorer",
     "compute_off_ball_xt": "wf-off-ball-xt",
     "compute_pitch_control": "wf-pitch-control",
     "compute_formations_efpi": "wf-formations",
@@ -249,6 +252,17 @@ _HF_JOBS_SCRIPT_TO_CARD: dict[str, str | None] = {
     # companion. Dataset cards governed by ADR-014; the PSxG model's per-player
     # governance lives in wf-goalkeeper. No independent owning card.
     "publish_psxg_shots_hf.py": None,
+    # Pre-Shot xG v3 delivery Task 1.2 (spec §A3, 2026-07-07): operator-run (PEP 723), like
+    # publish_action_context_hf.py — publishes the tabular shot corpus (xg-shot-data-v3 + the
+    # ADR-049 private companion) that trains xg_model_v3. Dataset cards governed by ADR-014;
+    # the pre-shot xG model's governance lives under wf-xg-v2. No independent owning card.
+    "publish_xg_shot_data_v3_hf.py": None,
+    # Pre-Shot xG v3 delivery Task 1.3 (spec §A4, 2026-07-07): operator-run (PEP 723), like
+    # publish_xg_shot_data_v3_hf.py — publishes the freeze-frame / player-set (context) corpus
+    # (xg-shot-freeze-frames + the ADR-049 private companion) that trains xg_model_v3. Dataset
+    # cards governed by ADR-014; the pre-shot xG model's governance lives under wf-xg-v2. No
+    # independent owning card.
+    "publish_shot_freeze_frames_hf.py": None,
 }
 
 

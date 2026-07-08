@@ -775,6 +775,38 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "analytics"
   }
 
+  # ── Task: Score shots with the pre-shot xG v3 model (canonical SPADL, two-mode gate) ──
+  # Canonical-SPADL Pre-Shot xG Unification (Task 1.9, §C1): loads xg_model_v3@Champion
+  # (raw xG) + the shipped per-provider OOF calibrators, scores every shot-family row in
+  # gold.fct_action_values (freeze frames from bronze.shot_freeze_frames on
+  # (match_key, action_id); empty -> zero-context), applies the single per-provider
+  # calibrator (pooled fallback -> ood_flag) under the two-mode gate, and writes
+  # bronze.xg_shot_predictions (replaceWhere per match_key). Reads fct_action_values
+  # (intermediate_mart, built by stage 2) + bronze.shot_freeze_frames.
+  task {
+    task_key        = "compute_xg_shot_scores"
+    timeout_seconds = 900
+    max_retries     = 0
+
+    depends_on {
+      task_key = "compute_shot_freeze_frames"
+    }
+    depends_on {
+      task_key = "dbt_build_intermediate_marts"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_xg_shot_scores"
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+      ]
+    }
+
+    environment_key = "analytics"
+  }
+
   # ── Task: dbt build — stage 1 (input + dimension marts) ──────────────
   # PR-Cycle-C PR-β (2026-05-02, ADR-019): first of three sequential dbt
   # invocations. Builds dimensions + marts whose lineage has NO compute

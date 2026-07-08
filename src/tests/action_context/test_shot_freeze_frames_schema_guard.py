@@ -19,6 +19,9 @@ the driver resolves from gold `dim_matches` (ADR-013: bronze carries only native
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from ingestion.spadl_vaep import _SPADL_SCHEMA
 
 # Columns the freeze-frame builder + driver read directly from bronze.spadl_actions.
@@ -173,3 +176,38 @@ def test_tracking_select_cols_cover_driver_requirements() -> None:
     for provider, required in _TRACKING_REQUIRED_COLUMNS.items():
         missing = required - select_cols[provider]
         assert not missing, f"{provider} tracking projection is missing driver-required column(s): {sorted(missing)}"
+
+
+# ── StatsBomb-360 input tables (the driver's opt-in statsbomb freeze-frame path) ─────────
+# The statsbomb branch (_process_statsbomb_match) reads bronze.statsbomb_360 (freeze-frame rows) +
+# bronze.statsbomb_matches (shot_fidelity_version, REQUIRED for the 120x80->105x68 conversion). A
+# rename/removal on either is exactly the silent-degradation / runtime-UNRESOLVED_COLUMN class this
+# guard exists to catch — pin the required columns against the authoritative live bronze snapshot.
+_SNAPSHOT_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "statsbomb_bronze_schema_snapshot.json"
+
+
+def _snapshot_columns(table: str) -> frozenset[str]:
+    tables = json.loads(_SNAPSHOT_PATH.read_text(encoding="utf-8"))["tables"]
+    return frozenset(col["name"] for col in tables[table])
+
+
+_STATSBOMB_360_REQUIRED_COLUMNS: frozenset[str] = frozenset(
+    {"id", "actor", "teammate", "keeper", "location", "match_id"}
+)
+_STATSBOMB_MATCHES_REQUIRED_COLUMNS: frozenset[str] = frozenset({"match_id", "shot_fidelity_version"})
+
+
+def test_statsbomb_360_input_columns_exist() -> None:
+    missing = _STATSBOMB_360_REQUIRED_COLUMNS - _snapshot_columns("statsbomb_360")
+    assert not missing, (
+        f"statsbomb freeze-frame path reads column(s) absent from bronze.statsbomb_360: {sorted(missing)}. "
+        "build_sb360_freeze_frames / build_sb360_snapshots would silently degrade or die at runtime."
+    )
+
+
+def test_statsbomb_matches_fidelity_column_exists() -> None:
+    missing = _STATSBOMB_MATCHES_REQUIRED_COLUMNS - _snapshot_columns("statsbomb_matches")
+    assert not missing, (
+        f"statsbomb freeze-frame path reads column(s) absent from bronze.statsbomb_matches: {sorted(missing)}. "
+        "shot_fidelity_version is REQUIRED — the driver raises loud without it (wrong-fidelity conversion risk)."
+    )

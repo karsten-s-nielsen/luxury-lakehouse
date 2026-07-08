@@ -108,7 +108,14 @@ def split_restricted(df: pd.DataFrame, column: str = "access_tier") -> tuple[pd.
     restricted = ``data_source ∈ RESTRICTED_HF_PROVIDERS``.
     """
     if column == "access_tier":
-        is_public = df[column] == AccessTier.PUBLIC.value  # NaN/None/unknown -> not public -> restricted
+        # NaN/None/unknown -> not public -> restricted (fail-safe, spec D1). The == comparison yields
+        # a pandas *nullable* boolean when the column is the "string"/nullable dtype that publishers'
+        # normalize_dtypes produces (astype("string")); a nullable-boolean mask with <NA> silently
+        # DROPS the NA row from BOTH df[mask] and df[~mask] (verified: a NULL-tier row vanished from
+        # public AND restricted). fillna(False).astype(bool) collapses <NA> to a plain False so the
+        # NULL-tier row fail-safes into the restricted partition for every dtype (object OR "string"),
+        # honoring this function's documented "never leak an unclassified row" contract.
+        is_public = (df[column] == AccessTier.PUBLIC.value).fillna(False).astype(bool)
         return df[is_public], df[~is_public]
     mask = df[column].isin(RESTRICTED_HF_PROVIDERS)
     return df[~mask], df[mask]

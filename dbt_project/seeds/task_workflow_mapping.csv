@@ -21,6 +21,7 @@ preflight_action_context,wf-action-context
 preflight_spadl_vaep,wf-vaep
 compute_spadl_vaep,wf-vaep
 compute_xg_model_v2,wf-xg-v2
+compute_xg_shot_scores,wf-shot-xg-scorer
 compute_expected_threat,wf-xt-grids
 ingest_statsbomb,wf-statsbomb
 ingest_metrica,wf-metrica

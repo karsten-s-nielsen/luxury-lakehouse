@@ -1,0 +1,133 @@
+{
+  "label": "away_p2_high_y__LOAD_BEARING",
+  "event_id": "4b6689b9-1e7b-4298-8d25-f1c2a7da97d6",
+  "match_id_native": 3893790,
+  "match_key": -3428969772278519502,
+  "action_id": 1620,
+  "period": 2,
+  "shot_fidelity_version": 2,
+  "ground_truth_start_x": 95.68125,
+  "ground_truth_start_y": 55.5475,
+  "shooter_team_id_native": "1206",
+  "home_team_id_native": "1213",
+  "n_players": 13,
+  "freeze_frame": [
+    {
+      "actor": false,
+      "teammate": true,
+      "keeper": false,
+      "location": [
+        90.83142372652672,
+        40.01312449033445
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": false,
+      "keeper": false,
+      "location": [
+        95.19086598871222,
+        17.6955977481767
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": false,
+      "keeper": false,
+      "location": [
+        103.56661207259047,
+        37.33576878369372
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": false,
+      "keeper": false,
+      "location": [
+        108.49906885313862,
+        15.072038819809762
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": false,
+      "keeper": false,
+      "location": [
+        108.51488874936754,
+        13.727973483185782
+      ]
+    },
+    {
+      "actor": true,
+      "teammate": true,
+      "keeper": false,
+      "location": [
+        109.4000015258789,
+        14.699999809265137
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": false,
+      "keeper": false,
+      "location": [
+        109.77991771420577,
+        22.234669065735307
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": true,
+      "keeper": false,
+      "location": [
+        110.44173369878334,
+        5.160352752566904
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": false,
+      "keeper": false,
+      "location": [
+        111.78016619205677,
+        16.230394649568186
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": true,
+      "keeper": false,
+      "location": [
+        112.05366215137875,
+        23.589591252062156
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": true,
+      "keeper": false,
+      "location": [
+        112.38685733627212,
+        13.412911343315404
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": false,
+      "keeper": false,
+      "location": [
+        112.84988823639384,
+        24.16416977101384
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": false,
+      "keeper": false,
+      "location": [
+        114.22420811593955,
+        32.59423333083345
+      ]
+    }
+  ]
+}

@@ -37,9 +37,17 @@ def test_parse_match_ids_empty_id_list_is_incremental() -> None:
 
 def test_parse_match_ids_rejects_unknown_provider_and_missing_colon() -> None:
     with pytest.raises(SystemExit):
-        sff._parse_freeze_frame_match_ids_arg("statsbomb:1")  # not a tracking provider
+        sff._parse_freeze_frame_match_ids_arg("wyscout:1")  # not a freeze-frame provider (no tracking/360)
     with pytest.raises(SystemExit):
         sff._parse_freeze_frame_match_ids_arg("noprovider")
+
+
+def test_parse_match_ids_statsbomb_opt_in() -> None:
+    # statsbomb (SB-360) is an accepted freeze-frame provider (opt-in backfill), distinct from tracking.
+    assert sff._parse_freeze_frame_match_ids_arg("statsbomb:3893790,3895107") == (
+        "statsbomb",
+        ["3893790", "3895107"],
+    )
 
 
 # ── provider scoping (INTERIM: GS + SkillCorner only) ──────────────────────
@@ -50,13 +58,25 @@ def test_default_providers_is_exactly_gs_and_skillcorner() -> None:
     assert sff._parse_providers_arg(None) == frozenset({"gradientsports", "skillcorner"})
     assert sff._parse_providers_arg("") == frozenset({"gradientsports", "skillcorner"})
     assert sff._DEFAULT_PROVIDERS == "gradientsports,skillcorner"
+    # statsbomb is a deliberate opt-in (the one-time SB-360 backfill) — NEVER in the daily default.
+    assert "statsbomb" not in sff._parse_providers_arg(None)
 
 
 def test_parse_providers_opt_in_and_reject_unknown() -> None:
     # idsse/metrica are a deliberate opt-in (allowed when explicitly named), unknowns are rejected.
     assert sff._parse_providers_arg("gradientsports,idsse") == frozenset({"gradientsports", "idsse"})
     with pytest.raises(SystemExit):
-        sff._parse_providers_arg("gradientsports,statsbomb")
+        sff._parse_providers_arg("gradientsports,wyscout")  # wyscout has no freeze frames
+
+
+def test_parse_providers_accepts_statsbomb_opt_in() -> None:
+    # statsbomb (SB-360) is a valid freeze-frame provider when explicitly named, alongside tracking.
+    assert sff._parse_providers_arg("gradientsports,skillcorner,statsbomb") == frozenset(
+        {"gradientsports", "skillcorner", "statsbomb"}
+    )
+    assert sff._parse_providers_arg("statsbomb") == frozenset({"statsbomb"})
+    # The freeze-frame provider set is the tracking set PLUS statsbomb.
+    assert sff._FREEZE_FRAME_PROVIDERS == sff._TRACKING_PROVIDERS | frozenset({"statsbomb"})
 
 
 def test_units_from_match_ids_rejects_out_of_scope_provider() -> None:
@@ -95,6 +115,25 @@ def test_missing_units_sql_scopes_to_selected_providers() -> None:
     assert "'skillcorner'" in sql
     assert "'idsse'" not in sql
     assert "'metrica'" not in sql
+
+
+def test_missing_statsbomb_units_sql_requires_360_and_filters_shots() -> None:
+    # statsbomb discovery is a SEPARATE query: it MUST restrict to matches present in statsbomb_360
+    # (a non-360 statsbomb match would produce empty frames and waste a work unit) and filter shots.
+    sql = sff._missing_statsbomb_units_sql("soccer_analytics", "dev_gold")
+    # The 360-existence restriction is the load-bearing difference from the generic tracking query.
+    assert "soccer_analytics.bronze.statsbomb_360" in sql
+    assert "CAST(match_id AS STRING) FROM soccer_analytics.bronze.statsbomb_360" in sql
+    # Scoped to statsbomb + shots only; still resolves match_key and anti-sets already-processed matches.
+    assert "sa.data_source = 'statsbomb'" in sql
+    assert "sa.type_id = " in sql
+    assert "type_name" not in sql
+    assert "soccer_analytics.dev_gold.dim_matches" in sql
+    assert "NOT IN (SELECT match_key FROM soccer_analytics.bronze.shot_freeze_frames)" in sql
+    # Same real dim_matches column names (no drift onto the bronze.spadl_actions names).
+    assert "sa.data_source = dm.provider" in sql
+    assert "dm.data_source" not in sql
+    assert "dm.match_id_native" not in sql
 
 
 # ── per-period snapshot seam ───────────────────────────────────────────────
@@ -162,6 +201,28 @@ def test_period_snapshots_empty_inputs_return_empty() -> None:
 
 
 # ── per-match dispatch loop ────────────────────────────────────────────────
+
+
+def test_process_match_dispatches_statsbomb_to_sb360_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """statsbomb routes to the distinct SB-360 path BEFORE any tracking read (spark unused here)."""
+    captured: dict[str, object] = {}
+
+    def _fake_sb(spark, catalog, schema, gold_schema, native_id, task_logger):  # type: ignore[no-untyped-def]
+        captured["native_id"] = native_id
+        return (42, 7)
+
+    monkeypatch.setattr(sff, "_process_statsbomb_match", _fake_sb)
+    out = sff._process_match(
+        None,  # type: ignore[arg-type]
+        "soccer_analytics",
+        "bronze",
+        "dev_gold",
+        "statsbomb",
+        "3893790",
+        logging.getLogger("test_sff"),
+    )
+    assert out == (42, 7)
+    assert captured["native_id"] == "3893790"
 
 
 def test_run_pipeline_processes_each_unit_and_sums_rows(monkeypatch: pytest.MonkeyPatch) -> None:
