@@ -2419,6 +2419,91 @@ models:
               config:
                 severity: warn
 
+  - name: fct_shot_xg
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Gold-layer canonical-SPADL pre-shot xG (xg_model_v3; two-mode gate + OOF
+      calibrator). One row per shot, grain (match_key, action_id) — joinable to
+      fct_action_values / fct_action_context on that key. Kimball surrogates
+      (competition_key / team_key / player_key) inherited from fct_action_values
+      via INNER JOIN on (match_key, action_id) per ADR-013 (the scorer emits only
+      native key + predictions). Replaces fct_xg_predictions_v2, which is now a
+      view over this mart (§C2). Enabled via var 'xg_v3_enabled' (default false;
+      flipped on in the Databricks job config).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - match_key
+              - action_id
+    columns:
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches. Shot key part 1.
+        data_tests:
+          - not_null
+      - name: action_id
+        data_type: bigint
+        description: SPADL per-match action id of the shot (degenerate dimension). Shot key part 2 (NOT global).
+        data_tests:
+          - not_null
+      - name: data_source
+        data_type: string
+        description: Provider (statsbomb / wyscout / idsse / metrica / gradientsports / skillcorner).
+      - name: xg
+        data_type: double
+        description: Calibrated pre-shot xG mean (0-1).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+                row_condition: "xg is not null"
+              config:
+                severity: warn
+      - name: xg_ci_low
+        data_type: double
+        description: Pre-shot xG confidence-interval lower bound.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+                row_condition: "xg_ci_low is not null"
+              config:
+                severity: warn
+      - name: xg_ci_high
+        data_type: double
+        description: Pre-shot xG confidence-interval upper bound.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+                row_condition: "xg_ci_high is not null"
+              config:
+                severity: warn
+      - name: scoring_mode
+        data_type: string
+        description: "'context_aware' or 'tabular_only' — the two-mode gate selection."
+      - name: ood_flag
+        data_type: boolean
+        description: True when the selected mode is uncertified / out-of-distribution.
+      - name: competition_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_competitions (inherited from fct_action_values via INNER JOIN on the shot key).
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams — shooting team (inherited from fct_action_values via INNER JOIN on the shot key).
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players — shooter (inherited from fct_action_values via INNER JOIN on the shot key).
+
   - name: fct_pausa_values
     config:
       contract:

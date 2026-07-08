@@ -16,8 +16,15 @@ The pandas core is pure (no pyspark) so the local hexagon and the driver share o
 
 from __future__ import annotations
 
+import json
+
+import numpy as np
 import pandas as pd
 
+from analytics.action_context.sb360_freeze_frames import (
+    build_sb360_freeze_frames,
+    convert_statsbomb_locations_to_spadl,
+)
 from analytics.action_context.sb360_snapshots import build_sb360_snapshots
 from analytics.action_context.tracking_snapshots import (
     _select_preshot_frame_per_action,
@@ -193,6 +200,43 @@ def test_non_shot_actions_are_filtered_by_type_id() -> None:
     frames = pd.concat([_frames(), _frames().assign(action_id=8)], ignore_index=True)
     snaps = build_tracking_snapshots(actions, frames, home_team_id="1")
     assert set(snaps.action_id.unique()) == {7}  # the non-shot (action 8) is dropped by type_id
+
+
+def test_both_builders_include_actor() -> None:
+    """N2 (Task 1.7): BOTH freeze-frame builders retain the shooter.
+
+    The tracking builder is ID-based — the shooter is one of the frame's player rows and must appear
+    by ``player_id``. The SB-360 builder emits ANONYMOUS frames (synthetic ``sb360_*`` ids), so the
+    shooter cannot be matched by id; it is matched by POSITION — the acting player's converted 360
+    ``location`` colocates with the shot's start, so an output row must sit on that position.
+    """
+    # ── Tracking builder: player 'a' (shooter's team "1") must be present by id ──────────────────
+    trk = build_tracking_snapshots(_shot_row(team_id="1"), _frames(), home_team_id="1")
+    assert "a" in set(trk.player_id), "tracking builder dropped the shooter row"
+
+    # ── SB-360 builder: the actor's converted position must be present (ids are synthetic) ────────
+    actor_loc = [100.0, 40.0]  # raw StatsBomb 120x80 location of the acting player
+    actions = pd.DataFrame(
+        {
+            "original_event_id": ["ev1", None],  # 2nd row (distinct team, NaN event) only resolves the opponent
+            "action_id": [1, 2],
+            "team_id": ["TEAM_A", "TEAM_B"],
+            "match_key": [100, 100],
+        }
+    )
+    sb360 = pd.DataFrame(
+        {
+            "id": ["ev1", "ev1", "ev1"],
+            "actor": [True, False, False],  # sb360_snapshots ignores 'actor'; the row is kept regardless
+            "teammate": [True, True, False],
+            "keeper": [False, False, True],
+            "location": [json.dumps(actor_loc), json.dumps([80.0, 20.0]), json.dumps([118.0, 40.0])],
+        }
+    )
+    out = build_sb360_freeze_frames(actions, sb360, 2)
+    converted = convert_statsbomb_locations_to_spadl(pd.Series([actor_loc]), 2)[0]
+    dists = np.linalg.norm(out[["x", "y"]].to_numpy() - converted, axis=1)
+    assert dists.min() <= 0.01, f"SB-360 builder dropped the actor (nearest row {dists.min():.4f} m away)"
 
 
 def test_actor_inclusion_matches_sb360_convention() -> None:

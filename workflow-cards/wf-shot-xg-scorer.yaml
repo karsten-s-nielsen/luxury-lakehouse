@@ -1,0 +1,117 @@
+---
+name: Pre-Shot xG Scorer (v3)
+id: wf-shot-xg-scorer
+version: "1.0.0"
+status: production
+type: inference
+domain: expected-goals
+owners:
+  - karsten
+tags:
+  - xg
+  - pre-shot-xg
+  - scoring
+  - two-mode-gate
+  - action-context
+
+# Governance: this task MATERIALIZES per-shot pre-shot xG from the already-governed
+# xg_model_v3 methodology (Deep Sets + MC dropout + per-provider OOF calibration). It
+# introduces NO new methodology of its own — the governed system, model card, and
+# EU-AI-Act posture all live under wf-xg-v2 (model_artifact: xg_model_v3). This card is
+# the inference-materialization surface (analogous to wf-shot-freeze-frames feeding it).
+governance:
+  eu_ai_act: not-high-risk-under-current-posture
+  reference: AI_GOVERNANCE.md
+  governed_by: wf-xg-v2
+  model_artifact: xg_model_v3
+  coordinate_contract: "canonical SPADL 105x68 (goal at 105,34; freeze frames normalized /105, /68)"
+  notes: >-
+    Scores gold.fct_action_values with xg_model_v3@Champion (raw xG) + the shipped
+    per-provider OOF calibrators. Per provider a two-mode gate keeps selection (which
+    mode ships) SEPARATE from certification (whether the shipped mode's AUC-CI lower
+    bound clears the StatsBomb-relative floor AND aggregate calibration passes); an
+    uncertified provider, or a missing-per-provider-calibrator N4 pooled fallback, sets
+    ood_flag=true. Penalties get the constant _penalty_xg from the envelope. The xG
+    methodology's governance (model card, Annex III posture) is consolidated under
+    wf-xg-v2 — this card is the scoring surface, not a new evaluative system.
+
+# Operational plumbing: no new academic methodology (the Deep Sets + MC-dropout +
+# Platt/isotonic calibration references live on wf-xg-v2, which governs xg_model_v3).
+references: []
+
+inputs:
+  datasets:
+    - id: "{catalog}.dev_gold.fct_action_values"
+      source: delta-table
+      description: "Shot-family SPADL actions (match_key, action_id, action_type, start_x/y, data_source, native ids)"
+    - id: "{catalog}.bronze.shot_freeze_frames"
+      source: delta-table
+      description: "Per-(shot, player) pre-shot freeze frames joined on (match_key, action_id) for the context-aware mode"
+  models:
+    - id: "xg_model_v3@Champion"
+      source: uc-volume
+      description: "SPADL-native Deep Sets set encoder (raw xG) via MLflow @Champion / UC Volume fallback + shipped per-provider/pooled OOF calibrators + _penalty_xg"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.xg_shot_predictions"
+      destination: delta-table
+      description: "Per-shot calibrated pre-shot xG + MC-dropout CI + scoring_mode + ood_flag, keyed (match_key, action_id)"
+
+execution:
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: compute_xg_shot_scores
+    module: ingestion.xg_shot_scorer
+    distribution: applyInPandas
+    partition_key: match_key
+    schedule: "daily 06:00 UTC"
+    timeout: "900s"
+    environment: analytics
+
+depends_on:
+  - wf-shot-freeze-frames
+  - wf-xg-v2
+
+idempotency:
+  strategy: full-overwrite
+  key:
+    - match_key
+  description: "replaceWhere on match_key — a re-run overwrites exactly the covered matches' predictions."
+
+performance:
+  inference_timeout: "900s"
+  memory_ceiling: "16 GB driver, 1 GB UDF executor"
+
+monitoring:
+  validator: wf-model-validation
+  freshness_sla_hours: 168
+
+links:
+  source_code:
+    - "src/ingestion/xg_shot_scorer.py"
+    - "src/analytics/xg_calibration.py"
+    - "src/analytics/xg_model.py"
+    - "src/analytics/xg_freeze_frame.py"
+---
+
+## Overview
+
+`compute_xg_shot_scores` turns the canonical-SPADL pre-shot xG model `xg_model_v3` into the
+consumable per-shot fact `bronze.xg_shot_predictions`. It loads the Champion weights (raw xG)
+plus the trainer-shipped per-provider + pooled OOF calibrators, scores every shot-family row in
+`fct_action_values` — assembling tabular features via the SHARED `analytics.xg_model.build_features`
+and freeze-frame sets via the SHARED `analytics.xg_freeze_frame.normalize_freeze_frame` (the same
+functions the trainer uses; a cross-entry-point parity test pins the identity) — and writes one row
+per `(match_key, action_id)`.
+
+## Two-mode gate (selection ≠ certification)
+
+Per provider, `select_scoring_mode` picks context-aware vs tabular-only from the held-out
+discrimination CI lower bound, while `is_mode_certified` + `calibration_ok_n_aware` decide whether
+the shipped mode is trusted. Selection is a comparison; certification is an absolute bar — a mode can
+be selected yet fail certification, which sets `ood_flag=true`. Missing per-provider calibrator → the
+pooled calibrator plus `ood_flag=true` (N4). `shot_penalty` rows bypass the encoder and take the
+constant `_penalty_xg` from the envelope. All logic comes from `analytics.xg_calibration` — never
+re-derived here.

@@ -51,3 +51,34 @@ sources:
             description: v2 xG 95% CI upper bound.
           - name: _ingested_at
             description: UTC timestamp when the row was written.
+
+      - name: xg_shot_predictions
+        description: >
+          Canonical-SPADL pre-shot xG v3 predictions (xg_model_v3; two-mode
+          selection≠certification gate + OOF calibrator) written by
+          compute_xg_shot_scores. Per ADR-013 this bronze emits only the native
+          shot key (match_id_native + Kimball match_key, action_id) + predictions;
+          Kimball surrogates (competition_key / team_key / player_key) are resolved
+          at the mart layer via fct_shot_xg's INNER JOIN to fct_action_values on
+          (match_key, action_id). Written with replaceWhere per match_key.
+        columns:
+          - name: match_id_native
+            description: Native provider match identifier (e.g. `idsse_J03WMX`).
+          - name: match_key
+            description: Kimball surrogate FK to dim_matches. Shot key part 1.
+          - name: action_id
+            description: SPADL per-match action id of the shot. Shot key part 2 (NOT global).
+          - name: data_source
+            description: Provider (statsbomb / wyscout / idsse / metrica / gradientsports / skillcorner).
+          - name: xg
+            description: Calibrated pre-shot xG mean (0-1).
+          - name: xg_ci_low
+            description: Pre-shot xG confidence-interval lower bound.
+          - name: xg_ci_high
+            description: Pre-shot xG confidence-interval upper bound.
+          - name: scoring_mode
+            description: "'context_aware' or 'tabular_only' (two-mode gate selection)."
+          - name: ood_flag
+            description: True when the selected mode is uncertified / out-of-distribution.
+          - name: _ingested_at
+            description: UTC timestamp when the row was written.

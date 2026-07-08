@@ -271,7 +271,9 @@ def test_data_ingestion_parser_count_anchor() -> None:
     # exits the per-match drain into a single distributed cogroup job).
     # 40 → 41 (canonical-SPADL pre-shot xG Task 0.5, 2026-07-07): added `compute_shot_freeze_frames`
     # (populates bronze.shot_freeze_frames for the tracking providers).
-    assert len(task_keys) == 41, f"expected 41 task blocks on data_ingestion, parser found {len(task_keys)}"
+    # 41 → 42 (canonical-SPADL pre-shot xG Task 1.9, 2026-07-08): added `compute_xg_shot_scores`
+    # (scores fct_action_values with xg_model_v3 → bronze.xg_shot_predictions).
+    assert len(task_keys) == 42, f"expected 42 task blocks on data_ingestion, parser found {len(task_keys)}"
 
 
 if __name__ == "__main__":

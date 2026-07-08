@@ -154,6 +154,9 @@ outputs:
     - id: "{catalog}.dev_gold.fct_shot_psxg"
       destination: delta-table
       dbt_model: fct_shot_psxg
+    - id: "{catalog}.dev_gold.fct_shot_xg"
+      destination: delta-table
+      dbt_model: fct_shot_xg
     - id: "{catalog}.dev_gold.fct_space_creation"
       destination: delta-table
       dbt_model: fct_space_creation

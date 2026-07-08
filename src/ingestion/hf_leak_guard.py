@@ -30,6 +30,8 @@ class LeakDetectedError(RuntimeError):
 PUBLISHER_REGISTRY: dict[str, str] = {
     "publish_spadl_vaep_hf": "split",
     "publish_action_context_hf": "split",
+    "publish_xg_shot_data_v3_hf": "split",
+    "publish_shot_freeze_frames_hf": "split",
     "publish_psxg_shots_hf": "split",
     "publish_pitch_control_tracking_hf": "split",
     "publish_tracking_context_hf": "split",

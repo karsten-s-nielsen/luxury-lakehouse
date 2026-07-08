@@ -55,6 +55,10 @@ _ADR049_SPLIT_PUBLISHERS: tuple[str, ...] = (
     "publish_psxg_shots_hf.py",
     "publish_pitch_control_tracking_hf.py",
     "publish_tracking_context_hf.py",
+    # Pre-Shot xG v3 delivery Task 1.2 (spec §A3, 2026-07-07): tabular shot corpus publisher.
+    "publish_xg_shot_data_v3_hf.py",
+    # Pre-Shot xG v3 delivery Task 1.3 (spec §A4, 2026-07-07): freeze-frame (context) corpus publisher.
+    "publish_shot_freeze_frames_hf.py",
 )
 
 # Legacy SQL-side exclusion mode is now EMPTY: tracking_context (the last legacy publisher)

@@ -478,6 +478,27 @@ class TestRestrictedPublishing:
         assert sorted(restricted_df["v"].tolist()) == [2, 3, 4]
         assert len(public_df) + len(restricted_df) == len(df)
 
+    def test_split_restricted_access_tier_fail_safe_nullable_string_dtype(self) -> None:
+        # REGRESSION: publishers' normalize_dtypes casts access_tier to the pandas *nullable*
+        # "string" dtype (astype("string")) so a NULL survives as <NA> rather than the literal
+        # "nan". Under that dtype the == comparison yields a nullable boolean, and a naive
+        # df[mask]/df[~mask] silently DROPS the <NA> row from BOTH partitions. This pins that a
+        # NULL-tier row instead fail-safes into the restricted frame (spec D1: never leak — and
+        # never silently lose — an unclassified row) for the dtype real publishers actually pass.
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "data_source": ["statsbomb", "skillcorner", "gradientsports"],
+                "access_tier": pd.array(["public", None, "restricted"], dtype="string"),
+                "v": [1, 2, 3],
+            }
+        )
+        public_df, restricted_df = hf_publish.split_restricted(df, column="access_tier")
+        assert public_df["v"].tolist() == [1], "only the explicit 'public' row is public"
+        assert sorted(restricted_df["v"].tolist()) == [2, 3], "NULL-tier row must fail-safe to restricted, not vanish"
+        assert len(public_df) + len(restricted_df) == len(df), "no row may be dropped by the split"
+
     def test_split_restricted_same_provider_in_both_partitions(self) -> None:
         # The new capability: one provider (SkillCorner) appears in BOTH repos.
         import pandas as pd

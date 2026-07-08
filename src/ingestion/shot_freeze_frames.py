@@ -25,6 +25,14 @@ frames **on the driver, one ``(match, period)`` at a time** (``_process_match`` 
 pipeline's per-batch owner assignment) to guard against double-counting shots at batch edges.
 GS/SkillCorner periods are small enough that neither concern bites.
 
+StatsBomb (SB-360) is a supported provider but a **deliberate opt-in** for the one-time SB-360
+freeze-frame backfill (``--providers …,statsbomb`` / ``--match-ids statsbomb:…``) — it is NOT in the
+daily default because StatsBomb open data is historical (not continuously ingested), so it does not
+need to be rediscovered daily. The statsbomb path is distinct from tracking: it has NO tracking frames
+and NO per-period conversion — it reads the shot's ``bronze.statsbomb_360`` freeze-frame directly and
+builds canonical-SPADL snapshots via ``analytics.action_context.sb360_freeze_frames`` (which is already
+shooter-normalized, so no orientation, and stamps ``access_tier='public'`` itself).
+
 LONG-TERM (how IDSSE/Metrica onboard): replace this driver-side loop with a DISTRIBUTED SINK
 mirroring ``compute_action_context`` — a per-``(match, period)`` work-queue in
 ``ingestion.action_context_queue`` + a ``compute_shot_freeze_frames_drain_worker`` entry point.
@@ -84,10 +92,17 @@ logger = logging.getLogger(__name__)
 # freeze frame. Mirrors ``ingestion.action_context._TRACKING_PROVIDERS`` (the AC tracking tier).
 _TRACKING_PROVIDERS: frozenset[str] = frozenset({"gradientsports", "skillcorner", "idsse", "metrica"})
 
+# The full freeze-frame provider set = the tracking tier PLUS statsbomb (SB-360). statsbomb is a
+# freeze-frame provider (its 360 freeze-frames feed the SAME bronze.shot_freeze_frames) but takes a
+# DISTINCT, non-tracking code path (no frame conversion; see ``_process_statsbomb_match``). It is a
+# valid ``--providers`` / ``--match-ids`` value but is NOT in the daily default (opt-in backfill only).
+_FREEZE_FRAME_PROVIDERS: frozenset[str] = _TRACKING_PROVIDERS | frozenset({"statsbomb"})
+
 # INTERIM SCOPE (see module docstring): the daily run is limited to GradientSports + SkillCorner —
 # the only providers small enough for the current driver-side per-(match, period) conversion.
 # IDSSE/Metrica onboard with the distributed-sink rewrite (work-queue + drain worker), NOT by
-# widening this default. Overridable via ``--providers`` for a deliberate opt-in.
+# widening this default. statsbomb (SB-360) is a deliberate opt-in for the one-time backfill, NOT a
+# daily source. Overridable via ``--providers``.
 _DEFAULT_PROVIDERS = "gradientsports,skillcorner"
 
 # ── Driver input-table column contract (SSOT for the discovery/resolution SQL AND the schema guard) ──
@@ -189,18 +204,19 @@ def _parse_freeze_frame_match_ids_arg(raw: str | None) -> tuple[str, list[str]] 
     Format ``"provider:id1,id2"`` (mirrors ``action_context._parse_action_match_ids_arg`` but
     without the per-period variant — the freeze-frame writer is per-MATCH, ``replaceWhere`` keyed
     on ``match_key``). ``None`` / empty → ``None`` (incremental discovery path). Unknown provider or
-    a malformed value raises ``SystemExit`` (loud CLI failure, no silent default).
+    a malformed value raises ``SystemExit`` (loud CLI failure, no silent default). ``statsbomb`` is a
+    valid provider here (the SB-360 backfill), alongside the tracking providers.
     """
     if raw is None or raw.strip() == "":
         return None
     if ":" not in raw:
         raise SystemExit(
-            f"--match-ids must be 'provider:id1,id2', got {raw!r}. Valid providers: {sorted(_TRACKING_PROVIDERS)}"
+            f"--match-ids must be 'provider:id1,id2', got {raw!r}. Valid providers: {sorted(_FREEZE_FRAME_PROVIDERS)}"
         )
     provider, _, id_str = raw.partition(":")
     provider = provider.strip()
-    if provider not in _TRACKING_PROVIDERS:
-        raise SystemExit(f"Unknown provider {provider!r}. Valid: {sorted(_TRACKING_PROVIDERS)}")
+    if provider not in _FREEZE_FRAME_PROVIDERS:
+        raise SystemExit(f"Unknown provider {provider!r}. Valid: {sorted(_FREEZE_FRAME_PROVIDERS)}")
     ids = [i.strip() for i in id_str.split(",") if i.strip()]
     if not ids:
         return None
@@ -208,21 +224,24 @@ def _parse_freeze_frame_match_ids_arg(raw: str | None) -> tuple[str, list[str]] 
 
 
 def _parse_providers_arg(raw: str | None) -> frozenset[str]:
-    """Parse/validate the ``--providers`` comma-list against the known tracking-provider set.
+    """Parse/validate the ``--providers`` comma-list against the known freeze-frame-provider set.
 
     Empty / ``None`` → the interim default (``gradientsports,skillcorner``). Unknown providers raise
     a loud ``SystemExit``. Enabling ``idsse``/``metrica`` here is a deliberate opt-in (see the module
     docstring's INTERIM SCOPE note — the driver-side conversion is not yet safe for their dense
-    periods).
+    periods); ``statsbomb`` is a deliberate opt-in for the one-time SB-360 backfill (never in the
+    daily default).
     """
     if raw is None or raw.strip() == "":
         raw = _DEFAULT_PROVIDERS
     selected = {p.strip() for p in raw.split(",") if p.strip()}
     if not selected:
-        raise SystemExit(f"--providers must be a non-empty comma-list. Valid: {sorted(_TRACKING_PROVIDERS)}")
-    unknown = selected - _TRACKING_PROVIDERS
+        raise SystemExit(f"--providers must be a non-empty comma-list. Valid: {sorted(_FREEZE_FRAME_PROVIDERS)}")
+    unknown = selected - _FREEZE_FRAME_PROVIDERS
     if unknown:
-        raise SystemExit(f"Unknown provider(s) in --providers: {sorted(unknown)}. Valid: {sorted(_TRACKING_PROVIDERS)}")
+        raise SystemExit(
+            f"Unknown provider(s) in --providers: {sorted(unknown)}. Valid: {sorted(_FREEZE_FRAME_PROVIDERS)}"
+        )
     return frozenset(selected)
 
 
@@ -280,22 +299,61 @@ def _missing_units_sql(catalog: str, gold_schema: str, providers: frozenset[str]
     )
 
 
+def _missing_statsbomb_units_sql(catalog: str, gold_schema: str) -> str:
+    """StatsBomb-specific discovery SQL: shot-matches WITH 360 data, NOT yet in ``shot_freeze_frames``.
+
+    Distinct from :func:`_missing_units_sql` (the generic tracking discovery) in ONE load-bearing way:
+    it restricts to statsbomb matches that have rows in ``bronze.statsbomb_360``. There are ~74k
+    non-360 statsbomb shots — a non-360 match would resolve a ``match_key`` and pass the shot filter
+    but produce ZERO freeze frames (no 360 data), wasting a work unit and never clearing itself from
+    the anti-set (it would be rediscovered every run). The ``statsbomb_360`` existence subquery gates
+    that out. Otherwise identical anti-set structure: ``spadl_actions`` shots ∩ ``dim_matches``
+    (``match_key`` resolution) MINUS the ``match_key`` set already in ``shot_freeze_frames``.
+    """
+    from analytics.action_context.tracking_snapshots import _shot_type_id
+
+    shot_type_id = _shot_type_id()
+    return (
+        f"SELECT dm.{_DIM_MATCHES_PROVIDER_COL} AS provider, "  # noqa: S608 — identifiers validated by IDENTIFIER_RE; literals only
+        f"CAST(sa.{_SPADL_NATIVE_ID_COL} AS STRING) AS native_id, dm.{_DIM_MATCHES_KEY_COL} AS match_key "
+        f"FROM {catalog}.bronze.spadl_actions sa "
+        f"JOIN {catalog}.{gold_schema}.dim_matches dm "
+        f"  ON sa.{_SPADL_DATA_SOURCE_COL} = dm.{_DIM_MATCHES_PROVIDER_COL} "
+        f"  AND CAST(sa.{_SPADL_NATIVE_ID_COL} AS STRING) = CAST(dm.{_DIM_MATCHES_NATIVE_ID_COL} AS STRING) "
+        f"WHERE sa.{_SPADL_DATA_SOURCE_COL} = 'statsbomb' "
+        f"  AND sa.{_SPADL_TYPE_ID_COL} = {shot_type_id} "
+        f"  AND CAST(sa.{_SPADL_NATIVE_ID_COL} AS STRING) IN "
+        f"    (SELECT DISTINCT CAST(match_id AS STRING) FROM {catalog}.bronze.statsbomb_360) "
+        f"  AND dm.{_DIM_MATCHES_KEY_COL} NOT IN (SELECT match_key FROM {catalog}.bronze.{_TABLE_NAME}) "
+        f"GROUP BY dm.{_DIM_MATCHES_PROVIDER_COL}, sa.{_SPADL_NATIVE_ID_COL}, dm.{_DIM_MATCHES_KEY_COL}"
+    )
+
+
 def _discover_missing_units(
     spark: SparkSession, catalog: str, gold_schema: str, providers: frozenset[str]
 ) -> list[tuple[str, str]]:
     """Return ``[(provider, native_id), ...]`` for ``providers``-scoped shot-matches not yet freeze-framed.
 
     Discovery is CONSTRAINED to the ``--providers``-selected set (default GS+SkillCorner) — an
-    idsse/metrica match is never returned unless explicitly enabled (INTERIM SCOPE). Uses
-    ``tolerate_missing_table`` so the first run (before the table is populated / when the migration
-    has just created an empty table) does not spuriously fail; a genuinely absent
-    ``shot_freeze_frames`` means "nothing processed yet" → discover everything in scope.
+    idsse/metrica/statsbomb match is never returned unless explicitly enabled (INTERIM SCOPE +
+    statsbomb opt-in). Tracking providers use the generic anti-set SQL; ``statsbomb`` uses its own
+    :func:`_missing_statsbomb_units_sql` (which additionally requires ``bronze.statsbomb_360`` data),
+    and the two result sets are unioned. Uses ``tolerate_missing_table`` so the first run (before the
+    table is populated / when the migration has just created an empty table) does not spuriously fail;
+    a genuinely absent ``shot_freeze_frames`` means "nothing processed yet" → discover everything in scope.
     """
     from ingestion.utils import tolerate_missing_table
 
-    with tolerate_missing_table(logger, "shot_freeze_frames not found — treating all tracking matches as unprocessed"):
-        rows = spark.sql(_missing_units_sql(catalog, gold_schema, providers)).collect()
-        return [(str(r["provider"]), str(r["native_id"])) for r in rows]
+    tracking_scope = providers & _TRACKING_PROVIDERS
+    with tolerate_missing_table(logger, "shot_freeze_frames not found — treating all matches as unprocessed"):
+        units: list[tuple[str, str]] = []
+        if tracking_scope:
+            tracking_rows = spark.sql(_missing_units_sql(catalog, gold_schema, tracking_scope)).collect()
+            units.extend((str(r["provider"]), str(r["native_id"])) for r in tracking_rows)
+        if "statsbomb" in providers:
+            sb_rows = spark.sql(_missing_statsbomb_units_sql(catalog, gold_schema)).collect()
+            units.extend((str(r["provider"]), str(r["native_id"])) for r in sb_rows)
+        return units
     return []
 
 
@@ -520,6 +578,94 @@ def _period_snapshots(
     return build_tracking_snapshots_spark(actions_fc, frames, home_team_id=meta.home_team_id)
 
 
+def _process_statsbomb_match(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    gold_schema: str,
+    native_id: str,
+    task_logger: logging.Logger,
+) -> tuple[int, int]:
+    """Process ONE StatsBomb-360 match → ``bronze.shot_freeze_frames``. Returns ``(match_key, rows)``.
+
+    The statsbomb path is distinct from the tracking path: there are NO tracking frames and NO
+    per-period conversion. It reads the shot's ``bronze.statsbomb_360`` freeze-frame directly and
+    builds canonical-SPADL snapshots via ``analytics.action_context.sb360_freeze_frames`` (which is
+    already shooter-normalized — no orientation — and stamps ``access_tier='public'`` itself, so the
+    tracking path's per-row ``access_tier`` stamp is NOT applied here). Reads are bounded per match:
+    ~22 freeze-frame rows/shot and the match's shot actions only. Hard-fail-first (ADR-002 §5).
+
+    ``build_sb360_snapshots`` uses ``actions_df.team_id`` only to label acting vs opponent players
+    (the 360 ``teammate`` flag is authoritative) — so the raw ``bronze.spadl_actions.team_id`` (native
+    StatsBomb integer id; StatsBomb ids are never hashed) is internally consistent and used as-is, with
+    NO ``_resolve_enrichment_identity`` remap (mirrors the AC ``_enrich_sb360_match`` path exactly).
+    """
+    from pyspark.sql import functions as spark_fn  # type: ignore[import-not-found]
+
+    from analytics.action_context.sb360_freeze_frames import build_sb360_freeze_frames
+    from analytics.action_context.tracking_snapshots import _shot_type_id
+
+    try:
+        # ── Read this match's 360 freeze frames (bounded: ~22 rows/shot times shots) ──
+        sb360_pdf = (
+            spark.table(f"{catalog}.bronze.statsbomb_360")
+            .filter(spark_fn.col("match_id").cast("string") == str(native_id))
+            .select("id", "actor", "teammate", "keeper", "location")
+            .toPandas()
+        )
+        if sb360_pdf.empty:
+            task_logger.warning("No statsbomb_360 freeze frames for statsbomb match %s (non-360 match)", native_id)
+            return (0, 0)
+
+        # ── Read this match's shot actions (bounded) + resolve match_key (gold dim_matches) ──
+        shot_type_id = _shot_type_id()
+        actions_pdf = (
+            spark.table(f"{catalog}.bronze.spadl_actions")
+            .filter(
+                (spark_fn.col("data_source") == "statsbomb")
+                & (spark_fn.col("match_id_native").cast("string") == str(native_id))
+                & (spark_fn.col("type_id") == shot_type_id)
+            )
+            .select("original_event_id", "action_id", "team_id")
+            .toPandas()
+        )
+        if actions_pdf.empty:
+            task_logger.warning("No statsbomb shot actions for match %s", native_id)
+            return (0, 0)
+        match_key, _access_tier = _resolve_match_identity(spark, catalog, gold_schema, "statsbomb", native_id)
+        actions_pdf["match_key"] = match_key
+
+        # ── shot_fidelity_version is REQUIRED (drives the 120x80 -> 105x68 cell offset); raise loud ──
+        fidelity_rows = (
+            spark.table(f"{catalog}.bronze.statsbomb_matches")
+            .filter(spark_fn.col("match_id").cast("string") == str(native_id))
+            .select("shot_fidelity_version")
+            .limit(1)
+            .collect()
+        )
+        if not fidelity_rows or fidelity_rows[0]["shot_fidelity_version"] is None:
+            raise RuntimeError(f"No shot_fidelity_version in {catalog}.bronze.statsbomb_matches for match {native_id}")
+        # Stored as a STRING in bronze; the silly_kicks converter compares `== 2`, so cast to int.
+        shot_fidelity_version = int(fidelity_rows[0]["shot_fidelity_version"])
+
+        out_df = build_sb360_freeze_frames(actions_pdf, sb360_pdf, shot_fidelity_version)
+        if out_df.empty:
+            task_logger.warning(
+                "No SB-360 freeze frames produced for statsbomb match %s (match_key=%s)", native_id, match_key
+            )
+            return (match_key, 0)
+
+        # The SB-360 builder already stamps access_tier='public' (public data; no per-row driver stamp).
+        if "access_tier" not in out_df.columns:
+            raise RuntimeError("build_sb360_freeze_frames output is missing the access_tier column")
+        n_rows = len(out_df)
+        snapshots_sdf = spark.createDataFrame(out_df, schema=_shot_ff_struct_type())
+        written = write_shot_freeze_frames(snapshots_sdf, catalog, schema, [match_key], row_count=n_rows)
+        return (match_key, written)
+    except Exception as exc:  # ADR-002 §5 — hard-fail-first with the match key in the message
+        raise RuntimeError(f"compute_shot_freeze_frames failed for statsbomb:{native_id}") from exc
+
+
 def _process_match(
     spark: SparkSession,
     catalog: str,
@@ -534,7 +680,13 @@ def _process_match(
     Mirrors ``action_context._process_tracking_match``'s input prep (metadata resolution + clock
     rebasing) but swaps the heavy enrichment for the freeze-frame snapshot build. Hard-fail-first:
     any failure propagates with the ``provider:native_id`` in the message (ADR-002 §5).
+
+    ``statsbomb`` takes a DISTINCT path (:func:`_process_statsbomb_match`) — no tracking frames, no
+    per-period conversion — dispatched here BEFORE any tracking read.
     """
+    if provider == "statsbomb":
+        return _process_statsbomb_match(spark, catalog, schema, gold_schema, native_id, task_logger)
+
     import pandas as _pd
     from pyspark.sql import functions as spark_fn  # type: ignore[import-not-found]
 
@@ -671,9 +823,10 @@ def run_pipeline(
 def main() -> None:
     """CLI entry point — ``compute_shot_freeze_frames`` mega-job task.
 
-    ``--providers`` selects the tracking-provider scope (default ``gradientsports,skillcorner`` —
-    the INTERIM SCOPE; see the module docstring). ``--match-ids "provider:id1,id2"`` runs an explicit
-    (backfill) set, rejected if its provider is outside ``--providers``; omitting it runs the
+    ``--providers`` selects the freeze-frame provider scope (default ``gradientsports,skillcorner`` —
+    the INTERIM SCOPE; see the module docstring). ``statsbomb`` (SB-360) is a deliberate opt-in for the
+    one-time backfill. ``--match-ids "provider:id1,id2"`` runs an explicit (backfill) set, rejected if
+    its provider is outside ``--providers``; omitting it runs the
     INCREMENTAL default — only ``--providers``-scoped shot-matches not yet present in
     ``bronze.shot_freeze_frames``. A ``SystemExit`` escaping the entry point is treated as a workload
     failure by the Databricks ``python_wheel_task`` runner (even ``SystemExit(0)``), so we return
@@ -689,9 +842,10 @@ def main() -> None:
         "--providers",
         default=_DEFAULT_PROVIDERS,
         help=(
-            f"Comma-list of tracking providers to process (default {_DEFAULT_PROVIDERS!r} — the interim "
+            f"Comma-list of freeze-frame providers to process (default {_DEFAULT_PROVIDERS!r} — the interim "
             f"GS+SkillCorner scope). idsse/metrica are a deliberate opt-in pending the distributed-sink "
-            f"rewrite. Valid: {sorted(_TRACKING_PROVIDERS)}"
+            f"rewrite; statsbomb (SB-360) is a deliberate opt-in for the one-time backfill (not a daily "
+            f"source). Valid: {sorted(_FREEZE_FRAME_PROVIDERS)}"
         ),
     )
     parser.add_argument(

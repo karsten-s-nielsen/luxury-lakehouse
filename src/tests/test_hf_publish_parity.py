@@ -64,6 +64,16 @@ _DATASET_CARD_ORPHAN_EXEMPT: frozenset[str] = frozenset(
         # those publishers gained the split. Remove each once its first run lands.
         "pitch-control-tracking-restricted",
         "spadl-tracking-context-restricted",
+        # Pre-Shot xG v3 delivery Task 1.2 (spec §A3, 2026-07-07): cards created with the
+        # publisher; the HF datasets are NOT published yet (live publish is a later
+        # human-gated step). Remove each once its first publish run lands.
+        "xg-shot-data-v3",
+        "xg-shot-data-v3-restricted",
+        # Pre-Shot xG v3 delivery Task 1.3 (spec §A4, 2026-07-07): cards created with the
+        # freeze-frame publisher; the HF datasets are NOT published yet. Remove each once its
+        # first publish run lands.
+        "xg-shot-freeze-frames",
+        "xg-shot-freeze-frames-restricted",
     }
 )
 
@@ -77,6 +87,17 @@ _MODEL_CARD_EXEMPT: frozenset[str] = frozenset(
     {
         "build-artifacts",
         "xg-model-statsbomb-wyscout",
+    }
+)
+
+# In-repo model cards whose HF model repo is pending first publish (orphan-exempt, mirrors
+# _DATASET_CARD_ORPHAN_EXEMPT). Remove each once its first training/publish run creates the HF repo.
+_MODEL_CARD_ORPHAN_EXEMPT: frozenset[str] = frozenset(
+    {
+        # Pre-Shot xG v3 delivery Task 1.7 (spec §A5, 2026-07-07): the xg_model_v3 model card is
+        # created with the trainer; the HF model repo (xg-v3-model-set-encoder) is NOT published yet
+        # (the live GPU retrain is a later human-gated step). Remove once that run lands.
+        "xg-v3-model-card",
     }
 )
 
@@ -169,6 +190,7 @@ class TestModelCardParity:
         # ADR-023; the HF Hub repo is exempted via _MODEL_CARD_EXEMPT above.
         _aliases: dict[str, str] = {
             "xg-v2-model-set-encoder": "xg-v2-model-card",
+            "xg-v3-model-set-encoder": "xg-v3-model-card",
             "football2vec-v2": "football2vec-v2-model-card",
             "football2vec-360": "football2vec-360-model-card",
             "obso-pausa-method": "obso-pausa",
@@ -194,12 +216,13 @@ class TestModelCardParity:
         # xg-model-card (v1) deleted in SK3-MIG-B per ADR-023.
         _card_to_repo: dict[str, str] = {
             "xg-v2-model-card": "xg-v2-model-set-encoder",
+            "xg-v3-model-card": "xg-v3-model-set-encoder",
             "football2vec-v2-model-card": "football2vec-v2",
             "football2vec-360-model-card": "football2vec-360",
             "obso-pausa": "obso-pausa-method",
             "space-creation": "space-creation-method",
         }
-        in_repo = set(_iter_card_basenames(_MODEL_CARDS_DIR))
+        in_repo = set(_iter_card_basenames(_MODEL_CARDS_DIR)) - _MODEL_CARD_ORPHAN_EXEMPT
 
         orphan: list[str] = []
         for stem in in_repo:
@@ -279,6 +302,12 @@ _ADR049_SPLIT_PUBLISHER_CARDS: dict[str, str] = {
     "publish_psxg_shots_hf.py": "psxg-shots-restricted.md",
     "publish_pitch_control_tracking_hf.py": "pitch-control-tracking-restricted.md",
     "publish_tracking_context_hf.py": "spadl-tracking-context-restricted.md",
+    # Pre-Shot xG v3 delivery Task 1.2 (spec §A3, 2026-07-07): the tabular shot corpus
+    # publisher for xg_model_v3.
+    "publish_xg_shot_data_v3_hf.py": "xg-shot-data-v3-restricted.md",
+    # Pre-Shot xG v3 delivery Task 1.3 (spec §A4, 2026-07-07): the freeze-frame / player-set
+    # (context) corpus publisher for xg_model_v3.
+    "publish_shot_freeze_frames_hf.py": "xg-shot-freeze-frames-restricted.md",
 }
 
 

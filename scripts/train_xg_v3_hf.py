@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.68-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.70-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -89,6 +89,14 @@ from sklearn.model_selection import GroupKFold
 from analytics.set_encoder import serialize_set_encoder_weights
 
 # --- SHARED feature code (M2 parity — imported from the installed wheel on HF Jobs) ---
+from analytics.xg_calibration import (
+    IsotonicParams,
+    PlattParams,
+    apply_isotonic,
+    apply_platt,
+    bootstrap_auc_ci,
+    choose_calibrator,
+)
 from analytics.xg_freeze_frame import SPADL_PITCH, normalize_freeze_frame
 from analytics.xg_model import XGModelConfig, build_features, spadl_shot_geometry
 from ingestion.artifact_deploy import (
@@ -97,7 +105,7 @@ from ingestion.artifact_deploy import (
     upload_weights_to_uc_volume,
 )
 from ingestion.hf_jobs_cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
-from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
+from ingestion.hf_publish import get_hf_card_path, restricted_repo_id, upload_hf_readme
 from shared.constants import mlflow_model_uri
 from workflows import workflow
 
@@ -165,6 +173,38 @@ _TRAINING_SHOT_TYPES: tuple[str, ...] = ("shot", "shot_freekick")
 _GOAL_RESULT = "success"
 # Non-outcome result to drop entirely (2 GS rows) — logged.
 _DROP_RESULT = "yellow_card"
+# The excluded fixed-geometry shot type. The trainer computes its empirical conversion rate over the
+# LOADED (pre-filter) dataset and ships it as a constant ``_penalty_xg`` — the scorer reads it, never
+# recomputes (computing it over the penalty-EXCLUDED training set is 0/0 -> NaN).
+_PENALTY_SHOT_TYPE = "shot_penalty"
+
+# v3 ships EXACTLY these geometry-only tabular features, in this pinned order (design spec §4). No
+# StatsBomb categoricals (body-part / technique / type / play-pattern), no ``end_location``, no
+# ``period``/``minute`` — the uniform set is what the serving scorer's tabular-only mode reproduces
+# for every provider. ``build_features`` reindexes to this list (pads any missing with 0.0), so the
+# feature order is deterministic regardless of which raw columns a provider's shot rows happen to carry.
+UNIFORM_FEATURE_NAMES: tuple[str, ...] = (
+    "distance_to_goal",
+    "shot_angle",
+    "location_x",
+    "location_y",
+    "set_cardinality",
+)
+
+# Restricted tracking cohorts (skillcorner is per-match restricted; gradientsports is provider-default
+# restricted). Used ONLY for the loud corpus-composition assertion — the authoritative publish split
+# keys on the per-row ``access_tier`` (ADR-064), never on this set.
+_RESTRICTED_COHORT_PROVIDERS: frozenset[str] = frozenset({"skillcorner", "gradientsports"})
+
+# Two-mode-gate thresholds SHIPPED in the envelope's ``_gate`` block. The scorer's ``parse_gate``
+# reads margin/floor FROM the shipped block (falling back to its own defaults only when absent), so
+# these are the authoritative values at score time. Kept numerically in lockstep with
+# ``ingestion.xg_shot_scorer.DEFAULT_GATE_MARGIN`` / ``DEFAULT_GATE_FLOOR`` (StatsBomb-relative floor
+# ``max(sb_auc - margin, floor)``).
+_GATE_MARGIN = 0.05
+_GATE_FLOOR = 0.5
+# Deterministic bootstrap for the per-provider AUC confidence intervals in the gate evidence.
+_GATE_BOOTSTRAP_SEED = 0
 
 BATCH_SIZE = 256
 MAX_EPOCHS = 50
@@ -233,10 +273,14 @@ def parse_freeze_frames_spadl(
 ) -> list[npt.NDArray[np.floating[Any]]]:
     """Per-shot SPADL-normalized player sets from ``bronze.shot_freeze_frames`` rows.
 
-    For each shot (by ``action_id``), collect its freeze-frame player rows, stack
+    For each shot (keyed on ``(match_key, action_id)``), collect its freeze-frame player rows, stack
     ``[x, y, is_keeper, is_teammate]`` (raw SPADL metres) and apply the SHARED C2 port
     ``normalize_freeze_frame`` (÷105,÷68 + shooter-attacks-high-x orientation). Shots
     without a freeze frame get an empty ``(0,4)`` array — the trained zero-context path.
+
+    The join key is ``(match_key, action_id)``, NOT ``action_id`` alone: ``action_id`` is per-match,
+    not global (§5 invariant — the single most important one). Two matches each carrying a shot with
+    the same ``action_id`` would otherwise have their freeze frames unioned onto BOTH shots.
     """
     n_shots = len(shots_df)
     empty = np.empty((0, 4), dtype=np.float64)
@@ -244,11 +288,11 @@ def parse_freeze_frames_spadl(
         logger.info("No freeze-frame data; all %d shots use the zero-context path", n_shots)
         return [empty.copy() for _ in range(n_shots)]
 
-    groups: dict[Any, pd.DataFrame] = dict(iter(freeze_df.groupby("action_id")))
+    groups: dict[Any, pd.DataFrame] = dict(iter(freeze_df.groupby(["match_key", "action_id"])))
     result: list[npt.NDArray[np.floating[Any]]] = []
     matched = 0
-    for action_id in shots_df["action_id"]:
-        group = groups.get(action_id)
+    for match_key, action_id in zip(shots_df["match_key"], shots_df["action_id"], strict=True):
+        group = groups.get((match_key, action_id))
         if group is None or len(group) == 0:
             result.append(empty.copy())
             continue
@@ -286,6 +330,12 @@ def build_spadl_tabular(
 
     ``set_cardinality`` is taken from ``player_sets`` so every zero-context row is 0,
     matching the shape the scorer's tabular-only mode must reproduce.
+
+    The output feature set is pinned to :data:`UNIFORM_FEATURE_NAMES` (geometry only — no StatsBomb
+    categoricals, no ``end_location``/``period``/``minute``): ``build_features`` reindexes to that
+    deterministic order, so a provider whose shot rows carry extra columns cannot perturb the trained
+    feature vector. Pass an explicit ``expected_features`` only to override this (e.g. re-scoring
+    against a legacy envelope's feature order).
     """
     config = config or XGModelConfig()
     df = shots_df.copy().reset_index(drop=True)
@@ -298,7 +348,158 @@ def build_spadl_tabular(
         df["location_y"] = df["start_y"].astype(float)
 
     df["set_cardinality"] = [int(np.asarray(ps).shape[0]) for ps in player_sets]
-    return build_features(df, config, expected_features=expected_features)
+    expected = expected_features if expected_features is not None else list(UNIFORM_FEATURE_NAMES)
+    return build_features(df, config, expected_features=expected)
+
+
+def penalty_goal_rate(df: pd.DataFrame) -> float:
+    """Empirical ``shot_penalty`` conversion rate over the LOADED (pre-population-filter) dataset.
+
+    This MUST be computed BEFORE ``select_training_shots`` drops the penalty rows: the penalty-excluded
+    training set has zero penalties, so computing the rate there is ``0/0`` and returns ``NaN``. The
+    trainer ships this scalar as the envelope's ``_penalty_xg`` constant (fixed-geometry penalties are
+    excluded from the geometry model and get this constant xG at scoring time). Returns ``NaN`` when the
+    frame carries no penalty rows.
+    """
+    is_pen = df["action_type"].astype("string") == _PENALTY_SHOT_TYPE
+    n = int(is_pen.sum())
+    if n == 0:
+        return float("nan")
+    goals = int((df.loc[is_pen, "action_result"].astype("string") == _GOAL_RESULT).sum())
+    return goals / n
+
+
+def _calibrator_entry(
+    raw: npt.NDArray[Any], y: npt.NDArray[Any], groups: npt.NDArray[Any], n_splits: int
+) -> dict[str, Any]:
+    """Fit ONE leak-free OOF calibrator via ``analytics.xg_calibration.choose_calibrator``.
+
+    Returns a JSON-safe ``{"kind": "platt"|"isotonic", "params": {...}}``. ``choose_calibrator`` prefers
+    Platt and only switches to isotonic when isotonic strictly beats it on group-disjoint out-of-fold
+    Brier; it is robust to single-class / single-group inputs (degenerate constant Platt), so per-provider
+    fitting never raises. We do NOT re-derive any calibration primitive here — the module owns it.
+    """
+    kind, params = choose_calibrator(raw, y, groups, n_splits=n_splits)
+    if isinstance(params, (PlattParams, IsotonicParams)):
+        return {"kind": kind, "params": params.to_dict()}
+    raise TypeError(f"choose_calibrator returned an unserializable params type: {type(params)!r}")
+
+
+def fit_calibrators(
+    oof_raw: npt.NDArray[Any],
+    y: npt.NDArray[Any],
+    data_source: npt.NDArray[Any],
+    match_keys: npt.NDArray[Any],
+    *,
+    n_splits: int = N_SPLITS,
+) -> dict[str, Any]:
+    """Fit per-provider AND pooled OOF calibrators from the model's RAW out-of-fold predictions.
+
+    The model emits RAW (uncalibrated) xG. The trainer fits these calibrators as EVIDENCE + serve-time
+    parameters and ships them under the envelope's ``_calibrators`` — it applies NOTHING to the served
+    weights. The SCORER (a later task) applies them. Both the pooled calibrator (across all providers)
+    and one calibrator per ``data_source`` are fit on group-disjoint out-of-fold predictions
+    (GroupKFold-by-``match_key``), so nothing leaks.
+
+    Returns ``{"per_provider": {provider: entry}, "pooled": entry}`` where each ``entry`` is the JSON-safe
+    ``{"kind", "params"}`` from :func:`_calibrator_entry`.
+    """
+    raw = np.asarray(oof_raw, dtype=np.float64)
+    labels = np.asarray(y)
+    providers = np.asarray(data_source)
+    groups = np.asarray(match_keys)
+
+    per_provider: dict[str, Any] = {}
+    for prov in np.unique(providers):
+        mask = providers == prov
+        per_provider[str(prov)] = _calibrator_entry(raw[mask], labels[mask], groups[mask], n_splits)
+    return {"per_provider": per_provider, "pooled": _calibrator_entry(raw, labels, groups, n_splits)}
+
+
+def _apply_calibrator_to_raw(
+    raw: npt.NDArray[np.float64], provider: str, calibrators: dict[str, Any]
+) -> npt.NDArray[np.float64]:
+    """Apply a provider's fitted calibrator to raw xG (pooled fallback), MIRRORING the scorer's
+    ``ingestion.xg_shot_scorer.calibrate_xg``: per-provider entry first, else the pooled entry.
+
+    Used only to compute the aggregate-calibration inputs (``sum_xg``) for the gate evidence — the
+    served weights stay RAW; this is evidence, not a transform applied to the model.
+    """
+    per_provider = calibrators.get("per_provider") or {}
+    entry = per_provider.get(provider) or calibrators.get("pooled")
+    if entry is None:
+        # No calibrator at all — return raw (the gate's calibration check then uses raw sums).
+        return np.asarray(raw, dtype=np.float64)
+    kind, params = entry["kind"], entry["params"]
+    if kind == "platt":
+        return apply_platt(raw, PlattParams.from_dict(params))
+    if kind == "isotonic":
+        return apply_isotonic(raw, IsotonicParams.from_dict(params))
+    raise ValueError(f"Unknown calibrator kind {kind!r} (expected 'platt' or 'isotonic')")
+
+
+def build_gate_evidence(
+    oof: dict[str, npt.NDArray[Any]],
+    calibrators: dict[str, Any],
+    *,
+    margin: float = _GATE_MARGIN,
+    floor: float = _GATE_FLOOR,
+    n_boot: int = 2000,
+    seed: int = _GATE_BOOTSTRAP_SEED,
+) -> dict[str, Any]:
+    """Build the ``_gate`` evidence block the scorer's ``parse_gate`` reads verbatim (Task 1.4-1.7 follow-on).
+
+    Without this block the scorer fail-safes EVERY provider to ``tabular_only + ood_flag=True`` (and the
+    consumer drops ood-flagged cohorts), so nothing certifies. From the leak-free GroupKFold OOF bundle
+    (``crossval_oos_both_modes``) this emits, per provider:
+
+      - ``context`` / ``tabular``: the ``bootstrap_auc_ci`` AUC + CI on that provider's held-out
+        CONTEXT-aware and TABULAR-only RAW predictions (``{"auc", "lo", "hi"}``);
+      - ``sum_xg``: sum of the CALIBRATED context-mode xG (provider calibrator, pooled fallback — mirrors
+        the scorer), ``sum_goals``: sum of the OOF labels, ``n``: row count — the ``calibration_ok_n_aware``
+        inputs.
+
+    ``sb_auc`` is StatsBomb's context-aware OOF AUC point estimate (SB-360 context is in this full-corpus
+    model); if StatsBomb has no two-class context OOF this run, it falls back to the best-available
+    provider's context AUC, else ``0.0`` (which makes ``floor`` the binding bar — safe). ``margin`` /
+    ``floor`` are shipped so the scorer gates against the trainer's thresholds.
+
+    A provider whose held-out labels are single-class (AUC undefined) is OMITTED — the scorer then
+    fail-safes it to ``tabular_only`` + flagged, which is the correct conservative behavior.
+    """
+    proba = np.asarray(oof["proba"], dtype=np.float64)
+    tab_proba = np.asarray(oof["tabular_proba"], dtype=np.float64)
+    y = np.asarray(oof["y"])
+    data_source = np.asarray(oof["data_source"])
+
+    per_provider: dict[str, Any] = {}
+    context_auc: dict[str, float] = {}
+    for prov in np.unique(data_source):
+        mask = data_source == prov
+        yv = y[mask]
+        if np.unique(yv).size < 2:
+            continue  # AUC undefined → no evidence → scorer fail-safes this provider (conservative).
+        c_auc, c_lo, c_hi = bootstrap_auc_ci(proba[mask], yv, n_boot=n_boot, seed=seed)
+        t_auc, t_lo, t_hi = bootstrap_auc_ci(tab_proba[mask], yv, n_boot=n_boot, seed=seed)
+        calibrated_ctx = _apply_calibrator_to_raw(proba[mask], str(prov), calibrators)
+        per_provider[str(prov)] = {
+            "context": {"auc": c_auc, "lo": c_lo, "hi": c_hi},
+            "tabular": {"auc": t_auc, "lo": t_lo, "hi": t_hi},
+            "sum_xg": float(np.sum(calibrated_ctx)),
+            "sum_goals": float(np.sum(yv.astype(np.float64))),
+            "n": int(yv.size),
+        }
+        context_auc[str(prov)] = c_auc
+
+    sb_auc = context_auc.get("statsbomb")
+    if sb_auc is None:
+        sb_auc = max(context_auc.values()) if context_auc else 0.0
+    return {
+        "sb_auc": float(sb_auc),
+        "margin": float(margin),
+        "floor": float(floor),
+        "per_provider": per_provider,
+    }
 
 
 def build_weight_envelope(
@@ -309,6 +510,9 @@ def build_weight_envelope(
     isotonic_y: npt.NDArray[np.floating[Any]] | None = None,
     mc_z_multiplier: float | None = None,
     mc_dropout_p_inference: float | None = None,
+    calibrators: dict[str, Any] | None = None,
+    penalty_xg: float | None = None,
+    gate: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Serialize weights and inject the ADR-012 §2 envelope contract fields.
 
@@ -319,6 +523,12 @@ def build_weight_envelope(
 
     Optional isotonic-calibrator thresholds + MC-dropout inference params ride alongside
     the weights (mirrors the v2 trainer's ``_isotonic_*`` / ``_mc_*`` sidecar arrays).
+
+    Single-calibration ownership (Task 1.6): the served weights stay RAW. The per-provider + pooled OOF
+    calibrators ride under ``_calibrators`` and the excluded-shot-type penalty constant under
+    ``_penalty_xg`` — both are EVIDENCE / serve-time parameters the SCORER applies; nothing is baked
+    into the weight arrays. The ``_gate`` two-mode-gate evidence (per-provider AUC-CIs + calibration
+    sums) rides alongside — the scorer's ``parse_gate`` reads it verbatim to CERTIFY context-aware modes.
     """
     weights = dict(numpy_weights)
     if isotonic_x is not None and isotonic_y is not None:
@@ -333,6 +543,12 @@ def build_weight_envelope(
     envelope["feature_names"] = list(feature_names)
     envelope["tabular_dim"] = len(feature_names)
     envelope["coordinate_system"] = COORDINATE_SYSTEM
+    if calibrators is not None:
+        envelope["_calibrators"] = calibrators
+    if penalty_xg is not None:
+        envelope["_penalty_xg"] = float(penalty_xg)
+    if gate is not None:
+        envelope["_gate"] = gate
     return envelope
 
 
@@ -379,6 +595,63 @@ def compute_metrics(y_true: npt.NDArray[Any], proba: npt.NDArray[Any]) -> dict[s
         "brier_skill": float(brier_skill),
         "ece": float(ece),
     }
+
+
+def _read_repo_parquet(api: Any, downloader: Any, repo_id: str, hf_token: str) -> pd.DataFrame:
+    """Concatenate every parquet file in an HF dataset repo (empty frame if the repo is absent/empty).
+
+    Mirrors the enumerate-then-download path ``main`` uses for the public repo: ``list_repo_tree`` +
+    ``hf_hub_download`` + ``pd.read_parquet``. A missing repo (``RepositoryNotFoundError``) or a repo
+    with no parquet files yields an EMPTY frame — the caller decides whether that is fail-loud.
+    """
+    from huggingface_hub.utils import RepositoryNotFoundError
+
+    try:
+        items = list(api.list_repo_tree(repo_id, repo_type="dataset", recursive=True))
+    except RepositoryNotFoundError:
+        return pd.DataFrame()
+    parquet = [f.path for f in items if hasattr(f, "size") and f.path.endswith(".parquet")]
+    if not parquet:
+        return pd.DataFrame()
+    return pd.concat(
+        [pd.read_parquet(downloader(repo_id, p, repo_type="dataset", token=hf_token)) for p in parquet],
+        ignore_index=True,
+    )
+
+
+def load_dataset_both_repos(api: Any, repo_id: str, hf_token: str) -> pd.DataFrame:
+    """Load + concatenate parquet from the PUBLIC repo AND its ADR-049 ``-restricted`` companion.
+
+    The restricted cohorts (SkillCorner / GradientSports) live in a permanent private companion repo
+    (``<repo_id>-restricted``, org-members only) per ADR-049 / ADR-064. Training on the public repo
+    alone would silently drop them — so this reads BOTH and fails LOUD (raises ``RuntimeError``,
+    ERROR-level, non-zero exit) when the restricted companion yields zero rows, rather than quietly
+    training public-only. The consumer records both commit SHAs in provenance (see ``main``).
+
+    Requires an org-scoped ``hf_token`` (the restricted repos are private).
+    """
+    from huggingface_hub import hf_hub_download
+
+    public_df = _read_repo_parquet(api, hf_hub_download, repo_id, hf_token)
+    if public_df.empty:
+        raise RuntimeError(f"No parquet rows found in public dataset {repo_id}")
+
+    restricted_id = restricted_repo_id(repo_id)
+    restricted_df = _read_repo_parquet(api, hf_hub_download, restricted_id, hf_token)
+    if restricted_df.empty:
+        raise RuntimeError(
+            f"Restricted companion {restricted_id} yielded zero rows — refusing to silently train "
+            "public-only. The private cohort (SkillCorner / GradientSports) is expected (ADR-049/ADR-064); "
+            "check the org-scoped HF token and that the companion repo has been published."
+        )
+    logger.info(
+        "Loaded %s: %d public + %d restricted = %d rows",
+        repo_id,
+        len(public_df),
+        len(restricted_df),
+        len(public_df) + len(restricted_df),
+    )
+    return pd.concat([public_df, restricted_df], ignore_index=True)
 
 
 # ===========================================================================
@@ -657,16 +930,20 @@ def crossval_oos_both_modes(
     tabular_dim: int,
     config: SetEncoderConfig,
     device: Any,
-) -> dict[str, dict[str, dict[str, float]]]:
-    """GroupKFold-OOS metrics per provider, in BOTH scoring modes.
+) -> tuple[dict[str, dict[str, dict[str, float]]], dict[str, npt.NDArray[Any]]]:
+    """GroupKFold-OOS metrics per provider, in BOTH scoring modes, plus the raw OOF bundle.
 
     For each fold: train on the fold-train split (context-aware features), then score the
     held-out fold two ways —
       (a) ``context_aware``: real freeze frame + real ``set_cardinality``;
       (b) ``tabular_only``:  zeroed player set + ``set_cardinality = 0`` (the trained
           zero-context path — matches the scorer's tabular-only mode exactly).
-    Returns ``{provider: {mode: metric_bundle}}`` plus an ``"all"`` provider bucket. This
-    is the loggable OOS report (the shipping gate/calibration lives in a later task).
+
+    Returns ``(report, oof)`` where ``report`` is ``{provider: {mode: metric_bundle}}`` plus an ``"all"``
+    provider bucket, and ``oof`` carries the pooled CONTEXT-AWARE out-of-fold RAW predictions aligned by
+    row (``proba`` / ``y`` / ``data_source`` / ``match_key``) — the leak-free basis the trainer fits its
+    per-provider + pooled calibrators on (Task 1.6). Calibrators use the context-aware OOF because that is
+    the RAW output the served model produces with a real freeze frame.
     """
     x_values = x_tabular.to_numpy(dtype=np.float64)
     # set_cardinality column index (for the tabular-only zeroing of the held-out fold).
@@ -675,6 +952,14 @@ def crossval_oos_both_modes(
 
     oos: dict[str, dict[str, list[float]]] = {}  # provider -> mode -> pooled proba
     oos_y: dict[str, dict[str, list[float]]] = {}
+    # Flat, row-aligned pooled OOF accumulators (for leak-free calibrator fitting + gate evidence).
+    # ``proba`` is the CONTEXT-aware RAW prediction; ``tabular_proba`` is the TABULAR-only RAW
+    # prediction for the SAME held-out rows — both aligned to (y / data_source / match_key).
+    oof_proba: list[float] = []
+    oof_tab_proba: list[float] = []
+    oof_y: list[float] = []
+    oof_provider: list[Any] = []
+    oof_match_key: list[Any] = []
 
     def _record(provider: str, mode: str, proba: npt.NDArray[Any], ytrue: npt.NDArray[Any]) -> None:
         oos.setdefault(provider, {}).setdefault(mode, []).extend(proba.tolist())
@@ -711,6 +996,13 @@ def crossval_oos_both_modes(
             _record(str(prov), "tabular_only", tab_proba[pmask], tab_y[pmask])
         _record("all", "context_aware", ctx_proba, ctx_y)
         _record("all", "tabular_only", tab_proba, tab_y)
+        # Row-aligned OOF (RAW) for calibrator fitting + gate evidence: the held-out rows in THIS
+        # fold, in BOTH modes (ctx_y == tab_y == y[test_idx], so a single y stream aligns to both).
+        oof_proba.extend(ctx_proba.tolist())
+        oof_tab_proba.extend(tab_proba.tolist())
+        oof_y.extend(ctx_y.tolist())
+        oof_provider.extend(providers.tolist())
+        oof_match_key.extend(match_keys[test_idx].tolist())
         logger.info("OOS fold %d/%d scored (%d held-out shots)", fold + 1, N_SPLITS, len(test_idx))
 
     report: dict[str, dict[str, dict[str, float]]] = {}
@@ -718,7 +1010,14 @@ def crossval_oos_both_modes(
         report[provider] = {}
         for mode, proba in modes.items():
             report[provider][mode] = compute_metrics(np.array(oos_y[provider][mode]), np.array(proba))
-    return report
+    oof: dict[str, npt.NDArray[Any]] = {
+        "proba": np.array(oof_proba, dtype=np.float64),
+        "tabular_proba": np.array(oof_tab_proba, dtype=np.float64),
+        "y": np.array(oof_y),
+        "data_source": np.array(oof_provider),
+        "match_key": np.array(oof_match_key),
+    }
+    return report, oof
 
 
 # ===========================================================================
@@ -731,7 +1030,7 @@ def main() -> None:
     """Load shots + freeze frames, retrain xG v3 (SPADL-native), deliver via ADR-012."""
     _assert_silly_kicks_min()
 
-    from huggingface_hub import HfApi, get_token, hf_hub_download
+    from huggingface_hub import HfApi, get_token
 
     # Pre-flight: fail loud if MLflow registration env vars are missing (ADR-002/012).
     require_mlflow_env()
@@ -753,44 +1052,47 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info("Using device: %s", device)
 
-    # 1. Load the SPADL action-stream shot rows (all providers).
-    logger.info("=== Loading shot data (SPADL action stream) ===")
-    shot_items = list(api.list_repo_tree(SHOTS_DATASET, repo_type="dataset", recursive=True))
-    shot_parquet = [f.path for f in shot_items if hasattr(f, "size") and f.path.endswith(".parquet")]
-    if not shot_parquet:
-        raise RuntimeError(f"No parquet files found in {SHOTS_DATASET}")
-    shots = pd.concat(
-        [pd.read_parquet(hf_hub_download(SHOTS_DATASET, p, repo_type="dataset", token=hf_token)) for p in shot_parquet],
-        ignore_index=True,
-    )
-    shots_commit = api.repo_info(repo_id=SHOTS_DATASET, repo_type="dataset").sha
+    def _both_repo_shas(repo_id: str) -> dict[str, str]:
+        """Commit SHAs of a public dataset repo AND its ``-restricted`` companion (provenance)."""
+        return {
+            "public": api.repo_info(repo_id=repo_id, repo_type="dataset").sha,
+            "restricted": api.repo_info(repo_id=restricted_repo_id(repo_id), repo_type="dataset").sha,
+        }
+
+    # 1. Load the SPADL action-stream shot rows (all providers) — public repo AND its restricted
+    # companion (ADR-049/ADR-064); fail-loud if the private cohort is missing (never train public-only).
+    logger.info("=== Loading shot data (SPADL action stream, public + restricted) ===")
+    shots = load_dataset_both_repos(api, SHOTS_DATASET, hf_token)
+    shots_commit = _both_repo_shas(SHOTS_DATASET)
+
+    # Penalty constant (Task 1.6): the empirical shot_penalty conversion rate MUST be measured on the
+    # LOADED corpus, BEFORE select_training_shots drops the penalty rows (afterwards it is 0/0 -> NaN).
+    penalty_xg = penalty_goal_rate(shots)
+    logger.info("Empirical shot_penalty xG constant (pre-filter): %.4f", penalty_xg)
+
+    # Corpus-composition assertion: the restricted cohorts (SkillCorner / GradientSports) MUST be present
+    # — a loud check that the private data actually made it in (not silently dropped upstream).
+    provider_counts = shots["data_source"].astype(str).value_counts()
+    n_skillcorner = int(provider_counts.get("skillcorner", 0))
+    n_restricted = int(sum(provider_counts.get(p, 0) for p in _RESTRICTED_COHORT_PROVIDERS))
+    logger.info("Corpus: %d skillcorner shots, %d restricted-cohort shots", n_skillcorner, n_restricted)
+    if n_restricted == 0:
+        raise RuntimeError(
+            "Corpus-composition check failed: zero restricted-cohort "
+            f"({sorted(_RESTRICTED_COHORT_PROVIDERS)}) shots after loading both repos — the restricted "
+            "companion loaded but carried no tracking-cohort shots. Refusing to train a partial corpus."
+        )
 
     # 2. Population filter (spec §4.1.1) + goal label.
     shots = select_training_shots(shots).reset_index(drop=True)
     shots["is_goal"] = label_is_goal(shots)
     logger.info("Training shots after population filter: %d (goal rate %.4f)", len(shots), shots["is_goal"].mean())
 
-    # 3. Load freeze frames (bronze.shot_freeze_frames, published to HF).
-    logger.info("=== Loading freeze frames ===")
-    freeze_df: pd.DataFrame | None = None
-    ff_commit: str | None = None
-    try:
-        ff_items = list(api.list_repo_tree(FREEZE_FRAME_DATASET, repo_type="dataset", recursive=True))
-        ff_parquet = [f.path for f in ff_items if hasattr(f, "size") and f.path.endswith(".parquet")]
-        if ff_parquet:
-            freeze_df = pd.concat(
-                [
-                    pd.read_parquet(hf_hub_download(FREEZE_FRAME_DATASET, p, repo_type="dataset", token=hf_token))
-                    for p in ff_parquet
-                ],
-                ignore_index=True,
-            )
-            ff_commit = api.repo_info(repo_id=FREEZE_FRAME_DATASET, repo_type="dataset").sha
-            logger.info("Freeze-frame rows: %d", len(freeze_df))
-    except Exception as e:
-        # Freeze frames are optional — the zero-context path is a trained prediction.
-        # ERROR level (not warning) per ADR-002: visible in error-log queries.
-        logger.error("Freeze-frame dataset unavailable (%s); training zero-context only", e)
+    # 3. Load freeze frames (bronze.shot_freeze_frames) — public repo AND its restricted companion.
+    logger.info("=== Loading freeze frames (public + restricted) ===")
+    freeze_df: pd.DataFrame | None = load_dataset_both_repos(api, FREEZE_FRAME_DATASET, hf_token)
+    ff_commit = _both_repo_shas(FREEZE_FRAME_DATASET)
+    logger.info("Freeze-frame rows: %d", len(freeze_df))
 
     # 4. Feature assembly (SHARED build_features — M2 parity) + SPADL-normalized player sets.
     logger.info("=== Building SPADL-native features ===")
@@ -808,7 +1110,7 @@ def main() -> None:
 
     # 5. OOS report — BOTH scoring modes per provider (GroupKFold-by-match, spec §4.3/§5.3).
     logger.info("=== GroupKFold OOS (both modes, per provider) ===")
-    oos_report = crossval_oos_both_modes(
+    oos_report, oof = crossval_oos_both_modes(
         x_tabular,
         player_sets,
         y,
@@ -849,7 +1151,28 @@ def main() -> None:
     ir.fit(raw_proba, raw_targets)
     mc_metrics = evaluate_mc_dropout(model, eval_loader, device, config=enc_config)
 
-    # 8. Export weights + build the ADR-012 §2 envelope (feature_names/tabular_dim/coord system).
+    # 7b. Single-calibration ownership (Task 1.6): fit per-provider + pooled OOF calibrators from the
+    # leak-free GroupKFold context-aware out-of-fold RAW predictions. The model output stays RAW; the
+    # scorer (a later task) applies these. Nothing is applied to the served weights here.
+    calibrators = fit_calibrators(oof["proba"], oof["y"], oof["data_source"], oof["match_key"])
+    logger.info(
+        "Fitted calibrators — pooled=%s, per-provider=%s",
+        calibrators["pooled"]["kind"],
+        {p: e["kind"] for p, e in calibrators["per_provider"].items()},
+    )
+
+    # 7c. Two-mode-gate evidence (Task 1.4-1.7 follow-on): per-provider AUC-CIs (context vs tabular) +
+    # calibration sums, shipped under _gate so the scorer's parse_gate can CERTIFY context-aware modes.
+    # Without it the scorer fail-safes every provider to tabular_only + ood_flag=True (nothing certifies).
+    gate = build_gate_evidence(oof, calibrators)
+    logger.info(
+        "Gate evidence — sb_auc=%.4f, providers=%s",
+        gate["sb_auc"],
+        sorted(gate["per_provider"]),
+    )
+
+    # 8. Export weights + build the ADR-012 §2 envelope (feature_names/tabular_dim/coord system +
+    # the Task 1.6 _calibrators / _penalty_xg serve-time evidence).
     numpy_weights = export_weights_to_numpy(model)
     envelope = build_weight_envelope(
         numpy_weights,
@@ -858,6 +1181,9 @@ def main() -> None:
         isotonic_y=np.asarray(ir.y_thresholds_, dtype=np.float64),
         mc_z_multiplier=mc_metrics["mc_z_multiplier"],
         mc_dropout_p_inference=mc_metrics["mc_dropout_p_inference"],
+        calibrators=calibrators,
+        penalty_xg=None if np.isnan(penalty_xg) else penalty_xg,
+        gate=gate,
     )
     weight_bytes = serialize_envelope(envelope)
 
@@ -893,9 +1219,13 @@ def main() -> None:
                 "n_parameters": sum(p.numel() for p in model.parameters()),
                 "n_splits": N_SPLITS,
                 "device": str(device),
-                "xg_shot_data_commit": shots_commit,
-                "shot_freeze_frames_commit": ff_commit,
+                "xg_shot_data_commit": shots_commit["public"],
+                "xg_shot_data_commit_restricted": shots_commit["restricted"],
+                "shot_freeze_frames_commit": ff_commit["public"],
+                "shot_freeze_frames_commit_restricted": ff_commit["restricted"],
                 "training_shot_family": ",".join(_TRAINING_SHOT_TYPES),
+                "penalty_xg_constant": penalty_xg,
+                "calibrator_pooled_kind": calibrators["pooled"]["kind"],
             }
         )
         for provider, modes in oos_report.items():
@@ -938,6 +1268,9 @@ def main() -> None:
         "coordinate_system": COORDINATE_SYSTEM,
         "oos_by_provider_mode": oos_report,
         "mc_dropout": mc_metrics,
+        "calibrators": calibrators,
+        "gate": gate,
+        "penalty_xg": None if np.isnan(penalty_xg) else penalty_xg,
         "config": {"tabular_dim": tabular_dim, "feature_names": feature_names, "n_shots": len(shots)},
         "dataset_commits": {"xg_shot_data": shots_commit, "shot_freeze_frames": ff_commit},
     }

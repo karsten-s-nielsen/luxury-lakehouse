@@ -1,0 +1,196 @@
+{
+  "label": "home_p1_low_y__control",
+  "event_id": "db44dcba-6ceb-4173-af6c-d18a1883a2eb",
+  "match_id_native": 3895107,
+  "match_key": -6070878886281590630,
+  "action_id": 877,
+  "period": 1,
+  "shot_fidelity_version": 2,
+  "ground_truth_start_x": 92.96875,
+  "ground_truth_start_y": 12.02749999999999,
+  "shooter_team_id_native": "904",
+  "home_team_id_native": "904",
+  "n_players": 20,
+  "freeze_frame": [
+    {
+      "actor": false,
+      "teammate": true,
+      "keeper": false,
+      "location": [
+        88.62210937270046,
+        47.99307158835737
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": true,
+      "keeper": false,
+      "location": [
+        96.59687927828895,
+        32.43205991021172
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": false,
+      "keeper": false,
+      "location": [
+        102.26697029739667,
+        43.68304409051285
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": false,
+      "keeper": false,
+      "location": [
+        103.67110404828279,
+        61.431177799096076
+      ]
+    },
+    {
+      "actor": true,
+      "teammate": true,
+      "keeper": false,
+      "location": [
+        106.30000305175781,
+        65.9000015258789
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": true,
+      "keeper": false,
+      "location": [
+        106.5652087516518,
+        41.41531073933287
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": false,
+      "keeper": false,
+      "location": [
+        109.22765705525482,
+        42.659938039958234
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": false,
+      "keeper": false,
+      "location": [
+        111.13394591109918,
+        63.67438562743848
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": false,
+      "keeper": false,
+      "location": [
+        111.34685141990803,
+        36.10756246834352
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": true,
+      "keeper": false,
+      "location": [
+        111.4953230315762,
+        31.601857163273003
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": true,
+      "keeper": false,
+      "location": [
+        112.13840456000781,
+        42.35525309269141
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": true,
+      "keeper": false,
+      "location": [
+        112.27241295441348,
+        34.240806325013
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": false,
+      "keeper": false,
+      "location": [
+        112.77985111404095,
+        52.667775989354084
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": false,
+      "keeper": false,
+      "location": [
+        112.97386348064194,
+        44.51904574441559
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": false,
+      "keeper": false,
+      "location": [
+        113.08998139464333,
+        37.6719296882164
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": true,
+      "keeper": false,
+      "location": [
+        113.97826343177468,
+        38.93254996241627
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": false,
+      "keeper": false,
+      "location": [
+        114.0256886578473,
+        35.68367357630245
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": true,
+      "keeper": false,
+      "location": [
+        114.67900200158763,
+        64.66597185809336
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": false,
+      "keeper": false,
+      "location": [
+        115.20813515008041,
+        38.16830584538407
+      ]
+    },
+    {
+      "actor": false,
+      "teammate": false,
+      "keeper": true,
+      "location": [
+        117.65849765458879,
+        40.53543605155812
+      ]
+    }
+  ]
+}
