@@ -578,6 +578,34 @@ def _period_snapshots(
     return build_tracking_snapshots_spark(actions_fc, frames, home_team_id=meta.home_team_id)
 
 
+# StatsBomb metadata gap: a few matches have a NULL shot_fidelity_version (and NULL xy_fidelity_version).
+# fidelity_version ONLY sets the cell-center offset in silly_kicks._convert_locations (~0.4 m, sub-meter —
+# immaterial to xG geometry + the sum-encoder, inside the co-location golden's +/-2 m band). silly_kicks
+# itself treats ANY non-2 value as the low-fidelity 1.0-cell default, so NULL maps to 1 — the same value the
+# shot ACTION conversion applied for these matches, keeping frame and action consistent. We default (loud
+# WARNING, never silent) instead of hard-failing the whole backfill for one match's missing metadata.
+_DEFAULT_SHOT_FIDELITY_VERSION = 1
+
+
+def _resolve_shot_fidelity_version(raw_value: str | int | None, native_id: str, task_logger: logging.Logger) -> int:
+    """Resolve a match's StatsBomb ``shot_fidelity_version`` (stored STRING) to an int, NULL -> 1 (loud).
+
+    ``None`` (NULL in bronze, or the match absent from ``statsbomb_matches``) is a known StatsBomb
+    metadata gap; it maps to ``_DEFAULT_SHOT_FIDELITY_VERSION`` (1) — silly_kicks' own non-2 default — so
+    the freeze frame stays consistent with the shot action's conversion. Logged at WARNING with the match
+    id (visible degradation, not silent). Any other value is cast to int (silly_kicks compares ``== 2``).
+    """
+    if raw_value is None:
+        task_logger.warning(
+            "NULL shot_fidelity_version for statsbomb match %s — defaulting to %d "
+            "(sub-meter cell-offset impact; silly_kicks' own non-2 default, consistent with the action)",
+            native_id,
+            _DEFAULT_SHOT_FIDELITY_VERSION,
+        )
+        return _DEFAULT_SHOT_FIDELITY_VERSION
+    return int(raw_value)
+
+
 def _process_statsbomb_match(
     spark: SparkSession,
     catalog: str,
@@ -635,7 +663,7 @@ def _process_statsbomb_match(
         match_key, _access_tier = _resolve_match_identity(spark, catalog, gold_schema, "statsbomb", native_id)
         actions_pdf["match_key"] = match_key
 
-        # ── shot_fidelity_version is REQUIRED (drives the 120x80 -> 105x68 cell offset); raise loud ──
+        # ── shot_fidelity_version (drives the 120x80 -> 105x68 cell offset; NULL -> default, see helper) ──
         fidelity_rows = (
             spark.table(f"{catalog}.bronze.statsbomb_matches")
             .filter(spark_fn.col("match_id").cast("string") == str(native_id))
@@ -643,10 +671,8 @@ def _process_statsbomb_match(
             .limit(1)
             .collect()
         )
-        if not fidelity_rows or fidelity_rows[0]["shot_fidelity_version"] is None:
-            raise RuntimeError(f"No shot_fidelity_version in {catalog}.bronze.statsbomb_matches for match {native_id}")
-        # Stored as a STRING in bronze; the silly_kicks converter compares `== 2`, so cast to int.
-        shot_fidelity_version = int(fidelity_rows[0]["shot_fidelity_version"])
+        raw_fidelity = fidelity_rows[0]["shot_fidelity_version"] if fidelity_rows else None
+        shot_fidelity_version = _resolve_shot_fidelity_version(raw_fidelity, native_id, task_logger)
 
         out_df = build_sb360_freeze_frames(actions_pdf, sb360_pdf, shot_fidelity_version)
         if out_df.empty:

@@ -244,3 +244,24 @@ def test_run_pipeline_processes_each_unit_and_sums_rows(monkeypatch: pytest.Monk
     )
     assert calls == [("skillcorner", "111"), ("gradientsports", "222")]
     assert total == 20
+
+
+# ── shot_fidelity_version resolution (NULL -> default, loud; not a hard-fail) ────────────────────
+
+
+def test_resolve_shot_fidelity_version_casts_string_and_int() -> None:
+    log = logging.getLogger("test_sff")
+    assert sff._resolve_shot_fidelity_version("2", "m1", log) == 2
+    assert sff._resolve_shot_fidelity_version("1", "m1", log) == 1
+    assert sff._resolve_shot_fidelity_version(2, "m1", log) == 2
+
+
+def test_resolve_shot_fidelity_version_null_defaults_to_one_loudly(caplog: pytest.LogCaptureFixture) -> None:
+    # A NULL shot_fidelity_version (StatsBomb metadata gap) must NOT hard-fail the backfill; it defaults
+    # to silly_kicks' own non-2 default (1) and logs a VISIBLE warning naming the match (no silent degradation).
+    log = logging.getLogger("test_sff_fidelity")
+    with caplog.at_level(logging.WARNING, logger="test_sff_fidelity"):
+        result = sff._resolve_shot_fidelity_version(None, "3998855", log)
+    assert result == sff._DEFAULT_SHOT_FIDELITY_VERSION == 1
+    # Visible (not silent) degradation: the default must be logged with the match id.
+    assert any("3998855" in rec.getMessage() for rec in caplog.records)
