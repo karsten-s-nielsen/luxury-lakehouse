@@ -24,11 +24,13 @@ logger = logging.getLogger(__name__)
 
 # ── xG model label -> column mapping ─────────────────────────────────────────
 # XG1-RETIRE (SK3-MIG-B): v1 logistic + gradient-boosted retired. The custom
-# slot now points at v2 Set Encoder (xg_set_encoder), with CI band columns
-# (xg_ci_lower, xg_ci_upper) available for uncertainty display.
+# slot points at the Set Encoder xG, with CI band columns (xg_ci_lower,
+# xg_ci_upper) for uncertainty display.
+# C-b (ADR-066): fct_xg_predictions_v2 now PROJECTS fct_shot_xg (canonical-SPADL
+# xg_model_v3), so xg_set_encoder carries v3 values — the label is "v3 Set Encoder".
 _XG_MODEL_OPTIONS: dict[str, str] = {
     "StatsBomb": "statsbomb_xg",
-    "v2 Set Encoder": "xg_set_encoder",
+    "v3 Set Encoder": "xg_set_encoder",
 }
 
 # ── Exported state variables (all sm_ prefixed) ─────────────────────────────

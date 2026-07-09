@@ -77,10 +77,10 @@ GLOSSARY: dict[str, str] = {
         "Probability of scoring from each shot's location and context. "
         "Higher = better chance. Sum over a match = team's expected output."
     ),
-    "xG (v2 Set Encoder)": (
-        "Expected goal probability from the v2 Set Encoder model with MC dropout 95% CI. "
-        "Range 0-1. xg_ci_upper - xg_ci_lower = model uncertainty. "
-        "Reference: Gal & Ghahramani 2016 (Dropout as Bayesian Approximation)."
+    "xG (v3 Set Encoder)": (
+        "Expected goal probability from the v3 Set Encoder model (canonical-SPADL "
+        "xg_model_v3) with MC dropout 95% CI. Range 0-1. xg_ci_upper - xg_ci_lower = "
+        "model uncertainty. Reference: Gal & Ghahramani 2016 (Dropout as Bayesian Approximation)."
     ),
     "Brier Score": (
         "Prediction calibration metric. 0.0 = perfect, 0.25 = coin flip. Lower is better. Good models score < 0.10."
@@ -301,7 +301,7 @@ GLOSSARY: dict[str, str] = {
 }
 
 PAGE_TERMS: dict[str, list[str]] = {
-    "Shot-Map": ["xG (Expected Goals)", "xG (v2 Set Encoder)", "Brier Score"],
+    "Shot-Map": ["xG (Expected Goals)", "xG (v3 Set Encoder)", "Brier Score"],
     "Pass-Map": ["Line-Breaking Pass", "Progressive Pass"],
     "Heat-Map": ["Bubble Map", "Hotspot", "Action Type"],
     "Pass-Network": ["Passing Network", "Average Position", "Pass Connection"],
@@ -480,7 +480,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "on_xg_model_change",
         condition=f"current_page in {_XG_MODEL_PAGES}",
         lov="xg_model_lov",
-        help="StatsBomb: provider xG. v2 Set Encoder: lakehouse Deep Sets model with MC dropout 95% CI (Gal & Ghahramani 2016). Range 0-1, higher = better chance.",
+        help="StatsBomb: provider xG. v3 Set Encoder: lakehouse canonical-SPADL Deep Sets model (xg_model_v3) with MC dropout 95% CI (Gal & Ghahramani 2016). Range 0-1, higher = better chance.",
     ),
     SidebarWidget(
         "dropdown",

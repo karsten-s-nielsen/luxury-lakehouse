@@ -54,7 +54,7 @@ tracking_match_lov: list[str] = []
 
 # xG model filter
 selected_xg_model: str | None = "StatsBomb"
-xg_model_lov: list[str] = ["StatsBomb", "v2 Set Encoder"]
+xg_model_lov: list[str] = ["StatsBomb", "v3 Set Encoder"]
 
 # Sub-view selectors
 selected_sub_view: str | None = None

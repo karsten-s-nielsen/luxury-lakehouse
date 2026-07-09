@@ -1,13 +1,22 @@
 -- fct_xg_predictions_v2.sql
--- BACK-COMPAT VIEW (Task 2.4 / §C2). Historically the gold v2 xG mart (Deep
+-- BACK-COMPAT TABLE (Task 2.4 / §C2 → C-b). Historically the gold v2 xG mart (Deep
 -- Sets set encoder + MC dropout CIs, ADR-013 INNER JOIN fct_shots on shot_id).
 -- Superseded by fct_shot_xg (canonical-SPADL xg_model_v3), which is now the
 -- single source of pre-shot xG for ALL providers. To keep existing consumers
--- (Taipy pages, the fct_xg_predictions_v2_synced Lakebase table) working
--- unchanged, v2 is redefined as a VIEW that projects fct_shot_xg back into the
--- EXACT legacy schema. Valid in this delivery because xg_model_v3 is
--- context-aware for StatsBomb (SB-360 included), so the values are
--- equal-or-better than the legacy v2 model — no downgrade (spec N1).
+-- (Taipy shot-map, the fct_xg_predictions_v2_synced Lakebase table) working
+-- unchanged, v2 is redefined to PROJECT fct_shot_xg back into the EXACT legacy
+-- schema. Valid in this delivery because xg_model_v3 is context-aware for
+-- StatsBomb (SB-360 included), so the values are equal-or-better than the
+-- legacy v2 model — no downgrade (spec N1).
+--
+-- Materialized as a TABLE (not a view): fct_xg_predictions_v2_synced is a
+-- SNAPSHOT Lakebase synced table, and a synced table must source from a Delta
+-- table — a view cannot back it (it would strand the synced table + break the
+-- Taipy shot-map). This is the "measured need" ADR-066 flagged for escalating
+-- the back-compat surface from a view to a materialized table; it also avoids a
+-- 2-hop bridge join on every shot-map load. The projection is provably 1:1 and
+-- covers the identical shot set as the legacy table (131,074 statsbomb+wyscout
+-- shots, verified live 2026-07-09).
 --
 -- Legacy schema (fact-checked live 2026-07-07):
 --   shot_id STRING, match_key LONG, competition_key LONG, competition_id INT,
@@ -21,12 +30,14 @@
 -- Restricted to data_source IN ('statsbomb', 'wyscout') — the event-only
 -- providers the legacy v2 model ever scored (legacy coverage).
 --
--- Gated on 'xg_v3_enabled' (was 'xg_v2_enabled'): the view now projects
+-- Gated on 'xg_v3_enabled' (was 'xg_v2_enabled'): the table now projects
 -- fct_shot_xg, so it can only exist when the v3 mart does.
 
 {{ config(
-    materialized='view',
+    materialized='table',
     enabled=var('xg_v3_enabled', false),
+    liquid_clustered_by=['match_key'],
+    on_schema_change='fail',
     contract={'enforced': true},
     tags=['marts', 'output_mart']
 ) }}
