@@ -95,6 +95,10 @@ _BRONZE_READ_REQUIREMENTS: list[tuple[str, str, str]] = [
     # ── dbt_build_output_marts: stg_action_context reads bronze written by BOTH AC arms ──
     ("dbt_build_output_marts", "spadl_action_context", "compute_action_context"),
     ("dbt_build_output_marts", "spadl_action_context", "compute_action_context_statsbomb"),
+    # ── dbt_build_output_marts: stg_xg__shot_predictions → fct_shot_xg reads
+    #    bronze.xg_shot_predictions written by compute_xg_shot_scores (ADR-066).
+    #    The mart is promoted into the daily build via `--vars xg_v3_enabled=true`. ──
+    ("dbt_build_output_marts", "xg_shot_predictions", "compute_xg_shot_scores"),
 ]
 
 

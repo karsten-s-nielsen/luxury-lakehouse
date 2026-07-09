@@ -204,6 +204,10 @@ def test_dbt_build_output_marts_depends_on_stage2_and_phase2_compute() -> None:
         "compute_pitch_control",
         # compute_xg_model retired SK3-MIG-B 2026-05-03 per ADR-023.
         "compute_xg_model_v2",
+        # compute_xg_shot_scores writes bronze.xg_shot_predictions read by the
+        # fct_shot_xg output_mart (ADR-066) — the mart is promoted into the
+        # daily build via `--vars xg_v3_enabled=true`.
+        "compute_xg_shot_scores",
         "dbt_build_intermediate_marts",
         "hf_sync",
     ]

@@ -905,7 +905,11 @@ resource "databricks_job" "data_ingestion" {
     python_wheel_task {
       package_name = "luxury_lakehouse"
       entry_point  = "dbt_build"
-      parameters   = ["--select", "+tag:output_mart", "path:models/staging", "path:models/intermediate", "--exclude", "+tag:input_mart", "+tag:dimension", "+tag:intermediate_mart", "--dbt-full-refresh", "{{job.parameters.dbt_full_refresh}}"]
+      # --vars xg_v3_enabled=true promotes the gated pre-shot xG v3 mart
+      # (fct_shot_xg + stg_xg__shot_predictions) into the daily build — ADR-066's
+      # "flip in the job config". Appended after --select so dbt_runner's selector
+      # capture still resolves the wf-dbt-build-output-marts card.
+      parameters = ["--select", "+tag:output_mart", "path:models/staging", "path:models/intermediate", "--exclude", "+tag:input_mart", "+tag:dimension", "+tag:intermediate_mart", "--dbt-full-refresh", "{{job.parameters.dbt_full_refresh}}", "--vars", "{xg_v3_enabled: true}"]
     }
 
     # Stage 2 sequential edge + every phase-2 compute task that writes
@@ -927,6 +931,9 @@ resource "databricks_job" "data_ingestion" {
     depends_on { task_key = "compute_pitch_control" }
     depends_on { task_key = "compute_tracking_context" }
     depends_on { task_key = "compute_xg_model_v2" }
+    # fct_shot_xg reads bronze.xg_shot_predictions from compute_xg_shot_scores
+    # (ADR-066; enforced by test_workflow_dag_bronze_reads).
+    depends_on { task_key = "compute_xg_shot_scores" }
     depends_on { task_key = "dbt_build_intermediate_marts" }
     depends_on { task_key = "hf_sync" }
 

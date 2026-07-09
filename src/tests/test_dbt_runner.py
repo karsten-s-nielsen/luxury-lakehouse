@@ -329,6 +329,10 @@ def test_stage3_selector_resolves_card_and_forwards_exclude(
         "+tag:input_mart",
         "+tag:dimension",
         "+tag:intermediate_mart",
+        # xg_v3_enabled promotes fct_shot_xg into the daily build (ADR-066).
+        # Appended after --select — must NOT pollute the card key.
+        "--vars",
+        "{xg_v3_enabled: true}",
     ]
     with patch("sys.argv", argv):
         with patch("ingestion.dbt_runner.get_spark_session") as mock_spark:
@@ -357,3 +361,7 @@ def test_stage3_selector_resolves_card_and_forwards_exclude(
         "+tag:intermediate_mart",
     ):
         assert tok in dbt_args, f"stage-3 selector token {tok!r} must be forwarded to dbt"
+    # --vars promoting the xG v3 mart is forwarded verbatim, and (per the
+    # card_id resolution above) did NOT pollute the wf-dbt-build-output-marts key.
+    assert "--vars" in dbt_args
+    assert "{xg_v3_enabled: true}" in dbt_args
