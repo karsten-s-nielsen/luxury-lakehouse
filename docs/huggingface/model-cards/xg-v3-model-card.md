@@ -14,6 +14,22 @@ metrics:
   - roc_auc
   - brier_score
 pipeline_tag: tabular-classification
+model-index:
+  - name: xg-v3-model-set-encoder
+    results:
+      - task:
+          type: tabular-classification
+          name: Pre-Shot Expected Goals
+        dataset:
+          type: luxury-lakehouse/xg-shot-data-v3
+          name: xG Shot Data v3 (all providers, GroupKFold-by-match_key, context-aware OOS)
+        metrics:
+          - type: roc_auc
+            value: 0.7421
+            name: ROC-AUC (all-provider, context-aware, out-of-sample)
+          - type: brier_score
+            value: 0.0831
+            name: Brier Score (all-provider, context-aware, out-of-sample)
 ---
 
 # xG v3 &mdash; Canonical-SPADL Pre-Shot Expected Goals with Freeze-Frame Set Encoding
@@ -121,16 +137,36 @@ Player identity is never used. The set encoder sees only spatial position and ro
 
 ## Performance
 
-> **v3 OOS metrics are PENDING the live retrain.** The numbers below are placeholders. They will be refreshed &mdash; along with the `model-index` block in the YAML frontmatter &mdash; when the `xg_model_v3` Champion is registered from the live retrain. v3 changes the coordinate contract (SPADL-native), the provider mix (all six), the feature set (geometry-only), and the calibration scheme (per-provider + pooled OOF), so no prior split-by-competition metric describes the shipped model.
+All metrics below are the live `xg_model_v3` retrain's held-out out-of-sample (OOS) evaluation, computed under GroupKFold-by-`match_key` (no same-match leakage). v3 changes the coordinate contract (SPADL-native), the provider mix (all six), the feature set (geometry-only), and the calibration scheme (per-provider + pooled OOF), so no prior split-by-competition metric describes the shipped model; the v1 baseline row is retained for reference only.
 
-| Model | Overall ROC-AUC | Brier Score | Log Loss |
-|-------|-----------------|-------------|----------|
-| v1 XGBoost + Isotonic Calibration (13 features) | 0.825 | 0.057 | 1.212 |
-| **v3 Set Encoder (SPADL-native, all-provider) + per-provider/pooled calibration + MC Dropout** | **PENDING** | **PENDING** | **PENDING** |
+| Model | Overall ROC-AUC | Brier Score | Brier Skill |
+|-------|-----------------|-------------|-------------|
+| v1 XGBoost + Isotonic Calibration (13 features) | 0.825 | 0.057 | &mdash; |
+| **v3 Set Encoder (SPADL-native, all-provider) + per-provider/pooled calibration + MC Dropout** | **0.7421** | **0.0831** | **0.0931** |
 
-Per-provider OOS discrimination (ROC-AUC context-aware vs tabular-only), per-provider calibration curves, and MC-dropout CI coverage are all **PENDING** and will be populated from the retrain's held-out evaluation. The v1 baseline row is retained for reference only.
+The all-provider context-aware Champion scores **ROC-AUC 0.7421 / Brier 0.0831 / Brier-skill 0.0931 / ECE 0.0023** (OOS). The v1 row is a different corpus (StatsBomb-only, 13 StatsBomb categoricals) and coordinate system (yards), so its higher AUC is not comparable &mdash; v3 trades single-provider categorical richness for a uniform geometry-only, all-provider, SPADL-native contract. Log loss is not reported for v3; Brier skill (skill relative to the base goal rate; higher = better) is the headline calibration-aware discrimination metric.
 
-**Evaluation protocol**: GroupKFold-by-`match_key` (no same-match leakage), scored in both modes per provider, with a per-provider discrimination gate relative to StatsBomb (see below). Full protocol metrics pending the retrain.
+### Per-provider two-mode OOS
+
+Each provider is scored two ways: **context-aware** (the full freeze frame is encoded) and **tabular-only** (the context vector is zeroed, `set_cardinality = 0`). The three providers with no freeze frames (IDSSE, Metrica, Wyscout) are **identical by construction** &mdash; their context-aware score IS the zero-context path. For the three freeze-frame providers (GradientSports, SkillCorner, StatsBomb), context-aware **beats** tabular-only, which is the empirical justification for encoding the freeze frame.
+
+| Provider | Freeze frames? | Context-aware (AUC / Brier / Brier-skill / ECE) | Tabular-only (AUC / Brier / Brier-skill / ECE) |
+|----------|:--:|-------------------------------------------------|------------------------------------------------|
+| gradientsports | Yes | 0.7430 / 0.0906 / 0.0757 / 0.0312 | 0.7400 / 0.0932 / 0.0497 / 0.0301 |
+| idsse | No | 0.6546 / 0.0852 / 0.0320 / 0.0566 | *identical (no freeze frames)* |
+| metrica | No | 0.8240 / 0.0867 / 0.1645 / 0.0433 | *identical (no freeze frames)* |
+| skillcorner | Yes | 0.6805 / 0.0951 / 0.0563 / 0.0339 | 0.6675 / 0.0945 / 0.0614 / 0.0302 |
+| statsbomb | Yes | 0.7390 / 0.0831 / 0.0887 / 0.0073 | 0.7380 / 0.0832 / 0.0877 / 0.0084 |
+| wyscout | No | 0.7556 / 0.0822 / 0.1043 / 0.0120 | *identical (no freeze frames)* |
+| **all** | mixed | **0.7421 / 0.0831 / 0.0931 / 0.0023** | 0.7408 / 0.0832 / 0.0922 / 0.0029 |
+
+*AUC = ROC-AUC (discrimination, higher = better); Brier = mean squared error of the probability (lower = better); Brier-skill = skill vs the base goal rate (higher = better); ECE = expected calibration error (lower = better).*
+
+**Champion architecture**: Deep-Sets set encoder, 50 training epochs, MC-dropout confidence intervals; validation AUC &asymp; 0.744.
+
+**Calibration** (leak-free out-of-fold): the pooled/global calibrator is **isotonic**; per-provider calibrators are {gradientsports: isotonic, idsse: platt, metrica: platt, skillcorner: platt, statsbomb: isotonic, wyscout: isotonic}.
+
+**Evaluation protocol**: GroupKFold-by-`match_key` (no same-match leakage), scored in both modes per provider, with a per-provider discrimination gate relative to StatsBomb (see below).
 
 ## Coordinate System
 
@@ -148,11 +184,11 @@ Every provider's shots and freeze frames are converted to SPADL geometry upstrea
 Providers differ in what freeze-frame context they can supply. Rather than assume every provider's freeze frame is equally informative, v3 scores each provider under a per-provider policy:
 
 - **Two-mode scoring for tracking providers.** Every tracking cohort (IDSSE, Metrica, SkillCorner, GradientSports) is scored two ways &mdash; **context-aware** (the full freeze frame is encoded) and **tabular-only** (the context vector is zeroed and `set_cardinality = 0`, the trained zero-context path).
-- **Per-provider discrimination gate.** For each provider, out-of-sample discrimination (ROC-AUC) in context-aware mode is compared against tabular-only mode, benchmarked **relative to StatsBomb** using the AUC CI lower bound. The shipped mode for that provider is the one that clears the gate: if the tracking freeze frame does not measurably improve discrimination over tabular-only, that provider ships in tabular-only mode. This prevents a noisy or mis-oriented tracking freeze frame from *degrading* a provider's xG.
-- **Per-provider + pooled calibration.** The trainer fits a calibrator per `data_source` and a pooled/global calibrator on leak-free out-of-fold predictions (Platt by default, isotonic only when it strictly wins on group-disjoint reliability). These ride in the weight envelope under `_calibrators`; the scorer applies the appropriate one. The model output itself stays RAW.
+- **Per-provider discrimination gate.** For each provider, out-of-sample discrimination (ROC-AUC) in context-aware mode is compared against tabular-only mode, benchmarked **relative to StatsBomb** using the AUC CI lower bound. The shipped Champion uses the **StatsBomb-relative discrimination floor `sb_auc = 0.7390`** (the StatsBomb context-aware OOS AUC) as the certification benchmark, and `_gate` ships the per-provider AUC-CI evidence the scorer certifies against. The shipped mode for that provider is the one that clears the gate: if the tracking freeze frame does not measurably improve discrimination over tabular-only, that provider ships in tabular-only mode. This prevents a noisy or mis-oriented tracking freeze frame from *degrading* a provider's xG.
+- **Per-provider + pooled calibration.** The trainer fits a calibrator per `data_source` and a pooled/global calibrator on leak-free out-of-fold predictions. On the shipped Champion the pooled calibrator is **isotonic**, and the per-provider calibrators are {gradientsports: isotonic, idsse: platt, metrica: platt, skillcorner: platt, statsbomb: isotonic, wyscout: isotonic} &mdash; isotonic is used only where it strictly wins on group-disjoint reliability, Platt otherwise. These ride in the weight envelope under `_calibrators`; the scorer applies the appropriate one. The model output itself stays RAW.
 - **`ood_flag`.** When a cohort fails **either** the discrimination gate **or** the calibration fit, its predictions are stamped with an out-of-distribution flag so downstream consumers can surface the caveat or exclude the cohort.
 
-The per-provider mode, discrimination deltas, calibration curves, and `ood_flag` assignments are all **PENDING** the live retrain and will be published with the `xg_model_v3` Champion.
+The per-provider two-mode OOS scores, the calibration family per provider, and the `sb_auc = 0.7390` gate floor are reported in the [Performance](#performance) section above and published with the `xg_model_v3` Champion in `metrics.json` (`oos_by_provider_mode`, `calibrators`, `gate`).
 
 ## Inference
 

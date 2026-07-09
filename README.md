@@ -8,7 +8,7 @@
 
 ---
 
-[![CI](https://github.com/karsten-s-nielsen/luxury-lakehouse/actions/workflows/python-ci.yml/badge.svg)](https://github.com/karsten-s-nielsen/luxury-lakehouse/actions/workflows/python-ci.yml) [![Datasets](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Datasets-blue?style=flat-square)](https://huggingface.co/luxury-lakehouse) [![football2vec v2](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-football2vec%20v2-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/football2vec-v2) [![xG v2 Set Encoder](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-xG%20v2%20Set%20Encoder-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder)
+[![CI](https://github.com/karsten-s-nielsen/luxury-lakehouse/actions/workflows/python-ci.yml/badge.svg)](https://github.com/karsten-s-nielsen/luxury-lakehouse/actions/workflows/python-ci.yml) [![Datasets](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Datasets-blue?style=flat-square)](https://huggingface.co/luxury-lakehouse) [![football2vec v2](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-football2vec%20v2-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/football2vec-v2) [![xG v2 Set Encoder](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-xG%20v2%20Set%20Encoder-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder) [![xG v3 Set Encoder](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-xG%20v3%20Set%20Encoder-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/xg-v3-model-set-encoder)
 
 ## What Is This?
 
@@ -44,7 +44,7 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 | **Synchronization** | Lakeflow Synced Tables | Zero-ETL continuous sync from Gold → Lakebase (44 tables) |
 | **Serving** | Lakebase PostgreSQL 17 (Autoscaling) | Sub-10ms OLTP queries, native pgvector, scale-to-zero |
 | **Application** | [Taipy on Hugging Face Spaces](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) | 18-page interactive dashboard (Docker SDK, Lakebase PostgreSQL; 1 page staging-gated) |
-| **ML Artifacts** | [Hugging Face Hub](https://huggingface.co/luxury-lakehouse) | Publish [16 models](https://huggingface.co/luxury-lakehouse) + [20 datasets](https://huggingface.co/luxury-lakehouse), GPU training on HF Jobs. Every artifact's README is auto-uploaded from the in-repo source of truth by `ingestion.hf_publish` (ADR-014). |
+| **ML Artifacts** | [Hugging Face Hub](https://huggingface.co/luxury-lakehouse) | Publish [18 models](https://huggingface.co/luxury-lakehouse) + [24 datasets](https://huggingface.co/luxury-lakehouse), GPU training on HF Jobs. Every artifact's README is auto-uploaded from the in-repo source of truth by `ingestion.hf_publish` (ADR-014). |
 | **Security** | OAuth M2M + OIDC Federation + KMS | Zero-secret CI, least-privilege SPs, encrypted state |
 | **Infrastructure** | Terraform + Databricks Provider | Everything as code |
 

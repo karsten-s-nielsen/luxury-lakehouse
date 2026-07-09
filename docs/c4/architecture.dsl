@@ -79,7 +79,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         databricksWorkflows = softwareSystem "Databricks Workflows" "41-task daily DAG: 7 ingest, 16 compute (incl. compute_xg_shot_scores), 5 preflight, 3 dbt_build, 2 backfill, 8 other (hf_sync, import, extract, refresh, resolve, validate, staleness monitor)" "External"
         hfIdentity = softwareSystem "HuggingFace Identity API" "Token validation via /api/whoami-v2. Org membership check." "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds Dockerfile, serves port 7860." "External"
-        hfHub = softwareSystem "HuggingFace Hub" "17 models (incl. xg_model_v3 pre-shot xG), 20+ public datasets + private -restricted companions split by per-match access_tier (ADR-064/049), 3 Spaces, build-artifacts wheel. READMEs via ADR-014." "External"
+        hfHub = softwareSystem "HuggingFace Hub" "18 models (incl. xg_model_v3 pre-shot xG) + build-artifacts wheel, 24 public datasets + private -restricted companions split by per-match access_tier (ADR-064/049), 3 Spaces. READMEs via ADR-014." "External"
         hfJobs = softwareSystem "HuggingFace Jobs" "L40S GPU / cpu-basic compute for training and batch analytics" "External"
         openRouter = softwareSystem "OpenRouter" "LLM API: Claude Sonnet 4 (80%), Haiku 4.5 (20%) for Evolve mutations" "External"
 
