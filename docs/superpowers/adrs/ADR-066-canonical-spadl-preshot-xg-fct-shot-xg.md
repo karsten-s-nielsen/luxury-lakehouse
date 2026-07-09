@@ -61,6 +61,7 @@ Concretely:
 ### Neutral
 
 - Same Deep Sets + MC dropout architecture — a re-coordination + retrain, not a new architecture; ARCHITECTURE Appendix D unchanged, no new governance card (`wf-xg-v2` evolved in place).
+- `fct_shot_xg` + its `stg_xg__shot_predictions` view are gated `enabled=var('xg_v3_enabled', false)`, so they stay out of local/CI/ad-hoc dbt runs and are **promoted into the daily job** by `--vars xg_v3_enabled=true` on the `dbt_build_output_marts` task, paired with a `depends_on compute_xg_shot_scores` edge (fresh `bronze.xg_shot_predictions` precedes the mart build — enforced by `test_workflow_dag_bronze_reads`). The initial corpus was materialized by a one-off targeted `dbt build` with the same var.
 - Both cohorts are **restricted** providers (GS + Real Madrid SkillCorner private); silly-kicks reads the internal gold mart directly, so **no HF publish is on the critical path**. If `fct_shot_xg` is ever published, restricted rows split to the private companion repo via `split_restricted` + `assert_no_private_leak` (ADR-064 / ADR-049), with `access_tier` riding per-row from the action stream.
 
 ## Related
