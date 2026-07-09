@@ -1,12 +1,16 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.71-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.72-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
 #     "torch>=2.0",
 #     "scikit-learn>=1.3.0",
+#     # analytics.xg_model imports XGBClassifier at module level (v1/v2 baseline path); the
+#     # trainer imports build_features/spadl_shot_geometry from it, so xgboost must be present
+#     # even though v3's set encoder is pure PyTorch. Mirrors train_xg_v2_hf / train_vaep_model_hf.
+#     "xgboost>=2.0",
 #     "huggingface-hub>=1.5.0",
 #     "mlflow>=2.17.0",
 #     "databricks-sdk>=0.102.0",
@@ -1048,6 +1052,10 @@ def main() -> None:
         repo_id=V3_MODEL_REPO,
         repo_type="model",
     )
+    # Create the model repo EARLY: the cost recorder's start()/complete() upload cost telemetry to
+    # V3_MODEL_REPO before the publish step runs, so the repo must exist first or those fire-and-forget
+    # uploads 404. The later create_repo(..., exist_ok=True) in the publish step is then a no-op.
+    api.create_repo(V3_MODEL_REPO, exist_ok=True, repo_type="model", token=hf_token)
     recorder.start()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info("Using device: %s", device)
