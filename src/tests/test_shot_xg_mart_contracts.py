@@ -5,7 +5,7 @@ so the singular tests under `dbt_project/tests/*.sql` run ONLY in the daily live
 cron — they are DAILY guards, not PR gates (reference_dbt_ci_parse_only_tests_daily).
 These python tests are the merge-time guard that the three new singular tests still
 encode their key invariants, and that the `fct_shot_xg` / `stg_xg__shot_predictions`
-models + `fct_xg_predictions_v2` view keep their contracts. They parse the .sql / .yml
+models + `fct_xg_predictions_v2` table keep their contracts. They parse the .sql / .yml
 files directly — no warehouse.
 """
 
@@ -113,13 +113,15 @@ def test_av_ac_consistency_is_key_antijoin_without_coordinates() -> None:
 
 
 # ---------------------------------------------------------------------------
-# fct_xg_predictions_v2 -> view over fct_shot_xg (Task 2.4)
+# fct_xg_predictions_v2 -> TABLE projecting fct_shot_xg (Task 2.4 / C-b)
 # ---------------------------------------------------------------------------
 
 
-def test_v2_view_is_materialized_view_over_shot_xg() -> None:
+def test_v2_is_materialized_table_over_shot_xg() -> None:
     flat = _flat(_MODELS / "marts" / "fct_xg_predictions_v2.sql")
-    assert "materialized='view'" in flat
+    # Materialized as a TABLE (not a view): a SNAPSHOT Lakebase synced table must
+    # source from a Delta table (C-b). Enforced contract + bridge unchanged.
+    assert "materialized='table'" in flat
     assert "{{ ref('fct_shot_xg') }}" in flat
     # Legacy schema keeps the enforced contract with the exact legacy columns.
     assert "'enforced': true" in flat

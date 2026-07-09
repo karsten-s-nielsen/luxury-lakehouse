@@ -57,11 +57,13 @@ def fetch_shots(
 
 @ttl_cache()
 def fetch_xg_predictions_v2(competition_key: int) -> pd.DataFrame:
-    """Fetch v2 Set Encoder xG predictions with MC dropout 95% CI.
+    """Fetch v3 Set Encoder xG predictions with MC dropout 95% CI.
 
     XG1-RETIRE (SK3-MIG-B): replaces fetch_xg_predictions (v1 logistic +
-    gradient-boosted, both retired). v2 mart consumes the same shot_id join
-    key so the Shot Map state needs only the column rename + CI band addition.
+    gradient-boosted, both retired). C-b (ADR-066): fct_xg_predictions_v2 now
+    PROJECTS fct_shot_xg (canonical-SPADL xg_model_v3) into the same legacy
+    schema + shot_id join key, so this reader is unchanged — only the values
+    (and the "v3 Set Encoder" label) reflect the new model.
 
     Post-PR 3 (ADR-011): scopes on competition_key (Kimball surrogate).
 
