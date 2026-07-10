@@ -21,7 +21,7 @@ synced-table recreation. The companion ``--verify`` mode is the drift
 detector used as a pre-deploy gate in ``manage_space.py deploy``.
 
 Usage:
-    # Apply grants (default SP UUID comes from terraform output):
+    # Apply grants (SP application_id resolved live via the Databricks SDK):
     uv run python scripts/run_lakebase_grants.py
 
     # Apply with explicit SP UUID:
@@ -42,7 +42,6 @@ import base64
 import json
 import logging
 import os
-import subprocess
 import sys
 import uuid
 
@@ -58,8 +57,17 @@ ENDPOINT_NAME = "projects/soccer-analytics-dev/branches/production/endpoints/pri
 # Schemas the Taipy app reads from.
 SCHEMAS = ["dev_gold", "observability"]
 
-# Terraform env root — used to auto-discover the Taipy app SP UUID.
-TERRAFORM_ENV_DIR = "terraform/environments/dev"
+# Taipy app SP — resolved LIVE from the Databricks workspace by display name,
+# NOT from terraform. Terraform runs only in CI (GitHub), so a local app deploy
+# has no initialized terraform; shelling out to `terraform output` there fails
+# with "provider plugins not installed" even though the grants are healthy.
+# The SP is provisioned by terraform/modules/service_principals `hf_app`
+# (display_name = "luxury-lakehouse-hf-app-v2-${var.environment}"); the constant
+# below is anti-drift-tested against that .tf in test_lakebase_grants_sp_resolution.
+_HF_APP_SP_DISPLAY_NAME = "luxury-lakehouse-hf-app-v2-dev"
+# Explicit override escape hatch. CI passes --sp-uuid (from the terraform-output
+# GitHub var) and never reaches the SDK path; this env var is its local analogue.
+_SP_APP_ID_ENV = "LAKEBASE_TAIPY_SP_APP_ID"
 
 
 def _normalize_host(raw: str) -> str:
@@ -77,39 +85,45 @@ def _normalize_host(raw: str) -> str:
     return host.rstrip("/")
 
 
-def _resolve_sp_uuid_from_terraform() -> str:
-    """Invoke ``terraform output -raw hf_app_sp_application_id``.
+def _resolve_sp_application_id() -> str:
+    """Resolve the Taipy app SP's ``application_id`` WITHOUT terraform.
 
-    Single source of truth for the Taipy app SP. Fails with a clear error
-    if the output isn't wired up — refuses to fall back to a hardcoded
-    value, because drift between hardcoded and terraform-managed values
-    is exactly the class of bug this script exists to prevent.
+    Terraform runs only in CI, so a local app deploy cannot ``terraform output``
+    the id. Instead we read it from the source of truth — the live Databricks
+    workspace — via the SDK, using the same ``DATABRICKS_HOST``/``TOKEN`` the
+    deploy already needs. Resolution order:
+
+    1. ``LAKEBASE_TAIPY_SP_APP_ID`` env override (local analogue of CI's
+       ``--sp-uuid``).
+    2. SDK lookup by the SP's terraform-provisioned display name.
+
+    This is *more* drift-safe than the old ``terraform output`` (it reads the
+    real workspace, not terraform's cached view). The application_id is never
+    hardcoded; only the display name is, and that is anti-drift-tested against
+    the terraform module. Raises if the SP can't be uniquely resolved.
     """
-    # Terraform is expected on PATH for local-dev use; the FileNotFoundError
-    # handler below covers the case where it isn't. The input is a hardcoded
-    # literal — no user-controlled args flow into subprocess.
-    cmd = ["terraform", "output", "-raw", "hf_app_sp_application_id"]
-    try:
-        result = subprocess.run(  # noqa: S603
-            cmd,
-            cwd=TERRAFORM_ENV_DIR,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=30,
+    override = os.environ.get(_SP_APP_ID_ENV)
+    if override:
+        logger.info("Using Taipy SP application_id from %s", _SP_APP_ID_ENV)
+        return override.strip()
+
+    from databricks.sdk import WorkspaceClient
+
+    ws = WorkspaceClient()
+    matches = [
+        sp
+        for sp in ws.service_principals.list(filter=f'displayName eq "{_HF_APP_SP_DISPLAY_NAME}"')
+        if sp.display_name == _HF_APP_SP_DISPLAY_NAME and sp.application_id
+    ]
+    if len(matches) != 1:
+        msg = (
+            f"Expected exactly one service principal named {_HF_APP_SP_DISPLAY_NAME!r}; "
+            f"found {len(matches)}. Pass --sp-uuid or set {_SP_APP_ID_ENV}."
         )
-    except FileNotFoundError:
-        logger.exception("terraform CLI not on PATH; pass --sp-uuid explicitly")
-        sys.exit(2)
-    except subprocess.CalledProcessError as exc:
-        logger.error("terraform output failed: %s", exc.stderr.strip())
-        logger.error(
-            'Ensure `output "hf_app_sp_application_id"` is defined in %s/outputs.tf '
-            "and `terraform apply` has been run.",
-            TERRAFORM_ENV_DIR,
-        )
-        sys.exit(2)
-    return result.stdout.strip()
+        raise RuntimeError(msg)
+    app_id = matches[0].application_id
+    logger.info("Resolved Taipy SP %r -> %s via Databricks SDK", _HF_APP_SP_DISPLAY_NAME, app_id)
+    return str(app_id)
 
 
 def _load_expected_synced_tables() -> list[tuple[str, str]]:
@@ -273,7 +287,10 @@ def main() -> int:
     )
     parser.add_argument(
         "--sp-uuid",
-        help="Taipy app SP application ID. Defaults to `terraform output -raw hf_app_sp_application_id`.",
+        help=(
+            "Taipy app SP application ID. Defaults to a live Databricks SDK lookup by "
+            "display name (or the LAKEBASE_TAIPY_SP_APP_ID env var). CI passes this explicitly."
+        ),
     )
     args = parser.parse_args()
 
@@ -284,7 +301,7 @@ def main() -> int:
         return 2
     host = _normalize_host(raw_host)
 
-    sp_uuid = args.sp_uuid or _resolve_sp_uuid_from_terraform()
+    sp_uuid = args.sp_uuid or _resolve_sp_application_id()
     logger.info("Target SP UUID: %s", sp_uuid)
 
     logger.info("Discovering Lakebase endpoint DNS...")
