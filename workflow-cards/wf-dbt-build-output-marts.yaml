@@ -61,9 +61,6 @@ inputs:
     - id: "{catalog}.bronze.player_embeddings_raw"
       source: delta-table
       description: "Player embeddings (v1 + v2)"
-    - id: "{catalog}.bronze.xg_predictions_v2"
-      source: delta-table
-      description: "xG v2 deep-sets predictions"
 
 outputs:
   tables:

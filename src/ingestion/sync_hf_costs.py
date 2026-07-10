@@ -188,8 +188,8 @@ def map_to_delta_schema(cost_data: dict[str, Any], task_key: str) -> dict[str, A
 def _resolve_task_key(card: dict[str, Any]) -> str:
     """Extract the task_key from a workflow card's execution config.
 
-    Prefers execution.training.script stem (e.g., 'train_xg_v2_hf' from
-    'scripts/train_xg_v2_hf.py'), falls back to execution.inference.entry_point.
+    Prefers execution.training.script stem (e.g., 'train_xg_v3_hf' from
+    'scripts/train_xg_v3_hf.py'), falls back to execution.inference.entry_point.
     """
     execution = card.get("execution") or {}
     for phase in ("training", "inference"):

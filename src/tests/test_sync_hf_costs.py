@@ -32,7 +32,7 @@ class TestDiscoverHfRepos:
 
         card = {
             "id": "wf-xg-v2",
-            "execution": {"training": {"runtime": "hf-jobs", "script": "scripts/train_xg_v2_hf.py"}},
+            "execution": {"training": {"runtime": "hf-jobs", "script": "scripts/train_xg_v3_hf.py"}},
             "outputs": {"models": [{"id": "luxury-lakehouse/xg-v2-model-set-encoder", "destination": "huggingface"}]},
         }
         card_path = tmp_path / "wf-xg-v2.yaml"

@@ -57,7 +57,7 @@ Measured from `observability.system_lakeflow_job_task_run_timeline` (definer's-r
 | compute_pitch_control | 114 | 164 | 683 | 64 | applyInPandas, 20 tracking matches |
 | compute_spadl_vaep | 246 | 779 | 1,043 | 56 | applyInPandas; post-Kimball-PR-7 (PR #214) shifted higher than 2026-03-25 baseline (was 168s p50) |
 | compute_xg_model | 294 | 419 | 483 | 50 | XGBoost training + scoring |
-| compute_xg_model_v2 | 300 | 430 | 480 | 46 | v2 inference; back to SUCCESS after PR #177 + ADR-012 unblock |
+| compute_xg_model_v2 | 300 | 430 | 480 | 46 | RETIRED 2026-07-10 (v2 producer chain, ADR-066); historical baseline. Successor: compute_xg_shot_scores (xg_model_v3) |
 | dbt_build_input_marts | — | — | — | 0 | New from PR-Cycle-C PR-β 2026-05-02; no measurements yet |
 | dbt_build_intermediate_marts | — | — | — | 0 | New from PR-Cycle-C PR-β 2026-05-02 |
 | dbt_build_output_marts | — | — | — | 0 | New from PR-Cycle-C PR-β 2026-05-02 |

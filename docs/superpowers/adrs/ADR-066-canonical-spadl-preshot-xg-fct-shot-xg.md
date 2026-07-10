@@ -75,6 +75,12 @@ Concretely:
   - **ADR-064** (per-match access tier) — restricted-provider publishing posture if a dataset is ever published.
   - **Supersedes** the `fct_xg_predictions_v2` `shot_id`-keyed path (retired to a back-compat view).
 
+## Amendment (2026-07-10): v2 producer chain retired + the "v2 means v3" naming
+
+Once `fct_xg_predictions_v2` became a back-compat surface projecting `fct_shot_xg` (C-b), the old v2-model producer chain fed nothing and was retired in one PR: the `compute_xg_model_v2` mega-job task, `ingestion/xg_model_v2.py`, `scripts/train_xg_v2_hf.py`, `bronze.xg_predictions_v2`, and `stg_xg__predictions_v2` were deleted; the MLflow model `xg_model_v2` + its UC-Volume weights are deregistered as a gated live step. SEC2 integrity-hash coverage was **migrated** v2→v3 (`bootstrap_artifact_hashes` + the loader-hash test now cover `xg_model_v3` / `ingestion.xg_shot_scorer`), so the pre-shot xG model is never left unhashed.
+
+**Deliberate naming debt (why "v2" now means v3):** the governance card `wf-xg-v2`, its HF model card `xg-v2-model-card.md`, and the `AI_GOVERNANCE.md` System-1 entry are the governed evaluative system for pre-shot xG and were evolved in place to describe `xg_model_v3` (the "m4 decoupling") — the card ID is *not* renamed to avoid governance-inventory churn (`PER_PLAYER_EVALUATIVE_CARDS` unchanged). Likewise the HF repo `xg-v2-model-set-encoder` is kept as a **frozen historical** artifact; the live v3 weights publish to `xg-v3-model-set-encoder`. So a reader who sees "v2" on the card/repo should read it as "the governed pre-shot xG system, currently v3." A future card-ID / repo-consolidation rename is a deferred inventory change, tracked separately. `wf-xg-v2` is now `type: training` (inference is owned by `wf-shot-xg-scorer`).
+
 ## Notes
 
 The set-distribution shift (B2) is the risk to lead with — not coordinates. It is resolved three ways at once: train on the full-22 tracking sets (R2), add a set-cardinality feature to keep the density signal the sum encodes (R3), and bound the downside with the trained tabular-only baseline + discrimination gate (R1). V-6 (measure the SB-360-vs-tracking set-cardinality distribution) is a **diagnostic** informing the training mix, no longer a gate on a fragile scoring-time convention.

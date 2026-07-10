@@ -2353,14 +2353,16 @@ models:
         data_sensitivity: public
         contains_pii: false
     description: >
-      Gold-layer v2 xG predictions (Deep Sets set encoder with MC dropout
-      confidence intervals). Kimball keys (match_key, competition_key)
-      inherited from fct_shots via INNER JOIN on shot_id per ADR-013 —
-      first mart applying the ML-inference-outputs pattern (consumer-side
-      counterpart to ADR-012 producer-side weight delivery). Enabled via
-      var 'xg_v2_enabled' (default false; flipped on in Databricks job
-      config). Legacy competition_id INT retained nullable for consumers
-      that still filter on native id; removed in PR 8 sweep.
+      Back-compat gold mart (legacy v2 schema, contract-enforced) that PROJECTS
+      fct_shot_xg (canonical-SPADL xg_model_v3, Deep Sets set encoder + MC dropout
+      CIs) into the legacy shot_id-keyed shape for existing consumers (Taipy
+      shot-map, fct_xg_predictions_v2_synced). shot_id + Kimball keys reconstructed
+      via the (match_key, action_id) -> fct_action_values.original_event_id ->
+      fct_shots bridge (1:1, guarded by assert_xg_v2_view_shot_id_1to1). The live
+      pre-shot xG source of truth is fct_shot_xg (ADR-066; the v2 producer chain +
+      xg_model_v2 were retired 2026-07-10). Enabled via var 'xg_v3_enabled' (default
+      false; flipped on in the Databricks job config). Legacy competition_id INT
+      retained nullable for consumers that still filter on native id.
     columns:
       - name: shot_id
         data_type: string

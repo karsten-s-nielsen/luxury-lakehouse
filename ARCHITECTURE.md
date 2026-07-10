@@ -69,7 +69,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • compute_formations_efpi → EFPI template-matching detection    │    │
 │  │  • compute_formations_shape_graph → Shape graph detection        │    │
 │  │  • compute_xg_model → xG v1 scoring (logistic + XGBoost)         │    │
-│  │  • compute_xg_model_v2 → xG v2 scoring (Deep Sets + MC dropout) │    │
+│  │  • compute_xg_shot_scores → pre-shot xG v3 scoring (MC dropout)  │    │
 │  │  • compute_expected_threat → Data-driven xT grid from SPADL      │    │
 │  │  • elastic_sync → ELASTIC event-tracking alignment (Kim 2025)    │    │
 │  │  • compute_pausa → PAUSA pass timing (Lee et al. 2026)          │    │
@@ -103,7 +103,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • elastic_sync: elastic_sync_results                           │    │
 │  │  • obso: obso_surfaces, pausa_raw_scores                       │    │
 │  │  • model_validation: model_validation_runs                      │    │
-│  │  • xg_predictions (v1), xg_predictions_v2, expected_threat_grids  │    │
+│  │  • xg_predictions v1, xg_shot_predictions, expected_threat_grids │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
@@ -553,7 +553,7 @@ luxury-lakehouse/
 │   │   ├── vaep_training.py          # VAEP model training pipeline
 │   │   ├── wyscout.py                # Wyscout JSON ingestion
 │   │   ├── xg_model.py               # xG v1 scoring pipeline (logistic + XGBoost)
-│   │   ├── xg_model_v2.py            # xG v2 scoring pipeline (Deep Sets + MC dropout)
+│   │   ├── xg_shot_scorer.py         # pre-shot xG v3 scoring (Deep Sets + MC dropout; ADR-066)
 │   │   ├── guards.py                 # SkipGuard registry + find_new_ids()
 │   │   ├── hf_sync.py                # HF Hub dataset sync utilities
 │   │   └── tracking_metadata.py      # Tracking data metadata extraction
@@ -644,7 +644,7 @@ luxury-lakehouse/
 │       ├── test_workflows_auto_refresh.py
 │       ├── test_wyscout.py
 │       ├── test_xg_model.py
-│       ├── test_xg_model_v2.py
+│       ├── test_xg_shot_scorer.py
 │       ├── test_scoutgpt_conditioning.py
 │       ├── test_backend_pool.py      # Evolve backend pool tests
 │       ├── test_hf_jobs_backend.py   # Evolve HF Jobs backend tests
@@ -704,8 +704,7 @@ luxury-lakehouse/
 │   ├── compute_space_creation_hf.py  # HF Jobs GPU script: space creation via JAX double-vmap on A10G
 │   ├── compute_space_creation_hf_helpers.py # Space creation computation helpers
 │   ├── train_xg_model_hf.py          # HF Jobs CPU script: xG model training with MLflow logging
-│   ├── train_xg_v2_hf.py             # HF Jobs GPU script: xG v2 Deep Sets + MC dropout training
-│   ├── train_xg_v2_hf_helpers.py     # xG v2 training helpers (dataset, evaluation)
+│   ├── train_xg_v3_hf.py             # HF Jobs GPU script: canonical-SPADL pre-shot xG v3 (Deep Sets + MC dropout)
 │   ├── train_vaep_model_hf.py        # HF Jobs CPU script: VAEP model training
 │   ├── train_football2vec_v2.py      # HF Jobs GPU script: football2vec v2 transformer + adversarial debiasing
 │   ├── train_football2vec_360.py     # HF Jobs GPU script: football2vec 360-enriched encoder training

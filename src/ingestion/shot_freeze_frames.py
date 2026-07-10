@@ -148,7 +148,7 @@ def write_shot_freeze_frames(
     ``applyInPandas`` UDF (no Delta writes from executors — serverless forbids it) and yields
     ``snapshots_df``, a Spark DataFrame conforming to :data:`_SHOT_FF_COLUMNS`. We select the
     canonical column order and write it idempotently, ``replaceWhere`` keyed on ``match_key``
-    (mirrors ``xg_model_v2.run_pipeline``'s per-competition bulk write). All periods of a match land
+    (a per-match idempotent bulk write). All periods of a match land
     in the same bulk write, so a ``match_key``-only predicate is safe.
 
     Parameters

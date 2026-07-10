@@ -57,10 +57,9 @@ _GOLD_READ_REQUIREMENTS: list[tuple[str, str, str]] = [
     # ── compute_off_ball_xt: reads input_mart fct_tracking_frames ──────────
     # Off-ball xT computed over tracking frames.
     ("compute_off_ball_xt", "fct_tracking_frames", "dbt_build_input_marts"),
-    # ── compute_xg_model_v2: reads input_mart fct_shots ──
-    # v2 (Deep Sets + MC dropout) scores from fct_shots gold.
-    # v1 (XGBoost) retired SK3-MIG-B 2026-05-03 per ADR-023.
-    ("compute_xg_model_v2", "fct_shots", "dbt_build_input_marts"),
+    # compute_xg_model_v2 retired 2026-07-10 (v2 producer chain — ADR-066); the v3
+    # scorer compute_xg_shot_scores reads bronze.xg_shot_predictions, covered by
+    # test_workflow_dag_bronze_reads (not a gold-read edge here).
     # ── compute_formations_efpi: reads input_mart fct_tracking_frames ──────
     # EFPI template matching reads tracking frames.
     ("compute_formations_efpi", "fct_tracking_frames", "dbt_build_input_marts"),

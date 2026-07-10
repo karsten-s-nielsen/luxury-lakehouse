@@ -86,8 +86,8 @@ FULL_CARD = textwrap.dedent("""\
       inference:
         trigger: scheduled
         runtime: databricks-workflow
-        entry_point: compute_xg_model_v2
-        module: ingestion.xg_model_v2
+        entry_point: compute_xg_shot_scores
+        module: ingestion.xg_shot_scorer
         distribution: applyInPandas
         partition_key: competition_id
         schedule: "Every Sunday 06:00 UTC"
@@ -141,9 +141,9 @@ FULL_CARD = textwrap.dedent("""\
       dataset_cards:
         - docs/huggingface/statsbomb-spadl-card.md
       source_code:
-        - src/ingestion/xg_model_v2.py
-        - scripts/train_xg_v2_hf.py
-      tests: src/tests/test_xg_model_v2.py
+        - src/ingestion/xg_shot_scorer.py
+        - scripts/train_xg_v3_hf.py
+      tests: src/tests/test_xg_shot_scorer.py
       hf_model: https://huggingface.co/luxury-lakehouse/xg-model
       hf_dataset: https://huggingface.co/datasets/luxury-lakehouse/xg-predictions
     ---
@@ -231,7 +231,7 @@ def test_full_card_execution() -> None:
     assert card.execution.training.flavor == "l40sx1"
     assert card.execution.inference is not None
     assert card.execution.inference.distribution == "applyInPandas"
-    assert card.execution.inference.entry_point == "compute_xg_model_v2"
+    assert card.execution.inference.entry_point == "compute_xg_shot_scores"
 
 
 def test_full_card_depends_on() -> None:

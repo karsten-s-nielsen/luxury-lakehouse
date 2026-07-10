@@ -22,13 +22,9 @@ def test_mart_file_exists() -> None:
     assert Path("dbt_project/models/marts/fct_xg_predictions_v2.sql").is_file()
 
 
-def test_staging_v2_file_exists() -> None:
-    assert Path("dbt_project/models/staging/xg/stg_xg__predictions_v2.sql").is_file()
-
-
-def test_v2_source_declared() -> None:
-    yml = Path("dbt_project/models/staging/xg/_xg__sources.yml").read_text(encoding="utf-8")
-    assert "- name: xg_predictions_v2" in yml, "xg.xg_predictions_v2 source not declared"
+# The v2 producer chain (stg_xg__predictions_v2 + the xg_predictions_v2 source) was
+# retired 2026-07-10 (ADR-066) — fct_xg_predictions_v2 now projects fct_shot_xg, so the
+# former test_staging_v2_file_exists / test_v2_source_declared assertions were removed.
 
 
 def test_mart_is_backcompat_table_over_shot_xg() -> None:

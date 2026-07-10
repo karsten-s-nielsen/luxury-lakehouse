@@ -164,8 +164,8 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     "preflight_gradientsports": None,
     "compute_spadl_vaep": "wf-vaep",
     "compute_expected_threat": "wf-xt-grids",
-    # compute_xg_model retired SK3-MIG-B 2026-05-03 (XG1-RETIRE per ADR-023).
-    "compute_xg_model_v2": "wf-xg-v2",
+    # compute_xg_model (v1) retired SK3-MIG-B 2026-05-03 (XG1-RETIRE per ADR-023);
+    # compute_xg_model_v2 retired 2026-07-10 (v2 producer chain — ADR-066).
     # Canonical-SPADL pre-shot xG (Task 1.9, 2026-07-08): scores fct_action_values with
     # xg_model_v3@Champion -> bronze.xg_shot_predictions (two-mode gate + per-provider calibration).
     "compute_xg_shot_scores": "wf-shot-xg-scorer",
