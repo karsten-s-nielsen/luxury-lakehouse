@@ -30,28 +30,6 @@ sources:
           - name: _ingested_at
             description: UTC timestamp when the row was written.
 
-      - name: xg_predictions_v2
-        description: >
-          v2 xG predictions (Deep Sets set encoder + MC dropout CIs) written by
-          compute_xg_model_v2. Post-PR 3 (ADR-013), this bronze emits only native
-          identifiers + predictions; Kimball keys are resolved at the mart layer
-          via fct_xg_predictions_v2's INNER JOIN to fct_shots on shot_id.
-          match_id was historically emitted by the v2 writer; Phase 5.0 of PR 3
-          drops it via `ALTER TABLE ... DROP COLUMN match_id` post-merge deploy.
-        columns:
-          - name: shot_id
-            description: FK to fct_shots (surrogate key).
-          - name: competition_id
-            description: Native INT competition identifier (replaceWhere partition key).
-          - name: xg_set_encoder
-            description: v2 Deep Sets + MC dropout mean xG prediction.
-          - name: xg_ci_lower
-            description: v2 xG 95% CI lower bound.
-          - name: xg_ci_upper
-            description: v2 xG 95% CI upper bound.
-          - name: _ingested_at
-            description: UTC timestamp when the row was written.
-
       - name: xg_shot_predictions
         description: >
           Canonical-SPADL pre-shot xG v3 predictions (xg_model_v3; two-mode

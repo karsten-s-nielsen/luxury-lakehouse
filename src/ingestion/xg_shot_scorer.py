@@ -484,7 +484,7 @@ def _xg_shot_pred_struct_type() -> Any:
 def _try_load_champion_xg_v3(log: logging.Logger, catalog: str, gold_schema: str) -> bytes | None:
     """Load ``xg_model_v3@Champion`` weight bytes from the MLflow UC registry, else None.
 
-    Mirrors ``xg_model_v2._try_load_champion_xg_v2`` — resolves the Champion alias, downloads the
+    Resolves the Champion alias, downloads the
     ``model_weights.json`` artifact, and SEC2-verifies its hash. Returns None (→ UC Volume fallback)
     when the model / alias is not registered.
     """

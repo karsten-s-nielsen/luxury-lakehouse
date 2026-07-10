@@ -298,10 +298,11 @@ The model is published to three destinations, all in sync:
    - `model_weights.json` — identical bytes to the HF Hub copy
    - `model_weights.json.sha256` — hex SHA-256 sidecar for SEC2 integrity verification
 
-The Databricks serverless inference pipeline (module `ingestion.xg_model_v2`,
-unchanged code path) tries MLflow `@Champion` first, then falls back to the UC
-Volume copy; the sidecar lets the consumer detect tampering without trusting
-the MLflow registry metadata alone.
+The Databricks serverless inference pipeline (module `ingestion.xg_shot_scorer`,
+the canonical-SPADL pre-shot xG v3 scorer) tries MLflow `xg_model_v3@Champion`
+first, then falls back to the UC Volume copy; the sidecar lets the consumer detect
+tampering without trusting the MLflow registry metadata alone. (The legacy
+`ingestion.xg_model_v2` inference module was retired 2026-07-10 — ADR-066.)
 
 ## Citation
 

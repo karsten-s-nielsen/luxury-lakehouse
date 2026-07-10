@@ -44,7 +44,7 @@ def test_live_mart_has_kimball_keys(conn: object) -> None:
     try:
         cur.execute("DESCRIBE soccer_analytics.dev_gold.fct_xg_predictions_v2")
     except Exception as exc:
-        pytest.skip(f"fct_xg_predictions_v2 not built (xg_v2_enabled=false?): {exc}")
+        pytest.skip(f"fct_xg_predictions_v2 not built (xg_v3_enabled=false?): {exc}")
         return
     cols = {row[0] for row in cur.fetchall() if row[0] and not row[0].startswith("#")}
     assert "match_key" in cols
@@ -69,21 +69,7 @@ def test_live_ci_bound_ordering(conn: object) -> None:
     assert violations == 0, f"{violations} rows violate CI bound ordering"
 
 
-@requires_databricks
-def test_live_inner_join_preserves_rows(conn: object) -> None:
-    """Every staging row lands in the mart (INNER JOIN fct_shots preserves)."""
-    cur = conn.cursor()  # type: ignore[attr-defined]
-    try:
-        cur.execute(
-            "SELECT "
-            " (SELECT count(*) FROM soccer_analytics.dev_silver.stg_xg__predictions_v2) AS stg, "
-            " (SELECT count(*) FROM soccer_analytics.dev_gold.fct_xg_predictions_v2) AS mart"
-        )
-    except Exception as exc:
-        pytest.skip(f"v2 staging/mart unavailable: {exc}")
-        return
-    stg, mart = cur.fetchone()
-    assert stg == mart, (
-        f"staging={stg} vs mart={mart} — INNER JOIN dropped rows. Investigate "
-        "bronze.xg_predictions_v2 rows that don't resolve to fct_shots.shot_id."
-    )
+# test_live_inner_join_preserves_rows removed 2026-07-10 (ADR-066): fct_xg_predictions_v2
+# no longer INNER JOINs stg_xg__predictions_v2 (the v2 staging view was retired) — it now
+# projects fct_shot_xg. Its 1:1/no-fan-out grain is guarded by the singular dbt test
+# dbt_project/tests/assert_xg_v2_view_shot_id_1to1.sql.

@@ -63,11 +63,14 @@ _WALLTIME_CAP_HOURS = 8.0
 _STATUS_INTERVAL_SECONDS = 60
 
 # Cycle item dispatch order — Group 1 first (gates Group 2), then Group 3.
-_GROUP_1_TRAINED = ("vaep", "xg_v2", "ext_v2_p0", "ext_v2_p1")
+# xg_v2 removed 2026-07-10: the v2 xG model + trainer were retired with the v2
+# producer chain (ADR-066). This completed-migration orchestrator can no longer
+# process it (task/trainer gone); the remaining items are the audit trail.
+_GROUP_1_TRAINED = ("vaep", "ext_v2_p0", "ext_v2_p1")
 _GROUP_1_COMPUTE_ONLY = ("defcon_lite", "obso", "pausa")
 _GROUP_2_TRAINED = ("f2v_v1", "f2v_v2", "f2v_360", "scoutgpt")
 # Group 0 (Step 0a, spec §2.4): input-dataset publishes that gate Group 1
-# trainers — vaep + xg_v2 read these from HF Hub. Run BEFORE Group 1 retrains.
+# trainers — vaep reads these from HF Hub. Run BEFORE Group 1 retrains.
 _GROUP_0_INPUT_PUBLISH = (
     "spadl_vaep_publish",
     "xg_shots_publish",
@@ -90,7 +93,6 @@ _GROUP_3_PUBLISH = (
 # Values corrected in step 4b lockstep with trainer-side `VALIDATED_HF_FLAVOR`.
 _FLAVOR_MAP: dict[str, str] = {
     "vaep": "cpu-xl",
-    "xg_v2": "l40sx1",
     "f2v_v1": "cpu-xl",
     "f2v_v2": "l40sx1",
     "f2v_360": "l40sx1",
@@ -110,7 +112,6 @@ _TASK_KEY_MAP: dict[str, str] = {
     "obso": "compute_pausa",
     "pausa": "compute_pausa",
     "vaep": "compute_spadl_vaep",
-    "xg_v2": "compute_xg_model_v2",
     # hf_sync_prereq (Step 0b, Q31): triggers the mega-job's `hf_sync` task to
     # refresh football2vec-training-data + football2vec-360-training-data so
     # f2v_v2/f2v_360 retrain on FRESH SK3-MIG-corrected inputs in PR-1's
@@ -128,7 +129,6 @@ _LOCAL_TRAINED_MODELS: frozenset[str] = frozenset({"ext_v2_p0", "ext_v2_p1"})
 # (must also appear in _LOCAL_TRAINED_MODELS).
 _TRAINER_SCRIPT_MAP: dict[str, str | None] = {
     "vaep": "scripts/train_vaep_model_hf.py",
-    "xg_v2": "scripts/train_xg_v2_hf.py",
     "ext_v2_p0": None,
     "ext_v2_p1": None,
     "f2v_v1": "scripts/train_football2vec.py",
@@ -140,7 +140,6 @@ _TRAINER_SCRIPT_MAP: dict[str, str | None] = {
 # Per-item cost estimates (USD) — empirical from prior cycles. Drives state.cumulative_cost_usd.
 _ITEM_COST_USD: dict[str, float] = {
     "vaep": 0.50,
-    "xg_v2": 6.00,
     "ext_v2_p0": 0.05,
     "ext_v2_p1": 0.05,
     "defcon_lite": 0.50,
@@ -591,7 +590,6 @@ def _step_0_preflight(state: CycleState) -> None:
 def _mlflow_model_name(cycle_item: str) -> str:
     return {
         "vaep": "soccer_analytics.dev_gold.vaep_model",
-        "xg_v2": "soccer_analytics.dev_gold.xg_model_v2",
         "f2v_v1": "soccer_analytics.dev_gold.football2vec",
         "f2v_v2": "soccer_analytics.dev_gold.football2vec_v2",
         "f2v_360": "soccer_analytics.dev_gold.football2vec_360",
@@ -602,7 +600,6 @@ def _mlflow_model_name(cycle_item: str) -> str:
 def _mart_for_item(cycle_item: str) -> str:
     return {
         "vaep": "fct_action_values",
-        "xg_v2": "fct_xg_predictions_v2",
         "defcon_lite": "fct_defcon_actions",
         "obso": "fct_pausa_values",
         "pausa": "fct_pausa_values",
@@ -628,7 +625,6 @@ def _synced_tables_for_item(cycle_item: str) -> list[str]:
     """
     return {
         "vaep": ["fct_action_values_synced"],
-        "xg_v2": ["fct_xg_predictions_v2_synced"],
         "defcon_lite": ["fct_defcon_actions_synced", "fct_defcon_pressure_synced"],
         "pausa": ["fct_pausa_values_synced"],
         "obso": ["fct_pausa_values_synced"],

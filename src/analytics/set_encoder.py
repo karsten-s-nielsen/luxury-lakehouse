@@ -1,6 +1,6 @@
 """Pure NumPy set encoder for freeze-frame context in xG v2.
 
-Training uses PyTorch (scripts/train_xg_v2_hf.py on HF Jobs).
+Training uses PyTorch (scripts/train_xg_v3_hf.py on HF Jobs).
 Inference uses pure NumPy — no PyTorch, no ONNX, zero new dependencies.
 
 Architecture: Deep Sets (Zaheer et al. 2017)

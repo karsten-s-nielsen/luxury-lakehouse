@@ -57,12 +57,13 @@ def test_main_rejects_invalid_schema_name() -> None:
 
 
 def test_mlflow_models_list_matches_sec2_scope() -> None:
-    """The 4 MLflow models list must match SEC2 spec: xg_model, xg_model_v2,
-    vaep_model, defcon_model.
+    """The 4 MLflow models list must match SEC2 spec: xg_model, xg_model_v3,
+    vaep_model, defcon_model. (xg_model_v3 replaced xg_model_v2 on 2026-07-10 when
+    the v2 producer chain retired — ADR-066; pre-shot xG stays hash-covered.)
     """
     from bootstrap_artifact_hashes import _MLFLOW_MODELS
 
-    assert set(_MLFLOW_MODELS) == {"xg_model", "xg_model_v2", "vaep_model", "defcon_model"}
+    assert set(_MLFLOW_MODELS) == {"xg_model", "xg_model_v3", "vaep_model", "defcon_model"}
 
 
 def test_volume_artifacts_list_matches_sec2_scope() -> None:
@@ -72,6 +73,6 @@ def test_volume_artifacts_list_matches_sec2_scope() -> None:
     expected = {
         "xg_model/logistic_model.json",
         "xg_model/xgboost_model.json",
-        "xg_model_v2/model_weights.json",
+        "xg_model_v3/model_weights.json",
     }
     assert set(_VOLUME_ARTIFACTS) == expected

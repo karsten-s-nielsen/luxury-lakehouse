@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.75-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.76-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -15,9 +15,9 @@ Queries Databricks SQL Statement Execution API to extract shot records from
 the gold-layer ``fct_shots`` table, applies dtype normalization, and publishes
 as a Parquet dataset partitioned by ``data_source`` on HF Hub.
 
-The published dataset is the primary input for both the v1 XGBoost xG training
-script (``train_xg_model_hf.py``) and the v2 Deep Sets xG training script
-(``train_xg_v2_hf.py``).
+The published dataset is a historical training input; the canonical pre-shot xG
+model (xg_model_v3) now trains from the SPADL-native corpora (xg-shot-data-v3 +
+xg-shot-freeze-frames) via ``scripts/train_xg_v3_hf.py``.
 
 Columns published:
     shot_id          - surrogate key (links to freeze-frame dataset for v2 training)

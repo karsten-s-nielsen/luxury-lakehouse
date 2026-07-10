@@ -156,7 +156,6 @@ _COMPUTE_OUTPUT_BRONZE_TABLES: frozenset[str] = frozenset(
         "space_creation_values",  # compute_space_creation
         "vaep_action_values",  # compute_spadl_vaep
         "xg_predictions",  # compute_xg_model
-        "xg_predictions_v2",  # compute_xg_model_v2
     }
 )
 

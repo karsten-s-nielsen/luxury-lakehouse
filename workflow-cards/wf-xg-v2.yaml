@@ -3,7 +3,11 @@ name: Expected Goals v2 (Deep Sets)
 id: wf-xg-v2
 version: "1.0"
 status: production
-type: training-and-inference
+# Governed system for pre-shot xG (the trained model). INFERENCE materialization
+# is owned by wf-shot-xg-scorer (compute_xg_shot_scores → bronze.xg_shot_predictions);
+# the legacy v2 inference task (compute_xg_model_v2) + trainer were retired 2026-07-10
+# with the v2 producer chain (ADR-066). This card is training + governance.
+type: training
 domain: expected-goals
 owners:
   - karsten
@@ -42,48 +46,36 @@ inputs:
 
 outputs:
   models:
-    - id: "luxury-lakehouse/xg-v2-model-set-encoder"
+    - id: "luxury-lakehouse/xg-v3-model-set-encoder"
       destination: huggingface
       format: json-base64
+      notes: "v3 SPADL-native retrain (published by train_xg_v3_hf.py); xg-v2-model-set-encoder is a frozen historical repo."
     - id: "xg_model_v3@Champion"
       destination: mlflow-registry
       notes: "m4: artifact is xg_model_v3 (SPADL-native retrain); governance card stays wf-xg-v2."
     - id: "/Volumes/{catalog}/dev_gold/model_weights/xg_model_v3/model_weights.json"
       destination: uc-volume
       format: json-base64
-      notes: "SHA-256 sidecar .sha256 written by train_xg_v2_hf.py for SEC2 integrity verification"
+      notes: "SHA-256 sidecar .sha256 written by train_xg_v3_hf.py for SEC2 integrity verification"
   tables:
-    - id: "{catalog}.bronze.xg_predictions_v2"
-      destination: delta-table
-      description: "Raw pre-shot xG predictions written by the scoring pipeline (per-provider mode + ood_flag)."
     - id: "{catalog}.{gold_schema}.fct_xg_predictions_v2"
       destination: delta-table
       dbt_model: "fct_xg_predictions_v2"
       description: >-
-        Contract-enforced canonical-SPADL pre-shot xG gold mart; Kimball keys
-        resolved via JOIN fct_shots per ADR-013. Being renamed to `fct_shot_xg`
-        as part of the canonical-SPADL pre-shot xG unification (ADR-066); the
-        `dbt_model` field stays `fct_xg_predictions_v2` until the mart-rename
-        task lands the `fct_shot_xg.sql` model (workflow-card parity test
-        requires the referenced .sql to exist on disk).
+        Back-compat gold mart (contract-enforced, legacy schema) that PROJECTS
+        `fct_shot_xg` (canonical-SPADL xg_model_v3) for existing consumers (Taipy
+        shot-map, fct_xg_predictions_v2_synced). The live pre-shot xG source of
+        truth is `fct_shot_xg` (owned by wf-shot-xg-scorer). ADR-066.
 
 execution:
   training:
     trigger: manual
     runtime: hf-jobs
     flavor: l40sx1
-    script: "scripts/train_xg_v2_hf.py"
+    script: "scripts/train_xg_v3_hf.py"
     timeout: "1800s"
-  inference:
-    trigger: scheduled
-    runtime: databricks-workflow
-    entry_point: compute_xg_model_v2
-    module: ingestion.xg_model_v2
-    distribution: applyInPandas
-    partition_key: competition_id
-    schedule: "daily 06:00 UTC"
-    timeout: "3600s"
-    environment: analytics
+  # Inference is owned by wf-shot-xg-scorer (compute_xg_shot_scores → bronze.xg_shot_predictions).
+  # The legacy v2 inference (compute_xg_model_v2 / ingestion.xg_model_v2) was retired 2026-07-10.
 
 depends_on:
   - wf-vaep
@@ -95,9 +87,9 @@ idempotency:
 
 performance:
   training_time: "30 min"
-  inference_timeout: "3600s"
   memory_ceiling: "16 GB driver, 1 GB UDF executor"
 
+# Inference cost/perf lives on wf-shot-xg-scorer (which owns compute_xg_shot_scores).
 cost:
   training:
     runtime: hf-jobs
@@ -105,11 +97,6 @@ cost:
     rate_usd_per_hour: 1.00
     typical_duration_minutes: 30
     typical_cost_usd: 0.50
-  inference:
-    runtime: databricks
-    sku: "jobs_serverless_compute_run_dbus"
-    typical_dbu: 200
-    typical_cost_usd: 14.0
 
 monitoring:
   validator: wf-model-validation
@@ -117,9 +104,9 @@ monitoring:
 
 links:
   source_code:
-    - "src/ingestion/xg_model_v2.py"
-    - "scripts/train_xg_v2_hf.py"
-  hf_model: "https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder"
+    - "scripts/train_xg_v3_hf.py"
+    - "src/analytics/xg_model.py"
+  hf_model: "https://huggingface.co/luxury-lakehouse/xg-v3-model-set-encoder"
   hf_dataset: "https://huggingface.co/datasets/luxury-lakehouse/xg-shot-data"
 ---
 

@@ -32,14 +32,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Models with @Champion aliases in MLflow
-_MLFLOW_MODELS = ["xg_model", "xg_model_v2", "vaep_model", "defcon_model"]
+# Models with @Champion aliases in MLflow.
+# xg_model_v3 (canonical-SPADL pre-shot xG) replaced xg_model_v2 here on 2026-07-10
+# when the v2 producer chain was retired (ADR-066) — same raw-json envelope flavor,
+# so the pre-shot xG model stays SEC2-hash-covered.
+_MLFLOW_MODELS = ["xg_model", "xg_model_v3", "vaep_model", "defcon_model"]
 
 # UC Volume artifact paths (relative to /Volumes/{catalog}/{schema}/model_weights/)
 _VOLUME_ARTIFACTS = [
     "xg_model/logistic_model.json",
     "xg_model/xgboost_model.json",
-    "xg_model_v2/model_weights.json",
+    "xg_model_v3/model_weights.json",
 ]
 
 
@@ -85,7 +88,7 @@ def bootstrap_mlflow_model(
     if run_id is None:
         logger.info("No run_id for %s @Champion — skipping", full_name)
         return 0
-    # Bootstrap ONLY the xg_model_v2-style flavor where the loader reads the raw
+    # Bootstrap ONLY the xg_model_v3-style flavor where the loader reads the raw
     # artifact file (model_weights.json) byte-for-byte. The sklearn and pyfunc
     # flavors used by xg_model v1, vaep_model, and defcon_model materialize the
     # model in-memory (mlflow_sklearn.load_model / mlflow_pyfunc.load_model) and
@@ -94,7 +97,7 @@ def bootstrap_mlflow_model(
     # raw MLflow artifact (model.pkl), so a tag written from the raw artifact
     # bytes would never match the loader's verify_artifact_hash(data=...). We
     # therefore refuse to bootstrap those models via MLflow tags; their loaders
-    # fail-open when the tag is absent. If xg_model_v2 (or any future raw-json
+    # fail-open when the tag is absent. If xg_model_v3 (or any future raw-json
     # flavor) is the only @Champion model, only that one gets a tag.
     try:
         artifact_bytes = download_artifact_bytes(run_id, "model_weights.json")

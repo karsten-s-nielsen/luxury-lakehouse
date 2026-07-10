@@ -32,7 +32,7 @@ _SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
 
 # Trainers that register an MLflow @Champion consumed by a Databricks scorer.
 _CHAMPION_TRAINERS: tuple[str, ...] = (
-    "train_xg_v2_hf.py",
+    # train_xg_v2_hf.py retired 2026-07-10 with the v2 producer chain (ADR-066).
     "train_xg_v3_hf.py",
     "train_football2vec.py",
     "train_vaep_model_hf.py",

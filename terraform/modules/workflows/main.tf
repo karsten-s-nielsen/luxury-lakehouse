@@ -14,7 +14,7 @@
 #                       + private RM full-format (parquet/gzip); serialization auto-detected per match
 #   backfill_statsbomb_extra — Backfill _raw_extra_json for GK sub-types (depends on statsbomb)
 #   compute_spadl_vaep — SPADL conversion + VAEP scoring (depends on backfill_extra + wyscout)
-#   compute_xg_model_v2 — v2 Deep Sets + MC dropout xG (depends on SPADL/VAEP; v1 retired SK3-MIG-B)
+#   compute_xg_shot_scores — canonical-SPADL pre-shot xG v3 scoring → bronze.xg_shot_predictions (ADR-066)
 #   compute_off_ball_xt — Off-Ball xT from tracking + pitch control (depends on tracking tasks)
 #   compute_pitch_control — Spearman 2017 pitch control values (depends on tracking tasks)
 #   compute_defcon_lite — DEFCON-lite defensive valuation (depends on SPADL/VAEP)
@@ -747,34 +747,6 @@ resource "databricks_job" "data_ingestion" {
     }
   }
 
-  # ── Task: Score shots with xG v2 set encoder (Deep Sets + MC dropout) ──
-  # XG1-RETIRE (SK3-MIG-B 2026-05-03): the legacy compute_xg_model task was
-  # removed; v2 is the only xG production scorer.
-  task {
-    task_key        = "compute_xg_model_v2"
-    timeout_seconds = 900
-    max_retries     = 0
-
-    # PR-Cycle-C PR-β (2026-05-02, ADR-019): reads gold.fct_shots (input_mart)
-    # — wait on stage 1. Drops the legacy compute_spadl_vaep edge which was a
-    # serialization-not-data-flow remnant (xg model reads gold.fct_shots, not
-    # bronze.spadl_actions).
-    depends_on {
-      task_key = "dbt_build_input_marts"
-    }
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "compute_xg_model_v2"
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze",
-      ]
-    }
-
-    environment_key = "analytics"
-  }
-
   # ── Task: Score shots with the pre-shot xG v3 model (canonical SPADL, two-mode gate) ──
   # Canonical-SPADL Pre-Shot xG Unification (Task 1.9, §C1): loads xg_model_v3@Champion
   # (raw xG) + the shipped per-provider OOF calibrators, scores every shot-family row in
@@ -930,7 +902,6 @@ resource "databricks_job" "data_ingestion" {
     depends_on { task_key = "compute_pausa" }
     depends_on { task_key = "compute_pitch_control" }
     depends_on { task_key = "compute_tracking_context" }
-    depends_on { task_key = "compute_xg_model_v2" }
     # fct_shot_xg reads bronze.xg_shot_predictions from compute_xg_shot_scores
     # (ADR-066; enforced by test_workflow_dag_bronze_reads).
     depends_on { task_key = "compute_xg_shot_scores" }

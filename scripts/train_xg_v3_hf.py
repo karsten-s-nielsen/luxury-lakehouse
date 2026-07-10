@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.75-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.76-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -9,7 +9,7 @@
 #     "scikit-learn>=1.3.0",
 #     # analytics.xg_model imports XGBClassifier at module level (v1/v2 baseline path); the
 #     # trainer imports build_features/spadl_shot_geometry from it, so xgboost must be present
-#     # even though v3's set encoder is pure PyTorch. Mirrors train_xg_v2_hf / train_vaep_model_hf.
+#     # even though v3's set encoder is pure PyTorch. Same rationale as train_vaep_model_hf.
 #     "xgboost>=2.0",
 #     "huggingface-hub>=1.5.0",
 #     "mlflow>=2.17.0",
@@ -55,7 +55,8 @@ conversion craters a geometry model; penalties get a constant xG at scoring time
 later task). ``action_result == 'yellow_card'`` rows are dropped. Goal label:
 ``action_result == 'success'``.
 
-New MLflow model **``xg_model_v3``** (do NOT overwrite ``xg_model_v2@Champion``).
+Registers the MLflow model **``xg_model_v3``** — a separate registry entry (the legacy
+``xg_model_v2`` was retired with the v2 producer chain, ADR-066).
 
 Usage (HF Jobs CLI) — secrets ENCRYPTED via ``--secrets`` (never ``--env``, which is
 visible via ``hf jobs inspect``):

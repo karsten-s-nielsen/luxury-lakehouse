@@ -332,8 +332,9 @@ _GUARD_MODULES: list[str] = [
     "ingestion.formations_shape_graph",
     "ingestion.spadl_vaep",
     "ingestion.player_embeddings_v1",
-    # ingestion.xg_model (v1) retired SK3-MIG-B 2026-05-03 per ADR-023.
-    "ingestion.xg_model_v2",
+    # ingestion.xg_model (v1) retired SK3-MIG-B 2026-05-03 per ADR-023;
+    # ingestion.xg_model_v2 retired 2026-07-10 (v2 producer chain — fct_xg_predictions_v2
+    # now projects fct_shot_xg/xg_model_v3; see ADR-066).
     "ingestion.expected_threat",
     "ingestion.export_embeddings_training_data",
     "ingestion.prepare_360_training_data",

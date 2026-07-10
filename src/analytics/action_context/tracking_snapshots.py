@@ -61,7 +61,7 @@ _SNAPSHOT_COLUMNS = [
 #
 # ``_ingested_at`` is appended by ``write_delta_table`` (NOT emitted by the
 # builder), so it is DELIBERATELY absent from ``_SHOT_FF_COLUMNS`` and the
-# StructType below — mirroring ``xg_model_v2._XG_V2_BRONZE_COLS``.
+# StructType below — mirroring the shot-freeze-frame bronze column contract.
 #
 # The first 11 columns mirror ``_SNAPSHOT_COLUMNS`` (the builder's output), so a
 # snapshot frame maps positionally into the persisted table. ``access_tier``

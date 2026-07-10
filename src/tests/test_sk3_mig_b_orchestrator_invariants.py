@@ -31,7 +31,7 @@ _ORCHESTRATOR_PATH = _REPO_ROOT / "scripts" / "sk3_mig_b_retrain.py"
 _SEED_PATH = _REPO_ROOT / "dbt_project" / "seeds" / "task_workflow_mapping.csv"
 _TRAINER_PATHS: dict[str, Path] = {
     "vaep": _REPO_ROOT / "scripts" / "train_vaep_model_hf.py",
-    "xg_v2": _REPO_ROOT / "scripts" / "train_xg_v2_hf.py",
+    # xg_v2 (scripts/train_xg_v2_hf.py) retired 2026-07-10 with the v2 producer chain (ADR-066).
     "f2v_v1": _REPO_ROOT / "scripts" / "train_football2vec.py",
     "f2v_v2": _REPO_ROOT / "scripts" / "train_football2vec_v2.py",
     "f2v_360": _REPO_ROOT / "scripts" / "train_football2vec_360.py",

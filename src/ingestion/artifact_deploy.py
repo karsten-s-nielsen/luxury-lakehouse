@@ -23,8 +23,8 @@ training scripts. Previous training scripts had a three-way latent-bug class:
    no alias — consumer still broken. ``set_and_verify_mlflow_champion``
    round-trips the alias read to catch that zombie state.
 
-Both ``scripts/train_xg_model_hf.py`` and ``scripts/train_xg_v2_hf.py``
-import from this module. Any future training script should follow the
+Training scripts on the Databricks inference path (e.g. ``scripts/train_xg_v3_hf.py``,
+``scripts/train_vaep_model_hf.py``) import from this module. Any future training script should follow the
 same pattern.
 """
 
@@ -163,7 +163,7 @@ def set_and_verify_mlflow_champion(
         mlflow_client: An ``mlflow.tracking.MlflowClient`` instance. Caller
             must have already called ``mlflow.set_tracking_uri(...)``.
         mlflow_fqn: Fully-qualified UC model URI, e.g.
-            ``"soccer_analytics.dev_gold.xg_model_v2"``.
+            ``"soccer_analytics.dev_gold.xg_model_v3"``.
         run_id: The MLflow run ID for logging context.
 
     Returns:
