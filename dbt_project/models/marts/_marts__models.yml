@@ -5423,6 +5423,16 @@ models:
       - name: gk_completion
         data_type: double
         description: "P(success) for in-scope GK distributions — the exact probability xt_gk_rav consumes. [0,1]."
+      - name: is_gk_distribution
+        data_type: boolean
+        description: >
+          GK-distribution domain marker (silly-kicks 4.43.0 gk_distribution_mask): TRUE for any
+          goal-kick OR an open-play pass/throw-in whose actor is the acting-team goalkeeper.
+          Full domain (goal-kicks + acting-GK passes) on the 4 tracking providers
+          (resolve_gk="robust"); goal-kicks-only on statsbomb-360 (frames=None — SB360 freeze-frames
+          are shot-centric). The producer never emits NULL (both AC arms always compute it), but the
+          column is left nullable to tolerate the phased Phase-5 recompute — pre-F1 rows read NULL
+          until re-materialized, which silly-kicks' rho retention loader handles via COALESCE(...,FALSE).
       - name: pitch_control_method
         data_type: string
       - name: ghost_gk_method

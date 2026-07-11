@@ -37,4 +37,4 @@ The split is governed by `RESTRICTED_HF_PROVIDERS` in the lakehouse's `ingestion
 
 ## Schema
 
-Identical to the public dataset — see its card for the full column reference, including the silly-kicks 4.22 additions (xT-GK family, GK completion, structural/xcross/player-influence context).
+Identical to the public dataset — see its card for the full column reference, including the silly-kicks 4.22 additions (xT-GK family, GK completion, structural/xcross/player-influence context) and the 4.43 GK-distribution domain marker `is_gk_distribution` (goal-kick or acting-GK open-play pass; goal-kicks-only on SB360).

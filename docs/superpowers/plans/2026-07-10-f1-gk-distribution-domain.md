@@ -1,0 +1,51 @@
+# Plan: F1 — `is_gk_distribution` GK-distribution-domain marker
+
+Design: `docs/superpowers/specs/2026-07-10-f1-gk-distribution-domain-design.md`. Single feature = single commit = single PR (the eventual implementation). Test-first; test vs LIVE data (GS/SC), not just fixtures.
+
+**Assumes the recommended path** (spec R0 + D1-A). The cross-repo dependency is now RESOLVED: silly-kicks **4.43.0** ships the public `gk_distribution_mask`. The reimplement fallback is DEAD — deleted below.
+
+> **Folded in the silly-kicks cross-session reviews (2026-07-10).** Round 1 corrections: public export name `gk_distribution_mask` (no underscore) + pin `>=4.43.0`; drop the hand-rolled goal-kick OR (the mask is frame-optional and owns the goal-kick term); ADR-056 already moved the pre-shot GK flags off `fct_action_context` onto `fct_action_values` (regression guard + DISJOINT audit re-grounded); pass `resolve_gk="robust"` explicitly (robust ⊆ native — tightens stale/substituted keepers, never broadens); Phase 5 is a ρ-retrain follow-up (the deep-zone gate already ran GO-leaning on 4.42.0), and the loader already `COALESCE(is_gk_distribution, FALSE)` so phased materialization is safe; `is_gk_distribution` is a **non-nullable** boolean. **Round 2 correction (the non-nullable gap):** `fct_action_context` has **two** enrichment arms (tracking + SB360) — a non-nullable column must be computed on BOTH; SB360 was mis-filed under "docs/D3-deferred" and is now a first-class Phase 1 computation step (`frames=None`, goal-kicks-only).
+
+## Phase 0 — Adopt silly-kicks 4.43.0 (resolved dependency)
+- **P0.1 (R0 — confirmed):** the answer is a NEW column `is_gk_distribution`, NOT overloading `gk_was_distributing`. silly-kicks 4.43.0's ρ loader reads `c.is_gk_distribution` — the cross-repo contract is consistent.
+- **P0.2 (D2 — RESOLVED):** silly-kicks 4.43.0 exports the public, frame-optional `gk_distribution_mask(actions, frames=None, *, resolve_gk="robust", tolerance_seconds=0.2) -> pd.Series[bool]`. Adopt it:
+  - `pyproject.toml` floor bump `silly-kicks[...]>=4.39.0` → `>=4.43.0`; `uv lock --refresh-package silly-kicks` + `uv sync --inexact` (never pip force-reinstall).
+  - Sync the **serverless-env exact pins** to `uv.lock` (ADR-046) in `terraform/modules/workflows/main.tf`.
+  - Update the **4 silly-kicks version sentinels** in lockstep (incl. the `test_sk3_mig_b_orchestrator_invariants.py` runtime-assert constant).
+  - 4.43.0 is **additive** (silly-kicks: no `xt_gk`/VAEP value change, no retrain) → the AC mini-golden should NOT move. If it does, STOP and investigate — do not regen without cause.
+  - The reimplement fallback (former Phase 1-alt) is **deleted** — the clean path is available.
+- **P0.3 (D1 — confirmed):** home mart = `fct_action_context` (AC path). silly-kicks' ρ loader already joins `fct_action_context` for `is_gk_distribution`.
+
+## Phase 1 — AC-path domain computation (BOTH AC arms)
+`fct_action_context` has **two** enrichment arms in `src/analytics/action_context/enrich.py`, both dispatched from `pipeline.py` and both flowing through the shared `build_output` into the same AC bronze/mart. A **non-nullable** column must therefore be populated by BOTH arms — computing it on only the tracking arm would break SB360 (schema violation or silent NULL).
+
+1. **Tracking arm** — `_enrich_tracking_match` (`enrich.py:223`, dispatch `pipeline.py:443`), the 4 tracking providers (GS/SC/idsse/metrica). After the frame link is available, compute `is_gk_distribution = gk_distribution_mask(actions, frames, resolve_gk="robust")` — mirroring the existing `_override_goalkick_actor_from_frames` call site (`enrich.py:512`, which imports and uses exactly the `acting_gk_from_frames` resolver at `:205-212`, so the domain marker and the goal-kick-taker override agree). **Full domain.** `robust ⊆ native`: tightens stale/substituted keepers, never broadens — the accurate, time-aware choice.
+2. **SB360 arm** — `_enrich_sb360_match` (`enrich.py:522`, dispatch `pipeline.py:387`), StatsBomb-360 matches. Compute `is_gk_distribution = gk_distribution_mask(actions, frames=None)` — **goal-kicks-only**. SB360 synthetic frames (`snapshot_to_tracking_frames`) are shot-centric — freeze-frames exist at shot/event moments, not at goal-kick/GK-pass moments — so `frames=None` is the honest choice: clean, documented goal-kicks-only coverage, not arbitrary shot-proximity-dependent acting-GK-pass hits. This is exactly the frame-optional path the mask provides; still no hand-rolled `type_id==22` OR (the mask owns the goal-kick term — no drift risk).
+3. Add `is_gk_distribution BOOLEAN` to `ACTION_CONTEXT_DDL` + `RESULT_COLUMNS` (`analytics/action_context/schema.py`); the applyInPandas StructType derives from the DDL via `_parse_ddl_to_struct_type`. **Nullability — implemented decision (discovered constraint):** the DDL→StructType parser is deliberately uniform `nullable=True` (feeds build_output's missing-col fill + the 0-row helper — Chesterton's Fence), and the mart is `incremental` with a **phased** Phase-5 recompute (review-endorsed: pre-F1 rows read NULL until re-materialized, consumer COALESCEs). A hard `not_null` Spark/dbt constraint is therefore incompatible with the phased design. So non-nullability is **producer-enforced** (both arms always compute it; the mask never emits NULL — unit-tested in `test_is_gk_distribution.py` + verified all-non-null on the mini/full golden recompute), the bronze/mart column stays **nullable** to tolerate the phased recompute, and the consumer's existing `COALESCE(is_gk_distribution, FALSE)` handles pre-recompute NULLs. Keep the AC bronze→mart parity test green (RESULT_COLUMNS == DDL, in order).
+4. Thread it through: `bronze.spadl_action_context` → `stg_*action_context` → `fct_action_context.sql` (explicit select list, non-nullable). Add the dbt column doc in `_marts__models.yml`.
+
+Providers with **no** AC arm (statsbomb non-360, wyscout) simply produce no `fct_action_context` row → the ρ loader's `COALESCE(is_gk_distribution, FALSE)` yields False. That is the honest limit (documented in 3.11), not a silent substitution.
+
+## Phase 2 — Tests (TDD, live-verified)
+5. Unit (pure): `test_gk_distribution_domain` — goalkick→True; open-play pass by acting-GK→True; open-play pass by outfielder→False; defensive/shot rows→False; NaN-safe; `frames=None` → goal-kicks-only (the SB360-arm semantics). Mirror `test_silly_kicks_boundary.py` fixtures across providers, incl. an SB360 fixture asserting goal-kicks-only.
+6. Parity: update the AC bronze→mart parity test for the new non-nullable column (no silent-drop), covering BOTH arms.
+7. Regression (**re-grounded per ADR-056**): the pre-shot flags `gk_was_distributing` + `gk_was_engaged` / `gk_actions_in_possession` / `defending_gk_player_id` live on **`fct_action_values`** (ADR-056 removed them from `fct_action_context`) — assert THEY are unchanged (still shot-scoped) on the `fct_action_values` side. There is correspondingly **less collision risk in the AC path** than the original plan assumed (they're not there to collide with).
+8. Live acceptance: tracking (GS/SC) True-rate ≈ 50–70/match; **SB360 True-rate ≈ goal-kicks-only (~15/match)**; all `type_id==22` True on both arms; `(match_key, action_id)` grain preserved, no fan-out, no NULLs (non-nullable column) on either arm.
+
+## Phase 3 — Governance / docs
+9. Audit D5 (**re-grounded against current source**): re-read the `fct_gk_tracking_stats.sql` "DISJOINT" comment — since ADR-056 moved the pre-shot flags off the AC path, the comment may already reflect the removal; correct it against what is actually there now (note `is_gk_distribution` is the new domain marker; the pre-shot family stays on `fct_action_values`). Grep for any consumer filtering `gk_was_distributing=false` as a no-op.
+10. Update the silly-kicks consumption contract note (F7 handshake) if bundled; add `is_gk_distribution` to the column docs. No new ADR unless the AC-vs-VAEP home choice is deemed architectural (likely an amendment to the AC/GK ADR).
+11. Per-provider coverage table in the mart doc, now **true-by-construction**: full domain on the 4 tracking providers; **goal-kicks-only on SB360** (via `frames=None`); **no `fct_action_context` row** for statsbomb-non-360 / wyscout (loader COALESCEs to False). Never silently substitute.
+
+## Phase 4 — Verify + ship
+12. `ruff` + `lint-imports` + `pyright` + `validate_workflow_cards` + full `uv run pytest` (incl. the 4 sk sentinels + mini-golden); dbt parse.
+13. Wheel bump (this touches wheel code — `analytics/action_context` + dbt — plus the 4.43.0 pin) via `bump_wheel.py`; final-review; stop at commit for approval.
+
+## Phase 5 — Live materialization + silly-kicks handback (gated, after merge+deploy)
+14. Recompute the AC marts for the tracking providers **and SB360** (the AC worker-drain / rederive path) so `is_gk_distribution` populates live; verify the acceptance numbers on live data (~50–70/match tracking, ~15/match SB360 — validate this **before** silly-kicks retrains).
+15. Notify silly-kicks the domain column is live. Follow-up (silly-kicks side): the make-or-break deep-zone gate **already ran** (GO-leaning on 4.42.0) — the actual next step is the **ρ retrain on the broadened domain + its calibration gate**, then collapsing silly-kicks' transitional self-adapting loader probe. Their loader already `COALESCE(is_gk_distribution, FALSE)`, so a partial/phased materialization won't corrupt the retrain.
+
+## Risks / notes
+- **AC recompute cost:** Phase 5 is an AC-mart recompute (tracking + SB360) — schedule per the AC drain economics; not a full-provider rebuild. SB360 is the ~15 min/match `build_snapshots` arm — factor it in.
+- **Event-only acting-GK passes (half (b))** deliberately deferred (D3) — SB360 and event-only providers get goal-kicks-only (SB360 via `frames=None`; non-AC providers via the loader COALESCE). If silly-kicks later needs acting-GK passes on statsbomb/wyscout, that's a follow-up (lineup-GK join into the SPADL/AC path).
+- **`acting_gk_from_frames` dtype fragility** (self-noted by silly-kicks in their own plan): out of scope here — `resolve_gk="robust"` uses their resolver as-is; any dtype hardening is silly-kicks' to own (Chesterton's Fence).

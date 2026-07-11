@@ -176,7 +176,7 @@ class TestMartLevelNotNullFilters:
     @staticmethod
     def _get_not_null_where(col_name: str) -> str:
         models_yml = _REPO_ROOT / "dbt_project" / "models" / "marts" / "_marts__models.yml"
-        data = yaml.safe_load(models_yml.read_text())
+        data = yaml.safe_load(models_yml.read_text(encoding="utf-8"))
         fct_av = next(m for m in data["models"] if m["name"] == "fct_action_values")
         col = next((c for c in fct_av["columns"] if c["name"] == col_name), None)
         assert col is not None, f"column {col_name!r} not found in fct_action_values"

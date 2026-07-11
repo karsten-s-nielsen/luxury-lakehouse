@@ -55,10 +55,15 @@ distribution as (
         avg(gk_completion) as dist_completion_mean,
         avg(pressure_on_actor__andrienko_oval) as dist_pressure_mean
     from actions
-    -- xt_gk (Eyestone GK-distribution value) is non-null ONLY on the acting GK's distribution
-    -- actions (pass/goalkick) — the authoritative domain marker. gk_was_distributing is a
-    -- DISJOINT silly-kicks pre-shot feature on SHOT actions (was the *defending* GK distributing
-    -- at a shot); ANDing it here zeroed the entire distribution family (ADR-051 follow-up).
+    -- Domain: scoped via `xt_gk is not null` — the Eyestone GK-distribution value is non-null ONLY
+    -- on the acting GK's distribution actions (pass/goalkick). As of F1 (2026-07-11) there is now an
+    -- EXPLICIT canonical domain marker, `is_gk_distribution` (silly-kicks 4.43.0 gk_distribution_mask:
+    -- goalkick OR acting-GK open-play pass) — broadly a superset of `xt_gk is not null` here (which
+    -- also drops contamination-guard-NULLed matches and any distribution xt_gk left null). Switching
+    -- the scope to `is_gk_distribution` is a deliberate follow-up, NOT part of F1 (it changes the
+    -- population). gk_was_distributing remains a DISJOINT silly-kicks PRE-SHOT feature on SHOT actions
+    -- (was the *defending* GK distributing at a shot; lives on fct_action_values per ADR-056) — ANDing
+    -- it here zeroed the entire distribution family (ADR-051 follow-up); never use it as the domain.
     where xt_gk is not null and player_key is not null
     group by player_key, match_key
 ),

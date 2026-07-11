@@ -227,7 +227,7 @@ def _extract_pep723_block(src: str) -> str:
 def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     """No trainer may pin `silly-kicks` in its PEP 723 deps.
 
-    The wheel's ``[spadl]`` extra (silly-kicks>=4.39.0,<5) is the single source
+    The wheel's ``[spadl]`` extra (silly-kicks>=4.43.0,<5) is the single source
     of truth. Trainers install ``luxury-lakehouse[spadl] @ ...wheel`` which
     resolves silly-kicks transitively. uv silently picks a conflicting
     top-level pin over the wheel's transitive pin (verified empirically
@@ -254,7 +254,12 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     )
 
 
-# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 39, 0) ──────────
+# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 43, 0) ──────────
+# Floor advanced 4.39.0 -> 4.43.0 (2026-07-11) for the silly-kicks gk_distribution_mask public
+# API (F1 — the GK-distribution domain marker `is_gk_distribution` on fct_action_context; goal-kick
+# OR acting-GK open-play pass). Additive: no xt_gk/VAEP value change, no retrain (the AC mini-golden
+# must NOT move). The floor advances so a stale <4.43.0 worker cannot silently NaN/absent-fill the
+# new AC bronze column (build_output missing-col fallback) — the runtime guard catches that drift.
 # Floor advanced 4.38.0 -> 4.39.0 (2026-07-01) for the silly-kicks goal-kick actor
 # resolver (acting_gk_from_frames): credits goal-kicks to the acting keeper via the
 # lakehouse set-piece synthesis override; supersedes 4.38.0 —
@@ -332,7 +337,7 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
 # metrica/skillcorner bronze-frame LTR-orientation helper; ADR-029) plus the 4.21-4.26
 # adoptions already shipped (space-creation lean contract, GS null-actor NaN identifiers,
 # tracking-geometry action-LTR frame unification). See ADR-052 / 4.27.0 adoption.
-# Matches the pyproject [spadl] pin `silly-kicks>=4.39.0,<5`.
+# Matches the pyproject [spadl] pin `silly-kicks>=4.43.0,<5`.
 
 
 def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
@@ -354,11 +359,11 @@ def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
         if not hasattr(trainer, "_REQUIRED_SK_MIN"):
             missing.append(item)
             continue
-        expected = (4, 39, 0)
+        expected = (4, 43, 0)
         actual = trainer._REQUIRED_SK_MIN
         if actual != expected:
             wrong_value[item] = actual
     assert not missing, (
-        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 39, 0)`: {missing}"
+        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 43, 0)`: {missing}"
     )
-    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 39, 0): {wrong_value}"
+    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 43, 0): {wrong_value}"

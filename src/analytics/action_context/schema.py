@@ -14,11 +14,13 @@ import numpy as np
 if TYPE_CHECKING:
     import pandas as pd
 
-# Identity (13) + linkage (4) + GK (11) + features (76)
-# + xShotOccurrence (1) + shot_goalmouth (11) + xT-GK (16) + xT-GK coords (4) + gk_completion (1)
-# + provenance (2) + audit (1) = 140
+# 152 columns total (151 output + _ingested_at). The authoritative source is this list itself;
+# ACTION_CONTEXT_DDL must declare the SAME columns in the SAME order — enforced by
+# test_action_context_schema_parity.py (do not hand-maintain a category breakdown here; it drifted
+# to a stale total before and the parity test is the real guard).
 # (ADR-056: game_state + GK action-sequence flags removed — actions-level, served
 #  by fct_action_values; defending_gk_player_id_native kept for the key resolution.)
+# (F1 2026-07-11: is_gk_distribution added — GK-distribution domain marker, silly-kicks 4.43.0.)
 RESULT_COLUMNS: list[str] = [
     # Identity (13)
     "data_source",
@@ -223,6 +225,13 @@ RESULT_COLUMNS: list[str] = [
     "xt_gk_dest_y",
     # GK-distribution completion probability — the exact P(success) RAV consumes (1)
     "gk_completion",
+    # GK-distribution domain marker (silly-kicks 4.43.0 gk_distribution_mask) — True for any
+    # goal-kick OR an open-play pass/throw-in whose actor is the acting-team GK. Non-nullable at
+    # the PRODUCER: both AC arms always compute it and the mask never emits NULL — tracking arm =
+    # full domain (resolve_gk="robust"), SB360 arm = goal-kicks-only (frames=None). Left nullable
+    # through bronze/mart to tolerate the phased Phase-5 recompute (pre-F1 rows stay NULL until
+    # re-materialized); silly-kicks' rho retention loader reads it with COALESCE(...,FALSE). (1)
+    "is_gk_distribution",
     # Pitch-control provenance for the persisted pitch-control-derived metrics (1)
     "pitch_control_method",
     # Ghost-GK backend provenance — the resolved kde_backend per row (scopes to ghost_gk_* only) (1)
@@ -304,6 +313,7 @@ ACTION_CONTEXT_DDL = (
     "xt_gk_completion_variant STRING, xt_gk_completion_source STRING, "
     "xt_gk_origin_x DOUBLE, xt_gk_origin_y DOUBLE, xt_gk_dest_x DOUBLE, xt_gk_dest_y DOUBLE, "
     "gk_completion DOUBLE, "
+    "is_gk_distribution BOOLEAN, "
     "pitch_control_method STRING, ghost_gk_method STRING, "
     "_ingested_at TIMESTAMP"
 )
