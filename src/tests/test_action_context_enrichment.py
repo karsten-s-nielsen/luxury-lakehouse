@@ -170,6 +170,13 @@ def test_enrich_tracking_calls_all_steps_with_links() -> None:
             "silly_kicks.tracking._xt_gk._resolve_completion_for_frames",
             MagicMock(return_value=(MagicMock(), "gs")),
         ),
+        # Step 26c: gk_distribution_mask (silly-kicks 4.43.0) — stubbed so the real robust
+        # acting_gk_from_frames resolver isn't run against the MagicMock xt / synthetic frames;
+        # returns an actions-indexed bool series (the shape the tracking arm assigns).
+        patch(
+            "silly_kicks.tracking.gk_distribution_mask",
+            MagicMock(side_effect=lambda a, f=None, **kw: pd.Series([False] * len(a), index=a.index)),
+        ),
     ]
     for p in patches:
         p.start()

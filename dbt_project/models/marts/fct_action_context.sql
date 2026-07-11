@@ -164,6 +164,7 @@ with action_raw as (
         xt_gk_dest_x,
         xt_gk_dest_y,
         gk_completion,
+        is_gk_distribution,
         pitch_control_method,
         ghost_gk_method,
         -- Per-match HF redistribution tier (spec 2026-06-29 §6.4) — per-row passthrough.
@@ -373,6 +374,11 @@ final as (
         xt_gk_dest_x,
         xt_gk_dest_y,
         case when cm._contam_match_key is not null then null else gk_completion end as gk_completion,
+        -- GK-distribution domain marker (silly-kicks 4.43.0). NOT gated by the xt_gk contamination
+        -- guard: it is an actor-domain predicate (goal-kick OR acting-GK open-play pass), valid
+        -- regardless of the whole-squad xt_gk scoring contamination. Full domain on tracking arms;
+        -- goal-kicks-only on SB360 (frames=None). Consumed by silly-kicks' rho retention loader.
+        is_gk_distribution,
         pitch_control_method,
         ghost_gk_method,
         -- Per-match HF redistribution tier (spec 2026-06-29 §6.4).

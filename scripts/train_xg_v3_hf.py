@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.76-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.77-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -141,7 +141,7 @@ VALIDATED_HF_FLAVOR: str = "l40sx1"
 # uv silent-downgrade footgun (CLAUDE.md): a top-level silly-kicks pin in PEP 723
 # deps silently overrides the wheel's transitive pin — so we do NOT pin it here and
 # instead assert the runtime minimum. Keep in lockstep with the other trainers.
-_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 39, 0)
+_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 43, 0)
 
 
 def _assert_silly_kicks_min() -> None:

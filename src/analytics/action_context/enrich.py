@@ -260,6 +260,7 @@ def _enrich_tracking_match(
         add_xshot_occurrence,
         add_xt_gk,
         derive_team_in_possession,
+        gk_distribution_mask,
         infer_ball_carrier,
         link_actions_to_frames,
         pitch_control_at_target,
@@ -511,6 +512,16 @@ def _enrich_tracking_match(
     # helper docstring for scope (goal-kicks only, non-NaN resolver only).
     out = _override_goalkick_actor_from_frames(out, tracking_df)
 
+    # Step 26c: GK-distribution domain marker (silly-kicks 4.43.0 gk_distribution_mask) — True for
+    # any goal-kick OR an open-play pass/throw-in whose actor is the acting-team GK. FULL domain
+    # here (frames present). resolve_gk="robust" pins the SAME acting_gk_from_frames resolver as the
+    # Step-26b goal-kick actor override, so the domain marker and the taker override agree (robust ⊆
+    # native — it tightens stale/substituted keepers, never broadens). The actor-independent
+    # goal-kick term is unaffected by 26b's relabel and open-play actors are untouched by it, so
+    # placement after 26b is value-invariant. Never NULL: the mask always returns a bool per action.
+    # silly-kicks' rho retention loader consumes this column on fct_action_context.
+    out["is_gk_distribution"] = gk_distribution_mask(out, tracking_df, resolve_gk="robust")
+
     # Provenance: the persisted pitch-control-derived metrics on the tracking path use spearman;
     # ghost_gk_method records which KDE backend produced ghost_gk_* (scopes to ghost_gk_* only).
     out["pitch_control_method"] = "spearman"
@@ -553,6 +564,7 @@ def _enrich_sb360_match(
         add_structural_pass,
         add_team_shape,
         add_xshot_occurrence,
+        gk_distribution_mask,
         pitch_control_at_target,
         snapshot_to_tracking_frames,
     )
@@ -563,6 +575,15 @@ def _enrich_sb360_match(
     # GK resolution — SPADL-only (no frames=). Snapshot frames lack temporal
     # continuity for GK tracking fallback; positional features run post-conversion.
     out = add_pre_shot_gk_context(out)
+
+    # GK-distribution domain marker (silly-kicks 4.43.0) — SB360 gets GOAL-KICKS-ONLY via
+    # frames=None. SB360 synthetic frames (snapshot_to_tracking_frames below) are shot-centric —
+    # freeze-frames exist at shot/event moments, not at goal-kick/GK-pass moments — so the acting-GK
+    # open-play-pass term is undetectable on this arm; frames=None is the honest, documented
+    # coverage (never a hand-rolled type_id==22 OR — the mask owns the goal-kick term). Computed
+    # BEFORE the empty-frames early return so the returned slice always carries the column, and
+    # BEFORE frame conversion since goal-kicks-only needs actions only. Never NULL.
+    out["is_gk_distribution"] = gk_distribution_mask(out, frames=None)
 
     # Step 1: Convert freeze-frames to synthetic tracking frames + links.
     frames, links = snapshot_to_tracking_frames(freeze_frames, out)

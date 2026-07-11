@@ -219,6 +219,10 @@ cleaned as (
         cast(xt_gk_dest_x as double) as xt_gk_dest_x,
         cast(xt_gk_dest_y as double) as xt_gk_dest_y,
         cast(gk_completion as double) as gk_completion,
+        -- GK-distribution domain marker (silly-kicks 4.43.0 gk_distribution_mask): True for any
+        -- goal-kick OR an open-play pass/throw-in by the acting-team GK. Full domain on tracking
+        -- providers; goal-kicks-only on SB360 (frames=None). NULL on pre-F1 rows until recompute.
+        cast(is_gk_distribution as boolean) as is_gk_distribution,
         cast(pitch_control_method as string) as pitch_control_method,
         -- ghost-GK backend provenance (ADR-035 amendment)
         cast(ghost_gk_method as string) as ghost_gk_method,
