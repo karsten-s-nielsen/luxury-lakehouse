@@ -24,13 +24,16 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # Databricks connection for dbt — used by env_var() in profiles.yml.
-      # Empty when secrets are unavailable (forks, external PRs); dbt parse
-      # still works (no connection needed).
-      # Hostname is a public URL, not sensitive — lives in repo vars alongside
-      # other non-secret config. Previously duplicated as both secret and var.
+      # Secrets are UNAVAILABLE on dependabot PRs (and forks). dbt parse needs NO live
+      # connection, but dbt-databricks HANGS (6h CI timeout) when the token is EMPTY: it
+      # falls through to `authenticate_with_external_browser` and blocks waiting for a
+      # browser. A non-empty PLACEHOLDER keeps it on the PAT path, so `dbt parse` runs fully
+      # offline (verified: parse succeeds with a fake token + http_path, no connection made).
+      # Real secrets (push events, same-repo PRs) are used as-is via the `||` fallback.
+      # Hostname is a public URL, not sensitive — lives in repo vars.
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
-      DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
-      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}  # pragma: allowlist secret
+      DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH || '/sql/1.0/warehouses/ci-parse-placeholder' }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN || 'dbt-ci-parse-placeholder' }}  # pragma: allowlist secret
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
