@@ -6,9 +6,13 @@ TF-23 (ADR-034/ADR-035) retired the metrica + skillcorner copies in
 ``analytics.action_context.sk_frame_adapters``, and the SkillCorner period offset is
 single-sourced from ``silly_kicks.spadl.skillcorner._PERIOD_START_SECONDS``. The metrica/SC
 drift guards (and the documented-SC-divergence guard) are therefore gone, replaced by a
-STRUCTURAL guard that the AC builders are not re-introduced. The GradientSports converter and
-the shared Savitzky-Golay velocity helper are still copied (GS uses the lakehouse converter
-input; velocity stays lakehouse-owned), so their drift guards remain.
+STRUCTURAL guard that the AC builders are not re-introduced.
+
+ADR-067 extends that: the Savitzky-Golay velocity helper is DELETED from both copies too (it had
+dropped silly-kicks' ``len(x_vals) <= 1`` guard and crashed on 1-frame tracks). Velocity now comes
+from the silly-kicks ``preprocess=`` seam, so its drift guard became a delete-and-depend guard.
+Only the GradientSports converter is still copied (GS uses the lakehouse converter input), so its
+AST drift guard remains.
 
 Comparison is by AST (parsed structure), robust to formatting but catching real logic change.
 """
@@ -42,8 +46,24 @@ def test_ac_metrica_skillcorner_builders_deleted() -> None:
         assert not hasattr(new, sym), f"analytics.action_context.convert re-grew {sym} (delete-and-depend regression)"
 
 
-def test_velocity_helper_no_drift() -> None:
-    assert _ast_of(new._derive_velocities_savgol) == _ast_of(tc_legacy._derive_velocities_savgol)
+def test_velocity_helper_is_deleted_and_depended() -> None:
+    """ADR-067: BOTH lakehouse copies of the velocity derivation are DELETED; silly-kicks owns it.
+
+    The port re-implemented silly-kicks' short-group fallback but dropped upstream's
+    ``len(x_vals) <= 1`` guard, so a 1-frame player track hit ``np.gradient`` (needs >= 2 points)
+    and raised. One raising batch failed the whole ``applyInPandas`` write, so the unit emitted 0 of
+    550 actions -- and the drain swallowed it, reporting SUCCESS (2026-07-11, skillcorner:1552423:2).
+
+    This replaces the former AST-equality drift guard: with no second copy to compare against, the
+    only contract worth asserting is that neither copy comes BACK. A comment claiming a copy
+    "matches silly-kicks" is not a contract -- deletion is.
+    """
+    assert not hasattr(new, "_derive_velocities_savgol"), (
+        "analytics.action_context.convert re-grew _derive_velocities_savgol (delete-and-depend regression)"
+    )
+    assert not hasattr(tc_legacy, "_derive_velocities_savgol"), (
+        "ingestion.tracking_context re-grew _derive_velocities_savgol (delete-and-depend regression)"
+    )
 
 
 def test_gradientsports_converter_no_drift() -> None:

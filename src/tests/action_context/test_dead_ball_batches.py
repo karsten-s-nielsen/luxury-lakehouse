@@ -88,6 +88,7 @@ def _run(match_id: str, period: int) -> pd.DataFrame:
         xt=ParquetXtSource(root),
         meta=ParquetMatchMetadataSource(root),
         sink=sink,
+        is_slice=True,  # ADR-067: fixture = windowed frames + whole-match actions
     )
     assert sink.df is not None, f"{match_id}_p{period}: sink received no DataFrame (run_work_unit aborted)"
     return sink.df

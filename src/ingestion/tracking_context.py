@@ -837,91 +837,47 @@ def _enrich_match(
 # ── Bronze → silly-kicks frames helpers ──────────────────────────────
 
 
-def _derive_velocities_savgol(
-    frames: pd.DataFrame,
-    provider: str,
-    frame_rate: int,
-) -> None:
-    """Derive vx/vy/speed via Savitzky-Golay smoothed differentiation (in-place).
+def _apply_sk_velocities(frames: pd.DataFrame, *, provider: str) -> pd.DataFrame:
+    """Derive vx/vy/speed via silly-kicks (ADR-067, delete-and-depend).
 
-    NOTE: silly-kicks uses a two-pass pipeline (smooth_frames → derive_velocities
-    on smoothed positions). This helper applies a single SG derivative pass on raw
-    positions — numerically slightly noisier but practically equivalent for
-    well-formed data. Acceptable for v1; align with two-pass if velocity quality
-    proves insufficient on SkillCorner 10fps data.
+    Replaces the in-repo ``_derive_velocities_savgol`` port, which re-implemented silly-kicks'
+    velocity derivation and had dropped upstream's ``len(x_vals) <= 1`` guard -- crashing on
+    1-frame tracks (2026-07-11, ``skillcorner:1552423:2``: 0 of 550 actions written, inside a job
+    that reported SUCCESS).
 
-    Uses silly-kicks per-provider defaults from _provider_defaults_generated.py:
-    - Metrica:     sg_window_seconds=0.4, sg_poly_order=3 → window=11 at 25fps
-    - SkillCorner: sg_window_seconds=1.0, sg_poly_order=3 → window=11 at 10fps
-    - Sportec:     sg_window_seconds=0.4, sg_poly_order=3 → window=11 at 25fps
+    Mirrors the three passes the silly-kicks builders run behind ``preprocess=``
+    (``skillcorner.py:286-291``): interpolate -> smooth -> derive. TC-1 does not go through a
+    builder, so they are run explicitly here.
 
-    Ball velocity IS derived (silly-kicks groups by [period_id, is_ball, player_id]).
-
-    Args:
-        frames: Must have columns [player_id, is_ball, x, y] sorted by time
-                within each player/ball group.
-        provider: "metrica" or "skillcorner" — selects SG parameters.
-        frame_rate: Tracking data frame rate (Hz).
+    Returns a NEW frame (the old helper mutated in place and returned ``None``).
     """
-    from scipy.signal import savgol_filter
+    from silly_kicks.tracking.preprocess import (
+        PreprocessConfig,
+        derive_velocities,
+        interpolate_frames,
+        smooth_frames,
+    )
 
-    # Per-provider SG defaults matching silly-kicks _provider_defaults_generated.py
-    _sg_defaults: dict[str, tuple[float, int]] = {
-        "metrica": (0.4, 3),  # sg_window_seconds, sg_poly_order
-        "skillcorner": (1.0, 3),
-        "sportec": (0.4, 3),  # IDSSE uses convert_to_frames, but fallback
-    }
-    sg_window_s, polyorder = _sg_defaults.get(provider, (0.4, 3))
+    if frames.empty:
+        return frames
+    if "frame_rate" not in frames.columns or frames["frame_rate"].dropna().empty:
+        raise ValueError(
+            f"_apply_sk_velocities({provider}): frames carry no usable `frame_rate`. silly-kicks "
+            "silently defaults to 25.0 Hz, which would produce WRONG velocities with no error."
+        )
 
-    dt = 1.0 / frame_rate
-    window = max(round(sg_window_s * frame_rate) | 1, polyorder + 2)
-    if window % 2 == 0:
-        window += 1
-
-    # Initialize with NaN (not 0.0 — 0.0 implies stationary, NaN implies unknown)
-    frames["vx"] = np.nan
-    frames["vy"] = np.nan
-
-    # Group by (period_id, is_ball, player_id) — matching silly-kicks pipeline.
-    # Ball rows ARE processed (pid=None, is_ball=True).
-    for _key, idx in frames.groupby(["period_id", "is_ball", "player_id"]).groups.items():
-        group = frames.loc[idx]
-        x_raw = group["x"].to_numpy(dtype=float)
-        y_raw = group["y"].to_numpy(dtype=float)
-        nan_mask = np.isnan(x_raw) | np.isnan(y_raw)
-
-        if nan_mask.all():
-            continue
-
-        # Short groups: np.gradient fallback (matches silly-kicks _velocity.py)
-        if len(group) < window:
-            x_safe = np.where(nan_mask, 0.0, x_raw)
-            y_safe = np.where(nan_mask, 0.0, y_raw)
-            vx_g = np.gradient(x_safe, dt)
-            vy_g = np.gradient(y_safe, dt)
-            vx_g[nan_mask] = np.nan
-            vy_g[nan_mask] = np.nan
-            frames.loc[idx, "vx"] = vx_g
-            frames.loc[idx, "vy"] = vy_g
-            continue
-
-        # Interpolate NaN positions before SG filtering (linear interp across gaps),
-        # then re-mask original NaN positions back to NaN in the output.
-        # Matches silly-kicks derive_velocities (_velocity.py:84-124).
-        valid_idx = np.where(~nan_mask)[0]
-        x_filled = np.interp(np.arange(len(group)), valid_idx, x_raw[~nan_mask])
-        y_filled = np.interp(np.arange(len(group)), valid_idx, y_raw[~nan_mask])
-
-        vx_g = np.asarray(savgol_filter(x_filled, window, polyorder, deriv=1, delta=dt), dtype=float)
-        vy_g = np.asarray(savgol_filter(y_filled, window, polyorder, deriv=1, delta=dt), dtype=float)
-        vx_g[nan_mask] = np.nan
-        vy_g[nan_mask] = np.nan
-
-        frames.loc[idx, "vx"] = vx_g
-        frames.loc[idx, "vy"] = vy_g
-
-    # Compute speed from velocity (matches silly-kicks derive_velocities output)
-    frames["speed"] = np.sqrt(frames["vx"] ** 2 + frames["vy"] ** 2)
+    # PUBLIC API. Do NOT reach into silly_kicks.tracking.preprocess._resolve -- it is private, not
+    # in __all__, and its owner would refactor it without notice (Hyrum's Law). `for_provider`
+    # performs exactly the per-provider promotion the builders do internally.
+    cfg = PreprocessConfig.for_provider(provider)
+    out = frames
+    if cfg.interpolation_method is not None:
+        out = interpolate_frames(out, config=cfg)
+    if cfg.smoothing_method is not None:
+        out = smooth_frames(out, config=cfg)
+    out = derive_velocities(out, config=cfg)
+    scratch = [c for c in ("x_smoothed", "y_smoothed", "_preprocessed_with") if c in out.columns]
+    return out.drop(columns=scratch)
 
 
 _METRICA_CONSUMED_COLS: frozenset[str] = frozenset(
@@ -937,7 +893,6 @@ _METRICA_CONSUMED_COLS: frozenset[str] = frozenset(
         "ball_y",
     }
 )
-"""Columns consumed by _bronze_metrica_to_frames from bronze.metrica_tracking."""
 
 
 def _bronze_metrica_to_frames(
@@ -1046,8 +1001,9 @@ def _bronze_metrica_to_frames(
 
     # Sort by player then frame for velocity derivation
     frames = frames.sort_values(["player_id", "frame_id"]).reset_index(drop=True)
-    # Savitzky-Golay velocity + speed (matches silly-kicks PreprocessConfig)
-    _derive_velocities_savgol(frames, provider="metrica", frame_rate=frame_rate)
+    # Velocity + speed via silly-kicks (ADR-067, delete-and-depend). NOTE: returns a NEW frame --
+    # the retired _derive_velocities_savgol mutated in place and returned None.
+    frames = _apply_sk_velocities(frames, provider="metrica")
     return frames.sort_values(["frame_id", "is_ball"]).reset_index(drop=True)
 
 
@@ -1165,8 +1121,9 @@ def _bronze_skillcorner_to_frames(trk_pdf: pd.DataFrame, game_id: int) -> pd.Dat
 
     # Sort by player then frame for velocity derivation
     frames = frames.sort_values(["player_id", "frame_id"]).reset_index(drop=True)
-    # Savitzky-Golay velocity + speed (matches silly-kicks PreprocessConfig)
-    _derive_velocities_savgol(frames, provider="skillcorner", frame_rate=frame_rate)
+    # Velocity + speed via silly-kicks (ADR-067, delete-and-depend). NOTE: returns a NEW frame --
+    # the retired _derive_velocities_savgol mutated in place and returned None.
+    frames = _apply_sk_velocities(frames, provider="skillcorner")
     return frames.sort_values(["frame_id", "is_ball"]).reset_index(drop=True)
 
 

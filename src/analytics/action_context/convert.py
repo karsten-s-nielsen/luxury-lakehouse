@@ -1,10 +1,14 @@
 """Provider bronze->frames converters (pure pandas/numpy/scipy).
 
-COPIED VERBATIM (M4) from ``ingestion.tracking_context`` (idsse/metrica/skillcorner
-+ the shared ``_derive_velocities_savgol`` helper) and ``ingestion.action_context``
-(gradientsports). The legacy copies are left UNTOUCHED so they remain the differential
-oracle; ``src/tests/action_context/test_convert_drift.py`` asserts the two copies stay
-identical. De-duplicate only after the legacy pipelines retire.
+COPIED VERBATIM (M4) from ``ingestion.tracking_context`` (idsse/metrica/skillcorner) and
+``ingestion.action_context`` (gradientsports). The legacy copies are left UNTOUCHED so they remain
+the differential oracle; ``src/tests/action_context/test_convert_drift.py`` asserts the remaining
+copies stay identical. De-duplicate only after the legacy pipelines retire.
+
+``_derive_velocities_savgol`` is GONE from both copies (ADR-067, delete-and-depend): it
+re-implemented silly-kicks' velocity derivation and had dropped upstream's ``len(x_vals) <= 1``
+guard, crashing on 1-frame tracks and zeroing a whole work unit. Velocity now comes from the
+silly-kicks ``preprocess=`` seam. ``test_convert_drift`` asserts it does not re-grow.
 """
 
 from __future__ import annotations
@@ -17,93 +21,6 @@ if TYPE_CHECKING:
     import pandas as pd
 
 _GS_FRAME_RATE = 30
-
-
-def _derive_velocities_savgol(
-    frames: pd.DataFrame,
-    provider: str,
-    frame_rate: int,
-) -> None:
-    """Derive vx/vy/speed via Savitzky-Golay smoothed differentiation (in-place).
-
-    NOTE: silly-kicks uses a two-pass pipeline (smooth_frames → derive_velocities
-    on smoothed positions). This helper applies a single SG derivative pass on raw
-    positions — numerically slightly noisier but practically equivalent for
-    well-formed data. Acceptable for v1; align with two-pass if velocity quality
-    proves insufficient on SkillCorner 10fps data.
-
-    Uses silly-kicks per-provider defaults from _provider_defaults_generated.py:
-    - Metrica:     sg_window_seconds=0.4, sg_poly_order=3 → window=11 at 25fps
-    - SkillCorner: sg_window_seconds=1.0, sg_poly_order=3 → window=11 at 10fps
-    - Sportec:     sg_window_seconds=0.4, sg_poly_order=3 → window=11 at 25fps
-
-    Ball velocity IS derived (silly-kicks groups by [period_id, is_ball, player_id]).
-
-    Args:
-        frames: Must have columns [player_id, is_ball, x, y] sorted by time
-                within each player/ball group.
-        provider: "metrica" or "skillcorner" — selects SG parameters.
-        frame_rate: Tracking data frame rate (Hz).
-    """
-    from scipy.signal import savgol_filter
-
-    # Per-provider SG defaults matching silly-kicks _provider_defaults_generated.py
-    _sg_defaults: dict[str, tuple[float, int]] = {
-        "metrica": (0.4, 3),  # sg_window_seconds, sg_poly_order
-        "skillcorner": (1.0, 3),
-        "sportec": (0.4, 3),  # IDSSE uses convert_to_frames, but fallback
-    }
-    sg_window_s, polyorder = _sg_defaults.get(provider, (0.4, 3))
-
-    dt = 1.0 / frame_rate
-    window = max(round(sg_window_s * frame_rate) | 1, polyorder + 2)
-    if window % 2 == 0:
-        window += 1
-
-    # Initialize with NaN (not 0.0 — 0.0 implies stationary, NaN implies unknown)
-    frames["vx"] = np.nan
-    frames["vy"] = np.nan
-
-    # Group by (period_id, is_ball, player_id) — matching silly-kicks pipeline.
-    # Ball rows ARE processed (pid=None, is_ball=True).
-    for _key, idx in frames.groupby(["period_id", "is_ball", "player_id"]).groups.items():
-        group = frames.loc[idx]
-        x_raw = group["x"].to_numpy(dtype=float)
-        y_raw = group["y"].to_numpy(dtype=float)
-        nan_mask = np.isnan(x_raw) | np.isnan(y_raw)
-
-        if nan_mask.all():
-            continue
-
-        # Short groups: np.gradient fallback (matches silly-kicks _velocity.py)
-        if len(group) < window:
-            x_safe = np.where(nan_mask, 0.0, x_raw)
-            y_safe = np.where(nan_mask, 0.0, y_raw)
-            vx_g = np.gradient(x_safe, dt)
-            vy_g = np.gradient(y_safe, dt)
-            vx_g[nan_mask] = np.nan
-            vy_g[nan_mask] = np.nan
-            frames.loc[idx, "vx"] = vx_g
-            frames.loc[idx, "vy"] = vy_g
-            continue
-
-        # Interpolate NaN positions before SG filtering (linear interp across gaps),
-        # then re-mask original NaN positions back to NaN in the output.
-        # Matches silly-kicks derive_velocities (_velocity.py:84-124).
-        valid_idx = np.where(~nan_mask)[0]
-        x_filled = np.interp(np.arange(len(group)), valid_idx, x_raw[~nan_mask])
-        y_filled = np.interp(np.arange(len(group)), valid_idx, y_raw[~nan_mask])
-
-        vx_g = np.asarray(savgol_filter(x_filled, window, polyorder, deriv=1, delta=dt), dtype=float)
-        vy_g = np.asarray(savgol_filter(y_filled, window, polyorder, deriv=1, delta=dt), dtype=float)
-        vx_g[nan_mask] = np.nan
-        vy_g[nan_mask] = np.nan
-
-        frames.loc[idx, "vx"] = vx_g
-        frames.loc[idx, "vy"] = vy_g
-
-    # Compute speed from velocity (matches silly-kicks derive_velocities output)
-    frames["speed"] = np.sqrt(frames["vx"] ** 2 + frames["vy"] ** 2)
 
 
 def _bronze_gradientsports_to_converter_input(

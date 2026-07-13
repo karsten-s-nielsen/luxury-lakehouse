@@ -88,6 +88,7 @@ def _freeze_golden() -> None:
         xt=ParquetXtSource(str(_ROOT)),
         meta=ParquetMatchMetadataSource(str(_ROOT)),
         sink=sink,
+        is_slice=True,  # ADR-067: fixture = windowed frames + whole-match actions
     )
     elapsed = time.perf_counter() - t0
     if sink.df is None:

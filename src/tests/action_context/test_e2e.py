@@ -17,6 +17,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
+# NOTE (D7, ADR-067): the row-count assertions in this module do NOT run in CI — the whole module is
+# gated behind AC1_E2E=1 (~5 min, DAS-dominated). That gap is why the single-frame velocity crash
+# reached production. The ALWAYS-ON guard for that class is
+# src/tests/action_context/test_velocity_single_frame.py, which drives the same
+# builder -> preprocess -> _finalize path in milliseconds and runs in the default suite.
 pytestmark = pytest.mark.skipif(
     os.environ.get("AC1_E2E") != "1",
     reason="slow real-pipeline e2e; set AC1_E2E=1 to run (pre-commit gate)",
@@ -52,6 +57,7 @@ def _run(provider: str, match_id: str, period: int) -> pd.DataFrame:
         xt=ParquetXtSource(root),
         meta=ParquetMatchMetadataSource(root),
         sink=sink,
+        is_slice=True,  # ADR-067: fixture = windowed frames + whole-match actions
     )
     assert sink.df is not None
     return sink.df
@@ -82,6 +88,11 @@ def test_gs_e2e_convert_and_enrich_does_not_crash() -> None:
     # Completed enrichment returns the full result schema (a crash would not reach this).
     expected = {c for c in RESULT_COLUMNS if c != "_ingested_at"}
     assert set(result.columns) == expected, "result schema drifted from RESULT_COLUMNS"
+    # D7 (ADR-067): the schema assertion alone is VACUOUS as a data-loss guard. `_empty_result()`
+    # (pipeline.py:119-123) returns a ZERO-ROW frame carrying the full RESULT_COLUMNS schema, so the
+    # check above passes on an empty emit -- precisely the silent-zero class that shipped
+    # skillcorner:1552423:2 as a "successful" unit with 0 of 550 actions.
+    assert len(result) > 0, "GS e2e resolved zero actions -- an empty emit carries the full schema"
 
 
 def test_skillcorner_p2_e2e_resolves_actions() -> None:

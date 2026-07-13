@@ -23,10 +23,7 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from analytics.action_context.batching import resolve_frame_batch_size
-from analytics.action_context.completeness import (
-    assert_unit_action_completeness,
-    expected_actions_within_coverage,
-)
+from analytics.action_context.completeness import assert_unit_action_completeness
 from analytics.action_context.enrich import (
     _enrich_sb360_match,
     _enrich_tracking_match,
@@ -458,6 +455,7 @@ def run_work_unit(
     xt: XtSource,
     meta: MatchMetadataSource,
     sink: ResultSink,
+    is_slice: bool = False,
 ) -> int:
     """Pull a work unit's inputs via ports, run the tier-appropriate enrichment, write.
 
@@ -465,6 +463,11 @@ def run_work_unit(
     via ``resolve_frame_batch_size`` (env-overridable) — calling ``enrich_batch``
     per batch (replicating production's Spark groupBy dispatch — H3) and
     concatenates. sb360/event_only run a single ``enrich_batch`` (no frame batching).
+
+    ``is_slice`` (ADR-067) exempts a test/golden FIXTURE from the per-unit completeness invariant.
+    Fixtures carry a WINDOWED frame slice but the WHOLE match's actions
+    (``extract_action_context_fixture._pull_actions`` applies no time filter), so their
+    ``bronze_expected`` legitimately dwarfs ``emitted``. The Spark production driver never sets it.
     """
     import pandas as pd
 
@@ -599,7 +602,11 @@ def run_work_unit(
         }
         assert_unit_action_completeness(
             emitted=written,
-            expected=expected_actions_within_coverage(_times, _windows, buffer_s=_ACTION_TIME_BUFFER_SECONDS),
+            bronze_expected=sum(len(t) for t in _times.values()),
+            action_times_by_period=_times,
+            frame_window_by_period=_windows,
             unit_desc=f"{wu.provider}:{wu.match_id}:{wu.period}",
+            buffer_s=_ACTION_TIME_BUFFER_SECONDS,
+            is_slice=is_slice,
         )
     return written
