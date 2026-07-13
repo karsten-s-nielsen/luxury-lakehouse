@@ -111,6 +111,7 @@ def main() -> int:
             xt=ParquetXtSource(args.root),
             meta=ParquetMatchMetadataSource(args.root),
             sink=sink,
+            is_slice=True,  # ADR-067: fixture = windowed frames + whole-match actions
         )
 
     print(f"profiling {args.provider}/{args.match_id} p{args.period} ...")

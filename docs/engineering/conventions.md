@@ -63,3 +63,25 @@ When `CLAUDE.md` points to this file for a convention, locate the matching subse
 - **Canonical / native naming rule**: computed enrichments use plain canonical names (`possession_id` for the heuristic, `action_id`, `gk_role`); provider-native passthroughs use `<provider>_<field>` (`statsbomb_possession_id`, `statsbomb_play_pattern`); native string identifiers paired with Kimball surrogates use `<entity>_native` (`team_id_native`, `match_id_native`, `competition_native_id`, `season_native_id`, `home_team_id_native`); Kimball surrogates use `<entity>_key` (`match_key`, `team_key`, `possession_team_key`); legacy native IDs in the ADR-011 dual-column window use `<entity>_id`.
 - **String-to-BIGINT hashing for legacy `match_id` only**: IDSSE / Metrica use STRING bronze identifiers but legacy `bronze.spadl_actions.match_id BIGINT` is required for `applyInPandas(groupBy("match_id"))` dispatch. Use `ingestion.spadl_adapter.hash_native_id_to_bigint(value: str) -> int` (SHA-256 first 15 hex chars, deterministic across runs). Other legacy BIGINTs (`team_id` / `player_id` / `competition_id` / `season_id`) are NULL for IDSSE/Metrica — joins use `*_native` columns + `dim_*.native_*_id` instead.
 - **Writer/DDL parity tests prevent silent-drop regressions** (closes the LL1 latent-bug class). Every applyInPandas StructType in the SPADL/VAEP pipeline (4 source UDFs + VAEP scoring UDF = 5 paths) has a corresponding `_build_*_struct` helper in `src/tests/test_spadl_vaep_writer_parity.py`. Adding a column to `_SPADL_SCHEMA` / `_VAEP_SCHEMA` without extending the StructType raises a writer-parity test failure at unit-test time.
+
+## Diagnosing a silent pipeline failure (ADR-067)
+
+Two lessons from the 2026-07-11 `skillcorner:1552423:2` incident, in which a work unit wrote **0 of its
+550 actions** inside a job that reported SUCCESS. Both are cheap; both were re-learned the expensive way.
+
+- **Read the driver logs before theorising.** The AC drain swallows per-unit exceptions *by design*
+  (`drain.py:170-181` — one bad unit must not destroy a 5.5-hour drain), and until ADR-067 the task still
+  exited 0 afterwards. A raised guard and a silently-passing invariant therefore produce an **identical
+  signature in the mart**, so no amount of reasoning from mart state alone can distinguish them. A design
+  document reasoned at length from the mart and reached the wrong root cause; the real one was a single
+  `ac1_drain_unit_failed` line in the for-each iteration logs, one query away. When a pipeline silently
+  produced no rows, `w.jobs.get_run_output(iteration_run_id)` is the FIRST step, not the last.
+
+- **Prose is not a contract.** Two comments caused this bug and then hid it:
+  - `completeness.py` claimed *"`0` skips the check"* while the code skipped `< 10`. That stale docstring
+    propagated straight into a design document, which proposed a fix for a threshold that did not exist.
+  - `convert.py` claimed its velocity helper *"matches silly-kicks `_velocity.py`"* — while omitting the
+    `len(x_vals) <= 1` guard upstream had added, with a comment naming the very incident it was for.
+
+  Verify against the code, not the prose about the code. And prefer **deletion** over a comment promising
+  parity: a copy kept in sync by a comment is a scheduled outage. See ADR-067 / ADR-055.

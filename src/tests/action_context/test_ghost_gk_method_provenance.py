@@ -37,6 +37,7 @@ def _recompute(kde_backend: str) -> pd.DataFrame:
         xt=ParquetXtSource(_ROOT),
         meta=ParquetMatchMetadataSource(_ROOT),
         sink=sink,
+        is_slice=True,  # ADR-067: fixture = windowed frames + whole-match actions
     )
     assert sink.df is not None
     return sink.df

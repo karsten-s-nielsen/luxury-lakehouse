@@ -11,8 +11,11 @@ geometric LTR orientation (``orient_frames_to_ltr_by_geometry`` when the orienta
   batching). We therefore **discard the builder clock** and **overwrite** ``time_seconds`` via a
   ``(frame_id, period_id)`` map-join onto the dispatcher's period-relative clock (NOT positional —
   the builder drops NaN-ball / malformed rows, so row order will not align).
-* **Velocity:** the builder emits ``speed`` but not ``vx``/``vy``; we derive them with the
-  lakehouse Savitzky-Golay step (parity with the retired in-repo builders).
+* **Velocity (ADR-067, delete-and-depend):** the builder's own ``preprocess=`` seam derives
+  ``vx``/``vy``/``speed`` — the same seam GS and IDSSE already use — running interpolate ->
+  smooth -> derive. The lakehouse's former ``_derive_velocities_savgol`` port is DELETED: it had
+  dropped silly-kicks' ``len(x_vals) <= 1`` guard, crashing on 1-frame tracks and zeroing a whole
+  work unit (2026-07-11, ``skillcorner:1552423:2`` — 0 of 550 actions, inside a SUCCESS run).
 
 Returns ``(frames, report)``; the AC dispatch consumes only ``frames``.
 """
@@ -23,8 +26,6 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
-
-from analytics.action_context.convert import _derive_velocities_savgol
 
 if TYPE_CHECKING:
     from silly_kicks.tracking.schema import TrackingConversionReport
@@ -90,12 +91,41 @@ def _overwrite_time_seconds(frames: pd.DataFrame, period_relative_time: pd.DataF
     return out
 
 
-def _finalize(frames: pd.DataFrame, *, provider: str, derive_velocities: bool) -> pd.DataFrame:
-    """Derive lakehouse velocities (in-place per-group) and assert the AC result-frame schema."""
-    if derive_velocities:
-        frame_rate = int(frames["frame_rate"].iloc[0]) if len(frames) else 10
-        frames = frames.sort_values(["player_id", "frame_id"]).reset_index(drop=True)
-        _derive_velocities_savgol(frames, provider=provider, frame_rate=frame_rate)
+def _preprocess_config() -> Any:
+    """The builder's ``preprocess=`` argument (ADR-067).
+
+    ``PreprocessConfig.default()`` — NEVER ``PreprocessConfig(derive_velocity=True)``. ``is_default()``
+    is FLAG-based (set only by the ``default()`` factory), so a hand-built config is passed through
+    ``resolve_preprocess`` UNPROMOTED and silently uses the universal ``sg_window_seconds=0.4``
+    instead of SkillCorner's tuned 1.0 / Metrica's 0.4.
+
+    No empty-bronze branch: the builders raise on empty input long before preprocess runs
+    (``skillcorner.py:138`` reads ``src["match_id"].iloc[0]``), so empty bronze is unsupported
+    upstream — as it was before this change. See ``test_empty_bronze_is_unsupported``.
+    """
+    from silly_kicks.tracking.preprocess import PreprocessConfig
+
+    return PreprocessConfig.default()
+
+
+def _finalize(frames: pd.DataFrame, *, derive_velocities: bool) -> pd.DataFrame:
+    """Drop silly-kicks' preprocess scratch columns and assert the AC result-frame schema.
+
+    Velocity derivation lives in the BUILDER now (``preprocess=``), not here — see the module
+    docstring and ADR-067. ``provider`` is gone with it: it only ever selected SG parameters, which
+    the builder resolves itself.
+    """
+    scratch = [c for c in ("x_smoothed", "y_smoothed", "_preprocessed_with") if c in frames.columns]
+    if scratch:
+        frames = frames.drop(columns=scratch)
+    if not derive_velocities:
+        # The builder emits `speed`/`speed_source` unconditionally but NOT vx/vy, so without the
+        # preprocess pass the AC schema is short two columns and the drift check below would raise.
+        # NaN is exactly what "no velocity derived" means.
+        for col in ("vx", "vy"):
+            if col not in frames.columns:
+                frames[col] = np.nan
+    if not frames.empty:
         frames = frames.sort_values(["frame_id", "is_ball"]).reset_index(drop=True)
     drift = set(frames.columns) ^ _AC_FRAME_COLUMNS
     if drift:
@@ -139,10 +169,15 @@ def convert_skillcorner_bronze_to_frames(
     from silly_kicks.tracking.skillcorner import convert_to_frames
 
     # Flags omitted => geometric LTR orientation (skillcorner.py: home_team_start_left is None).
-    frames, report = convert_to_frames(bronze, home_team_id=str(home_team_id), output_convention="ltr")
+    frames, report = convert_to_frames(
+        bronze,
+        home_team_id=str(home_team_id),
+        output_convention="ltr",
+        preprocess=_preprocess_config() if derive_velocities else None,
+    )
     frames["game_id"] = game_id  # old-builder parity (builder sets game_id = bronze match_id)
     frames = _overwrite_time_seconds(frames, period_relative_time)
-    frames = _finalize(frames, provider="skillcorner", derive_velocities=derive_velocities)
+    frames = _finalize(frames, derive_velocities=derive_velocities)
     return frames, report
 
 
@@ -189,6 +224,7 @@ def convert_metrica_bronze_to_frames(
         home_team_id=home_team_id,
         jersey_to_player_id=jersey_to_player_id,
         output_convention="ltr",
+        preprocess=_preprocess_config() if derive_velocities else None,
     )
     frames["game_id"] = game_id  # builder leaves game_id unset for Metrica (no match_id input)
     frames = _overwrite_time_seconds(frames, period_relative_time)
@@ -204,5 +240,5 @@ def convert_metrica_bronze_to_frames(
             UserWarning,
             stacklevel=2,
         )
-    frames = _finalize(frames, provider="metrica", derive_velocities=derive_velocities)
+    frames = _finalize(frames, derive_velocities=derive_velocities)
     return frames, report

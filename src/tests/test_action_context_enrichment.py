@@ -1055,6 +1055,7 @@ def test_tracking_mini_gains_gk_zones_xshot_and_provenance() -> None:
         xt=ParquetXtSource(root),
         meta=ParquetMatchMetadataSource(root),
         sink=sink,
+        is_slice=True,  # ADR-067: fixture = windowed frames + whole-match actions
     )
     df = sink.df
     assert df is not None

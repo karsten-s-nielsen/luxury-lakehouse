@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from analytics.action_context.batching import resolve_frame_batch_size
-from analytics.action_context.drain import WATCHDOG_BUDGET_S, assign_workers, drain_worker
+from analytics.action_context.drain import WATCHDOG_BUDGET_S, DrainSummary, assign_workers, drain_worker
 from analytics.action_context.ghost_gk_backend import resolve_ghost_gk_backend
 from analytics.action_context.pipeline import _reconstruct_xt
 from analytics.action_context.schema import (
@@ -1306,6 +1306,30 @@ def main_drain_worker() -> None:
         summary.timed_out,
         summary.total_rows,
     )
+    raise_on_failed_units(summary, run_id=run_id)
+
+
+def raise_on_failed_units(summary: DrainSummary, *, run_id: str) -> None:
+    """Fail the task if any unit failed (D2 -- ADR-002 §5 applied at the ORCHESTRATION layer).
+
+    The per-unit ``except Exception`` in ``drain.py:170-181`` is deliberate and STAYS: one bad unit
+    must not destroy a multi-hour drain, and the worker's remaining slice rolls forward. The defect
+    it enabled was that the TASK then exited 0 -- so a raised guard and a silently-passing invariant
+    were indistinguishable from the mart, and ``skillcorner:1552423:2`` shipped 0 of 550 actions
+    inside a run that reported SUCCESS (2026-07-11).
+
+    Timeouts are deliberately EXCLUDED: they roll forward by design (a capacity signal, not a
+    correctness one).
+    """
+    if not summary.failed:
+        return
+    units = ", ".join(summary.failed_units)
+    raise RuntimeError(
+        f"action-context drain worker {summary.worker_id} (run_id={run_id}) had {summary.failed} "
+        f"FAILED unit(s): {units}. Each failed unit wrote ZERO rows -- its actions are missing from "
+        "fct_action_context. Do NOT accept this run: fix the cause and re-drain. "
+        "(Timeouts roll forward and are not counted here.)"
+    )
 
 
 # ── Provider-specific processing ──────────────────────────────────────
@@ -1790,20 +1814,23 @@ def _process_tracking_match(
     # loud unit failure (the SkillCorner P2 class shipped 12% of a half as a "successful"
     # unit). Window-relative so partial broadcast coverage stays valid. Mirrors
     # pipeline.run_work_unit (lockstep via test_skillcorner_dispatch_time_base).
-    from analytics.action_context.completeness import (
-        assert_unit_action_completeness,
-        expected_actions_within_coverage,
-    )
+    from analytics.action_context.completeness import assert_unit_action_completeness
 
     if _frame_windows and "time_seconds" in actions_pdf.columns:
         _act_pdf = actions_pdf.dropna(subset=["time_seconds"])
         if period_filter is not None and "period_id" in _act_pdf.columns:
             _act_pdf = _act_pdf[_act_pdf["period_id"] == int(period_filter)]
         _times = {int(p): s.tolist() for p, s in _act_pdf.groupby("period_id")["time_seconds"]}
+        # ADR-067: `bronze_expected` is the unit's BRONZE action count -- independent of the frame
+        # clock. The old frame-derived expectation shrank in lockstep with `emitted` when the clock
+        # was corrupted, holding the ratio at ~1.0 and blinding the guard to its own bug class.
         assert_unit_action_completeness(
             emitted=written,
-            expected=expected_actions_within_coverage(_times, _frame_windows, buffer_s=_ACTION_TIME_BUFFER_SECONDS),
+            bronze_expected=sum(len(t) for t in _times.values()),
+            action_times_by_period=_times,
+            frame_window_by_period=_frame_windows,
             unit_desc=f"{provider}:{match_id}:{period_filter}",
+            buffer_s=_ACTION_TIME_BUFFER_SECONDS,
         )
     del actions_pdf, actions_records
     return written

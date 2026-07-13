@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.5.77"
+version = "0.5.78"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -34,6 +34,12 @@ dependencies = [
     # Transitive dep (mlflow / databricks-sdk / distributed). Floored to >=1.2.1 to resolve
     # GHSA-6v7p-g79w-8964 (msgpack < 1.2.1).
     "msgpack>=1.2.1",
+    # Transitive dep (dbt-core, flask/taipy, typer). Floored to >=8.3.3 to resolve
+    # PYSEC-2026-2132 (click < 8.3.3). No parent caps click, so the floor is satisfiable.
+    "click>=8.3.3",
+    # Transitive dep (matplotlib / taipy). Floored to >=12.3.0 to resolve the PYSEC-2026-2253,
+    # -2254, -2255, -2256, -2257 batch (pillow < 12.3.0) in one bump. No parent caps pillow.
+    "pillow>=12.3.0",
     # Workflow framework (card parsing + validation)
     "pydantic>=2.0",
     "PyYAML>=6.0",

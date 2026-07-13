@@ -13,9 +13,11 @@ period-relative), so it never false-fires on sparse/partial frame coverage.
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
-from analytics.action_context.time_base_guard import assert_work_unit_time_base
+from analytics.action_context.time_base_guard import assert_frames_time_base, assert_work_unit_time_base
 
 
 def test_period_relative_actions_pass() -> None:
@@ -49,6 +51,45 @@ def test_sparse_coverage_does_not_false_fire() -> None:
 
 def test_empty_is_noop() -> None:
     assert_work_unit_time_base({})
+
+
+# ── D5 (ADR-067): the floor was ONE-SIDED and NaN-blind ────────────────────────────────────────
+#
+# `_ABSOLUTE_CLOCK_MIN_FLOOR_SECONDS` only rejected times at or ABOVE 1800 s. Two mis-based clocks
+# therefore passed silently, and both empty the per-batch action window exactly like the absolute
+# clock the guard was built for:
+#
+#   * an OVER-subtracted re-base -- the documented -2700 s SkillCorner double-subtraction (ADR-040)
+#     -- sits far BELOW the floor;
+#   * NaN, because `float("nan") >= 1800.0` is False.
+
+
+def test_over_subtracted_clock_raises_actions() -> None:
+    with pytest.raises(ValueError, match="period-relative"):
+        assert_work_unit_time_base({2: -2700.0})
+
+
+def test_over_subtracted_clock_raises_frames() -> None:
+    with pytest.raises(ValueError, match="period-relative"):
+        assert_frames_time_base({2: -2700.0})
+
+
+def test_nan_clock_raises_actions() -> None:
+    with pytest.raises(ValueError, match="period-relative"):
+        assert_work_unit_time_base({2: math.nan})
+
+
+def test_nan_clock_raises_frames() -> None:
+    with pytest.raises(ValueError, match="period-relative"):
+        assert_frames_time_base({2: math.nan})
+
+
+def test_small_negative_float_noise_is_tolerated() -> None:
+    """A period-relative clock may legitimately start a hair below zero (float noise, or an action a
+    fraction of a second before the nominal kickoff frame). Only a LARGE negative min indicates an
+    over-subtracted re-base -- otherwise this guard would false-fire on healthy units."""
+    assert_work_unit_time_base({2: -0.3})
+    assert_frames_time_base({2: -0.3})
 
 
 def test_both_drivers_invoke_work_unit_time_base_guard() -> None:
