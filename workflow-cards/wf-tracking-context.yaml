@@ -47,7 +47,7 @@ execution:
     entry_point: compute_tracking_context
     module: ingestion.tracking_context
     schedule: "daily 06:00 UTC"
-    timeout: "7200s"
+    timeout: "1800s"
     environment: spadl
 
 dbt_model: fct_tracking_context

@@ -101,7 +101,7 @@ luxury-lakehouse/
 ├── hf_taipy_app/       # Taipy production dashboard (deployed to HF Spaces)
 ├── notebooks/          # Databricks notebooks (football2vec/xG training, model weight sync, dataset publishing to HF Hub)
 ├── dbt_project/        # Bronze → Silver → Gold transformations
-├── workflow-cards/     # YAML workflow card manifests (36 AI/ML workflow definitions)
+├── workflow-cards/     # YAML workflow card manifests (50 AI/ML workflow definitions)
 ├── scripts/            # Operational scripts (PG indexes, grants, synced table management)
 ├── docs/
 │   ├── c4/             # C4 architecture diagrams (Structurizr DSL)

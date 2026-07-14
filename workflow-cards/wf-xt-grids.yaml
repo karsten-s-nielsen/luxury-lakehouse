@@ -48,7 +48,7 @@ execution:
     module: ingestion.expected_threat
     distribution: driver-bound
     schedule: "daily 06:00 UTC"
-    timeout: "1800s"
+    timeout: "600s"
     environment: analytics
 
 depends_on:

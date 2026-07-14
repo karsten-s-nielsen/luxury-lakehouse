@@ -71,7 +71,7 @@ execution:
     distribution: applyInPandas
     partition_key: match_id
     schedule: "daily 06:00 UTC"
-    timeout: "3600s"
+    timeout: "600s"
     environment: analytics
 
 depends_on:

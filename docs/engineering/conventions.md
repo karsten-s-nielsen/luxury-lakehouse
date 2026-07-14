@@ -70,12 +70,19 @@ Two lessons from the 2026-07-11 `skillcorner:1552423:2` incident, in which a wor
 550 actions** inside a job that reported SUCCESS. Both are cheap; both were re-learned the expensive way.
 
 - **Read the driver logs before theorising.** The AC drain swallows per-unit exceptions *by design*
-  (`drain.py:170-181` — one bad unit must not destroy a 5.5-hour drain), and until ADR-067 the task still
-  exited 0 afterwards. A raised guard and a silently-passing invariant therefore produce an **identical
-  signature in the mart**, so no amount of reasoning from mart state alone can distinguish them. A design
-  document reasoned at length from the mart and reached the wrong root cause; the real one was a single
-  `ac1_drain_unit_failed` line in the for-each iteration logs, one query away. When a pipeline silently
-  produced no rows, `w.jobs.get_run_output(iteration_run_id)` is the FIRST step, not the last.
+  (the per-unit `except Exception` in `drain.py::drain_worker` — one bad unit must not destroy a 5.5-hour
+  drain), and until ADR-067 the task still exited 0 afterwards. A raised guard and a silently-passing
+  invariant therefore produce an **identical signature in the mart**, so no amount of reasoning from mart
+  state alone can distinguish them. A design document reasoned at length from the mart and reached the wrong
+  root cause; the real one was a single `ac1_drain_unit_failed` line in the for-each iteration logs, one
+  query away. When a pipeline silently produced no rows, `w.jobs.get_run_output(iteration_run_id)` is the
+  FIRST step, not the last.
+
+  **Since ADR-068 there is a more direct answer than the logs:** query
+  `observability.action_context_unit_events` (the UNION view), or read the `verify_action_context_drain`
+  gate's report — it names the units that never reached a terminal state and the ones whose rows did not
+  land. The log-reading advice above stays as the fallback for anything the event log itself cannot explain
+  (it is fail-open, so a run can be `UNVERIFIABLE`).
 
 - **Prose is not a contract.** Two comments caused this bug and then hid it:
   - `completeness.py` claimed *"`0` skips the check"* while the code skipped `< 10`. That stale docstring

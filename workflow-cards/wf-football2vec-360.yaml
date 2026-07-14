@@ -61,7 +61,7 @@ execution:
     distribution: driver-bound
     partition_key: batch_id
     schedule: "daily 06:00 UTC"
-    timeout: "3600s"
+    timeout: "600s"
     environment: analytics
 
 depends_on:

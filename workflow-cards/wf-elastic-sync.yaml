@@ -38,7 +38,7 @@ execution:
     entry_point: compute_elastic_sync
     module: ingestion.elastic_sync
     distribution: driver-bound
-    timeout: "3600s"
+    timeout: "600s"
     environment: analytics
 
 monitoring:

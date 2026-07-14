@@ -275,7 +275,10 @@ def test_data_ingestion_parser_count_anchor() -> None:
     # (scores fct_action_values with xg_model_v3 → bronze.xg_shot_predictions).
     # 42 → 41 (v2 producer chain retirement, 2026-07-10, ADR-066): removed `compute_xg_model_v2`
     # (fct_xg_predictions_v2 now projects fct_shot_xg; the v2 model + task were retired).
-    assert len(task_keys) == 41, f"expected 41 task blocks on data_ingestion, parser found {len(task_keys)}"
+    # 41 → 42 (D8 drain-completeness gate, 2026-07-13): added `verify_action_context_drain` —
+    # the run_if=ALL_DONE fan-in over BOTH action-context arms (the 8-way drain for_each and the
+    # sb360 cogroup task).
+    assert len(task_keys) == 42, f"expected 42 task blocks on data_ingestion, parser found {len(task_keys)}"
 
 
 if __name__ == "__main__":

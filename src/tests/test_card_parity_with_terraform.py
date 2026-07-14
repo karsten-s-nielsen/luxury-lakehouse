@@ -88,6 +88,121 @@ def _parse_tf_task_entry_points() -> dict[str, str]:
     return result
 
 
+def _parse_tf_task_timeouts() -> dict[str, tuple[int, str | None]]:
+    """Return ``{task_key: (timeout_seconds, entry_point)}`` for every top-level task.
+
+    TWO PAIRING RULES, BOTH LOAD-BEARING — each one was a bug in the first cut of this parser:
+
+    1. **The timeout is the LAST one seen before the entry_point**, i.e. the innermost enclosing
+       task's. A ``for_each_task`` nests the real task inside a wrapper that carries its OWN
+       ``timeout_seconds``: ``compute_spadl_vaep``'s wrapper says ``0`` while the iteration that
+       actually runs the wheel says ``1800``. Taking the FIRST one reads the timeout from the
+       wrapper and the entry_point from the inner task — two different blocks — and reports ``0s``
+       for a task with a 30-minute budget.
+
+    2. **Key on ``task_key``, NOT ``entry_point``.** For a for_each the two DIFFER: task_key
+       ``compute_action_context`` runs entry_point ``compute_action_context_drain_worker``, while
+       the card declares ``entry_point: compute_action_context`` (the task_key). An entry_point-keyed
+       join therefore silently SKIPS this card — which is how the original ``7200s`` vs ``28800s``
+       drift survived, and how the first version of this very guard managed to be vacuous for the
+       one card that motivated it. Both names are returned so callers can match on either.
+    """
+    text = _MAIN_TF.read_text(encoding="utf-8")
+    depth = 0
+    in_resource = False
+    result: dict[str, tuple[int, str | None]] = {}
+    task_key: str | None = None
+    timeout: int | None = None
+    entry_point: str | None = None
+    in_task_depth: int | None = None
+    resource_re = re.compile(r'^resource\s+"databricks_job"\s+"data_ingestion"\s*\{')
+    task_re = re.compile(r"^\s*task\s*\{")
+    task_key_re = re.compile(r'^\s*task_key\s*=\s*"([^"]+)"')
+    entry_point_re = re.compile(r'^\s*entry_point\s*=\s*"([^"]+)"')
+    timeout_re = re.compile(r"^\s*timeout_seconds\s*=\s*(\d+)")
+
+    for line in text.splitlines():
+        if not in_resource:
+            if resource_re.search(line):
+                in_resource = True
+                depth = 1
+            continue
+        opens = line.count("{")
+        closes = line.count("}")
+        if in_task_depth is None and depth == 1 and task_re.match(line):
+            in_task_depth = depth + opens
+            task_key, timeout, entry_point = None, None, None
+        if in_task_depth is not None:
+            m = task_key_re.match(line)
+            if m and task_key is None:
+                task_key = m.group(1)  # FIRST -> the TOP-LEVEL task's key (not the for_each child)
+            m = timeout_re.match(line)
+            if m:
+                timeout = int(m.group(1))  # LAST -> the INNERMOST enclosing task (rule 1)
+            m = entry_point_re.match(line)
+            if m and entry_point is None:
+                entry_point = m.group(1)
+        depth += opens - closes
+        if in_task_depth is not None and depth < in_task_depth:
+            if task_key and timeout is not None:
+                result[task_key] = (timeout, entry_point)
+            in_task_depth = None
+        if depth <= 0:
+            break
+    return result
+
+
+def test_card_phase_timeouts_match_terraform() -> None:
+    """A card's declared phase timeout must equal its Terraform task's `timeout_seconds`.
+
+    TERRAFORM IS THE RUNTIME TRUTH; the card is documentation ABOUT it. A card is what an operator
+    reads to answer "how long may this run before it is considered hung" — and a card that lies
+    about that is worse than a card with no timeout at all.
+
+    THIS TEST EXISTS BECAUSE THE DRIFT WAS TOTAL. When it was first written, **21 of 42** cards
+    misstated their timeout — `wf-defcon` advertised 7200s for a 1500s task, `wf-pitch-control`
+    7200s for 1200s, `wf-action-context` 7200s for the 28800s ADR-037 worker-drain exception. Not
+    one was caught, because the parity suite checked task_key / entry_point / trigger and never
+    once looked at the timeout. Card timeouts were decorative for the entire life of the repo.
+    """
+    tf = _parse_tf_task_timeouts()
+    assert tf, "parsed ZERO task timeouts from main.tf — the parser is broken, not the cards"
+
+    cards = {p.stem: _load_card(p) for p in _CARDS_DIR.glob("wf-*.yaml")}
+    mismatches: list[str] = []
+    unjoinable: list[str] = []
+    checked = 0
+
+    for task_key, (tf_timeout, tf_entry_point) in sorted(tf.items()):
+        card_id = _DIRECT_TASK_ENTRY_POINT_TO_CARD.get(task_key)
+        if card_id is None:
+            continue  # pure orchestration (e.g. preflight_action_context) — intentionally no card
+        # Match the phase on EITHER name: for a for_each the card names the task_key while
+        # Terraform's python_wheel_task names a different entry_point (see rule 2 in the parser).
+        phases = _card_phases(cards[card_id])
+        hits = [(n, p) for n, p in phases.items() if p.get("entry_point") in (task_key, tf_entry_point)]
+        if not hits:
+            unjoinable.append(f"{card_id}: no phase matches task_key={task_key} or entry_point={tf_entry_point}")
+            continue
+        phase_name, phase = hits[0]
+        declared = phase.get("timeout")
+        if not declared:
+            continue
+        actual = int(str(declared).rstrip("s"))
+        checked += 1
+        if actual != tf_timeout:
+            mismatches.append(
+                f"{card_id}.yaml [{phase_name}] (task {task_key}): card says {actual}s, terraform says {tf_timeout}s"
+            )
+
+    # ANTI-VACUITY. A join that pairs nothing passes silently — which is EXACTLY how the original
+    # drift survived, and how this guard's own first draft managed to skip the one card that
+    # motivated it. Both floors must hold, or the guard is decorative in the same way the cards were.
+    assert not unjoinable, "card/terraform join is broken:\n  " + "\n  ".join(unjoinable)
+    assert checked >= 30, f"only {checked} card phases paired with a TF task — the join is broken"
+    assert not mismatches, "card/terraform timeout drift:\n  " + "\n  ".join(mismatches)
+
+
 def _parse_hf_sync_sub_operations() -> list[str]:
     """Return the module paths in hf_sync.py:_SUB_OPERATIONS via AST."""
     tree = ast.parse(_HF_SYNC.read_text(encoding="utf-8"))
@@ -195,6 +310,11 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     # helper — writes Databricks task values and exits.
     # Subordinate to wf-action-context; no independent methodology.
     "preflight_action_context": None,
+    # D8 (2026-07-13): the drain-completeness gate — the fan-in over BOTH action-context arms
+    # (the 8-way drain for_each + the sb360 cogroup task). Same methodology + card as
+    # compute_action_context; it asserts the enrichment finished rather than producing new
+    # features, so it carries no independent methodology of its own.
+    "verify_action_context_drain": "wf-action-context",
     # PR-Cycle-B (2026-05-01): split out of wf-hf-sync into its own scheduled
     # Databricks task so wf-obso-pausa can declare an explicit dependency.
     "import_obso_results": "wf-import-obso",

@@ -47,7 +47,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             evolveEngine = container "Evolve Engine" "LLM-guided architecture search. AST validation, restricted exec." "Python, OpenEvolve"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models: xG + canonical-SPADL pre-shot xG v3 (SB-360 freeze-frame builder, two-mode gate, OOF calibration; ADR-066), xT, VAEP, OBSO, pitch control, PSxG (ADR-059), embeddings" "Python, PyTorch"
             execVisibility = container "Executor Visibility (exec_visibility)" "Driver heartbeat + executor env-fingerprint/faulthandler markers + silly-kicks env-drift guard (ADR-044). Spark-Connect-safe applyInPandas progress + hang diagnostics (ADR-031)." "Python"
-            actionContextHexagon = container "Action Context Hexagon" "Pure-domain AC enrichment (ADR-028): ports + enrich_batch, one Spark+local UDF. Frames-required (ADR-057); sb360 cogroup (ADR-058); SC/metrica frames + velocity via silly-kicks (TF-23, ADR-067)." "Python, pandas, silly-kicks 4.43.0"
+            actionContextHexagon = container "Action Context Hexagon" "Pure-domain AC enrichment (ADR-028): ports + enrich_batch, one Spark+local UDF. Frames-required (ADR-057); sb360 cogroup (ADR-058); velocity via silly-kicks (ADR-067). Unit-event log + drain completeness gate (ADR-068)." "Python, pandas, silly-kicks 4.43.0"
             sharedLibrary = container "Shared Library" "Cross-package constants, identifiers, and the per-match access_tier classifier — a fail-safe ALLOWLIST (ADR-064): open-data providers public, everything else restricted. Zero external deps." "Python"
         }
 
@@ -71,7 +71,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         unityCatalog = softwareSystem "Unity Catalog" "Governed Delta Lake: bronze (raw), gold (analytics), observability (metadata)" "External" {
             bronzeSchema = container "Bronze Schema" "Raw events, tracking, SPADL actions, VAEP scores, PSxG + pre-shot xG predictions, shot freeze frames, compute results" "Delta Lake" "Database"
             goldSchema = container "Gold Schema" "44 fact + 4 dim tables. Analytics-ready." "Delta Lake" "Database"
-            observabilitySchema = container "Observability Schema" "workflow_cost_live, workflow_import_checksums, workflow_watermarks, definer's-rights views" "Delta Lake" "Database"
+            observabilitySchema = container "Observability Schema" "workflow_cost_live, workflow_import_checksums, workflow_watermarks, action_context_unit_events (per-worker tables + UNION view, ADR-068), definer's-rights views" "Delta Lake" "Database"
         }
 
         lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL endpoint syncing 42 Delta tables (75 indexes: 69 btree + 6 HNSW). SDK-managed (ADR-026)." "External"
@@ -138,6 +138,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         ingestionPipelines -> execVisibility "UDF + driver emit progress/diagnostics (ADR-031)" ""
         actionContextHexagon -> sharedLibrary "Imports identifiers" ""
         actionContextHexagon -> bronzeSchema "Reads tracking+SPADL+xT grid, writes spadl_action_context" "PySpark/Delta"
+        actionContextHexagon -> observabilitySchema "Drain + sb360 append per-unit lifecycle events; the ALL_DONE fan-in gate reads them back to prove every enqueued unit landed (ADR-068)" "PySpark/Delta"
         analyticsLibrary -> sharedLibrary "Imports IDENTIFIER_RE" ""
         costEstimateHook -> sharedLibrary "Imports schema constants" ""
         ingestionPipelines -> bronzeSchema "Writes compute results" "PySpark/Delta"

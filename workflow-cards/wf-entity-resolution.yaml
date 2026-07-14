@@ -39,7 +39,7 @@ execution:
     entry_point: resolve_players
     module: ingestion.entity_resolution
     distribution: driver-bound
-    timeout: "1800s"
+    timeout: "1200s"
     environment: analytics
 
 monitoring:

@@ -18,6 +18,7 @@ preflight_tracking_context,wf-tracking-context
 compute_action_context,wf-action-context
 compute_action_context_statsbomb,wf-action-context
 preflight_action_context,wf-action-context
+verify_action_context_drain,wf-action-context
 preflight_spadl_vaep,wf-vaep
 compute_spadl_vaep,wf-vaep
 compute_xg_shot_scores,wf-shot-xg-scorer

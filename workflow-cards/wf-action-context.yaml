@@ -56,7 +56,7 @@ execution:
     entry_point: compute_action_context
     module: ingestion.action_context
     schedule: "daily 06:00 UTC"
-    timeout: "7200s"
+    timeout: "28800s"
     environment: spadl
   # ADR-058: statsbomb sb360 arm — a single distributed cogroup.applyInPandas job (statsbomb exits
   # the per-match drain; scan each bronze table once, enrich per match on executors, distributed write).
@@ -67,6 +67,17 @@ execution:
     module: ingestion.action_context
     schedule: "daily 06:00 UTC"
     timeout: "28800s"
+    environment: analytics
+  # D8: the fan-in completeness gate over BOTH arms above (run_if = ALL_DONE — it runs even
+  # when the drain failed). Reads the work queue + the D9 unit-event log + the results mart and
+  # asserts every expected unit ran and its rows landed. Only INCOMPLETE fails the task.
+  verification:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: verify_action_context_drain
+    module: ingestion.action_context_gate
+    schedule: "daily 06:00 UTC"
+    timeout: "3600s"
     environment: analytics
 
 dbt_model: fct_action_context
@@ -94,3 +105,9 @@ chain in a single applyInPandas pass per match. Covers all 6 providers:
 StatsBomb, Wyscout, IDSSE, Metrica, SkillCorner, GradientSports.
 Event-only providers get game_state + GK resolution (~5 columns);
 tracking providers get the full ~110 column feature set.
+
+A fan-in completeness gate (`verify_action_context_drain`, ADR-068) closes the
+run: the drain workers and the sb360 task append per-unit lifecycle events, and
+the gate reads them back to prove every enumerated unit actually ran and its rows
+actually landed. It runs on ALL_DONE — precisely so that a *failed* drain still
+gets audited, which is when knowing what died matters most.
