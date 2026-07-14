@@ -522,7 +522,12 @@ class _MockSpark:
 
 @pytest.mark.usefixtures("_mock_pyspark")
 def test_find_tracking_new_period_pairs_three_way_join() -> None:
-    """Tracking discovery (per-period): tracking(mid,period) ∩ spadl(mid) \\ results(mid,period)."""
+    """Tracking discovery (per-period): tracking(mid,period) ∩ spadl(mid,period) \\ results(mid,period).
+
+    ADR-068: the SPADL leg is PERIOD grain. This fake passes pre-shaped ``_mid``/``_period`` rows, so
+    it covers the join COMPOSITION only — the cast/encoding contract that the period key depends on is
+    covered by ``action_context/test_planner_grain.py``, whose fake executes select/cast for real.
+    """
     tables = {
         "cat.bronze.metrica_tracking": _MockDF(
             [
@@ -534,8 +539,9 @@ def test_find_tracking_new_period_pairs_three_way_join() -> None:
         ),
         "cat.bronze.spadl_actions": _MockDF(
             [
-                {"_mid": "m1"},
-                {"_mid": "m2"},
+                {"_mid": "m1", "_period": 1},
+                {"_mid": "m1", "_period": 2},
+                {"_mid": "m2", "_period": 1},
             ]
         ),
         "cat.bronze.spadl_action_context": _MockDF(
@@ -569,8 +575,9 @@ def test_find_tracking_new_period_pairs_empty_results_cold_start() -> None:
         ),
         "cat.bronze.spadl_actions": _MockDF(
             [
-                {"_mid": "s1"},
-                {"_mid": "s2"},
+                {"_mid": "s1", "_period": 1},
+                {"_mid": "s1", "_period": 2},
+                {"_mid": "s2", "_period": 1},
             ]
         ),
         "cat.bronze.spadl_action_context": _MockDF([]),  # empty
@@ -633,7 +640,7 @@ def test_find_sb360_new_ids_cold_start_5000_matches() -> None:
 
 @pytest.mark.usefixtures("_mock_pyspark")
 def test_find_idsse_new_period_pairs_three_way() -> None:
-    """IDSSE period-level: tracking(mid,period) ∩ spadl(mid) \\ results(mid,period)."""
+    """IDSSE period-level: tracking(mid,period) ∩ spadl(mid,period) \\ results(mid,period) (ADR-068)."""
     tables = {
         "cat.bronze.idsse_tracking": _MockDF(
             [
@@ -645,8 +652,10 @@ def test_find_idsse_new_period_pairs_three_way() -> None:
         ),
         "cat.bronze.spadl_actions": _MockDF(
             [
-                {"_mid": "i1"},
-                {"_mid": "i2"},
+                {"_mid": "i1", "_period": 1},
+                {"_mid": "i1", "_period": 2},
+                {"_mid": "i2", "_period": 1},
+                {"_mid": "i2", "_period": 2},
             ]
         ),
         "cat.bronze.spadl_action_context": _MockDF(
@@ -737,7 +746,8 @@ def test_guard_provider_filter_restricts_to_one_provider() -> None:
     """provider_filter restricts discovery to one provider. statsbomb (ADR-058) EXITS the drain — it
     is never discovered here (processed by main_statsbomb), so the filter is exercised via metrica."""
     tables = {
-        "cat.bronze.spadl_actions": _MockDF([{"_mid": "m1"}, {"_mid": "m2"}]),
+        # ADR-068: the SPADL leg is PERIOD grain, so spadl fixture rows carry `_period` too.
+        "cat.bronze.spadl_actions": _MockDF([{"_mid": "m1", "_period": 1}, {"_mid": "m2", "_period": 1}]),
         "cat.bronze.statsbomb_360": _MockDF([{"_join_id": "s1"}, {"_join_id": "s2"}]),
         "cat.bronze.metrica_tracking": _MockDF([{"_mid": "m1", "_period": 1}, {"_mid": "m2", "_period": 1}]),
         "cat.bronze.idsse_tracking": _MockDF([{"_mid": "i1", "_period": 1}]),
@@ -757,7 +767,13 @@ def test_guard_max_units_caps_deterministically() -> None:
     via metrica (a drain provider); statsbomb's cap lives in main_statsbomb (ADR-058)."""
     tables = {
         "cat.bronze.spadl_actions": _MockDF(
-            [{"_mid": "s3"}, {"_mid": "s1"}, {"_mid": "s5"}, {"_mid": "s2"}, {"_mid": "s4"}]
+            [
+                {"_mid": "s3", "_period": 1},
+                {"_mid": "s1", "_period": 1},
+                {"_mid": "s5", "_period": 1},
+                {"_mid": "s2", "_period": 1},
+                {"_mid": "s4", "_period": 1},
+            ]
         ),
         "cat.bronze.metrica_tracking": _MockDF(
             [
@@ -782,14 +798,16 @@ def test_guard_max_units_one_per_provider() -> None:
     """max_units=1 with no provider_filter -> exactly one unit per provider that has work."""
     # Real spadl rows carry match_id_native (aliased to _join_id by event/tracking
     # discovery and to _mid by IDSSE discovery); the mock's passthrough select means
-    # each row must carry BOTH keys.
+    # each row must carry BOTH keys — and, since ADR-068 made the SPADL leg PERIOD
+    # grain, one row per (match, period) that actually has actions.
     tables = {
         "cat.bronze.spadl_actions": _MockDF(
             [
-                {"_join_id": "a1", "_mid": "a1"},
-                {"_join_id": "a2", "_mid": "a2"},
-                {"_join_id": "i1", "_mid": "i1"},
-                {"_join_id": "i2", "_mid": "i2"},
+                {"_join_id": "a1", "_mid": "a1", "_period": 1},
+                {"_join_id": "a2", "_mid": "a2", "_period": 1},
+                {"_join_id": "i1", "_mid": "i1", "_period": 1},
+                {"_join_id": "i1", "_mid": "i1", "_period": 2},
+                {"_join_id": "i2", "_mid": "i2", "_period": 1},
             ]
         ),
         "cat.bronze.metrica_tracking": _MockDF([{"_mid": "a1", "_period": 1}, {"_mid": "a2", "_period": 1}]),
@@ -809,7 +827,11 @@ def test_guard_defaults_unchanged_no_filter_no_cap() -> None:
     """No provider_filter + no max_units (the daily path) -> all AC providers, no truncation."""
     tables = {
         "cat.bronze.spadl_actions": _MockDF(
-            [{"_join_id": "s1", "_mid": "s1"}, {"_join_id": "s2", "_mid": "s2"}, {"_join_id": "s3", "_mid": "s3"}]
+            [
+                {"_join_id": "s1", "_mid": "s1", "_period": 1},
+                {"_join_id": "s2", "_mid": "s2", "_period": 1},
+                {"_join_id": "s3", "_mid": "s3", "_period": 1},
+            ]
         ),
         "cat.bronze.statsbomb_360": _MockDF([{"_join_id": "s1"}, {"_join_id": "s2"}, {"_join_id": "s3"}]),
         "cat.bronze.metrica_tracking": _MockDF([{"_mid": "s1", "_period": 1}, {"_mid": "s2", "_period": 1}]),
@@ -828,7 +850,9 @@ def test_guard_defaults_unchanged_no_filter_no_cap() -> None:
 def test_guard_provider_filter_idsse_half_units() -> None:
     """provider_filter='idsse' + max_units caps (match, period) HALVES (idsse's unit)."""
     tables = {
-        "cat.bronze.spadl_actions": _MockDF([{"_mid": "i1"}, {"_mid": "i2"}]),
+        "cat.bronze.spadl_actions": _MockDF(
+            [{"_mid": "i1", "_period": 1}, {"_mid": "i1", "_period": 2}, {"_mid": "i2", "_period": 1}]
+        ),
         "cat.bronze.idsse_tracking": _MockDF(
             [{"_mid": "i1", "_period": 1}, {"_mid": "i1", "_period": 2}, {"_mid": "i2", "_period": 1}]
         ),
@@ -902,7 +926,7 @@ def test_main_preflight_builds_queue_and_task_values(monkeypatch: pytest.MonkeyP
 
     class _FakeQueue:
         def __init__(self, *a: object, **k: object) -> None:
-            pass
+            self._n = 0
 
         def ensure_table(self) -> None:
             captured["ensured"] = True
@@ -914,16 +938,35 @@ def test_main_preflight_builds_queue_and_task_values(monkeypatch: pytest.MonkeyP
         def enqueue(self, run_id: str, assignments: list) -> None:
             captured["run_id"] = run_id
             captured["n"] = len(assignments)
+            self._n = len(assignments)
+
+        def count_for_run(self, run_id: str) -> int:
+            # Spec §11 enqueue round-trip: preflight re-reads what actually landed. An honest queue
+            # persists everything it was given. (The short-enqueue case is
+            # action_context/test_planner_grain.py::test_enqueue_round_trip_count_is_asserted.)
+            captured["round_tripped"] = True
+            return self._n
 
     monkeypatch.setattr(q, "DeltaWorkQueue", _FakeQueue)  # patched at SOURCE (function-local import)
+
+    class _FakeSink:
+        def __init__(self, *a: object, **k: object) -> None:
+            pass
+
+        def ensure_tables(self) -> None:
+            captured["events_ensured"] = True
+
+    monkeypatch.setattr(q, "DeltaUnitEventSink", _FakeSink)
 
     set_values: dict[str, object] = {}
     monkeypatch.setattr(ac, "_set_task_value", lambda key, value, log: set_values.__setitem__(key, value))
 
     ac.main_preflight()
 
+    assert captured["events_ensured"] is True  # D9: preflight is the SINGLE writer that creates them
     assert captured["ensured"] is True
     assert captured["pruned"] is True  # preflight self-prunes stale work-queue rows before enqueue
+    assert captured["round_tripped"] is True  # spec §11: what was assigned is re-read from the queue
     assert captured["run_id"] == "JOBRUN42"
     assert captured["n"] == 20
     assert set_values["action_context_run_id"] == "JOBRUN42"
@@ -931,9 +974,16 @@ def test_main_preflight_builds_queue_and_task_values(monkeypatch: pytest.MonkeyP
 
 
 def test_main_preflight_empty_emits_empty_worker_ids(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Also pins D9's placement rule: the event tables are created BEFORE the nothing-to-do early-return.
+
+    `compute_action_context_statsbomb` does NOT depend on preflight (main.tf), and the D8 gate reads the
+    UNION view even on a nothing-to-do run -- so a preflight that returns early without creating them
+    would leave the sb360 task writing to (and the gate reading) a table that does not exist.
+    """
     import argparse
 
     import ingestion.action_context as ac
+    import ingestion.action_context_queue as q
     import ingestion.bootstrap as bs
     from ingestion.guards import FilterResult
 
@@ -945,11 +995,43 @@ def test_main_preflight_empty_emits_empty_worker_ids(monkeypatch: pytest.MonkeyP
     # ADR-063 R5b grid-watermark edge needs spark.sql; this test mocks spark as a bare object — no-op it.
     monkeypatch.setattr(ac, "_force_full_rematerialize_on_grid_change", lambda *a, **k: None)
 
+    ensured: list[bool] = []
+
+    class _FakeSink:
+        def __init__(self, *a: object, **k: object) -> None:
+            pass
+
+        def ensure_tables(self) -> None:
+            ensured.append(True)
+
+    monkeypatch.setattr(q, "DeltaUnitEventSink", _FakeSink)
+
     set_values: dict[str, object] = {}
     monkeypatch.setattr(ac, "_set_task_value", lambda key, value, log: set_values.__setitem__(key, value))
 
     ac.main_preflight()
     assert set_values["action_context_worker_ids"] == []  # for-each runs zero iterations
+    assert ensured == [True], "event tables must be created even on a nothing-to-do run (see docstring)"
+
+
+class _FakeUnitEventSink:
+    """Offline stand-in for ``DeltaUnitEventSink`` (D9) — the real one needs Spark."""
+
+    write_failures = 0
+
+    def __init__(self, *a: object, **k: object) -> None:
+        self.slices: list[tuple[str, int]] = []
+
+    def ensure_tables(self) -> None: ...
+
+    def unit_started(self, run_id, worker_id, unit) -> None: ...
+
+    def unit_finished(self, run_id, worker_id, unit, *, state, rows_written, error) -> None: ...
+
+    def flush_terminals(self) -> None: ...
+
+    def slice_completed(self, run_id: str, worker_id: int) -> None:
+        self.slices.append((run_id, worker_id))
 
 
 def test_main_drain_worker_calls_drain(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -975,6 +1057,7 @@ def test_main_drain_worker_calls_drain(monkeypatch: pytest.MonkeyPatch) -> None:
             return prefetched
 
     monkeypatch.setattr(q, "DeltaWorkQueue", _Q)
+    monkeypatch.setattr(q, "DeltaUnitEventSink", _FakeUnitEventSink)
     monkeypatch.setattr(q, "SparkGameProcessor", lambda *a, **k: object())
     monkeypatch.setattr(q, "SparkInterruptWatchdog", lambda *a, **k: object())
 
@@ -984,6 +1067,7 @@ def test_main_drain_worker_calls_drain(monkeypatch: pytest.MonkeyPatch) -> None:
         seen["run_id"] = run_id
         seen["worker_id"] = worker_id
         seen["units"] = kw.get("units")  # short-circuit passes the pre-fetched units
+        seen["sink"] = kw.get("sink")  # D9: the unit-event sink is INJECTED, never defaulted
         return DrainSummary(worker_id=worker_id, processed=3, total_rows=9)
 
     monkeypatch.setattr(ac, "drain_worker", _fake_drain)
@@ -992,10 +1076,13 @@ def test_main_drain_worker_calls_drain(monkeypatch: pytest.MonkeyPatch) -> None:
     assert seen["run_id"] == "JOBRUN42"
     assert seen["worker_id"] == 2
     assert seen["units"] is prefetched  # fetched once, passed in (no re-read)
+    assert isinstance(seen["sink"], _FakeUnitEventSink)
 
 
 def test_main_drain_worker_empty_slice_short_circuits(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A worker with no assigned units exits BEFORE building the processor (no xT-grid load)."""
+    """A worker with no assigned units exits BEFORE building the processor (no xT-grid load) --
+    but it STILL emits ``slice_completed`` (P4), or the drain-completeness gate reads an idle
+    worker as a DEAD one and cries wolf on every (tiny) daily run."""
     import argparse
 
     import ingestion.action_context as ac
@@ -1016,6 +1103,15 @@ def test_main_drain_worker_empty_slice_short_circuits(monkeypatch: pytest.Monkey
 
     monkeypatch.setattr(q, "DeltaWorkQueue", _EmptyQ)
 
+    sinks: list[_FakeUnitEventSink] = []
+
+    class _Sink(_FakeUnitEventSink):
+        def __init__(self, *a: object, **k: object) -> None:
+            super().__init__()
+            sinks.append(self)
+
+    monkeypatch.setattr(q, "DeltaUnitEventSink", _Sink)
+
     def _boom(*a: object, **k: object) -> object:
         raise AssertionError("empty worker must NOT build the processor / call drain_worker")
 
@@ -1024,6 +1120,7 @@ def test_main_drain_worker_empty_slice_short_circuits(monkeypatch: pytest.Monkey
     monkeypatch.setattr(ac, "drain_worker", _boom)
 
     ac.main_drain_worker()  # returns cleanly, no processor built
+    assert [s.slices for s in sinks] == [[("JOBRUN42", 5)]]  # P4: the idle worker still SAID IT RAN
 
 
 def test_tracking_mini_gains_gk_zones_xshot_and_provenance() -> None:

@@ -15,10 +15,11 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Protocol
 
-from analytics.action_context.drain import GameTimeoutError, WorkAssignment
+from analytics.action_context.drain import SB360_WORKER_ID, GameTimeoutError, WorkAssignment
 from analytics.action_context.work_unit import WorkUnit
 
 if TYPE_CHECKING:
@@ -69,6 +70,353 @@ def queue_columns_sql() -> str:
     cols = [f"{name} {sql_type}" for name, sql_type, _ in _QUEUE_COLUMNS]
     cols.append("_ingested_at timestamp")
     return ", ".join(cols)
+
+
+# ─────────────────────────── D9: the unit-event log ───────────────────────────
+#
+# TOPOLOGY — PER-WORKER TABLES (decided by the Task-2 spike, 2026-07-13).
+# One Delta table per WRITER (``_w0`` .. ``_w7`` + ``_sb360``), plus a UNION ALL VIEW named
+# ``action_context_unit_events`` — which is the ONLY name the gate ever reads.
+#
+# Why: D9 makes ~390 one-row commits from 8 concurrent drivers. Measured on the real job, a
+# single shared table cost **p50 9.7 s per append** at 8-way concurrency vs **1.66 s uncontended**
+# (0 failures either way — ADR-038's jittered backoff absorbs the contention into LATENCY). The
+# pre-registered threshold (750 ms) was breached 13x, so we take ADR-038's own elimination route
+# (b) — "split into multiple tables" — the only option that makes ``_delta_log`` contention
+# STRUCTURALLY IMPOSSIBLE rather than merely retried.
+#
+# ``PARTITIONED BY (event_date)`` is for RETENTION (a partition drop, not a tombstone-generating
+# DELETE) and read-pruning ONLY. Partitioning is NOT a contention control (ADR-038: ``_delta_log``
+# serialization is inherent to a single TABLE) — splitting tables is what fixed it.
+_EVENT_TABLE = "action_context_unit_events"  # the VIEW; per-worker tables suffix it
+_EVENT_SCHEMA = "observability"
+
+# One event table per for_each drain worker. Pinned to ``_ActionContextGuard._N_DRAIN_WORKERS``
+# (a module-level import would be circular — ``ingestion.action_context`` imports this module's
+# adapters); parity is guarded by test_unit_event_sink.py::test_event_worker_count_matches_the_drain_fan_out.
+_N_EVENT_WORKERS = 8
+
+# Sentinel unit identity for a ``slice_completed`` event: it belongs to a WORKER, not a unit, but
+# ``provider``/``match_id`` are NOT NULL. The gate filters on ``state``, never on these.
+_SLICE_SENTINEL = "__slice__"
+
+# SINGLE SOURCE OF TRUTH for the unit-event columns, same convention as ``_QUEUE_COLUMNS``:
+# (name, simpleString type, nullable) — pyspark-free so the parity test + DDL string work OFFLINE.
+# Excludes ``_ingested_at``, which write_delta_table auto-adds.
+_EVENT_COLUMNS: list[tuple[str, str, bool]] = [
+    ("run_id", "string", False),
+    ("worker_id", "int", False),
+    ("provider", "string", False),
+    ("match_id", "string", False),
+    ("period", "int", True),  # NULL for sb360 (match-grain; it exits the per-period drain)
+    ("state", "string", False),  # running | succeeded | failed | timed_out | slice_completed
+    ("started_at", "timestamp", True),
+    ("ended_at", "timestamp", True),
+    ("rows_written", "bigint", True),
+    ("error", "string", True),
+    # ``slice_completed`` ONLY: the count of unit-event rows lost to the fail-open writes. It is the
+    # SOLE channel by which telemetry loss reaches the gate, which reads persisted tables only.
+    ("write_failures", "int", True),
+    ("event_date", "date", False),  # M4: partition key — MUST be a real column
+]
+
+
+def event_columns_sql() -> str:
+    """CREATE TABLE column list derived from ``_EVENT_COLUMNS``, + ``_ingested_at``."""
+    cols = [f"{name} {sql_type}" for name, sql_type, _ in _EVENT_COLUMNS]
+    cols.append("_ingested_at timestamp")
+    return ", ".join(cols)
+
+
+def event_table_for_worker(worker_id: int) -> str:
+    """The per-writer event table for ``worker_id`` (or the sb360 sentinel). Never the view."""
+    if worker_id == SB360_WORKER_ID:
+        return f"{_EVENT_TABLE}_sb360"
+    if not 0 <= worker_id < _N_EVENT_WORKERS:
+        raise ValueError(
+            f"worker_id {worker_id!r} has no event table: expected 0..{_N_EVENT_WORKERS - 1} "
+            f"or the sb360 sentinel ({SB360_WORKER_ID})"
+        )
+    return f"{_EVENT_TABLE}_w{worker_id}"
+
+
+def event_table_names() -> list[str]:
+    """Every physical event table, in the order the UNION ALL view stacks them."""
+    return [event_table_for_worker(w) for w in range(_N_EVENT_WORKERS)] + [event_table_for_worker(SB360_WORKER_ID)]
+
+
+def event_view_sql(catalog: str) -> str:
+    """The UNION ALL view the gate reads — same columns as a single table would have."""
+    # S608 suppressed: no user input reaches the string — the table names are module constants and
+    # ``catalog`` is the internal catalog FQN (same trusted pattern as ``ensure_table``'s CREATE TABLE).
+    parts = [f"SELECT * FROM {catalog}.{_EVENT_SCHEMA}.{t}" for t in event_table_names()]  # noqa: S608
+    return f"CREATE OR REPLACE VIEW {catalog}.{_EVENT_SCHEMA}.{_EVENT_TABLE} AS " + " UNION ALL ".join(parts)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(tz=timezone.utc)
+
+
+def _event_row(
+    *,
+    run_id: str,
+    worker_id: int,
+    provider: str | None,
+    match_id: str | None,
+    period: int | None,
+    state: str,
+    started_at: datetime | None,
+    ended_at: datetime | None,
+    rows_written: int | None,
+    error: str | None,
+    write_failures: int | None,
+) -> dict[str, Any]:
+    """Pure row builder — so the NOT-NULL contract is testable without Spark (V5).
+
+    ``event_date`` is NOT NULL and ``write_delta_table`` auto-adds ONLY ``_ingested_at``: nothing
+    else would populate it, and the first production write would fail on the NOT-NULL partition
+    column. It is derived from the event's own timestamp (``ended_at`` for a terminal, ``started_at``
+    for a ``running``, wall-clock for a unit-less ``slice_completed``).
+
+    ``provider``/``match_id`` are NOT NULL but a ``slice_completed`` has no unit -> ``_SLICE_SENTINEL``.
+    Key order mirrors ``_EVENT_COLUMNS`` (rows are written positionally against it).
+    """
+    stamp = ended_at or started_at or _utcnow()
+    return {
+        "run_id": run_id,
+        "worker_id": worker_id,
+        "provider": provider or _SLICE_SENTINEL,
+        "match_id": match_id or _SLICE_SENTINEL,
+        "period": period,
+        "state": state,
+        "started_at": started_at,
+        "ended_at": ended_at,
+        "rows_written": rows_written,
+        "error": error,
+        "write_failures": write_failures,
+        "event_date": stamp.date(),
+    }
+
+
+def _event_struct():
+    from pyspark.sql import types as T  # noqa: N812
+
+    mapping = {
+        "string": T.StringType,
+        "int": T.IntegerType,
+        "bigint": T.LongType,
+        "timestamp": T.TimestampType,
+        "date": T.DateType,
+    }
+    return T.StructType(
+        [T.StructField(name, mapping[sql_type](), nullable) for name, sql_type, nullable in _EVENT_COLUMNS]
+    )
+
+
+class DeltaUnitEventSink:
+    """Per-unit lifecycle events over ``{catalog}.observability.action_context_unit_events_*``.
+
+    Implements ``analytics.action_context.drain.UnitEventSink``. One instance per WRITER (a drain
+    worker, or sb360) — every write goes to that writer's own table, so the ``_delta_log``
+    contention that made a shared table cost 9.7 s/append is structurally impossible.
+
+    Failure policies (see the port's docstring — they are load-bearing):
+    ``unit_started`` / ``flush_terminals`` are FAIL-OPEN and count lost rows into
+    ``write_failures``; ``slice_completed`` is FAIL-LOUD and carries that count to the gate.
+    """
+
+    def __init__(self, spark: SparkSession, catalog: str, logger: logging.Logger | None = None) -> None:
+        self._spark = spark
+        self._catalog = catalog
+        self._logger = logger or logging.getLogger("action_context_events")
+        self._terminals: list[dict[str, Any]] = []
+        self._write_failures = 0
+
+    @property
+    def write_failures(self) -> int:
+        """Unit-event ROWS lost to the fail-open writes. Reaches the gate via ``slice_completed``."""
+        return self._write_failures
+
+    def ensure_tables(self) -> None:
+        """Create the schema, every per-worker table, and the UNION ALL view. Idempotent.
+
+        **PREFLIGHT ONLY — it is the single owner of creation.** The view is created with
+        ``CREATE OR REPLACE VIEW``, which is NOT idempotent under concurrency: two tasks issuing it
+        against the same view at the same time is a metastore race that can throw. And
+        ``compute_action_context_statsbomb`` does NOT depend on ``preflight_action_context``
+        (main.tf), so the two tasks OVERLAP — while both run at ``max_retries = 0``. sb360 therefore
+        calls ``ensure_own_table`` instead; the 8-way drain calls neither.
+        """
+        self._spark.sql(f"CREATE SCHEMA IF NOT EXISTS {self._catalog}.{_EVENT_SCHEMA}")
+        for table in event_table_names():
+            self._ensure_one_table(table)
+        self._spark.sql(event_view_sql(self._catalog))
+
+    def ensure_own_table(self, worker_id: int) -> None:
+        """Create ONLY this writer's own event table. Idempotent, and **it never touches the view.**
+
+        The narrow half of ``ensure_tables``, for a writer that must be able to write before (or
+        concurrently with) preflight: sb360 does not depend on preflight, so it cannot inherit
+        preflight's creation, yet its ``slice_completed`` is FAIL-LOUD and would die on a missing
+        table on the very first run. ``CREATE TABLE IF NOT EXISTS`` on the writer's OWN table races
+        with nothing; ``CREATE OR REPLACE VIEW`` on a view a second task is concurrently replacing
+        does — which is why that statement stays in preflight's hands alone.
+        """
+        self._spark.sql(f"CREATE SCHEMA IF NOT EXISTS {self._catalog}.{_EVENT_SCHEMA}")
+        self._ensure_one_table(event_table_for_worker(worker_id))
+
+    def _ensure_one_table(self, table: str) -> None:
+        self._spark.sql(
+            f"CREATE TABLE IF NOT EXISTS {self._catalog}.{_EVENT_SCHEMA}.{table} "
+            f"({event_columns_sql()}) USING DELTA PARTITIONED BY (event_date)"
+        )
+
+    def unit_started(self, run_id: str, worker_id: int, unit: WorkUnit) -> None:
+        """FAIL-OPEN. Written BEFORE processing — it is the OOM-visibility guarantee, so it can
+        never be batched: an OOM-killed driver flushes no buffer."""
+        row = _event_row(
+            run_id=run_id,
+            worker_id=worker_id,
+            provider=unit.provider,
+            match_id=unit.match_id,
+            period=unit.period,
+            state="running",
+            started_at=_utcnow(),
+            ended_at=None,
+            rows_written=None,
+            error=None,
+            write_failures=None,
+        )
+        self._write_fail_open([row], worker_id, "unit_started")
+
+    def units_started(self, run_id: str, worker_id: int, units: Sequence[WorkUnit]) -> None:
+        """BATCHED ``running`` — ONE commit for a whole slice. FAIL-OPEN. **sb360 only.**
+
+        Deliberately NOT on the ``UnitEventSink`` port: that port is the DRAIN's contract, and the
+        drain must never acquire this shape. The drain writes ``running`` PER UNIT because it
+        processes units SERIALLY — an OOM at unit k must leave units 0..k-1 terminal and unit k
+        ``running``, and a buffered batch would be lost with the driver. sb360 is ONE distributed
+        cogroup job (ADR-058) that either runs or dies as a whole, so a single pre-job batch carries
+        exactly the same OOM information at 1 commit instead of N (up to 323 on a backlog run).
+        """
+        if not units:
+            return
+        rows = [
+            _event_row(
+                run_id=run_id,
+                worker_id=worker_id,
+                provider=u.provider,
+                match_id=u.match_id,
+                period=u.period,
+                state="running",
+                started_at=_utcnow(),
+                ended_at=None,
+                rows_written=None,
+                error=None,
+                write_failures=None,
+            )
+            for u in units
+        ]
+        self._write_fail_open(rows, worker_id, "units_started")
+
+    def unit_finished(
+        self,
+        run_id: str,
+        worker_id: int,
+        unit: WorkUnit,
+        *,
+        state: str,
+        rows_written: int | None,
+        error: str | None,
+    ) -> None:
+        """Buffered — terminal state is RECONSTRUCTIBLE from results, which is the licence to batch.
+        Written by ``flush_terminals``."""
+        self._terminals.append(
+            _event_row(
+                run_id=run_id,
+                worker_id=worker_id,
+                provider=unit.provider,
+                match_id=unit.match_id,
+                period=unit.period,
+                state=state,
+                started_at=None,
+                ended_at=_utcnow(),
+                rows_written=rows_written,
+                error=error,
+                write_failures=None,
+            )
+        )
+
+    def flush_terminals(self) -> None:
+        """FAIL-OPEN (ADR-002: telemetry loss must never become data loss). Were this fail-loud, the
+        gate's ``UNVERIFIABLE`` verdict — whose whole purpose is lost unit events — would be
+        unreachable, because a lossy worker would have died instead."""
+        if not self._terminals:
+            return
+        pending, self._terminals = self._terminals, []
+        for worker_id in sorted({int(r["worker_id"]) for r in pending}):
+            rows = [r for r in pending if int(r["worker_id"]) == worker_id]
+            self._write_fail_open(rows, worker_id, "flush_terminals")
+
+    def slice_completed(self, run_id: str, worker_id: int) -> None:
+        """FAIL-LOUD. The ONLY channel by which ``write_failures`` reaches the gate (a different
+        task, reading persisted tables only). If it cannot land, the gate's evidence is unusable —
+        so the worker task must fail rather than let the gate reason on a half-truth.
+
+        Emitted by IDLE workers too (P4): a silent idle worker is indistinguishable from a DEAD one.
+        """
+        row = _event_row(
+            run_id=run_id,
+            worker_id=worker_id,
+            provider=None,
+            match_id=None,
+            period=None,
+            state="slice_completed",
+            started_at=None,
+            ended_at=_utcnow(),
+            rows_written=None,
+            error=None,
+            write_failures=self._write_failures,
+        )
+        self._write([row], worker_id)
+
+    def _write_fail_open(self, rows: list[dict[str, Any]], worker_id: int, what: str) -> None:
+        try:
+            self._write(rows, worker_id)
+        except Exception as exc:
+            # FAIL-OPEN by design: telemetry loss must never become data loss (ADR-002). The loss is
+            # NOT silent — ERROR-level with a traceback (never warning: those are invisible in
+            # error-log queries) AND counted into write_failures, which rides to the gate on
+            # slice_completed and taints this worker's verdict (UNVERIFIABLE, not COMPLETE).
+            # BLE001 does not fire here: ruff exempts a broad catch logged with exc_info=True.
+            self._write_failures += len(rows)
+            self._logger.error(
+                "ac1_unit_event_write_failed op=%s worker_id=%d rows_lost=%d total_write_failures=%d err=%s",
+                what,
+                worker_id,
+                len(rows),
+                self._write_failures,
+                exc,
+                exc_info=True,
+            )
+
+    def _write(self, rows: list[dict[str, Any]], worker_id: int) -> None:
+        from ingestion.utils import write_delta_table
+
+        payload = [tuple(row[name] for name, _t, _n in _EVENT_COLUMNS) for row in rows]
+        sdf = self._spark.createDataFrame(payload, schema=_event_struct())
+        # mode="append" is MANDATORY (§0d): write_delta_table DEFAULTS to mode="overwrite", so the
+        # natural call would WIPE this append-only log on every event — leaving one row and a gate
+        # that accuses a healthy drain on every run. Measured in the spike: 392 default-mode
+        # "appends" left ONE row. Guarded by test_sink_writes_are_APPEND_not_the_overwrite_DEFAULT.
+        write_delta_table(
+            sdf,
+            self._catalog,
+            _EVENT_SCHEMA,
+            event_table_for_worker(worker_id),
+            mode="append",
+            row_count=len(rows),
+        )
 
 
 def _prune_sql(table: str, retention_days: int = _QUEUE_RETENTION_DAYS) -> str:
@@ -178,6 +526,18 @@ class DeltaWorkQueue:
             replace_where=f"run_id = '{run_id}'",
             row_count=len(rows),
         )
+
+    def count_for_run(self, run_id: str) -> int:
+        """Queue rows PERSISTED for ``run_id`` — the read half of preflight's enqueue round-trip.
+
+        Spec §11: the D8 gate compares queue rows against unit events, so a run where the planner
+        discovered N and ``enqueue`` persisted M < N is self-consistently SHORT — invisible to every
+        downstream check. Preflight is the only place that holds both numbers, so it is the only
+        place that can assert them. One bounded aggregate; no rows reach the driver.
+        """
+        from pyspark.sql import functions as F  # noqa: N812
+
+        return int(self._spark.table(self._table).where(F.col("run_id") == run_id).count())
 
     def units_for_worker(self, run_id: str, worker_id: int) -> list[WorkUnit]:
         from pyspark.sql import functions as F  # noqa: N812

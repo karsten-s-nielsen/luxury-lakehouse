@@ -124,6 +124,24 @@ class _InlineWatchdog:
         return fn()
 
 
+class _NullSink:
+    """No-op ``UnitEventSink`` — these tests are about the drain's CONTROL FLOW, not its events.
+
+    ``sink`` is a mandatory injection (no default), so it must be supplied here; the event contract
+    itself is tested in ``test_drain_events.py``.
+    """
+
+    write_failures = 0
+
+    def unit_started(self, run_id: str, worker_id: int, unit: WorkUnit) -> None: ...
+
+    def unit_finished(self, run_id, worker_id, unit, *, state, rows_written, error) -> None: ...
+
+    def flush_terminals(self) -> None: ...
+
+    def slice_completed(self, run_id: str, worker_id: int) -> None: ...
+
+
 class _TimeoutWatchdog:
     """Times out (and 'abandons') a configured set of unit labels.
 
@@ -151,7 +169,9 @@ def test_drain_worker_processes_own_slice_only() -> None:
     u1 = [WorkUnit(provider="wyscout", match_id="c")]
     q = _FakeQueue({("R", 0): u0, ("R", 1): u1})
     proc = _FakeProcessor()
-    s = drain_worker(q, proc, _InlineWatchdog(), run_id="R", worker_id=0, logger=logging.getLogger("t"))
+    s = drain_worker(
+        q, proc, _InlineWatchdog(), run_id="R", worker_id=0, logger=logging.getLogger("t"), sink=_NullSink()
+    )
     assert proc.processed == ["a", "b"]
     assert s.processed == 2 and s.total_rows == 10 and s.failed == 0
 
@@ -165,7 +185,9 @@ def test_drain_worker_failure_continues_with_key(caplog) -> None:
     q = _FakeQueue({("R", 0): units})
     proc = _FakeProcessor(fail=frozenset({"bad"}))
     with caplog.at_level(logging.ERROR):
-        s = drain_worker(q, proc, _InlineWatchdog(), run_id="R", worker_id=0, logger=logging.getLogger("t"))
+        s = drain_worker(
+            q, proc, _InlineWatchdog(), run_id="R", worker_id=0, logger=logging.getLogger("t"), sink=_NullSink()
+        )
     assert proc.processed == ["ok1", "ok2"]
     assert s.processed == 2 and s.failed == 1
     assert "wyscout:bad" in s.failed_units
@@ -177,7 +199,7 @@ def test_drain_worker_timeout_continues() -> None:
     q = _FakeQueue({("R", 0): units})
     proc = _FakeProcessor()
     wd = _TimeoutWatchdog(timeout_labels=frozenset({"metrica:x"}))
-    s = drain_worker(q, proc, wd, run_id="R", worker_id=0, logger=logging.getLogger("t"))
+    s = drain_worker(q, proc, wd, run_id="R", worker_id=0, logger=logging.getLogger("t"), sink=_NullSink())
     assert proc.processed == ["y"]
     assert s.timed_out == 1 and s.processed == 1 and "metrica:x" in s.timed_out_units
 
@@ -187,7 +209,16 @@ def test_drain_worker_abandonment_ceiling_fails_fast() -> None:
     q = _FakeQueue({("R", 0): units})
     wd = _TimeoutWatchdog(timeout_labels=frozenset(unit_label(u) for u in units))
     with pytest.raises(RuntimeError, match="abandoned-thread ceiling"):
-        drain_worker(q, _FakeProcessor(), wd, run_id="R", worker_id=0, logger=logging.getLogger("t"), max_abandoned=3)
+        drain_worker(
+            q,
+            _FakeProcessor(),
+            wd,
+            run_id="R",
+            worker_id=0,
+            logger=logging.getLogger("t"),
+            sink=_NullSink(),
+            max_abandoned=3,
+        )
 
 
 def test_drain_worker_uses_prefetched_units() -> None:
@@ -201,7 +232,14 @@ def test_drain_worker_uses_prefetched_units() -> None:
     units = [WorkUnit(provider="wyscout", match_id="a"), WorkUnit(provider="wyscout", match_id="b")]
     proc = _FakeProcessor()
     s = drain_worker(
-        _BoomQueue(), proc, _InlineWatchdog(), run_id="R", worker_id=0, logger=logging.getLogger("t"), units=units
+        _BoomQueue(),
+        proc,
+        _InlineWatchdog(),
+        run_id="R",
+        worker_id=0,
+        logger=logging.getLogger("t"),
+        sink=_NullSink(),
+        units=units,
     )
     assert proc.processed == ["a", "b"]
     assert s.processed == 2

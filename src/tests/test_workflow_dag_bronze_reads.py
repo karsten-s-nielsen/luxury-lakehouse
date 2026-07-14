@@ -95,6 +95,18 @@ _BRONZE_READ_REQUIREMENTS: list[tuple[str, str, str]] = [
     # ── dbt_build_output_marts: stg_action_context reads bronze written by BOTH AC arms ──
     ("dbt_build_output_marts", "spadl_action_context", "compute_action_context"),
     ("dbt_build_output_marts", "spadl_action_context", "compute_action_context_statsbomb"),
+    # ── verify_action_context_drain (D8): the fan-in completeness gate. It cross-checks what
+    #    LANDED in bronze.spadl_action_context — written by BOTH AC arms — and re-runs the
+    #    planner (_ActionContextGuard.discover_units), which reads bronze.spadl_actions + the
+    #    four tracking bronze tables. Evidence: src/ingestion/action_context_gate.py
+    #    (_read_result_counts, _remaining_units) + action_context.py:737-760.
+    ("verify_action_context_drain", "spadl_action_context", "compute_action_context"),
+    ("verify_action_context_drain", "spadl_action_context", "compute_action_context_statsbomb"),
+    ("verify_action_context_drain", "spadl_actions", "compute_spadl_vaep"),
+    ("verify_action_context_drain", "idsse_tracking", "ingest_idsse"),
+    ("verify_action_context_drain", "metrica_tracking", "ingest_metrica"),
+    ("verify_action_context_drain", "skillcorner_tracking", "ingest_skillcorner"),
+    ("verify_action_context_drain", "gradientsports_tracking", "ingest_gradientsports"),
     # ── dbt_build_output_marts: stg_xg__shot_predictions → fct_shot_xg reads
     #    bronze.xg_shot_predictions written by compute_xg_shot_scores (ADR-066).
     #    The mart is promoted into the daily build via `--vars xg_v3_enabled=true`. ──

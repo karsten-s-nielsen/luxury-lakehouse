@@ -59,7 +59,7 @@ execution:
     module: ingestion.spadl_vaep
     distribution: driver-bound
     schedule: "daily 06:00 UTC"
-    timeout: "7200s"
+    timeout: "1800s"
     environment: analytics
 
 depends_on:

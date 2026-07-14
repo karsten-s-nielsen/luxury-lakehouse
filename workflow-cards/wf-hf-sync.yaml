@@ -30,7 +30,7 @@ execution:
     entry_point: hf_sync
     module: ingestion.hf_sync
     distribution: driver-bound
-    timeout: "1800s"
+    timeout: "600s"
     environment: hf
     # PR-Cycle-B (2026-05-01): wf-import-obso split out into its own Databricks
     # task so wf-obso-pausa can declare an explicit dependency on the import.

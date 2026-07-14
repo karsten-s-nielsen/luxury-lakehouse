@@ -48,7 +48,7 @@ execution:
     module: ingestion.model_validation
     distribution: driver-bound
     schedule: "daily 07:00 UTC"
-    timeout: "1800s"
+    timeout: "600s"
     environment: analytics
 
 depends_on:

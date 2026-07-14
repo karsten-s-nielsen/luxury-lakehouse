@@ -257,6 +257,16 @@ resource "databricks_job" "data_ingestion" {
         "--schema", "bronze",
         # Optional cap for scoped runs; empty => all pending sb360 matches (parsed in main_statsbomb).
         "--max-units", "{{job.parameters.max_units}}",
+        # D9 (Task 6): sb360 is NEVER enqueued, so its OWN unit events are the only evidence the D8
+        # gate has about statsbomb -- and they are only evidence if they carry the run it verifies.
+        #
+        # {{job.run_id}}, NOT the preflight task value the DRAIN workers use: this task does NOT
+        # depend on preflight_action_context, and a Databricks task value resolves only from an
+        # UPSTREAM task. It is the identical value -- {{job.run_id}} is exactly what preflight itself
+        # is passed (see its task below), and _resolve_run_id returns it verbatim. It is also the
+        # more robust of the two: the preflight task value is "" on a nothing-to-do run, which would
+        # leave sb360 unable to file its events at all.
+        "--run-id", "{{job.run_id}}",
       ]
     }
 
@@ -1502,6 +1512,48 @@ resource "databricks_job" "data_ingestion" {
     }
 
     environment_key = "default"
+  }
+
+  # ── Task: D8 — action-context drain completeness gate ──────────────────
+  # The FAN-IN over BOTH action-context producers: the 8-way `compute_action_context`
+  # drain for_each AND `compute_action_context_statsbomb` (sb360 exits the per-match
+  # drain — ADR-058 — so a queue-only gate would leave statsbomb completely unchecked).
+  # Reads the work queue + the D9 unit-event log + the results mart and asserts that
+  # every expected unit actually ran and its rows actually landed
+  # (`skillcorner:1552423:2` wrote 0 of its 550 actions while the job reported SUCCESS).
+  task {
+    task_key        = "verify_action_context_drain"
+    timeout_seconds = 3600
+    max_retries     = 0
+
+    # run_if = ALL_DONE: the gate must run even when the drain FAILED. Otherwise a dead
+    # worker SKIPS the gate and D9's whole OOM-visibility payoff (`running` written BEFORE
+    # processing) is delivered to nobody. Only INCOMPLETE (and a planner alarm) fails the
+    # task; DRAIN_FAILED / UNVERIFIABLE are REPORTS — the job already failed, and the gate's
+    # job there is to say WHAT DIED, not to mask the drain's real exception with its own.
+    run_if = "ALL_DONE"
+
+    depends_on { task_key = "compute_action_context" }
+    depends_on { task_key = "compute_action_context_statsbomb" }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "verify_action_context_drain"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+        # {{job.run_id}} — NOT {{tasks.preflight_action_context.values.action_context_run_id}}.
+        # The preflight task value is "" on a nothing-to-do run, while sb360 (which does not
+        # depend on preflight, so the task value is not even resolvable there) files its events
+        # under the JOB run id. A gate wired to the task value would audit run "", find no sb360
+        # slice_completed, and report DRAIN_FAILED EVERY QUIET DAY. It is the identical value:
+        # preflight is itself passed "{{job.run_id}}" and returns it verbatim.
+        "--run-id", "{{job.run_id}}",
+      ]
+    }
+
+    environment_key = "analytics"
   }
 
   # ── Environment for SPADL/VAEP task (includes analytics extras) ─────────

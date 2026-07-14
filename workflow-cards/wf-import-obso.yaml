@@ -39,7 +39,7 @@ execution:
     entry_point: import_obso_results
     module: ingestion.import_obso_results
     distribution: driver-bound
-    timeout: "900s"
+    timeout: "600s"
     environment: hf
 
 # PR-Cycle-B (2026-05-01): standalone task — split out of wf-hf-sync so that

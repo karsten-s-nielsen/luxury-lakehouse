@@ -17,14 +17,20 @@ import argparse
 import logging
 import os
 import re
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from analytics.action_context.batching import resolve_frame_batch_size
-from analytics.action_context.drain import WATCHDOG_BUDGET_S, DrainSummary, assign_workers, drain_worker
+from analytics.action_context.drain import (
+    SB360_WORKER_ID,
+    WATCHDOG_BUDGET_S,
+    DrainSummary,
+    assign_workers,
+    drain_worker,
+)
 from analytics.action_context.ghost_gk_backend import resolve_ghost_gk_backend
 from analytics.action_context.pipeline import _reconstruct_xt
 from analytics.action_context.schema import (
@@ -520,8 +526,17 @@ def _find_tracking_new_period_pairs(
 
     Per-period generalisation of the whole-match discovery — all four tracking bronze tables carry a
     ``period`` column, so every tracking provider now enqueues per-half units like IDSSE (ADR-037
-    amendment). Three-way join at period granularity:
-      tracking(mid, period) ∩ spadl(mid) \\ results(mid, period)
+    amendment). Three-way join, ALL THREE LEGS at period granularity:
+      tracking(mid, period) ∩ spadl(mid, period) \\ results(mid, period)
+
+    The SPADL leg is PERIOD grain (it was MATCH grain until 2026-07-13, ADR-068). At match grain a
+    ``(match, period)`` with tracking frames but ZERO SPADL actions in that period was still
+    enumerated → processed to ``pipeline.py``'s ``_empty_result()`` (a silent 0-row return) → never
+    landed in ``results`` → **re-enumerated forever**, and the work-queue recorded a unit that could
+    not possibly produce a row.
+
+    SIBLING (§0a, the pair rule): ``_find_idsse_new_period_pairs`` runs the same join and must be
+    edited in lockstep. Both are covered by ``test_planner_grain.py``, parametrized over both.
     """
     from pyspark.sql import functions as F  # noqa: N812
 
@@ -536,7 +551,15 @@ def _find_tracking_new_period_pairs(
     spadl_df = (
         spark.table(spadl_table)
         .filter(F.col("data_source") == provider)
-        .select(F.col("match_id_native").cast("string").alias("_mid"))
+        .select(
+            F.col("match_id_native").cast("string").alias("_mid"),
+            # PERIOD GRAIN. The casts on BOTH sides are load-bearing: an encoding/dtype disagreement
+            # between spadl.period_id and tracking.period would make this join match NOTHING, the
+            # planner enumerate ZERO units, and the D8 gate still report COMPLETE (it re-runs this
+            # same function for `remaining`). ADR-019 canonical-id class; guarded by
+            # test_planner_grain.py::test_period_encoding_variants_still_join + the live 374-count.
+            F.col("period_id").cast("bigint").alias("_period"),
+        )
         .distinct()
     )
     results_df = (
@@ -548,7 +571,7 @@ def _find_tracking_new_period_pairs(
         )
         .distinct()
     )
-    new_df = tracking_df.join(spadl_df, "_mid", "inner").join(results_df, ["_mid", "_period"], "left_anti")
+    new_df = tracking_df.join(spadl_df, ["_mid", "_period"], "inner").join(results_df, ["_mid", "_period"], "left_anti")
     return [(str(row["_mid"]), int(row["_period"])) for row in new_df.collect()]
 
 
@@ -595,8 +618,12 @@ def _find_idsse_new_period_pairs(
 ) -> list[tuple[str, int]]:
     """Find unprocessed IDSSE (match_id, period) pairs (Spark-native).
 
-    Three-way join at period granularity:
-      tracking(mid, period) ∩ spadl(mid) \\ results(mid, period)
+    Three-way join, ALL THREE LEGS at period granularity:
+      tracking(mid, period) ∩ spadl(mid, period) \\ results(mid, period)
+
+    SIBLING (§0a, the pair rule): the SPADL leg here is the SAME leg as in
+    ``_find_tracking_new_period_pairs`` — see that function's docstring for why it is period grain
+    (ADR-068: a zero-action period was enumerated forever) and why the casts are load-bearing.
     """
     from pyspark.sql import functions as F  # noqa: N812
 
@@ -611,7 +638,10 @@ def _find_idsse_new_period_pairs(
     spadl_df = (
         spark.table(spadl_table)
         .filter(F.col("data_source") == "idsse")
-        .select(F.col("match_id_native").cast("string").alias("_mid"))
+        .select(
+            F.col("match_id_native").cast("string").alias("_mid"),
+            F.col("period_id").cast("bigint").alias("_period"),  # PERIOD GRAIN (was match-only)
+        )
         .distinct()
     )
     results_df = (
@@ -623,7 +653,7 @@ def _find_idsse_new_period_pairs(
         )
         .distinct()
     )
-    new_df = tracking_df.join(spadl_df, "_mid", "inner").join(results_df, ["_mid", "_period"], "left_anti")
+    new_df = tracking_df.join(spadl_df, ["_mid", "_period"], "inner").join(results_df, ["_mid", "_period"], "left_anti")
     return [(str(row["_mid"]), int(row["_period"])) for row in new_df.collect()]
 
 
@@ -932,6 +962,20 @@ def main_preflight() -> None:
         # ADR-063 R5b/H1 (daily/full path only): on a MATERIAL global-xT-grid change, force a full
         # re-materialize of the tracking providers' action-context (their xt_gk_* are grid-derived).
         _force_full_rematerialize_on_grid_change(spark, args.catalog, args.schema, task_logger)
+    # D9: preflight is the SINGLE OWNER of creation — all 9 per-worker tables AND the UNION view — and
+    # this runs BEFORE the nothing-to-do early-return below.
+    #   * the drain must not do it: 8 concurrent drivers on 9 CREATE-IF-NOT-EXISTS + a view is needless
+    #     metastore contention, the very class the Task-2 spike exists to avoid;
+    #   * sb360 must not do it: it does NOT depend on preflight (main.tf), so the two tasks OVERLAP, and
+    #     `CREATE OR REPLACE VIEW` is NOT idempotent under concurrency — two tasks replacing the same view
+    #     at once is a metastore race, at max_retries = 0. sb360 calls `ensure_own_table` instead, which
+    #     creates only its own `_sb360` table and never touches the view.
+    #   * `slice_completed` is FAIL-LOUD, so a missing table would kill every worker.
+    # And it must precede the early-return: the gate reads the view even on a nothing-to-do run.
+    from ingestion.action_context_queue import DeltaUnitEventSink
+
+    DeltaUnitEventSink(spark, args.catalog, task_logger).ensure_tables()
+
     guard = _ActionContextGuard(provider_filter=provider_filter, max_units=max_units)
     fr = timed_check(guard, spark, args.catalog, args.schema)  # telemetry (count + skip); discovery memoised
     if fr.count == 0:
@@ -965,6 +1009,18 @@ def main_preflight() -> None:
     if pruned:
         task_logger.info("Action context preflight: pruned %d stale work-queue rows (retention)", pruned)
     queue.enqueue(run_id, assignments)
+    # THE ENQUEUE ROUND-TRIP (spec §11). `enqueue` is the ONLY queue write, and the D8 gate audits the
+    # drain by comparing queue rows against unit events — so a run where the planner discovered N and
+    # the write persisted M < N is self-consistently SHORT, and every downstream check (including the
+    # gate) reports COMPLETE on a silently truncated queue. Preflight is the only place that holds
+    # both numbers. Fail-loud: a short queue means work that will never be done.
+    persisted = queue.count_for_run(run_id)
+    if persisted != len(assignments):
+        raise RuntimeError(
+            f"Action context preflight enqueue round-trip FAILED (run_id={run_id}): "
+            f"assigned {len(assignments)} units but the work-queue persisted {persisted}. "
+            "The drain -- and the D8 gate that audits it -- would run on a silently SHORT queue."
+        )
 
     worker_ids = [str(i) for i in range(_ActionContextGuard._N_DRAIN_WORKERS)]
     _set_task_value("action_context_run_id", run_id, task_logger)
@@ -1160,27 +1216,103 @@ def main() -> None:
     )
 
 
+def _sb360_units(match_ids: list[str]) -> list[WorkUnit]:
+    """The discovered sb360 match set as WorkUnits — sb360's queue-equivalent (it is NEVER enqueued).
+
+    ``period`` is None: sb360 works at MATCH grain (it exits the per-period drain, ADR-058), which is
+    why ``_EVENT_COLUMNS.period`` is nullable.
+    """
+    return [WorkUnit(provider="statsbomb", match_id=str(m), period=None) for m in match_ids]
+
+
+def _sb360_terminals(match_ids: list[str], rows_by_match: Mapping[str, int]) -> list[tuple[str, int]]:
+    """Derive one terminal per DISCOVERED match from what actually LANDED (pure — testable offline).
+
+    ``_process_statsbomb_matches`` is ONE distributed cogroup job (ADR-058): the driver never
+    observes per-match completion, so there is no per-match loop to hook and terminals must be
+    derived post-hoc by grouping the written rows by ``match_id``.
+
+    A discovered match ABSENT from ``rows_by_match`` wrote ZERO rows (the UDF's empty / no-frame
+    path) and STILL gets a terminal — ``succeeded, rows_written=0``. Leaving it terminal-less would
+    make it indistinguishable from a match that never ran, which is exactly what the gate RAISES on.
+    """
+    return [(str(m), int(rows_by_match.get(str(m), 0))) for m in match_ids]
+
+
+def _sb360_rows_by_match(spark: SparkSession, catalog: str, schema: str, match_ids: list[str]) -> dict[str, int]:
+    """POST-WRITE per-match row counts for this batch — the sb360 job's OUTCOME, not its intent.
+
+    Bounded by construction: one aggregate, at most ``len(match_ids)`` rows to the driver. The key is
+    canonicalized with ``_canon_key`` on both sides (ADR-019) — the same normalization discovery uses.
+    """
+    from pyspark.sql import functions as F  # noqa: N812
+
+    rows = (
+        spark.table(f"{catalog}.{schema}.{_TABLE_NAME}")
+        .filter((F.col("data_source") == "statsbomb") & _canon_key("match_id").isin(match_ids))
+        .groupBy(_canon_key("match_id").alias("_ck"))
+        .count()
+        .collect()
+    )
+    return {str(r["_ck"]): int(r["count"]) for r in rows}
+
+
 def main_statsbomb() -> None:
     """Entry point (ADR-058): process ALL pending statsbomb sb360 matches in ONE distributed
     ``cogroup.applyInPandas`` job (``_process_statsbomb_matches``). statsbomb EXITS the per-match drain;
     this is its production path. ``--max-units`` optionally caps the batch (scoped runs); ``--provider``
     is ignored (statsbomb only). Own skip-guard: a no-op when discovery finds nothing.
+
+    D9 (Task 6): sb360 is NEVER enqueued, so the work-queue says NOTHING about it and a queue-only
+    completeness gate leaves statsbomb entirely unchecked. It therefore emits its OWN unit events —
+    its discovered match set IS its persisted queue-equivalent. THREE commits, single writer (no
+    ``_delta_log`` contention): a batched ``running`` before the job, a batched terminal set after
+    it, and one ``slice_completed`` carrying ``SB360_WORKER_ID``.
     """
     args = parse_ingestion_args(
         "Compute action context for statsbomb (sb360) — single distributed cogroup job",
         extra_args=[
             # str (not int): the job parameter arrives as an empty string when unset — parsed below.
             ("--max-units", {"type": str, "default": "", "help": "Cap the number of sb360 matches (empty = all)."}),
+            # Y1/X2b: terraform passing a flag and argparse accepting it are a PAIR — without this,
+            # the main.tf `--run-id` would kill the task on `unrecognized arguments` on the first run
+            # after apply. Not `required=True`: it is validated below so the error names WHY.
+            (
+                "--run-id",
+                {
+                    "type": str,
+                    "default": None,
+                    "help": "Job-level run id (from {{job.run_id}} — the same value preflight gets). "
+                    "sb360's unit events must carry the run the D8 gate verifies.",
+                },
+            ),
         ],
     )
     task_logger = configure_logging("action_context")
     spark = get_spark_session()
 
+    from ingestion.action_context_queue import DeltaUnitEventSink
     from ingestion.bootstrap import bootstrap_hooks
     from ingestion.guards import ensure_table
 
     bootstrap_hooks(spark, args.catalog, args.schema)
     catalog, schema = args.catalog, args.schema
+
+    # FAIL LOUD, not quietly-under-a-different-run-id: sb360's events are only evidence if they carry
+    # the run the gate reads. Filing them under a fallback id would leave the gate seeing NO sb360
+    # slice_completed -- i.e. reporting a dead statsbomb task, non-raisingly, forever.
+    run_id = str(getattr(args, "run_id", "") or "").strip()
+    if not run_id:
+        raise SystemExit("--run-id is required: sb360's unit events must carry the run the D8 gate verifies")
+
+    # sb360 does NOT depend on preflight_action_context (main.tf), so it cannot inherit preflight's
+    # creation -- and slice_completed is FAIL-LOUD, so a missing table kills the task on the very
+    # first run. But it must create ONLY ITS OWN table: `ensure_tables()` also issues a
+    # `CREATE OR REPLACE VIEW`, and because this task OVERLAPS preflight (no depends_on), two
+    # concurrent CREATE-OR-REPLACE on the same view is a metastore race -- at max_retries = 0.
+    # Preflight owns the 9 tables + the view; sb360 owns exactly its own `_sb360` table.
+    sink = DeltaUnitEventSink(spark, catalog, task_logger)
+    sink.ensure_own_table(SB360_WORKER_ID)
 
     results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
     ensure_table(spark, results_table, _ACTION_CONTEXT_DDL)
@@ -1196,10 +1328,33 @@ def main_statsbomb() -> None:
     # longer contributes to the drain skip-guard count.
     if not ids:
         task_logger.info("No pending statsbomb sb360 matches — skipping")
+        # X2: sb360 must still SAY IT RAN, and zero discovered matches is the COMMON daily case. A
+        # silent sb360 is indistinguishable from a DEAD one: the gate expects the sentinel's
+        # slice_completed unconditionally (the task is unconditional in the DAG), so without this it
+        # would return DRAIN_FAILED every quiet day -- crying wolf on the most common run there is.
+        sink.slice_completed(run_id, SB360_WORKER_ID)
         return
+
+    units = _sb360_units(ids)
+    # BEFORE the job (the OOM-visibility guarantee). ONE commit, not len(ids): unlike the drain --
+    # which processes units SERIALLY, so an OOM at unit k must leave 0..k-1 terminal and k running --
+    # sb360 is a SINGLE cogroup job that either runs or dies as a whole. A pre-job batch therefore
+    # carries exactly the same information at 1 commit instead of N.
+    sink.units_started(run_id, SB360_WORKER_ID, units)
 
     xt_grid_data, xt_l, xt_w = _load_xt_grid_from_delta(spark, catalog, schema, task_logger)
     written = _process_statsbomb_matches(spark, catalog, schema, ids, xt_grid_data, xt_l, xt_w, task_logger)
+
+    # Terminals are DERIVED POST-HOC from the rows that landed -- the cogroup job gives the driver no
+    # per-match completion signal. If the job RAISES, no terminals are emitted and no slice_completed
+    # lands: the running events persist and the gate reports what was in flight (D9's OOM payoff).
+    rows_by_match = _sb360_rows_by_match(spark, catalog, schema, ids)
+    by_id = {u.match_id: u for u in units}
+    for match_id, rows in _sb360_terminals(ids, rows_by_match):
+        sink.unit_finished(run_id, SB360_WORKER_ID, by_id[match_id], state="succeeded", rows_written=rows, error=None)
+    sink.flush_terminals()  # FAIL-OPEN, one commit
+    sink.slice_completed(run_id, SB360_WORKER_ID)  # FAIL-LOUD, one commit -- carries write_failures
+
     task_logger.info("compute_action_context_statsbomb complete -- %d matches, %d rows written", len(ids), written)
 
 
@@ -1285,19 +1440,47 @@ def main_drain_worker() -> None:
         os.environ[_FBS_ENV_VAR] = str(fbs)
         task_logger.info("Frame-batch-size override active for this run: %d", fbs)
 
-    from ingestion.action_context_queue import DeltaWorkQueue, SparkGameProcessor, SparkInterruptWatchdog
+    from ingestion.action_context_queue import (
+        DeltaUnitEventSink,
+        DeltaWorkQueue,
+        SparkGameProcessor,
+        SparkInterruptWatchdog,
+    )
 
     queue = DeltaWorkQueue(spark, args.catalog)
+    # D9: this worker's OWN event table (per-worker topology -- the Task-2 spike measured a shared
+    # table at p50 9.7 s/append under 8-way concurrency vs 1.66 s uncontended). Constructed BEFORE
+    # the short-circuit: an idle worker must still be able to emit (P4, below).
+    sink = DeltaUnitEventSink(spark, args.catalog, task_logger)
+    # NOTE: NO ensure_tables() here. Preflight (a SINGLE writer) creates the tables + view before its own
+    # early-return. Doing it here would put 8 concurrent drivers on 9 CREATE-IF-NOT-EXISTS + a view --
+    # needless metastore contention, and exactly the class the Task-2 spike exists to avoid.
     # Short-circuit empty slices (e.g. scoped/provider-filtered runs with fewer units than
     # workers): skip the xT-grid load + processor build for workers with no assigned units.
     units = queue.units_for_worker(run_id, worker_id)
     if not units:
         task_logger.info("Drain worker %d: no units assigned for run %s -- exiting", worker_id, run_id)
+        # P4: an IDLE worker must still SAY IT RAN. Daily runs are tiny (terraform's own comment),
+        # so most workers are idle most days; a silent idle worker is indistinguishable from a DEAD
+        # one, and the completeness gate (D8) would return DRAIN_FAILED -- crying wolf on a healthy
+        # run. FAIL-LOUD on purpose: it is what lets the gate tell "worker ran, queue read returned
+        # nothing" (INCOMPLETE -- the silent-skip class) from "worker died" (DRAIN_FAILED, a report).
+        sink.slice_completed(run_id, worker_id)
         return
 
     processor = SparkGameProcessor(spark, args.catalog, args.schema)
     watchdog = SparkInterruptWatchdog(spark)
-    summary = drain_worker(queue, processor, watchdog, run_id, worker_id, task_logger, units=units, budget_s=budget_s)
+    summary = drain_worker(
+        queue,
+        processor,
+        watchdog,
+        run_id,
+        worker_id,
+        task_logger,
+        sink=sink,
+        units=units,
+        budget_s=budget_s,
+    )
     task_logger.info(
         "Drain worker %d complete: processed=%d failed=%d timed_out=%d rows=%d",
         worker_id,
