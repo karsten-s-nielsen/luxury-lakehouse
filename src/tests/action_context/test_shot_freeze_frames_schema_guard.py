@@ -160,8 +160,8 @@ _TRACKING_REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
 
 
 def test_tracking_select_cols_cover_driver_requirements() -> None:
-    from ingestion.action_context import _GRADIENTSPORTS_TRACKING_SELECT_COLS
-    from ingestion.tracking_context import (
+    from ingestion.action_context import (
+        _GRADIENTSPORTS_TRACKING_SELECT_COLS,
         _IDSSE_TRACKING_SELECT_COLS,
         _METRICA_TRACKING_SELECT_COLS,
         _SKILLCORNER_TRACKING_SELECT_COLS,

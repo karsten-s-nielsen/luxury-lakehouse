@@ -10,6 +10,12 @@ action-level join key:
     geometric/at-action features still match tightly but WINDOW-DEPENDENT
     features (``_WINDOW_DEPENDENT_COLS``) legitimately diverge — their windows
     are no longer truncated at 250-frame edges.
+    FROZEN (PR-1, TC-1 retirement): the TC-1 pipeline (``fct_tracking_context``)
+    is DELETED. This is now a frozen historical CROSS-PIPELINE snapshot (AC-1
+    validated against the values of the independent TC-1 pipeline) and is
+    NON-REGENERABLE BY DESIGN. It must never be re-sourced from
+    ``fct_action_context`` (that would make the golden suite AC-1-vs-AC-1,
+    permanently green and blind). The extract tool no longer regenerates it.
   - ``pausa`` (``fct_pausa_values``): OBSO + PAUSA, renamed; action-join on
     ``pass_id``; IDSSE only.
   - ``elastic`` (``elastic_sync_results``): NOT a usable oracle. The legacy

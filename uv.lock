@@ -1857,7 +1857,7 @@ wheels = [
 
 [[package]]
 name = "luxury-lakehouse"
-version = "0.5.79"
+version = "0.5.80"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },

@@ -84,9 +84,6 @@ PROVIDER_COVERAGE: dict[str, list[tuple[str, str]]] = {
     "pitch_control": [
         ("pitch_control_values", "stg_pitch_control__values"),
     ],
-    "tracking_context": [
-        ("spadl_tracking_context", "stg_spadl__tracking_context"),
-    ],
     "gradientsports": [
         ("gradientsports_metadata", "stg_gradientsports__metadata"),
         ("gradientsports_roster", "stg_gradientsports__roster"),
@@ -139,11 +136,6 @@ RENAMES: dict[tuple[str, str], dict[str, str]] = {
     # PR 6: pitch_control bronze cols pass through verbatim; staging
     # additionally derives data_source + match_key (additive, not renames).
     ("pitch_control", "pitch_control_values"): {},
-    ("tracking_context", "spadl_tracking_context"): {
-        "match_id": "native_match_id",
-        "team_id": "team_id_native",
-        "player_id": "player_id_native",
-    },
     ("gradientsports", "gradientsports_metadata"): {
         "homeTeam.id": "home_team_id",
         "homeTeam.name": "home_team_name",

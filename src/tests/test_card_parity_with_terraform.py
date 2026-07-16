@@ -254,11 +254,6 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     # Subordinate to wf-idsse; no independent methodology, no per-player
     # output.
     "preflight_idsse": None,
-    # TC-1 memory fix: Runtime chunk-discovery preflight feeding the
-    # `compute_tracking_context` for_each_task fan-out. Pure orchestration
-    # helper — writes a Databricks task value and exits.
-    # Subordinate to wf-tracking-context; no independent methodology.
-    "preflight_tracking_context": None,
     # Idempotent repair helper that refills _raw_extra_json where upstream
     # ingest left it NULL. Subordinate to wf-statsbomb; no independent
     # methodology or output.
@@ -300,7 +295,6 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     "compute_embeddings_360": "wf-football2vec-360",
     "compute_elastic_sync": "wf-elastic-sync",
     "compute_pausa": "wf-obso-pausa",
-    "compute_tracking_context": "wf-tracking-context",
     "compute_action_context": "wf-action-context",
     # ADR-058: statsbomb sb360 arm of action-context — a single distributed cogroup.applyInPandas
     # job (statsbomb exits the per-match drain). Same methodology + card as compute_action_context.

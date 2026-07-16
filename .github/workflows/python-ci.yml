@@ -161,6 +161,7 @@ jobs:
         # PYSEC-2025-183 (pyjwt 2.12.1): transitive dep. Not exploitable — no JWT validation in pipeline code; only Databricks SDK uses it for auth. Revisit when upstream bumps.
         # PYSEC-2026-161 (starlette 0.52.1): transitive dep via Gradio/Taipy. Fix in 1.0.1. Not exploitable — starlette is not used directly; only as ASGI server inside HF Spaces. Revisit when Gradio bumps starlette.
         # CVE-2025-58367 + CVE-2026-33155 (deepdiff 7.0.1): transitive dep via taipy-common, which caps deepdiff <8 (fix is 8.6.2), so it cannot be floored without dropping Taipy 4.1.1. Not exploitable — deepdiff only diffs Taipy-internal config/state, never untrusted input. Revisit when Taipy bumps deepdiff. (Listed by CVE alias; the advisory's PYSEC alias may also appear depending on the DB snapshot.)
+        # PYSEC-2026-3447 (setuptools 81.0.0): fix in 83.0.0. Transitive dep via torch/sympy. Cannot be floored to >=83 without downgrading torch 2.11.0 -> 2.10.0 (hard conflict; pinning torch makes the resolution unsatisfiable). Not exploitable — this is a package-BUILD-path vuln and the lakehouse wheel builds via hatchling, so setuptools never builds untrusted packages at runtime. Revisit when torch 2.11+ accepts setuptools 83.
         run: >-
           uv run pip-audit
           --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-0545 --ignore-vuln CVE-2026-33866
@@ -170,6 +171,7 @@ jobs:
           --ignore-vuln PYSEC-2026-113 --ignore-vuln PYSEC-2025-183
           --ignore-vuln PYSEC-2026-161
           --ignore-vuln CVE-2025-58367 --ignore-vuln CVE-2026-33155
+          --ignore-vuln PYSEC-2026-3447
 
       - name: Generate SBOM (CycloneDX)
         run: >-
@@ -181,6 +183,7 @@ jobs:
           --ignore-vuln PYSEC-2026-113 --ignore-vuln PYSEC-2025-183
           --ignore-vuln PYSEC-2026-161
           --ignore-vuln CVE-2025-58367 --ignore-vuln CVE-2026-33155
+          --ignore-vuln PYSEC-2026-3447
           -o sbom.json
 
       - name: Upload SBOM artifact

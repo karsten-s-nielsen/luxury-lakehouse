@@ -30,7 +30,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             dbtBuildAndRefresh = container "dbt_build_and_refresh.py" "Chains dbt build with synced table refresh" "Python, subprocess"
         }
 
-        pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "48 workflow-card-registered workflows. Centralized hooks, lifecycle tracking, three-tier cost tracking." {
+        pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "47 workflow-card-registered workflows. Centralized hooks, lifecycle tracking, three-tier cost tracking." {
             workflowFramework = container "Workflow Framework" "Registry, @workflow decorator, lifecycle runner with hook dispatch" "Python"
             workflowCards = container "Workflow Cards" "48 YAML manifests: inputs, outputs, deps, cost estimates, provenance" "YAML" "Database"
             costEstimateHook = container "CostEstimateHook" "Writes run state, entity_count, row_count, cost to Delta via MERGE" "Python, PySpark"
@@ -40,7 +40,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             hfPublish = container "HF Publish Helper" "README delivery (ADR-014) + per-match HF redistribution (ADR-064): access_tier classifier (shared core), split_restricted on access_tier, enumerate-all fail-closed leak guard over every publisher." "Python"
             databricksSqlFetch = container "Databricks SQL Fetch" "HTTP helper for HF Jobs trainers querying gold marts (no Spark)" "Python, requests"
             ingestionPipelines = container "Compute Pipelines" "39 @workflow-decorated Databricks ingestion/compute pipelines across 6 providers (incl. pre-shot xG scorer, ADR-066). GS bronze dedup (ADR-030), ET-direction derivers (ADR-029), DFL via silly-kicks (ADR-055)." "Python, PySpark, silly-kicks 4.43.0"
-            refreshSyncedTables = container "Synced Table Refresh" "Triggers refresh on 46 synced tables; detect-only for checkpoint-broken TRIGGERED tables — flags + dispatches the heal, never deletes (ADR-041)" "Python, databricks-sdk"
+            refreshSyncedTables = container "Synced Table Refresh" "Triggers refresh on 45 synced tables; detect-only for checkpoint-broken TRIGGERED tables — flags + dispatches the heal, never deletes (ADR-041)" "Python, databricks-sdk"
             migrateSyncedTables = container "Synced Table Migration" "SDK-managed lifecycle: delete, CDF enable, create, wait (ADR-026). Replaces Terraform module." "Python, databricks-sdk"
             rederiveSyncedMarts = container "Strand-safe Re-derive" "Operator re-derive of TRIGGERED synced marts (ADR-043): D MERGE-reprocess / T plain-rebuild / B delete+full-refresh+recreate. Pure planner + thin executor." "Python, databricks-sdk"
             dbtRunner = container "dbt Runner" "python_wheel_task entry point. OAuth token exchange, warehouse start." "Python, dbt-core"
@@ -62,7 +62,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             telemetryTable = container "Telemetry Table" "Cycle log: items, smoke-gate pass/fail, cost tracking, heartbeat rows." "Delta Lake" "Database"
         }
 
-        dbtProject = softwareSystem "dbt Project" "Medallion transformation: 102 models (43 staging, 11 intermediate, 48 marts). Kimball dims, liquid clustering. on-run-start tripwire blocks --full-refresh of TRIGGERED synced marts (ADR-043)." {
+        dbtProject = softwareSystem "dbt Project" "Medallion transformation: 99 models (41 staging, 11 intermediate, 47 marts). Kimball dims, liquid clustering. on-run-start tripwire blocks --full-refresh of TRIGGERED synced marts (ADR-043)." {
             fctWorkflowCosts = container "fct_workflow_costs" "Gold-layer cost attribution with billing JOIN. 90-day rolling window." "SQL, dbt" "Database"
             goldModels = container "Gold Models" "44 fact + 4 dim tables, contracts, liquid clustering, per-row access_tier (ADR-064). Pre-shot xG fct_shot_xg (ADR-066); PSxG fct_shot_psxg (ADR-059); GK insight-views (ADR-061)." "SQL, dbt" "Database"
         }
