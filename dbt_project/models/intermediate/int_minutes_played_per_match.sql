@@ -161,12 +161,15 @@ ws_player_minutes as (
 
 idsse_roster as (
 
-    -- Player roster per match from tracking context (TC-1).
-    -- Every player who generated at least one SPADL action appears here.
+    -- Player roster per match from action context (AC-1; re-homed off the retired TC-1
+    -- pipeline in PR-1). Every player who generated at least one SPADL action appears here.
+    -- The data_source = 'idsse' filter already scopes this leg, so THE TRAP (AC carrying all
+    -- 6 providers) cannot reach it. AC is a coverage superset of TC (tc_only=0), so no idsse
+    -- player is lost. Feeds fct_goalkeeper_stats only (fct_player_stats NULLs DFL string IDs).
     select distinct
         native_match_id,
         player_id_native
-    from {{ ref('stg_spadl__tracking_context') }}
+    from {{ ref('stg_action_context__values') }}
     where data_source = 'idsse'
 
 ),

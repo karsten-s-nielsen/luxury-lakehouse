@@ -15,7 +15,11 @@ deduplicated as (
         *,
         row_number() over (
             partition by match_id, action_id
-            order by _ingested_at desc
+            -- action_id is constant within the partition: a stability marker documenting
+            -- intent, not a value-changing tiebreaker (AC bronze is 0-dup by M13 work-unit
+            -- ownership). The REAL guard is assert_action_context_bronze_no_divergent_dups
+            -- (bronze-source zero-dup singular test). See ADR-030 / ADR-068 / spec review-2.
+            order by _ingested_at desc, action_id
         ) as _row_num
     from source
 

@@ -278,7 +278,10 @@ def test_data_ingestion_parser_count_anchor() -> None:
     # 41 → 42 (D8 drain-completeness gate, 2026-07-13): added `verify_action_context_drain` —
     # the run_if=ALL_DONE fan-in over BOTH action-context arms (the 8-way drain for_each and the
     # sb360 cogroup task).
-    assert len(task_keys) == 42, f"expected 42 task blocks on data_ingestion, parser found {len(task_keys)}"
+    # 42 → 40 (TC-1 retirement, 2026-07-14, PR-1): removed `compute_tracking_context` +
+    # `preflight_tracking_context` (the redundant TC-1 pipeline retired; GK identity + IDSSE
+    # minutes consumers re-homed onto AC-1's fct_action_context).
+    assert len(task_keys) == 40, f"expected 40 task blocks on data_ingestion, parser found {len(task_keys)}"
 
 
 if __name__ == "__main__":

@@ -64,9 +64,9 @@ _SB360_PROVIDERS = frozenset({"statsbomb"})
 _ALL_PROVIDERS = _TRACKING_PROVIDERS | _SB360_PROVIDERS
 
 # Per-provider bronze tracking projections.
-# Source of truth: ingestion.tracking_context._{IDSSE,METRICA,SKILLCORNER}_TRACKING_SELECT_COLS
-# and ingestion.action_context._GRADIENTSPORTS_TRACKING_SELECT_COLS. Hardcoded here because those
-# modules import pyspark (unavailable in the local extract environment). Keep in sync.
+# Source of truth: ingestion.action_context._{GRADIENTSPORTS,IDSSE,METRICA,SKILLCORNER}_TRACKING_SELECT_COLS
+# (all four relocated to action_context.py in PR-1). Hardcoded here because that module imports
+# pyspark (unavailable in the local extract environment). Keep in sync.
 _TRACKING_SELECT_COLS: dict[str, tuple[str, ...]] = {
     "idsse": (
         "match_id", "period", "frame", "timestamp", "x", "y", "s", "ball_status",
@@ -388,32 +388,19 @@ def _pull_oracles(
     *,
     provider: str,
     match_id: str,
-    period: int | None,
     out_dir: Path,
     catalog: str,
     gold: str,
     bronze: str,
     warehouse_id: str,
 ) -> None:
-    # tracking_context oracle (tracking providers, NOT gradientsports — 0 rows there)
-    if provider in {"idsse", "skillcorner", "metrica"}:
-        key_df = _execute_query_to_df(
-            f"SELECT match_key FROM {catalog}.{gold}.dim_matches "  # noqa: S608
-            f"WHERE provider = '{_q(provider)}' AND native_match_id = '{_q(match_id)}' LIMIT 1",
-            warehouse_id,
-        )
-        if key_df.empty:
-            logger.warning(
-                "No dim_matches row for provider=%s native_match_id=%s — skipping tracking oracle", provider, match_id
-            )
-        else:
-            match_key = key_df["match_key"].iloc[0]
-            sql = f"SELECT * FROM {catalog}.{gold}.fct_tracking_context WHERE match_key = {int(match_key)}"  # noqa: S608
-            if period is not None:
-                sql += f" AND period_id = {int(period)}"
-            df = _execute_query_to_df(sql, warehouse_id)
-            df.to_parquet(out_dir / "oracle_fct_tracking_context.parquet", index=False)
-            logger.info("  oracle fct_tracking_context: %d rows (match_key=%s)", len(df), match_key)
+    # oracle_fct_tracking_context.parquet is a FROZEN cross-pipeline oracle (PR-1, TC-1 retirement):
+    # AC-1 is validated against the values of the INDEPENDENT, now-retired TC-1 pipeline. It is
+    # intentionally NON-REGENERABLE — a cross-pipeline oracle must NEVER be regenerated from the
+    # pipeline it checks, because that would make the AC-1 golden suite AC-1-vs-AC-1: permanently
+    # green and blind to AC-1 drift. The frozen parquet remains a valid historical baseline. If AC-1
+    # legitimately changes, re-baseline it MANUALLY and record why — do NOT re-source it from
+    # fct_action_context (deleted mart). See src/tests/action_context/oracle_map.py + spec §3.
 
     if provider != "idsse":
         return  # OBSO/PAUSA/elastic oracles are IDSSE-only
@@ -604,7 +591,6 @@ def main() -> None:
         _pull_oracles(
             provider=provider,
             match_id=match_id,
-            period=period,
             out_dir=out_dir,
             catalog=catalog,
             gold=gold,

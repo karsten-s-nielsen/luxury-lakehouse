@@ -166,6 +166,25 @@ _COMPUTE_READ_MARTS: dict[str, str] = {
     # Future intermediate_mart cases register here.
 }
 
+# Documented (mart_stem, bronze_table) exemptions: an ``input_mart`` that intentionally reads a
+# compute-output bronze ONE RUN STALE while staying a stage-1 build. Only admissible when the
+# staleness is a PRE-EXISTING, accepted property — never a new regression.
+#
+# fct_tracking_frames reads ``spadl_action_context`` solely for its ``is_goalkeeper`` column
+# (via int_tracking_goalkeepers -> silly-kicks derive_goalkeepers()). PR-1 re-homed that column off
+# the retired TC-1 pipeline onto AC-1; TC-1's ``spadl_tracking_context`` was ALSO a compute output
+# read one-run-stale here, merely never listed in _COMPUTE_OUTPUT_BRONZE_TABLES — so the runtime
+# behaviour is UNCHANGED by the re-home. Keeping fct_tracking_frames a stage-1 input_mart is
+# load-bearing: compute_off_ball_xt / compute_formations_* / compute_defcon_lite depend on
+# dbt_build_input_marts to read it, so moving it into the post-compute intermediate build would risk
+# a compute -> dbt_build_intermediate_marts -> compute cycle. The proper fix (a dedicated
+# derive_goalkeepers() GK-identity bronze consumed in stage 1) is a tracked follow-up.
+_INPUT_MART_STALE_READ_EXEMPTIONS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("fct_tracking_frames", "spadl_action_context"),
+    }
+)
+
 _REF_RE = re.compile(r"ref\s*\(\s*['\"]([^'\"]+)['\"]")
 _SOURCE_RE = re.compile(r"source\s*\(\s*['\"][^'\"]+['\"]\s*,\s*['\"]([^'\"]+)['\"]")
 
@@ -227,12 +246,14 @@ def test_input_mart_and_dimension_have_no_compute_output_lineage() -> None:
         if tag not in ("input_mart", "dimension"):
             continue
         bronze = _bronze_table_names(sql_path)
-        offenders = bronze & _COMPUTE_OUTPUT_BRONZE_TABLES
+        exempt = {b for (m, b) in _INPUT_MART_STALE_READ_EXEMPTIONS if m == sql_path.stem}
+        offenders = (bronze & _COMPUTE_OUTPUT_BRONZE_TABLES) - exempt
         if offenders:
             errors.append(
                 f"{sql_path.name} (tagged {tag}): lineage contains compute-output bronze "
                 f"table(s) {sorted(offenders)}. Reclassify as 'intermediate_mart' (if a "
-                f"compute task reads it) or 'output_mart' (if not)."
+                f"compute task reads it) or 'output_mart' (if not), or add a documented "
+                f"entry to _INPUT_MART_STALE_READ_EXEMPTIONS if the one-run-stale read is intended."
             )
     assert not errors, "\n".join(errors)
 

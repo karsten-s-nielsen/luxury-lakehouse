@@ -207,9 +207,10 @@ def _load_xt_grid_from_delta(
 
 
 # ── Column projection constants ──────────────────────────────────────
-# GradientSports is new to AC-1 (not in tracking_context.py).
-# IDSSE/Metrica/SkillCorner column lists imported from tracking_context
-# inside the UDF (lazy import to avoid import-time pyspark dependency).
+# Bronze-native tracking columns to project per provider. AC-1 is the surviving
+# owner of all four provider sets: GradientSports has always lived here, and the
+# idsse/metrica/skillcorner sets were relocated here from the retired
+# ingestion.tracking_context module in PR-1 (they are shared with shot_freeze_frames).
 
 _GRADIENTSPORTS_TRACKING_SELECT_COLS: tuple[str, ...] = (
     "match_id",
@@ -223,6 +224,61 @@ _GRADIENTSPORTS_TRACKING_SELECT_COLS: tuple[str, ...] = (
     "y",
     "z",
 )
+
+_IDSSE_TRACKING_SELECT_COLS: tuple[str, ...] = (
+    "match_id",
+    "period",
+    "frame",
+    "timestamp",
+    "x",
+    "y",
+    "s",
+    "ball_status",
+    "frame_rate",
+    "player_id",
+    "team_id",
+    "is_goalkeeper",
+    "ball_x",
+    "ball_y",
+    "ball_z",
+    "ball_s",
+)
+
+_METRICA_TRACKING_SELECT_COLS: tuple[str, ...] = (
+    "match_id",
+    "period",
+    "frame",
+    "timestamp",
+    "frame_rate",
+    "gk_jersey_numbers",
+    "home_players",
+    "away_players",
+    "ball_x",
+    "ball_y",
+)
+
+_SKILLCORNER_TRACKING_SELECT_COLS: tuple[str, ...] = (
+    "match_id",
+    "frame",
+    "period",
+    "timestamp",
+    "player_id",
+    "x",
+    "y",
+    "frame_rate",
+    "ball_x",
+    "ball_y",
+    # TF-23 (silly-kicks 4.34.0 adapter): ball_z + is_visible feed the upstream
+    # skillcorner.convert_to_frames contract (ball_z->z unlocks SC on-target/PSxG;
+    # is_visible->visibility). Harmless extra cols for the legacy builder (which filters
+    # to _SKILLCORNER_CONSUMED_COLS) until it is replaced by the adapter.
+    "ball_z",
+    "is_visible",
+)
+# skillcorner bronze-native columns only: ``team``, ``is_goalkeeper``, and
+# ``home_team_id`` are resolved at compute time via a Spark join with
+# ``bronze.skillcorner_matches`` in the driver. The tracking JSONL source does not
+# contain these fields.
 
 
 # ── GradientSports bronze -> converter input mapper ───────────────────
@@ -1622,12 +1678,10 @@ def _process_tracking_match(
     from pyspark.sql import functions as F  # noqa: N812
 
     from ingestion.exec_visibility import PhaseHeartbeat
-    from ingestion.tracking_context import (
-        _IDSSE_TRACKING_SELECT_COLS,
-        _METRICA_TRACKING_SELECT_COLS,
-        _SKILLCORNER_TRACKING_SELECT_COLS,
-    )
     from ingestion.utils import ensure_volume_directory, write_delta_table
+
+    # _IDSSE_/_METRICA_/_SKILLCORNER_TRACKING_SELECT_COLS are module-level in this file
+    # (relocated from the retired ingestion.tracking_context in PR-1).
 
     # ── Executor→driver visibility: rendezvous dir + driver heartbeat ──
     # The driver creates the rendezvous dir (Files API needs the driver token);

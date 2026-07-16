@@ -221,13 +221,6 @@ INDEXES: list[tuple[str, str, str]] = [
     # for mapping a surrogate back to the source-system native ID.
     ("idx_dim_matches_match_key", "dim_matches_synced", "match_key"),
     ("idx_dim_matches_provider_native", "dim_matches_synced", "provider, native_match_id"),
-    # ── fct_tracking_context_synced — TC-1 tracking features ──────────
-    # 25K rows today (20 matches x ~1,200 actions). Primary access pattern:
-    # per-match feature retrieval (WHERE match_key = %s). Secondary:
-    # per-match-team (defensive shape) and per-match-player (actor speed).
-    ("idx_tracking_context_match_key", "fct_tracking_context_synced", "match_key"),
-    ("idx_tracking_context_match_team_key", "fct_tracking_context_synced", "match_key, team_key"),
-    ("idx_tracking_context_match_player_key", "fct_tracking_context_synced", "match_key, player_key"),
     # ── fct_action_context_synced — AC-1 unified action features ────────
     # Superset of tracking_context; includes event-only providers.
     # Primary: per-match feature retrieval. Secondary: per-player, per-team.

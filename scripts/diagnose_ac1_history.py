@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Option A diagnostic: AC-1 task run history + fingerprint extraction.
 
-Pulls run history for the mega-job, isolates the two AC-1 compute tasks
-(compute_action_context, compute_tracking_context), prints their per-run
+Pulls run history for the mega-job, isolates the AC-1 compute task
+(compute_action_context), prints its per-run
 state timeline, finds the last SUCCESS (if any), and extracts the
 AC1_FINGERPRINT line (wheel_version + silly_kicks_version) from the driver
 log of the most relevant run.
@@ -25,7 +25,7 @@ import sys
 
 from databricks.sdk import WorkspaceClient
 
-TARGET_TASKS = ("compute_action_context", "compute_tracking_context")
+TARGET_TASKS = ("compute_action_context",)
 _FINGERPRINT_RE = re.compile(r"AC1_FINGERPRINT.*$", re.MULTILINE)
 
 

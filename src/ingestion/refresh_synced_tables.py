@@ -232,7 +232,6 @@ SYNCED_TABLES: list[SyncedTableConfig] = [
     SyncedTableConfig("fct_gk_actions_detail_synced", "fct_gk_actions_detail", ("gk_action_id",)),
     SyncedTableConfig("fct_funnel_stages_agg_synced", "fct_funnel_stages_agg", ("match_id", "team_id", "game_state")),
     SyncedTableConfig("fct_discipline_events_synced", "fct_discipline_events", ("event_id",)),
-    SyncedTableConfig("fct_tracking_context_synced", "fct_tracking_context", ("tracking_context_id",)),
     SyncedTableConfig("fct_action_context_synced", "fct_action_context", ("action_context_id",), "TRIGGERED"),
     SyncedTableConfig("fct_gk_tracking_actions_synced", "fct_gk_tracking_actions", ("gk_action_id",), "TRIGGERED"),
     SyncedTableConfig("fct_gk_tracking_stats_synced", "fct_gk_tracking_stats", ("gk_match_stat_id",), "TRIGGERED"),

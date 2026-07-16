@@ -716,8 +716,8 @@ def _process_match(
     import pandas as _pd
     from pyspark.sql import functions as spark_fn  # type: ignore[import-not-found]
 
-    from ingestion.action_context import _GRADIENTSPORTS_TRACKING_SELECT_COLS
-    from ingestion.tracking_context import (
+    from ingestion.action_context import (
+        _GRADIENTSPORTS_TRACKING_SELECT_COLS,
         _IDSSE_TRACKING_SELECT_COLS,
         _METRICA_TRACKING_SELECT_COLS,
         _SKILLCORNER_TRACKING_SELECT_COLS,

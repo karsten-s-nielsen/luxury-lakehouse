@@ -14,6 +14,10 @@ from the silly-kicks ``preprocess=`` seam, so its drift guard became a delete-an
 Only the GradientSports converter is still copied (GS uses the lakehouse converter input), so its
 AST drift guard remains.
 
+PR-1 (TC-1 retirement): ``ingestion.tracking_context`` is now DELETED entirely with the TC-1
+pipeline, so only the ``analytics.action_context.convert`` copy remains to guard against the
+velocity helper re-appearing.
+
 Comparison is by AST (parsed structure), robust to formatting but catching real logic change.
 """
 
@@ -25,7 +29,6 @@ import textwrap
 
 from analytics.action_context import convert as new
 from ingestion import action_context as ac_legacy
-from ingestion import tracking_context as tc_legacy
 
 
 def _ast_of(fn) -> str:
@@ -61,9 +64,8 @@ def test_velocity_helper_is_deleted_and_depended() -> None:
     assert not hasattr(new, "_derive_velocities_savgol"), (
         "analytics.action_context.convert re-grew _derive_velocities_savgol (delete-and-depend regression)"
     )
-    assert not hasattr(tc_legacy, "_derive_velocities_savgol"), (
-        "ingestion.tracking_context re-grew _derive_velocities_savgol (delete-and-depend regression)"
-    )
+    # The second copy (ingestion.tracking_context) is DELETED entirely with the TC-1 pipeline
+    # (PR-1), so its half of the guard is subsumed — there is no module left to re-grow the helper.
 
 
 def test_gradientsports_converter_no_drift() -> None:

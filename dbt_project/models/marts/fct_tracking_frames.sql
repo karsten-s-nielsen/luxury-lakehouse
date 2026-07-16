@@ -45,7 +45,10 @@ tracking as (
     -- real DFL TeamId from PR 5a; Metrica synthesized via dim_teams pattern;
     -- SkillCorner via home_team_id/away_team_id CASE). The 14-column shared
     -- schema excludes is_goalkeeper — TC-2 derives it from
-    -- int_tracking_goalkeepers (silly-kicks derive_goalkeepers() via TC-1).
+    -- int_tracking_goalkeepers (silly-kicks derive_goalkeepers()), re-homed onto
+    -- AC-1 in PR-1 off the retired TC-1 pipeline. NOTE: this makes fct_tracking_frames
+    -- read AC-1's spadl_action_context one run stale (unchanged from TC-1); documented
+    -- exemption in test_dbt_mart_classification.py::_INPUT_MART_STALE_READ_EXEMPTIONS.
     select
         tracking_id, match_id, period, frame, timestamp_seconds,
         frame_rate, player_id, team, team_id, source_provider,
