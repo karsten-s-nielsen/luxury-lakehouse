@@ -12,7 +12,7 @@ Protection rests on two layers:
    those marts cannot leak it.
 2. Publishers that DO read marts carrying restricted rows
    (``fct_action_context``, ``fct_action_values``, ``fct_tracking_frames``,
-   ``fct_tracking_context``, ``fct_shot_psxg``) gate redistribution via the
+   ``fct_shot_psxg``) gate redistribution via the
    **per-match access_tier split** (spec 2026-06-29 §6.5, generalizing ADR-049):
    pull ALL providers + the per-row ``access_tier``, split via
    ``ingestion.hf_publish.split_restricted(df, column="access_tier")``, publish
@@ -54,7 +54,6 @@ _ADR049_SPLIT_PUBLISHERS: tuple[str, ...] = (
     "publish_spadl_vaep_hf.py",
     "publish_psxg_shots_hf.py",
     "publish_pitch_control_tracking_hf.py",
-    "publish_tracking_context_hf.py",
     # Pre-Shot xG v3 delivery Task 1.2 (spec §A3, 2026-07-07): tabular shot corpus publisher.
     "publish_xg_shot_data_v3_hf.py",
     # Pre-Shot xG v3 delivery Task 1.3 (spec §A4, 2026-07-07): freeze-frame (context) corpus publisher.

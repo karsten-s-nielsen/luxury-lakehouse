@@ -349,7 +349,7 @@ def test_d_mechanism_delete_insert_keeps_synced_online() -> None:
 
 def test_t_mechanism_create_or_replace_converges_healing_if_stranded() -> None:
     """T-mechanism contract (ADR-043 amendment 2): a plain `CREATE OR REPLACE TABLE … AS SELECT`
-    (what dbt's `table` materialization emits for fct_pausa_values / fct_space_creation) followed by a
+    (what dbt's `table` materialization emits for fct_pausa_values) followed by a
     triggered refresh ends with a CONVERGED, ONLINE synced table — with the ADR-041 heal as the
     sanctioned recovery when the refresh strands.
 
@@ -398,7 +398,7 @@ def test_t_mechanism_create_or_replace_converges_healing_if_stranded() -> None:
         assert writer.wait_until_online(fqn, timeout_s=600) == "SYNCED_TABLE_ONLINE"
 
         # T mechanism: atomic CREATE OR REPLACE TABLE ... AS SELECT (same id, full replace) — exactly
-        # what dbt's table materialization does for the 2 table marts. Contract: CONVERGE, healing if
+        # what dbt's table materialization does for the fct_pausa_values table mart. Contract: CONVERGE, healing if
         # stranded (the current platform strands this — ADR-043 amendment 2).
         sql(
             f"CREATE OR REPLACE TABLE {src} TBLPROPERTIES ('delta.enableChangeDataFeed' = 'true') "

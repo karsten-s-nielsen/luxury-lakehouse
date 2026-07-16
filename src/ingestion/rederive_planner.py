@@ -6,10 +6,9 @@ PlanSteps using only SYNCED_TABLES + the declared registries. The thin executor
 plan. This split makes all classification logic unit-testable offline.
 
 Three actions: D (MERGE-reprocess, incremental + match-filter), T (plain rebuild of
-the 2 `table` marts — zero downtime), B (delete->full-refresh->recreate, merge-all
+the `table` marts — zero downtime), B (delete->full-refresh->recreate, merge-all
 incremental). No enable-var injection: dbt_project.yml already enables every gated mart
-that should be enabled (pausa_enabled / embeddings_enabled / defcon_enabled = true) and
-intentionally leaves fct_space_creation 0-row (no node-level enabled=; only a body gate)
+that should be enabled (pausa_enabled / embeddings_enabled / defcon_enabled = true)
 — so the re-derive reproduces the daily build's state by passing NO enable vars.
 """
 
@@ -21,7 +20,7 @@ from typing import Literal
 
 from ingestion.refresh_synced_tables import SYNCED_TABLES, SyncedTableConfig
 
-# The 7 TRIGGERED + incremental + match_id-filtered marts re-derived via the
+# The 6 TRIGGERED + incremental + match_id-filtered marts re-derived via the
 # CDF-preserving D path (MERGE + reprocess macros). Exhaustive D/T/B partition over
 # the TRIGGERED set is enforced by src/tests/test_strand_safe_rederive.py.
 D_REPROCESS_MODELS: frozenset[str] = frozenset(
@@ -30,7 +29,6 @@ D_REPROCESS_MODELS: frozenset[str] = frozenset(
         "fct_defcon_actions",
         "fct_defcon_pressure",
         "fct_defensive_values",
-        "fct_off_ball_xt",
         "fct_tracking_frames",
         "fct_tracking_shape_timeline",
     }
@@ -40,7 +38,7 @@ D_REPROCESS_MODELS: frozenset[str] = frozenset(
 # a plain `dbt build` is an atomic create-or-replace (count-safe, same id, strand-free —
 # it is exactly what the daily stage-3 does) so no synced delete/recreate and no
 # --full-refresh is needed. Zero downtime. Verified table-materialized by the partition test.
-_TABLE_MARTS: frozenset[str] = frozenset({"fct_pausa_values", "fct_space_creation"})
+_TABLE_MARTS: frozenset[str] = frozenset({"fct_pausa_values"})
 
 
 @dataclass(frozen=True)

@@ -178,10 +178,6 @@ INDEXES: list[tuple[str, str, str]] = [
     ("idx_fct_goalkeeper_stats_player", "fct_goalkeeper_stats_synced", "player_id"),
     ("idx_fct_goalkeeper_stats_match", "fct_goalkeeper_stats_synced", "match_id"),
     ("idx_fct_goalkeeper_stats_comp_season", "fct_goalkeeper_stats_synced", "competition_id, season_id"),
-    # Space creation (TD#29)
-    ("idx_fct_space_creation_match", "fct_space_creation_synced", "match_id"),
-    ("idx_fct_space_creation_player", "fct_space_creation_synced", "player_id"),
-    ("idx_fct_space_creation_match_frame", "fct_space_creation_synced", "match_id, frame_id"),
     # ── Pre-aggregated marts (2026-04-16 optimization audit) ─────────────
     # fct_heatmap_agg: ~60-100K rows, served by comp-only or comp+team filter.
     # comp-only rollup uses the (competition_id) leading-column index;
@@ -192,12 +188,6 @@ INDEXES: list[tuple[str, str, str]] = [
     # comp+team+player.  Composite (comp, team, player) leading-column
     # index serves all three access paths.
     ("idx_vaep_breakdown_agg_comp_team_player", "fct_vaep_breakdown_agg_synced", "competition_id, team_id, player_id"),
-    # fct_gk_actions_detail: ~320K rows. Filter combos: comp / comp+player /
-    # comp+team / match / match+player.
-    ("idx_gk_actions_detail_comp_team_player", "fct_gk_actions_detail_synced", "competition_id, team_id, player_id"),
-    ("idx_gk_actions_detail_comp_player", "fct_gk_actions_detail_synced", "competition_id, player_id"),
-    ("idx_gk_actions_detail_match", "fct_gk_actions_detail_synced", "match_id"),
-    ("idx_gk_actions_detail_match_player", "fct_gk_actions_detail_synced", "match_id, player_id"),
     # ── fct_funnel_stages_agg_synced — Conversion Funnel (D58, 2026-04-18) ─
     # ~12,145 rows. 4 Taipy query shapes:
     #   single-match ± gs:  WHERE match_id = %s [AND game_state = %s]

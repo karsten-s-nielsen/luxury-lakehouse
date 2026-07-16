@@ -79,9 +79,8 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • compute_line_breaking → Line-breaking pass detection (batch)  │    │
 │  │  • import_obso_results → OBSO values from HF Hub to bronze      │    │
 │  │  • import_psxg_predictions → PSxG predictions from HF Hub       │    │
-│  │  • import_space_creation → Space creation values from HF Hub    │    │
 │  │  • extract_tracking_metadata → Tracking data metadata extraction│    │
-│  │  • guards → 35 skip guards (each pipeline runs its own at startup)│    │
+│  │  • guards → 33 skip guards (each pipeline runs its own at startup)│    │
 │  │  • evolve → Level 2 code evolution (ScoutGPT decoder, D32)      │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
@@ -121,7 +120,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • stg_idsse__events, stg_idsse__elastic_sync                  │    │
 │  │  • stg_pausa__values                                           │    │
 │  │                                                                  │    │
-│  │  GOLD (business logic, analytics-ready — 36 fact + 4 dim):       │    │
+│  │  GOLD (business logic, analytics-ready — 31 fact + 4 dim):       │    │
 │  │  Tagged per ADR-019 (PR-Cycle-C). Authoritative list:            │    │
 │  │  `dbt_project/models/marts/{dim_*,fct_*}.sql` + `tags=[...]`.    │    │
 │  │  • dimension (4): dim_competitions, dim_matches, dim_players,    │    │
@@ -129,18 +128,16 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • input_mart (3): fct_tracking_frames, fct_shots,               │    │
 │  │    fct_discipline_events                                         │    │
 │  │  • intermediate_mart (1): fct_action_values                      │    │
-│  │  • output_mart (31): fct_passes, fct_match_summary,              │    │
+│  │  • output_mart (27): fct_passes, fct_match_summary,              │    │
 │  │    fct_physical_stats, fct_player_stats, fct_player_percentiles, │    │
-│  │    fct_xg_predictions_v2, fct_off_ball_xt,                       │    │
-│  │    fct_formation_labels, fct_player_positions, fct_position_maps,│    │
-│  │    fct_player_embeddings(_career/_season/_career_360/_season_360)│    │
-│  │    fct_line_breaking_results, fct_pausa_values, fct_pausa_rankings│   │
-│  │    fct_pass_timing, fct_defcon_actions, fct_defcon_pressure,     │    │
-│  │    fct_defensive_values, fct_goalkeeper_stats,                   │    │
-│  │    fct_funnel_stages_agg, fct_heatmap_agg, fct_vaep_breakdown_agg,│   │
-│  │    fct_gk_actions_detail, fct_space_creation,                    │    │
-│  │    fct_tracking_avg_positions, fct_tracking_shape_timeline,      │    │
-│  │    fct_workflow_costs                                            │    │
+│  │    fct_xg_predictions_v2, fct_formation_labels,                  │    │
+│  │    fct_player_positions, fct_position_maps,                      │    │
+│  │    fct_player_embeddings(_career/_season/_career_360/_season_360),│   │
+│  │    fct_pausa_values, fct_pausa_rankings, fct_pass_timing,        │    │
+│  │    fct_defcon_actions, fct_defcon_pressure, fct_defensive_values,│    │
+│  │    fct_goalkeeper_stats, fct_funnel_stages_agg, fct_heatmap_agg, │    │
+│  │    fct_vaep_breakdown_agg, fct_tracking_avg_positions,           │    │
+│  │    fct_tracking_shape_timeline, fct_workflow_costs               │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
@@ -211,12 +208,19 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 | `dev_gold.fct_tracking_shape_timeline` | `fct_tracking_shape_timeline_synced` | `shape_timeline_id` | ~50,000 |
 | `dev_gold.fct_player_positions` | `fct_player_positions_synced` | `position_id` | ~8,500 |
 | `dev_gold.fct_position_maps` | `fct_position_maps_synced` | `position_map_id` | ~600 |
-| `dev_gold.fct_line_breaking_results` | `fct_line_breaking_results_synced` | `line_breaking_id` | ~5,000,000 |
 | `dev_gold.fct_goalkeeper_stats` | `fct_goalkeeper_stats_synced` | `goalkeeper_stats_id` | ~600 |
-| `dev_gold.fct_off_ball_xt` | `fct_off_ball_xt_synced` | `off_ball_xt_id` | ~100,000 |
-| `dev_gold.fct_space_creation` | `fct_space_creation_synced` | `space_creation_id` | ~3,500 |
 | `dev_gold.fct_player_embeddings_career_360` | `fct_player_embeddings_career_360_synced` | `embedding_career_360_id` | ~8,950 |
 | `dev_gold.fct_player_embeddings_season_360` | `fct_player_embeddings_season_360_synced` | `embedding_season_360_id` | ~8,950 |
+| `dev_gold.dim_matches` | `dim_matches_synced` | `match_key` | ~3,500 |
+| `dev_gold.fct_action_context` | `fct_action_context_synced` | `action_context_id` | ~937,000 |
+| `dev_gold.fct_xg_predictions_v2` | `fct_xg_predictions_v2_synced` | `shot_id` | ~131,000 |
+| `dev_gold.fct_gk_tracking_actions` | `fct_gk_tracking_actions_synced` | `gk_action_id` | ~10,000 |
+| `dev_gold.fct_gk_tracking_stats` | `fct_gk_tracking_stats_synced` | `gk_match_stat_id` | ~600 |
+| `dev_gold.fct_gk_shot_stopping_pooled` | `fct_gk_shot_stopping_pooled_synced` | `gk_pooled_id` | ~600 |
+| `dev_gold.fct_gk_defensive_line` | `fct_gk_defensive_line_synced` | `gk_defensive_line_id` | ~600 |
+| `dev_gold.fct_heatmap_agg` | `fct_heatmap_agg_synced` | `(competition_id, team_id, action_type, x_bin, y_bin)` | ~80,000 |
+| `dev_gold.fct_vaep_breakdown_agg` | `fct_vaep_breakdown_agg_synced` | `(competition_id, team_id, player_id, action_type)` | ~50,000 |
+| `dev_gold.fct_funnel_stages_agg` | `fct_funnel_stages_agg_synced` | `(match_id, team_id, game_state)` | ~12,000 |
 | `observability.workflow_cost_live` | `workflow_cost_live_synced` | `cost_live_id` | ~500 |
 | `observability.workflow_import_checksums` | — (not synced) | `workflow_id` | ~5 |
 
@@ -226,7 +230,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 - `logical_database_name = "databricks_postgres"` — standard Lakebase database
 - **SDK-managed lifecycle (ADR-026):** All synced tables managed via `w.postgres.create_synced_table()` from Databricks SDK 0.110.0+. The Terraform `synced_tables` module was removed. `SyncedTableConfig` in `src/ingestion/refresh_synced_tables.py` is the single source of truth. Migration/recreation via `scripts/migrate_synced_tables.py`.
 - **Schema changes:** Must delete synced table, drop ghost PG table, recreate via `scripts/migrate_synced_tables.py`.
-- **PG indexes:** 69 btree indexes across 30 tables + 6 HNSW vector indexes on embedding tables (192-dim/208-dim) = 75 total. Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`. Script now runs `ANALYZE` on all indexed tables to ensure the query planner uses indexes.
+- **PG indexes:** 63 btree indexes across 29 tables + 6 HNSW vector indexes on embedding tables (192-dim/208-dim) = 69 total. Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`. Script now runs `ANALYZE` on all indexed tables to ensure the query planner uses indexes.
 - **SP refresh permissions:** The Lakebase database project + each backing pipeline must grant `CAN_USE` (project) + `CAN_RUN` (pipeline) to both the `hf_app_v2` SP (Taipy admin endpoint) and the `ingestion` SP (daily Databricks job's refresh task). Without these grants, `w.postgres.get_synced_table()` returns 403. Apply via `scripts/grant_synced_table_permissions.py` (idempotent, integrated into `scripts/maintain_synced_tables.py` as Step 0). Re-run after any synced table recreation since pipeline_ids may change. Hard-verified empirically in dev: 70 grants total (2 project + 68 pipeline) → 34/34 staging refresh subprocess success.
 - **SNAPSHOT refresh:** Synced tables with `scheduling_policy = "SNAPSHOT"` do not auto-refresh. Run `python -m ingestion.refresh_synced_tables` (or the `refresh_synced_tables` console-script entry point) after upstream dbt rebuilds. Supports `--wait` (poll until IDLE) and `--tables` (comma-separated subset). Use `scripts/dbt_build_and_refresh.py` to chain `dbt build` + refresh atomically. The daily Databricks job auto-runs `refresh_synced_tables` as a final task.
 - **Credential API:** REST endpoint is `/api/2.0/postgres/credentials` (NOT `/api/2.0/database/credentials`).
@@ -261,7 +265,7 @@ Each pipeline runs its own skip guard at startup via `skip_guard.check()`, raisi
 **Architecture:**
 - **Guard registry** (`_GUARD_MODULES`): Maps workflow IDs to guard modules. Each guard's `check()` returns a `FilterResult(workflow_id, count, chunks, metadata)`.
 - **`find_new_ids()`**: Spark LEFT ANTI JOIN with `cast("string")` normalization — pushes set difference to executors instead of collecting all IDs to the driver.
-- **`check_hf_dataset_freshness()`**: SHA-based skip guard for HF Hub import pipelines. Fetches the current HF Hub commit SHA via `HfApi.repo_info()`, compares against the stored SHA in `observability.workflow_import_checksums` (Delta, MERGE upsert). Skips import when SHAs match; fails open on network errors. Used by 5 guards: `wf-import-obso`, `wf-import-psxg`, `wf-import-space-creation`, `wf-football2vec-v2`, `wf-football2vec-360`.
+- **`check_hf_dataset_freshness()`**: SHA-based skip guard for HF Hub import pipelines. Fetches the current HF Hub commit SHA via `HfApi.repo_info()`, compares against the stored SHA in `observability.workflow_import_checksums` (Delta, MERGE upsert). Skips import when SHAs match; fails open on network errors. Used by 4 guards: `wf-import-obso`, `wf-import-psxg`, `wf-football2vec-v2`, `wf-football2vec-360`.
 - **`check_upstream_freshness()`** ([ADR-024](docs/superpowers/adrs/ADR-024-watermark-based-skip-guards.md)): Watermark-based skip guard for downstream tasks (publishers, dbt stages, refresh_synced_tables, model_validation). Compares Delta `DESCRIBE HISTORY` versions (filtered to data-changing ops) against stored watermarks in `observability.workflow_watermarks`. Upstream table lists derived from workflow card `inputs.tables` or in-code `SYNCED_TABLES`. Used by 10 guards.
 - **Mandatory `FilterResult` injection**: `run_pipeline()` receives `FilterResult` as a **required** parameter (no default). Each pipeline's `main()` calls its guard via `timed_check(skip_guard, spark, catalog, schema)` — a wrapper in `ingestion/guards.py` that records guard wall-clock duration via `time.monotonic()` and returns a `FilterResult` with `guard_duration_seconds` populated. Inline `find_new_ids()` calls are prohibited outside guard classes, enforced by `TestNoInlineGuardInPipeline`.
 - **Three-way cost decomposition**: `CostEstimateHook` writes `entity_count` (input entities from guard), `row_count` (output rows), and `guard_duration_seconds` (guard wall-clock from `timed_check`) to `workflow_cost_live` in the observability schema. `fct_workflow_costs` uses `tasks` (lakeflow) as the driving table with LEFT JOIN on billing — timing data is available immediately, billing cost arrives with ~1 day lag. `effective_cost_usd = COALESCE(attributed_cost_usd, estimated_cost_usd)` ensures the UI always has a cost value. The cold tier exposes `cold_start_seconds` (total pre-pipeline time = env init + guard) and `guard_duration_seconds` (guard only); UI derives `environment_setup = cold_start - guard`. Warm-tier join uses `workflow_id` + temporal window — `job_run_id` and `task_key` are not in the warm tier (serverless exposes neither via Spark conf, and the columns were dropped after the seed mapping fix made them obsolete).
@@ -299,7 +303,7 @@ C4 diagrams (Context, Container, Component, Dynamic) are the standard deliverabl
 | **L4 — Dynamic** | Data Flow | End-to-end: API fetch → Bronze → dbt → Gold → Synced Table → Lakebase → Taipy |
 | **L4 — Dynamic** | Zero-ETL Sync | Gold Delta change → Lakeflow pipeline → Lakebase mirror update |
 | **Deployment** | Infrastructure | Databricks/AWS resource mapping |
-| **L3 — Component** | Guard Registry & Skip Guards | 35 SkipGuard adapters, mandatory FilterResult injection, guard-as-wrapper (each pipeline self-contained), entity_count observability, watermark-based skip (ADR-024) |
+| **L3 — Component** | Guard Registry & Skip Guards | 33 SkipGuard adapters, mandatory FilterResult injection, guard-as-wrapper (each pipeline self-contained), entity_count observability, watermark-based skip (ADR-024) |
 
 ### 3.2 — C4 Model: Persons & External Systems
 
@@ -462,7 +466,7 @@ luxury-lakehouse/
 │   │   ├── lakebase/                 # Lakebase Autoscaling (PG 17)
 │   │   ├── sql_warehouse/            # Serverless SQL Warehouse
 │   │   ├── workflows/                # Ingestion job definitions
-│   │   ├── synced_tables/            # Gold → Lakebase sync (42 synced tables)
+│   │   ├── synced_tables/            # (removed — SDK-managed via w.postgres.create_synced_table, ADR-026; 41 synced tables)
 │   │   ├── app/                      # (removed — Streamlit migrated to HF Spaces)
 │   │   ├── service_principals/       # Ingestion SP, App SP, CI SP + federation
 │   │   ├── github_oidc/              # AWS IAM OIDC provider + scoped role
@@ -472,7 +476,7 @@ luxury-lakehouse/
 │       └── tags.tf                   # Standard resource tagging
 │
 ├── src/
-│   ├── analytics/                    # Pure-Python domain models (zero I/O, 30 modules)
+│   ├── analytics/                    # Pure-Python domain models (zero I/O, 37 modules)
 │   │   ├── array_utils.py            # NumPy array helpers (shared by multiple modules)
 │   │   ├── augmentation.py           # Physics-based position jitter (TacticAI-inspired, pure NumPy)
 │   │   ├── coordinates.py            # Coordinate normalization utilities (provider-specific → unified 105×68m)
@@ -499,12 +503,11 @@ luxury-lakehouse/
 │   │   ├── shape_graph_construction.py # Shape graph construction: Delaunay → role assignment
 │   │   ├── shape_graph_inference.py  # Shape graph inference: position assignment from graph structure
 │   │   ├── smoothing.py              # Savitzky-Golay position smoothing for tracking data
-│   │   ├── space_creation.py         # Space creation/destruction via differential OBSO (Fernandez & Bornn 2018)
 │   │   ├── symmetry.py               # TacticAI symmetry augmentation (H-flip, V-flip, team swap → 8× data)
 │   │   ├── team_shape.py             # Convex hull, centroid, formation lines, spatial metrics from tracking
 │   │   └── xg_model.py               # Custom xG: logistic baseline + calibrated XGBoost (JSON serialization)
 │   │
-│   ├── ingestion/                    # @workflow-decorated Databricks pipelines (51 modules)
+│   ├── ingestion/                    # Databricks ingestion + compute pipelines (89 modules, 36 @workflow-decorated)
 │   │   ├── bootstrap.py              # Centralized hook registration for all pipelines
 │   │   ├── cost_hook.py              # CostEstimateHook: lifecycle hook writing cost to Delta
 │   │   ├── defcon_lite.py            # DEFCON-lite batch computation (gold+bronze → bronze)
@@ -526,7 +529,6 @@ luxury-lakehouse/
 │   │   ├── idsse.py                  # IDSSE Bundesliga DFL ingest (7 matches; parse via silly-kicks port, ADR-055)
 │   │   ├── import_obso_results.py    # Import OBSO values from HF Hub to bronze
 │   │   ├── import_psxg_predictions.py # Import PSxG predictions from HF Hub to bronze
-│   │   ├── import_space_creation.py  # Import space creation values from HF Hub to bronze
 │   │   ├── line_breaking.py          # Line-breaking pass batch computation (dispatcher)
 │   │   ├── line_breaking_360.py      # Line-breaking via 360 freeze frames
 │   │   ├── line_breaking_common.py   # Shared line-breaking constants
@@ -632,7 +634,6 @@ luxury-lakehouse/
 │       ├── test_shared_constants.py
 │       ├── test_skillcorner.py
 │       ├── test_smoothing.py
-│       ├── test_space_creation.py
 │       ├── test_spadl_adapter.py
 │       ├── test_spadl_vaep.py
 │       ├── test_statsbomb.py
@@ -671,12 +672,12 @@ luxury-lakehouse/
 │   ├── models/
 │   │   ├── staging/                  # SILVER: statsbomb/, metrica/, wyscout/, spadl/, idsse/, skillcorner/, line_breaking/, off_ball_xt/, defcon/, entity_resolution/, pitch_control/, pausa/
 │   │   ├── intermediate/             # Cross-source joins (ephemeral)
-│   │   └── marts/                    # GOLD: 35 fact + 4 dimension tables (39 total) — `dim_matches` / `dim_competitions` / `dim_players` / `dim_teams` are Kimball-conformed per [ADR-011](docs/superpowers/adrs/ADR-011-unified-kimball-match-dimension.md)
+│   │   └── marts/                    # GOLD: 39 fact + 4 dimension tables (43 total) — `dim_matches` / `dim_competitions` / `dim_players` / `dim_teams` are Kimball-conformed per [ADR-011](docs/superpowers/adrs/ADR-011-unified-kimball-match-dimension.md)
 │   ├── tests/                        # Custom data tests
 │   ├── macros/                       # distance_to_goal, shot_angle, normalize_coordinates, generate_match_key (ADR-011)
 │   └── seeds/                        # 6 seeds: competition_metadata, position_mapping, player_xref_overrides, competition_id_mapping, model_baseline_scalars, task_workflow_mapping
 │
-├── workflow-cards/                    # 39 YAML workflow manifests (inputs, outputs, deps, cost, monitoring)
+├── workflow-cards/                    # 48 YAML workflow manifests (inputs, outputs, deps, cost, monitoring)
 │
 ├── notebooks/                        # Databricks notebooks (8 scripts)
 │   ├── train_football2vec.py         # Doc2Vec training + HF Hub publishing
@@ -692,7 +693,7 @@ luxury-lakehouse/
 │   ├── bump_wheel.py                 # Sync wheel version from pyproject.toml to all static consumers (PEP 723, deploy.sh, Terraform)
 │   ├── deploy_wheel.py               # Downloads wheel from HF Hub build-artifacts → UC Volume for inference
 │   ├── setup_lakebase_roles.py       # Manage Lakebase PG roles for service principals (databricks-sdk 0.102+)
-│   ├── create_indexes.py             # PG indexes on Lakebase synced tables (72 indexes, --verify + ANALYZE)
+│   ├── create_indexes.py             # PG indexes on Lakebase synced tables (69 indexes, --verify + ANALYZE)
 │   ├── ensure_warehouse.py           # Verify SQL warehouse is RUNNING before dbt builds
 │   ├── maintain_synced_tables.py     # Synced table maintenance (refresh, health check)
 │   ├── refresh_synced_tables.py      # Trigger SNAPSHOT refresh on synced tables (--wait, --tables)
@@ -816,9 +817,9 @@ All code must pass these gates before merge:
 Lakebase and Databricks performance standards are codified in [CLAUDE.md § Database Performance](CLAUDE.md#database-performance). Key rules:
 
 - **Lakebase (PG):** Index every filtered column on fact tables >100K rows. No `ON ONLY` indexes (partitioned tables). Avoid `SELECT DISTINCT` on large tables — use recursive CTE. Re-run `scripts/create_indexes.py` after every synced table recreation.
-- **Databricks (Spark/dbt):** `validate_dataframe()` returns row count to `write_delta_table()` (no double `df.count()`), all writes use `replaceWhere` for idempotency, don't `.toPandas()` unbounded tables, extract repeated window functions into CTEs. 24 mart models use `liquid_clustered_by` for automatic data layout (replaced static Z-ordering). Predictive Optimization enabled at catalog level. Auto-compaction and `optimizeWrite` enabled via `+tblproperties` on all mart tables. 34 of 37 mart models enforce dbt model contracts (`contract: {enforced: true}`, `on_schema_change: fail`).
+- **Databricks (Spark/dbt):** `validate_dataframe()` returns row count to `write_delta_table()` (no double `df.count()`), all writes use `replaceWhere` for idempotency, don't `.toPandas()` unbounded tables, extract repeated window functions into CTEs. 37 mart models use `liquid_clustered_by` for automatic data layout (replaced static Z-ordering). Predictive Optimization enabled at catalog level. Auto-compaction and `optimizeWrite` enabled via `+tblproperties` on all mart tables. 43 of 43 mart models enforce dbt model contracts (`contract: {enforced: true}`, `on_schema_change: fail`).
 
-The platform has 61 btree indexes across 27 tables + 6 HNSW vector indexes on embedding tables at 192-dim/208-dim (67 total) covering all Taipy query patterns. Managed by `scripts/create_indexes.py` with `ANALYZE` for planner statistics and `--verify` for EXPLAIN ANALYZE validation.
+The platform has 63 btree indexes across 29 tables + 6 HNSW vector indexes on embedding tables at 192-dim/208-dim (69 total) covering all Taipy query patterns. Managed by `scripts/create_indexes.py` with `ANALYZE` for planner statistics and `--verify` for EXPLAIN ANALYZE validation.
 
 ### 6.7 — Architecture Documentation
 
@@ -884,7 +885,7 @@ Some Terraform provider gaps and data constraints require manual workarounds tha
 | — | Player embeddings (transformer) | D25/D45 — football2vec v2 192d + 360-enriched 208d |
 | — | ScoutGPT decoder | D32 — player-conditioned action prediction (Hong et al. 2025) |
 | — | Space creation & destruction | D20 — differential OBSO (Fernandez & Bornn 2018) |
-| — | Skip guards (guard-as-wrapper) | D40/D52 — 35 guards with mandatory injection, guard-as-wrapper (each pipeline self-contained), entity_count observability, watermark-based skip (ADR-024) |
+| — | Skip guards (guard-as-wrapper) | D40/D52 — 33 guards with mandatory injection, guard-as-wrapper (each pipeline self-contained), entity_count observability, watermark-based skip (ADR-024) |
 
 ### C. Dependencies on MCP CodeDeploy Project
 

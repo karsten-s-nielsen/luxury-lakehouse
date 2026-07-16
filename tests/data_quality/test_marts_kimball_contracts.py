@@ -81,9 +81,6 @@ _CASES: tuple[tuple[str, str, float], ...] = (
     ("fct_goalkeeper_stats", "match_key", 0.99),
     ("fct_goalkeeper_stats", "team_key", 0.99),
     ("fct_goalkeeper_stats", "player_key", 0.99),
-    ("fct_gk_actions_detail", "match_key", 0.99),
-    ("fct_gk_actions_detail", "team_key", 0.99),
-    ("fct_gk_actions_detail", "player_key", 0.99),
     # PR 7 hotfix #3: PR-7 entries moved to _CASES_PR7 below for per-(mart, key,
     # provider) parameterization. Single-provider drift surfaces against the named
     # provider rather than hiding behind aggregate counts.
@@ -132,9 +129,6 @@ _CASES_PR7: tuple[tuple[str, str, str, float], ...] = (
     # If dim_players gap → fix dim. If source NULL → relax to 0.99998.
     ("fct_shots", "player_key", "statsbomb", 1.0),
     ("fct_shots", "player_key", "wyscout", 1.0),
-    # fct_line_breaking_results — SB 360 tracking only
-    ("fct_line_breaking_results", "team_key", "statsbomb_360", 1.0),
-    ("fct_line_breaking_results", "player_key", "statsbomb_360", 1.0),
     # fct_match_summary — extended to all 4 providers via tracking-side bridge.
     # SB threshold relaxed to 0.9997 to accommodate 1 SB Open Data edge case:
     # match 3825894 (RC Deportivo La Coruña vs Getafe, 2016-05-01) has metadata
@@ -192,13 +186,6 @@ _CASES_PR7: tuple[tuple[str, str, str, float], ...] = (
     ("fct_physical_stats", "player_key", "idsse", 1.0),
     ("fct_physical_stats", "player_key", "metrica", 1.0),
     ("fct_physical_stats", "player_key", "skillcorner", 1.0),
-    # fct_off_ball_xt — 3 tracking providers
-    ("fct_off_ball_xt", "match_key", "idsse", 1.0),
-    ("fct_off_ball_xt", "match_key", "metrica", 1.0),
-    ("fct_off_ball_xt", "match_key", "skillcorner", 1.0),
-    ("fct_off_ball_xt", "player_key", "idsse", 1.0),
-    ("fct_off_ball_xt", "player_key", "metrica", 1.0),
-    ("fct_off_ball_xt", "player_key", "skillcorner", 1.0),
     # fct_pass_timing — IDSSE-only (PAUSA scope, see hotfix-3 spec §3.1).
     ("fct_pass_timing", "match_key", "idsse", 1.0),
     ("fct_pass_timing", "player_key", "idsse", 1.0),

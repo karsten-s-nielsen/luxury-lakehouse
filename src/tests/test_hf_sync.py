@@ -21,8 +21,9 @@ class TestHfSync:
         run_pipeline(spark, "cat", "schema", logger_mock, filter_result=filter_result)
 
         # PR-Cycle-B (2026-05-01): import_obso_results split out — was 7, now 6.
-        # PR-2 (2026-05-05): +4 sub-ops (scoutgpt export, 3 Group 0 publishers) — now 10.
-        assert mock_run.call_count == 10
+        # PR-2 (2026-05-05): +4 sub-ops (scoutgpt export, 3 Group 0 publishers) — was 10.
+        # 2026-07 space_creation retirement: -1 (import_space_creation removed) — now 9.
+        assert mock_run.call_count == 9
 
     def test_run_sub_workflow_swallows_failure(self) -> None:
         """_run_sub_workflow logs failure at ERROR and continues (doesn't raise).
@@ -53,14 +54,15 @@ class TestHfSync:
         mock_op.assert_called_once_with(spark, "cat", "schema", logger_mock)
 
     def test_sub_operations_count(self) -> None:
-        """Verify all 10 sub-operations are registered.
+        """Verify all 9 sub-operations are registered.
 
         PR-Cycle-B (2026-05-01): split import_obso_results — was 7, now 6.
-        PR-2 (2026-05-05): +4 (scoutgpt export, 3 Group 0 publishers) — now 10.
+        PR-2 (2026-05-05): +4 (scoutgpt export, 3 Group 0 publishers) — was 10.
+        2026-07 space_creation retirement: -1 (import_space_creation removed) — now 9.
         """
         from ingestion.hf_sync import _SUB_OPERATIONS
 
-        assert len(_SUB_OPERATIONS) == 10
+        assert len(_SUB_OPERATIONS) == 9
 
     def test_sub_operations_all_callable(self) -> None:
         """Every sub-operation has a callable."""

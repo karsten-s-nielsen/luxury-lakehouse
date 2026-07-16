@@ -79,13 +79,15 @@ def test_get_auth_headers_does_not_call_subprocess(monkeypatch: pytest.MonkeyPat
     _get_auth_headers()  # must not raise
 
 
-def test_synced_tables_list_has_45_entries() -> None:
-    """SYNCED_TABLES drift guard — 45 SyncedTableConfig entries
+def test_synced_tables_list_has_41_entries() -> None:
+    """SYNCED_TABLES drift guard — 41 SyncedTableConfig entries
     (+2 GK tracking marts ADR-051; +2 GK insight-views marts: pooled shot-stopping + defensive line;
-    -1 fct_tracking_context_synced retired with the TC-1 pipeline, PR-1)."""
+    -1 fct_tracking_context_synced retired with the TC-1 pipeline, PR-1;
+    -4 orphan marts retired PR-2: fct_line_breaking_results/fct_off_ball_xt/fct_space_creation TRIGGERED
+    + fct_gk_actions_detail SNAPSHOT)."""
     from ingestion.refresh_synced_tables import SYNCED_TABLES, SyncedTableConfig
 
-    assert len(SYNCED_TABLES) == 45
+    assert len(SYNCED_TABLES) == 41
     assert all(isinstance(c, SyncedTableConfig) for c in SYNCED_TABLES)
 
 
@@ -154,13 +156,14 @@ def test_synced_table_config_rejects_invalid_scheduling_policy() -> None:
 
 
 def test_synced_tables_scheduling_policy_distribution() -> None:
-    """15 TRIGGERED + 30 SNAPSHOT = 45 total (-1 SNAPSHOT: fct_tracking_context_synced retired, PR-1)."""
+    """12 TRIGGERED + 29 SNAPSHOT = 41 total (PR-1 retired fct_tracking_context_synced SNAPSHOT;
+    PR-2 retired 3 TRIGGERED (line_breaking/off_ball_xt/space_creation) + 1 SNAPSHOT (gk_actions_detail))."""
     from ingestion.refresh_synced_tables import SYNCED_TABLES
 
     triggered = [c for c in SYNCED_TABLES if c.scheduling_policy == "TRIGGERED"]
     snapshot = [c for c in SYNCED_TABLES if c.scheduling_policy == "SNAPSHOT"]
-    assert len(triggered) == 15, f"Expected 15 TRIGGERED, got {len(triggered)}: {[c.name for c in triggered]}"
-    assert len(snapshot) == 30, f"Expected 30 SNAPSHOT, got {len(snapshot)}: {[c.name for c in snapshot]}"
+    assert len(triggered) == 12, f"Expected 12 TRIGGERED, got {len(triggered)}: {[c.name for c in triggered]}"
+    assert len(snapshot) == 29, f"Expected 29 SNAPSHOT, got {len(snapshot)}: {[c.name for c in snapshot]}"
 
 
 def test_synced_tables_all_have_primary_keys() -> None:

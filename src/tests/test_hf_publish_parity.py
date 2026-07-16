@@ -60,10 +60,9 @@ _DATASET_CARD_ORPHAN_EXEMPT: frozenset[str] = frozenset(
         "spadl-vaep-action-values-restricted",
         "spadl-action-context-restricted",
         # Per-match access_tier feature (spec 2026-06-29 §6.5): new restricted
-        # companions for pitch_control_tracking + tracking_context, created when
-        # those publishers gained the split. Remove each once its first run lands.
+        # companion for pitch_control_tracking, created when the publisher gained
+        # the split. Remove once its first run lands.
         "pitch-control-tracking-restricted",
-        "spadl-tracking-context-restricted",
         # Pre-Shot xG v3 delivery Task 1.2 (spec §A3, 2026-07-07): cards created with the
         # publisher; the HF datasets are NOT published yet (live publish is a later
         # human-gated step). Remove each once its first publish run lands.
@@ -298,10 +297,9 @@ _ADR049_SPLIT_PUBLISHER_CARDS: dict[str, str] = {
     "publish_action_context_hf.py": "spadl-action-context-restricted.md",
     "publish_spadl_vaep_hf.py": "spadl-vaep-action-values-restricted.md",
     # Per-match access_tier feature (spec 2026-06-29 §6.5): psxg was already a split
-    # publisher; pitch_control_tracking + tracking_context migrated to the split here.
+    # publisher; pitch_control_tracking migrated to the split here.
     "publish_psxg_shots_hf.py": "psxg-shots-restricted.md",
     "publish_pitch_control_tracking_hf.py": "pitch-control-tracking-restricted.md",
-    "publish_tracking_context_hf.py": "spadl-tracking-context-restricted.md",
     # Pre-Shot xG v3 delivery Task 1.2 (spec §A3, 2026-07-07): the tabular shot corpus
     # publisher for xg_model_v3.
     "publish_xg_shot_data_v3_hf.py": "xg-shot-data-v3-restricted.md",

@@ -153,7 +153,6 @@ _COMPUTE_OUTPUT_BRONZE_TABLES: frozenset[str] = frozenset(
         "player_positions",  # compute_formations_shape_graph
         "psxg_predictions",  # compute_psxg
         "spadl_action_context",  # compute_action_context
-        "space_creation_values",  # compute_space_creation
         "vaep_action_values",  # compute_spadl_vaep
         "xg_predictions",  # compute_xg_model
     }

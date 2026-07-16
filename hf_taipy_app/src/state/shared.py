@@ -136,7 +136,7 @@ _MATCH_REQUIRED_PAGE_NAMES = frozenset(("Pass-Map", "Pass-Network", "Match-Summa
 # ---------------------------------------------------------------------------
 # Post-PR 2 (ADR-011): maps competition label → (competition_key, competition_id_legacy_int).
 # competition_key is the Kimball surrogate FK used by migrated facts
-# (fct_passes, fct_match_summary, fct_line_breaking_results). competition_id
+# (fct_passes, fct_match_summary). competition_id
 # is the legacy INT identifier for unmigrated facts (fct_shots,
 # fct_action_values, fct_defcon_*, etc.). For IDSSE rows competition_id is
 # 0 (sentinel — non-numeric DFL IDs); IDSSE doesn't appear in legacy facts
@@ -145,7 +145,7 @@ _comp_map: dict[str, tuple[int, int]] = {}
 _team_map: dict[str, int] = {}
 # Post-PR 2 (ADR-011): maps match label → (match_key, native_match_id_int).
 # match_key is the Kimball surrogate FK to dim_matches (used by fct_passes,
-# fct_match_summary, fct_line_breaking_results). native_match_id_int is
+# fct_match_summary). native_match_id_int is
 # the legacy BIGINT match_id (used by fct_shots, fct_action_values, and
 # other not-yet-migrated facts). IDSSE/Metrica matches have native_match_id=0
 # (their native IDs are non-numeric strings); consumers querying legacy
@@ -290,7 +290,7 @@ def get_match_id(label: str | None) -> int | None:
     the 0 sentinel is safe for filter clauses.
 
     Post-PR 2: use `get_match_key` for Kimball-migrated facts
-    (fct_passes, fct_match_summary, fct_line_breaking_results).
+    (fct_passes, fct_match_summary).
     """
     if not label or label == _ALL_LABEL:
         return None
@@ -303,8 +303,7 @@ def get_match_key(label: str | None) -> int | None:
 
     Returns None for 'All' or empty. Always non-zero for matches present
     in the cascade (match_key is deterministic across all providers).
-    Use this for queries against fct_passes_synced, fct_match_summary_synced,
-    or fct_line_breaking_results_synced.
+    Use this for queries against fct_passes_synced or fct_match_summary_synced.
     """
     if not label or label == _ALL_LABEL:
         return None

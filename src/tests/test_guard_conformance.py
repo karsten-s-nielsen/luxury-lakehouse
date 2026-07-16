@@ -33,7 +33,6 @@ _METADATA_EXEMPT = {
     "wf-wyscout",  # Static dataset, count-based guard
     "wf-import-obso",  # HF SHA guard — metadata is commit_sha string, not ID list
     "wf-import-psxg",  # HF SHA guard — metadata is commit_sha string, not ID list
-    "wf-import-space-creation",  # HF SHA guard — metadata is commit_sha string, not ID list
     "wf-model-validation",  # Watermark guard — metadata from check_upstream_freshness
     "wf-sync-hf-costs",  # Polling sync, always-run
     "wf-hf-sync",  # Orchestrator, always-run stub

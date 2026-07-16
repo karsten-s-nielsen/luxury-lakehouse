@@ -350,7 +350,6 @@ _GUARD_MODULES: list[str] = [
     "ingestion.gradientsports",
     "ingestion.import_obso_results",
     "ingestion.import_psxg_predictions",
-    "ingestion.import_space_creation",
     "ingestion.tracking_metadata",
     "ingestion.model_validation",
     "ingestion.dbt_runner",
