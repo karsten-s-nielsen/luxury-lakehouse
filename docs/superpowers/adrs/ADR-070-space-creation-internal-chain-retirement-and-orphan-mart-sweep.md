@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | **Date** | 2026-07-16 |
-| **Status** | Proposed |
+| **Status** | Accepted |
 | **Deciders** | Karsten Nielsen |
 
 ## Context
