@@ -49,7 +49,6 @@ _KEY_ABSENT_BY_DESIGN: set[tuple[str, str, str]] = {
 
 # Known team-less marts (player-only or career-only):
 _TEAM_KEY_ABSENT_BY_DESIGN: set[str] = {
-    "fct_off_ball_xt.sql",  # player-match grain, no team
     "fct_physical_stats.sql",  # player-match grain, no team
     "fct_pausa_rankings.sql",  # player-career
     "fct_pass_timing.sql",  # player-match
@@ -61,7 +60,6 @@ _TEAM_KEY_ABSENT_BY_DESIGN: set[str] = {
     "fct_player_embeddings_season.sql",
     "fct_player_embeddings_season_360.sql",
     "fct_position_maps.sql",  # tracking — team_key now present (PR 7), keep tracking
-    "fct_space_creation.sql",  # tracking — team is just role; PR 7 deferred team_key per spec
 }
 
 _LEGACY_TO_KEY: list[tuple[str, str]] = [

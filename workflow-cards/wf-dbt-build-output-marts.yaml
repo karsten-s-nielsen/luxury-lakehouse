@@ -49,9 +49,6 @@ inputs:
     - id: "{catalog}.bronze.player_positions"
       source: delta-table
       description: "Player positions from shape graph pipeline"
-    - id: "{catalog}.bronze.space_creation_values"
-      source: delta-table
-      description: "Space creation values from elastic sync pipeline"
     - id: "{catalog}.bronze.psxg_predictions"
       source: delta-table
       description: "Post-shot xG predictions"
@@ -79,9 +76,6 @@ outputs:
     - id: "{catalog}.dev_gold.fct_funnel_stages_agg"
       destination: delta-table
       dbt_model: fct_funnel_stages_agg
-    - id: "{catalog}.dev_gold.fct_gk_actions_detail"
-      destination: delta-table
-      dbt_model: fct_gk_actions_detail
     - id: "{catalog}.dev_gold.fct_gk_defensive_line"
       destination: delta-table
       dbt_model: fct_gk_defensive_line
@@ -97,15 +91,9 @@ outputs:
     - id: "{catalog}.dev_gold.fct_heatmap_agg"
       destination: delta-table
       dbt_model: fct_heatmap_agg
-    - id: "{catalog}.dev_gold.fct_line_breaking_results"
-      destination: delta-table
-      dbt_model: fct_line_breaking_results
     - id: "{catalog}.dev_gold.fct_match_summary"
       destination: delta-table
       dbt_model: fct_match_summary
-    - id: "{catalog}.dev_gold.fct_off_ball_xt"
-      destination: delta-table
-      dbt_model: fct_off_ball_xt
     - id: "{catalog}.dev_gold.fct_pass_timing"
       destination: delta-table
       dbt_model: fct_pass_timing
@@ -154,9 +142,6 @@ outputs:
     - id: "{catalog}.dev_gold.fct_shot_xg"
       destination: delta-table
       dbt_model: fct_shot_xg
-    - id: "{catalog}.dev_gold.fct_space_creation"
-      destination: delta-table
-      dbt_model: fct_space_creation
     - id: "{catalog}.dev_gold.fct_tracking_avg_positions"
       destination: delta-table
       dbt_model: fct_tracking_avg_positions
@@ -201,7 +186,6 @@ depends_on:
   - wf-line-breaking
   - wf-formations
   - wf-football2vec
-  - wf-tracking-context
 # Note: wf-model-validation deliberately omitted — validation reads from gold
 # marts that this stage produces, so gating mart refresh on validation only
 # checks yesterday's data. Validation is a quality signal, not a correctness

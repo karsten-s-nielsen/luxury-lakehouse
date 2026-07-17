@@ -9,8 +9,8 @@
 -- UNIQUE: (provider, native_match_id).
 --
 -- Kimball conformed dimension per ADR-011. PR 1 establishes this dim; no
--- facts reference it yet. PR 2 migrates fct_passes + fct_line_breaking_results
--- + fct_match_summary to match_key FKs. Subsequent PRs migrate remaining facts.
+-- facts reference it yet. PR 2 migrates fct_passes + fct_match_summary to
+-- match_key FKs. Subsequent PRs migrate remaining facts.
 --
 -- Cardinality at the time of PR 1:
 --   - statsbomb: ~3500 matches (open data)

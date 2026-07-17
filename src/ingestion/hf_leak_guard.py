@@ -34,7 +34,6 @@ PUBLISHER_REGISTRY: dict[str, str] = {
     "publish_shot_freeze_frames_hf": "split",
     "publish_psxg_shots_hf": "split",
     "publish_pitch_control_tracking_hf": "split",
-    "publish_tracking_context_hf": "split",
     "publish_line_breaking_passes_hf": "fail_closed",
     "publish_xg_shots_hf": "fail_closed",
     "publish_freeze_frame_hf": "fail_closed",
@@ -74,7 +73,7 @@ def _assert_no_access_tier_visibility_divergence(public_df: pd.DataFrame, *, pub
     default. So **`access_tier` already encodes the per-row visibility decision**, and the all-public check above is
     the primary enforcement. This is the on-the-publish-path, fail-closed backstop against a *stamp divergence*
     (`access_tier='public'` on a row whose true `visibility` is not public). It fires when the frame carries a
-    provider column + `visibility` (a publisher that joins dim_matches, e.g. publish_tracking_context, attaches it).
+    provider column + `visibility` (a publisher that joins dim_matches attaches it).
     The COMPREHENSIVE, build-gating enforcement is the dbt consistency test
     (`assert_access_tier_visibility_consistency.sql`) — it covers `dim_matches` (the source for dim-resolved marts) AND
     the row-level facts (`fct_action_context`/`fct_action_values`, joined to dim_matches), so every mart is gated

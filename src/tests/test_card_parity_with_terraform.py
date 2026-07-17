@@ -359,7 +359,6 @@ _HF_JOBS_SCRIPT_TO_CARD: dict[str, str | None] = {
     "publish_football2vec_embeddings_hf.py": None,
     "publish_line_breaking_passes_hf.py": None,
     "publish_pitch_control_tracking_hf.py": None,
-    "publish_tracking_context_hf.py": None,
     "publish_action_context_hf.py": None,
     # Operator-run (PEP 723), like publish_action_context_hf.py: publishes the gold
     # shot-grain PSxG fact (fct_shot_psxg) to psxg-shots + the ADR-049 private
@@ -486,7 +485,6 @@ def test_every_direct_tf_task_has_scheduled_card() -> None:
 # hf_sync._SUB_OPERATIONS into its own Databricks task; mapping moved to
 # _DIRECT_TASK_ENTRY_POINT_TO_CARD above.
 _MODULE_TO_CARD: dict[str, str] = {
-    "ingestion.import_space_creation": "wf-import-space-creation",
     "ingestion.import_psxg_predictions": "wf-import-psxg",
     "ingestion.export_embeddings_training_data": "wf-football2vec-v2-export",
     "ingestion.export_shots_on_target": "wf-export-shots",

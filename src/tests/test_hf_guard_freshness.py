@@ -165,20 +165,6 @@ class TestPromotedGuardRepoConstants:
 
         mock_check.assert_called_once_with(spark, "cat", "wf-import-psxg", "luxury-lakehouse/psxg-predictions")
 
-    @patch("ingestion.import_space_creation.check_hf_dataset_freshness")
-    def test_import_space_creation_guard(self, mock_check: MagicMock) -> None:
-        """import_space_creation.skip_guard calls check with space-creation-values repo."""
-        mock_check.return_value = FilterResult(workflow_id="wf-import-space-creation", count=1)
-        spark = MagicMock()
-
-        from ingestion.import_space_creation import skip_guard
-
-        skip_guard.check(spark, "cat", "schema")
-
-        mock_check.assert_called_once_with(
-            spark, "cat", "wf-import-space-creation", "luxury-lakehouse/space-creation-values"
-        )
-
     @patch("ingestion.player_embeddings_v2.check_hf_dataset_freshness")
     def test_football2vec_v2_guard(self, mock_check: MagicMock) -> None:
         """player_embeddings_v2.skip_guard calls check with v2 dataset repo."""

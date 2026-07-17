@@ -138,4 +138,4 @@ If you use this dataset, please cite the following:
 
 ## PR 7 changelog (2026-04-27)
 
-The upstream gold mart `fct_space_creation` now carries Kimball surrogate FKs (`match_key`, `player_key`, `data_source`) alongside the legacy native columns during the 2026-07-22 dual-column window per ADR-011. Per-row `team` remains a `home`/`away` role string — team-level resolution is deferred until a use case demands it. PR 8 will sunset the legacy `*_id` columns post-2026-07-22.
+**Downstream (2026-07 mart consolidation):** the gold mart `fct_space_creation` and its internal staging + bronze-import chain were retired. Space-creation values remain available via this dataset, computed directly by the `wf-space-creation` GPU batch job. Per-row `team` remains a `home`/`away` role string.

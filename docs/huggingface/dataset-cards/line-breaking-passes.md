@@ -130,6 +130,6 @@ There is no formal paper for this dataset. If you use it, please cite the reposi
 
 ## PR 7 changelog (2026-04-27)
 
-The upstream gold mart `fct_line_breaking_results` now carries Kimball surrogate FKs (`team_key`, `player_key`) alongside the legacy native columns during the 2026-07-22 dual-column window per ADR-011. Resolution is via `int_unified_passes` JOIN on (event_id, data_source) → dim_teams/dim_players. PR 8 will sunset the legacy `*_id` columns post-2026-07-22.
+**Downstream (2026-07 mart consolidation):** the gold mart `fct_line_breaking_results` was retired. Line-breaking flags are consumed directly from the surviving `stg_line_breaking__results` staging view by `fct_passes`, where Kimball FK resolution (via `int_unified_passes` JOIN on (event_id, data_source) → dim_teams/dim_players) now happens.
 
 - **License**: [MIT](https://opensource.org/licenses/MIT)

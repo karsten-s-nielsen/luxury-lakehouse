@@ -406,7 +406,7 @@ def fetch_matches(competition_key: int, team_id: int | None) -> list[tuple[str, 
     (Kimball surrogate BIGINT). We also surface the native `match_id`
     (INT, via dim_matches JOIN) so callers can route to the right
     fact table — `match_key` for Kimball-migrated facts (fct_passes,
-    fct_match_summary, fct_line_breaking_results), native `match_id`
+    fct_match_summary), native `match_id`
     for still-legacy facts (fct_shots, fct_action_values,
     fct_funnel_stages_agg, etc.) until their own migration PRs.
 

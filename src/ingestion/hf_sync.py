@@ -1,7 +1,7 @@
 """Combined HF Hub sync task — imports and exports in a single Databricks task.
 
 Replaces separate HF tasks with one task that calls each as a
-``@workflow``-decorated sub-operation (currently 10 sub-operations).
+``@workflow``-decorated sub-operation (currently 9 sub-operations).
 Each sub-operation gets its own record in ``workflow_cost_live``.
 """
 
@@ -42,7 +42,6 @@ skip_guard = _HfSyncGuard()
 # Default UC Volume paths for sub-operations that stage via Volume.
 # These match the CLI defaults in each sub-module's ``main()`` function.
 _VOLUME_PATHS: dict[str, str] = {
-    "ingestion.import_space_creation": "/Volumes/soccer_analytics/dev_gold/model_weights/space_creation",
     "ingestion.import_obso_results": "/Volumes/soccer_analytics/dev_gold/model_weights/obso",
     "ingestion.import_psxg_predictions": "/Volumes/soccer_analytics/dev_gold/model_weights/psxg",
     "ingestion.export_shots_on_target": "/Volumes/soccer_analytics/dev_gold/model_weights/psxg",
@@ -162,7 +161,6 @@ def _make_sync_costs_op() -> Callable[..., None]:
 # elastic_sync→pausa chain. The standalone import_obso_results task makes
 # this dependency explicit; see terraform/modules/workflows/main.tf.
 _SUB_OPERATIONS: list[tuple[str, Callable[..., None]]] = [
-    ("ingestion.import_space_creation", _make_volume_op("ingestion.import_space_creation")),
     ("ingestion.import_psxg_predictions", _make_volume_op("ingestion.import_psxg_predictions")),
     ("ingestion.export_embeddings_training_data", _make_logger_op("ingestion.export_embeddings_training_data")),
     (
