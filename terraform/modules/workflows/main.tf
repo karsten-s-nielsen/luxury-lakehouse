@@ -1511,7 +1511,7 @@ resource "databricks_job" "data_ingestion" {
         # + ~11 fewer transitives off cold-start.
         "mlflow-skinny==3.13.0",
         "mplsoccer==1.6.1",
-        "matplotlib==3.10.8",
+        "matplotlib==3.10.9",
         "scipy==1.15.3"
       ]
     }
