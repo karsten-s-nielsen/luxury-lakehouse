@@ -50,10 +50,33 @@ updates:
         dependency-type: development
         patterns: ["*"]
         update-types: ["minor", "patch"]
-        # numba is dev-classified but IS env-pinned (== in main.tf) — exclude it so
-        # it gets an individual PR + the ADR-046 lockstep, not a grouped bump.
+        # Exclude ALL serverless-env-pinned deps (the `==` pins in
+        # terraform/modules/workflows/main.tf). Dependabot's dev/prod classification
+        # is unreliable — it calls env-pinned matplotlib AND numba "dev", so they
+        # land in this dev group and drift the TF pin (the failed group #480). Prod
+        # env pins listed here are harmless no-ops (they never match a dev group),
+        # but the full set guarantees no env pin is ever batched — each gets an
+        # individual PR + the ADR-046 lockstep (#447). Keep in sync with main.tf;
+        # enforced by test_dependabot_only_dev_deps_grouped.
         exclude-patterns:
+          - "accessible-space"
+          - "databricks-sdk"
+          - "dbt-core"
+          - "dbt-databricks"
+          - "gensim"
+          - "huggingface-hub"
+          - "matplotlib"
+          - "mlflow-skinny"
+          - "mplsoccer"
           - "numba"
+          - "numpy"
+          - "rapidfuzz"
+          - "scipy"
+          - "silly-kicks"
+          - "sparse-dot-topn"
+          - "statsbombpy"
+          - "unidecode"
+          - "xgboost-cpu"
       python-security:
         applies-to: security-updates
         patterns: ["*"]

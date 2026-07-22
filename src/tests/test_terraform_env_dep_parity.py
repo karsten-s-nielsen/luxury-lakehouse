@@ -324,17 +324,23 @@ def test_dependabot_only_dev_deps_grouped() -> None:
     env-pinned mlflow-skinny, and a batch even downgraded dbt in the default fork,
     tripping :func:`test_terraform_env_dep_parity` (the closed group #476). Env-pinned
     deps must get INDIVIDUAL PRs so each can be completed with the ADR-046 TF
-    lockstep (#447). ``numba`` is dev-classified but env-pinned, so it must be
-    excluded even from the dev group. Guards ``.github/dependabot.yml`` against a
-    future broad/prod version group re-introducing the drift.
+    lockstep (#447). Dependabot's dev/prod classification is UNRELIABLE — it calls
+    env-pinned ``matplotlib`` AND ``numba`` "dev", so they land in the dev group and
+    drift the TF pin (the failed group #480). Every env pin must therefore be
+    excluded from any dev group, not just the obvious dev ones. Guards
+    ``.github/dependabot.yml`` against a broad/prod group or a missing env-pin
+    exclusion re-introducing the drift.
     """
     import yaml
 
     dependabot = yaml.safe_load((_REPO / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
     uv_update = next(u for u in dependabot["updates"] if u["package-ecosystem"] == "uv")
 
-    env_pins = {pkg for env in _parse_tf_env_deps().values() for pkg in env}
-    assert "numba" in env_pins, "expected numba to be a serverless-env pin in main.tf"
+    # The serverless-env `==` pins (the drift-sensitive set).
+    env_pins = {
+        pkg for env in _parse_tf_env_deps().values() for pkg, spec in env.items() if spec.strip().startswith("==")
+    }
+    assert {"numba", "matplotlib"} <= env_pins, "expected numba + matplotlib to be serverless-env pins"
 
     version_groups = {
         name: g
@@ -351,4 +357,9 @@ def test_dependabot_only_dev_deps_grouped() -> None:
             "individual so each gets the #447 lockstep."
         )
         excluded = {p.lower() for p in g.get("exclude-patterns", [])}
-        assert "numba" in excluded, f"env-pinned dev dep 'numba' must be in group '{name}' exclude-patterns"
+        missing = {dep for dep in env_pins if dep not in excluded}
+        assert not missing, (
+            f"env-pinned deps {sorted(missing)} are not in group '{name}' exclude-patterns "
+            "— dependabot's dev/prod classification is unreliable (it calls matplotlib/numba "
+            "'dev'), so ALL env pins must be excluded to avoid ADR-046 drift (see failed #480)."
+        )
