@@ -107,12 +107,17 @@ uv run python scripts/ensure_warehouse.py
 
 The Taipy dashboard connects to Lakebase (PostgreSQL) via OAuth M2M. Two setup steps are needed:
 
-**Step 1: Create the PG role for the service principal** (one-time):
+**Step 1: Create the Lakebase PG roles for the service principals** (one-time):
 
 ```bash
-uv run python scripts/setup_lakebase_roles.py          # Create PG role
-uv run python scripts/setup_lakebase_roles.py --verify  # Confirm role exists
+uv run python scripts/setup_lakebase_roles.py          # Create PG roles
+uv run python scripts/setup_lakebase_roles.py --verify  # Confirm roles exist
 ```
+
+This provisions **two** service-principal roles (see `DESIRED_SP_ROLES`):
+
+- the **Taipy app SP** — a plain grantee (receives SELECT in Step 2);
+- the **CI OIDC SP** (`terraform_ci`, repo var `DATABRICKS_CLIENT_ID`) — created as a member of `databricks_superuser` so the `lakebase-grants.yml` GitHub Action can run GRANT / `connect_as_superuser()` (it authenticates via GitHub OIDC, replacing the retired admin PAT — see [ADR-071](superpowers/adrs/ADR-071-ci-databricks-oidc-auth.md)). **Skipping the CI SP breaks `lakebase-grants.yml`** with `psycopg2 ... password authentication failed for user '<app-id>'`.
 
 **Step 2: Grant SELECT access on synced tables** (after initial setup, or after synced table recreation):
 
@@ -121,7 +126,7 @@ uv run python scripts/run_lakebase_grants.py            # Apply grants
 uv run python scripts/run_lakebase_grants.py --verify    # Confirm grants exist
 ```
 
-Both scripts use your PAT (`DATABRICKS_TOKEN`) to authenticate as the workspace admin. The grants are applied to the service principal UUID configured in the scripts.
+Both scripts authenticate as a **workspace admin via OAuth** (PATs were retired 2026-07-21). Run `databricks auth login --profile OAUTH` once, then run the scripts under that profile (e.g. `DATABRICKS_CONFIG_PROFILE=OAUTH`, or export a bearer token from `Config(profile="OAUTH")` as `DATABRICKS_TOKEN`). The grants are applied to the service-principal UUIDs configured in the scripts.
 
 > **When to re-run grants:** After creating new synced tables, or if the Taipy app connects to Lakebase but queries return empty results (the connection succeeds but the service principal has no SELECT permission).
 

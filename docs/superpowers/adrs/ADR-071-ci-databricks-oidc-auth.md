@@ -56,6 +56,15 @@ repo-wide `terraform_ci` SP) and export it as `DATABRICKS_TOKEN`. The stored
 - Fork PRs cannot mint a token (no `id-token: write`, no vars); the mint step fails
   rather than skipping. Acceptable: fork PRs get no secrets today either and are
   auto-closed by `close-fork-prs.yml`.
+- **Lakebase prerequisite:** the OIDC token authenticates fine to Databricks *workspace*
+  APIs (jobs, SQL, DDL), but Lakebase Postgres is identity-based — the `terraform_ci` SP
+  must be a provisioned PG role, and a `databricks_superuser` member, for
+  `lakebase-grants.yml` / `connect_as_superuser()` to run GRANT. The retired admin PAT
+  had this implicitly (its human owner is a superuser). One-time fix, codified
+  declaratively in `scripts/setup_lakebase_roles.py`
+  (`DesiredRole(..., superuser=True)` → `create_role(membership_roles=[DATABRICKS_SUPERUSER])`),
+  run once by an existing superuser. Missing-role symptom:
+  `psycopg2 ... password authentication failed for user '<sp-app-id>'`.
 
 ### Neutral
 
@@ -71,6 +80,7 @@ repo-wide `terraform_ci` SP) and export it as `DATABRICKS_TOKEN`. The stored
 
 ## Related
 
-- **Issues / PRs:** the databricks-sdk 0.121.0 bump (#447) surfaced this — its CI run was the first to fail on the dead PAT.
+- **Issues / PRs:** #449 (this migration); the databricks-sdk 0.121.0 bump (#447) surfaced the break — its CI run was the first to fail on the dead PAT.
+- **Scripts:** `scripts/setup_lakebase_roles.py` (provisions the CI SP as a `databricks_superuser` member).
 - **External references:** silly-kicks handoff 2026-07-21 (workspace moved off PATs → OAuth).
 - **ADRs:** builds on the un-numbered GitHub-OIDC SP federation established for `terraform-apply.yml` / `dbt-live-ci.yml`.
