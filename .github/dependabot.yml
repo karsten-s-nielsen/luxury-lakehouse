@@ -42,6 +42,31 @@ updates:
         applies-to: version-updates
         patterns: ["*"]
         update-types: ["minor", "patch"]
+        # Exclude the serverless-env-pinned deps (the `==` pins in
+        # terraform/modules/workflows/main.tf). Per ADR-046 each of these needs a
+        # coordinated pyproject + uv.lock + terraform lockstep (see #447), so they
+        # must NOT be batched into a group — a grouped bump can't be completed
+        # atomically and fails test_terraform_env_dep_parity. Excluded here, they
+        # get INDIVIDUAL PRs handled one at a time. Keep this list in sync with the
+        # env blocks in main.tf.
+        exclude-patterns:
+          - "accessible-space"
+          - "databricks-sdk"
+          - "dbt-core"
+          - "dbt-databricks"
+          - "gensim"
+          - "huggingface-hub"
+          - "matplotlib"
+          - "mlflow-skinny"
+          - "mplsoccer"
+          - "numba"
+          - "numpy"
+          - "rapidfuzz"
+          - "scipy"
+          - "sparse-dot-topn"
+          - "statsbombpy"
+          - "unidecode"
+          - "xgboost-cpu"
       python-security:
         applies-to: security-updates
         patterns: ["*"]
