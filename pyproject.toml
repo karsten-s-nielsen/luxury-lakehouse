@@ -134,7 +134,7 @@ taipy-app = [
     "huggingface-hub>=1.5.0",
     "scipy>=1.15.0",
     "plotly>=6.7.0,<7",
-    "cachetools>=6.0.0",
+    "cachetools>=7.1.4",
 ]
 # NOTE: kloppy (SkillCorner tracking) is NOT listed here — it runs in a separate
 # Databricks task environment defined in terraform/modules/workflows/main.tf.
@@ -449,7 +449,7 @@ dev = [
     # via pyright extraPaths). Several src/tests/test_queries_*.py and
     # test_trigger_dbt_job.py tests
     # transitively import it.
-    "cachetools>=6.0.0",
+    "cachetools>=7.1.4",
     # NOTE: tests touching `databricks-sdk` (test_refresh_synced_tables,
     # test_grant_synced_table_permissions, test_fix_event_log_ownership)
     # require `uv sync --group dev --extra sdk` because the
