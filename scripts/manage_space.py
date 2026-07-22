@@ -439,7 +439,7 @@ def _verify_lakebase_grants() -> None:
         return
 
     logger.info("Running Lakebase grants gate (ADR-005)...")
-    result = subprocess.run(  # noqa: S603
+    result = subprocess.run(
         [sys.executable, "scripts/run_lakebase_grants.py", "--verify"],
         capture_output=True,
         text=True,
