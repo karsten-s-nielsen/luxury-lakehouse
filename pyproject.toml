@@ -99,7 +99,7 @@ embeddings = [
     "gensim>=4.3.0",
 ]
 jax = [
-    "jax[cpu]>=0.4.35",
+    "jax[cpu]>=0.6.2",
 ]
 mlflow = [
     # >=2.19.0 is the first mlflow line that natively allows protobuf 6,
