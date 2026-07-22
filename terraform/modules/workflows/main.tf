@@ -1529,8 +1529,8 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path,
-        "dbt-core==1.11.6",
-        "dbt-databricks==1.11.6",
+        "dbt-core==1.11.12",
+        "dbt-databricks==1.12.2",
       ]
     }
   }
