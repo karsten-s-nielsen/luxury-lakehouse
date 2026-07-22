@@ -439,7 +439,7 @@ dev = [
     # precedent rather than a pip-audit --ignore-vuln entry.
     "pip>=26.1.2",
     "import-linter>=2.0",
-    "numba>=0.60.0",
+    "numba>=0.66.0",
     "matplotlib>=3.10.8",
     "pydantic-settings>=2.0.0",
     "psycopg2-binary>=2.9.9",
