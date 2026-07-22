@@ -45,7 +45,9 @@ dependencies = [
     "PyYAML>=6.0",
     # HF Hub (cost tracking, dataset publishing, model weight sync)
     "huggingface_hub>=1.5.0",
-    "gitpython>=3.1.50",
+    # Floored to >=3.1.51 to resolve GHSA-2f96-g7mh-g2hx / -v396-v7q4-x2qj /
+    # -956x-8gvw-wg5v (gitpython < 3.1.51).
+    "gitpython>=3.1.51",
 ]
 
 [project.optional-dependencies]
@@ -387,6 +389,18 @@ build-backend = "hatchling.build"
 
 # --- uv configuration ---
 [tool.uv]
+# Security floors on TRANSITIVE dependencies live here — NOT in
+# [project.dependencies] — so the project's declared deps stay limited to what we
+# actually import. constraint-dependencies apply a floor across the whole
+# resolution without creating a phantom direct dependency. This is the canonical
+# home for "vulnerable transitive package, fix version exists" (per the CVE-floor
+# convention). Direct-dep CVEs are floored inline in [project.dependencies].
+constraint-dependencies = [
+    # CVE-2026-59885 + CVE-2026-59886 (pyasn1 < 0.6.4). Transitive via the
+    # cryptography / pyOpenSSL / databricks-sdk auth chain — no direct import.
+    "pyasn1>=0.6.4",
+]
+
 # taipy requires sqlalchemy>=2.0; dbt-databricks requires sqlalchemy<2.0.
 # These extras are separate deployment targets that never coexist in a single env.
 conflicts = [
