@@ -24,16 +24,19 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # Databricks connection for dbt — used by env_var() in profiles.yml.
-      # Secrets are UNAVAILABLE on dependabot PRs (and forks). dbt parse needs NO live
-      # connection, but dbt-databricks HANGS (6h CI timeout) when the token is EMPTY: it
-      # falls through to `authenticate_with_external_browser` and blocks waiting for a
-      # browser. A non-empty PLACEHOLDER keeps it on the PAT path, so `dbt parse` runs fully
-      # offline (verified: parse succeeds with a fake token + http_path, no connection made).
-      # Real secrets (push events, same-repo PRs) are used as-is via the `||` fallback.
+      # dbt parse needs NO live connection, but dbt-databricks HANGS (6h CI timeout)
+      # when the token is EMPTY: it falls through to `authenticate_with_external_browser`
+      # and blocks waiting for a browser. A non-empty PLACEHOLDER keeps it on the PAT
+      # path, so `dbt parse` runs fully offline (verified: parse succeeds with a fake
+      # token + http_path, no connection made). The real PAT was retired workspace-wide
+      # (2026-07-21) and was never used here anyway — `dbt build --empty` (the only step
+      # needing a live connection) is not run in CI (see NOTE at the end of this file);
+      # the live build runs via OIDC in dbt-live-ci.yml. So a constant placeholder is
+      # correct on every event (push / PR / dependabot / fork).
       # Hostname is a public URL, not sensitive — lives in repo vars.
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH || '/sql/1.0/warehouses/ci-parse-placeholder' }}
-      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN || 'dbt-ci-parse-placeholder' }}  # pragma: allowlist secret
+      DATABRICKS_TOKEN: dbt-ci-parse-placeholder  # pragma: allowlist secret
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 

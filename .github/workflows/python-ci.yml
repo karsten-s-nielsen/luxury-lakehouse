@@ -25,6 +25,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write # GitHub OIDC -> Databricks SP token exchange (replaces the retired PAT)
 
 # Cancel superseded runs on the same PR when a new commit is pushed. Main-branch
 # pushes keep running to completion so the wheel upload + Databricks deploy
@@ -81,11 +82,38 @@ jobs:
       - name: Import boundary check
         run: uv run lint-imports
 
+      # Mint a short-lived workspace token via GitHub OIDC (reuses the repo-wide
+      # terraform_ci SP federation policy — terraform/modules/service_principals/main.tf)
+      # and export it as DATABRICKS_TOKEN for the live tests + wheel deploy below.
+      # Replaces the retired stored PAT (workspace moved off PATs 2026-07-21).
+      # Same-repo PRs get id-token: write (proven by terraform-plan.yml on PR);
+      # fork PRs get neither and are auto-closed by close-fork-prs.yml.
+      - name: Acquire Databricks token via OIDC
+        env:
+          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+          DATABRICKS_AUTH_TYPE: github-oidc
+        run: |
+          set -euo pipefail
+          TOKEN=$(uv run python -c "
+          import os
+          from databricks.sdk import WorkspaceClient
+          ws = WorkspaceClient(
+              host=os.environ['DATABRICKS_HOST'],
+              client_id=os.environ['DATABRICKS_CLIENT_ID'],
+              auth_type='github-oidc',
+          )
+          print(ws.config.authenticate()['Authorization'].replace('Bearer ', ''))
+          ")
+          if [ -z "$TOKEN" ]; then echo "::error::OIDC token mint returned empty"; exit 1; fi
+          echo "::add-mask::$TOKEN"
+          echo "DATABRICKS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
       - name: Run tests
         env:
           DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
           DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          # DATABRICKS_TOKEN inherited from $GITHUB_ENV (OIDC mint step above).
         run: uv run pytest
 
       - name: Validate workflow cards
@@ -143,7 +171,7 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           # Hostname is a public URL, not sensitive — repo var (see dbt-ci.yml note).
           DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}  # pragma: allowlist secret
+          # DATABRICKS_TOKEN inherited from $GITHUB_ENV (OIDC mint step above).
         run: uv run python scripts/deploy_wheel.py
 
       - name: Scan for secrets
