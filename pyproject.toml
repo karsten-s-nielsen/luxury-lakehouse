@@ -52,7 +52,7 @@ dependencies = [
 
 [project.optional-dependencies]
 spadl = [
-    "silly-kicks[das,ghost-gk,parse-dfl]>=4.43.0,<5",
+    "silly-kicks[das,ghost-gk,parse-dfl]>=4.48.0,<5",
 ]
 analytics = [
     "luxury-lakehouse[spadl]",
