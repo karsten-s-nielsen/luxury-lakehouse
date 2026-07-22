@@ -49,6 +49,12 @@ jobs:
       RUN_SERVERLESS_TESTS: "1"
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+      # Downstream steps authenticate with the OIDC-minted DATABRICKS_TOKEN
+      # (bearer). Pin auth_type=pat so the job-level CLIENT_ID does not make a
+      # bare WorkspaceClient() raise "more than one authorization method
+      # configured: oauth and pat". The mint step overrides this with a
+      # step-level github-oidc (+ constructor arg), so minting is unaffected.
+      DATABRICKS_AUTH_TYPE: pat
       DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
       # Lakebase host is derived from the Databricks REST API (ADR-041) — no LAKEBASE_HOST var needed.
       # HEAL_E2E_SCHEMA is the ONLY operator input: a disposable UC schema for the throwaway synced

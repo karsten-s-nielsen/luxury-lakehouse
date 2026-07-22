@@ -87,6 +87,15 @@ jobs:
     env:
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+      # Downstream maintenance steps authenticate with the OIDC-minted
+      # DATABRICKS_TOKEN (a bearer token, exported to $GITHUB_ENV by the mint
+      # step). Because CLIENT_ID is also present job-wide, a bare
+      # WorkspaceClient() would otherwise see two auth methods and raise
+      # "more than one authorization method configured: oauth and pat". Pinning
+      # auth_type=pat selects the token and ignores CLIENT_ID. The mint step
+      # overrides this with a step-level github-oidc (+ constructor arg), so
+      # token minting is unaffected.
+      DATABRICKS_AUTH_TYPE: pat
       HF_APP_SP_APPLICATION_ID: ${{ vars.HF_APP_SP_APPLICATION_ID }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
