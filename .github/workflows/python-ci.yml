@@ -37,6 +37,12 @@ concurrency:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    # Backstop against a hung step holding the main-branch concurrency lock for
+    # GitHub's 6h default. A transient Databricks Files API stall in the deploy
+    # step (2026-07-22) hung this job ~4.5h and, because main uses
+    # cancel-in-progress: false, deadlocked every subsequent main Python CI run
+    # behind it. The job normally finishes in ~8-10 min.
+    timeout-minutes: 30
     env:
       # SK3-MIG (2026-05-02): silly-kicks 3.0.0+ raises on input-convention mismatches
       # under this flag instead of warning. Production-posture: same as Databricks
@@ -166,6 +172,10 @@ jobs:
       # Uses the Databricks SDK Files API (REST) — not Thrift, so it works
       # from GitHub Actions runners. Only runs on main pushes (not PRs).
       - name: Deploy wheel to Databricks
+        # The Files API upload/get_metadata calls carry no client-side timeout,
+        # so a transient network stall (observed 2026-07-22) hangs the step
+        # indefinitely. Fail fast instead — deploy normally takes ~1 min.
+        timeout-minutes: 8
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
