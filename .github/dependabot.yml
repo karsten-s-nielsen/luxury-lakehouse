@@ -26,11 +26,52 @@ updates:
       interval: "weekly"
     allow:
       - dependency-type: "direct"
+    # Wait a few days after a release before opening a version PR, so we don't
+    # chase same-day releases (cooldown applies to version updates only, not
+    # security updates — those stay fast).
+    cooldown:
+      default-days: 7
+    # Batch updates into a few PRs instead of one-per-dependency. Each PR edits
+    # pyproject.toml/uv.lock and therefore triggers a full (live-warehouse)
+    # python-ci run, so grouping cuts PR volume AND CI cost. `applies-to` keeps
+    # version and security batches separate (a security fix is never blocked
+    # behind a routine bump). Majors are intentionally NOT grouped — they get an
+    # individual PR for solo review.
+    groups:
+      python-minor-patch:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      python-security:
+        applies-to: security-updates
+        patterns: ["*"]
+    # Structurally-pinned deps we CANNOT bump — an upstream parent caps the
+    # version. This is the SAME "won't-fix, pinned-by-conflict, triaged" policy as
+    # the pip-audit `--ignore-vuln` set in .github/workflows/python-ci.yml,
+    # expressed per-package here vs per-CVE there. KEEP THE TWO IN LOCKSTEP and
+    # shrink both as upstreams relax. A whole-dependency ignore (no `versions:`)
+    # stops Dependabot re-attempting + failing on them every cycle. (Backstop if a
+    # failing security job persists for one: dismiss its alert in Settings -> Security.)
+    ignore:
+      - dependency-name: "torch"          # pinned to the cu128 index (pyproject [tool.uv.sources])
+      - dependency-name: "twisted"        # taipy-gui 4.1 pins twisted>=24.7.0,<24.8.0
+      - dependency-name: "python-dotenv"  # taipy-gui pins <=1.0.1 (CVE-2026-28684)
+      - dependency-name: "deepdiff"       # taipy-common caps <8 (CVE-2025-58367 / CVE-2026-33155)
+      - dependency-name: "starlette"      # transitive via gradio/taipy (PYSEC-2026-161)
+      - dependency-name: "pyarrow"        # databricks-connect/pyspark compat (PYSEC-2026-113)
+      - dependency-name: "setuptools"     # cannot reach 83 without downgrading torch (PYSEC-2026-3447)
+      - dependency-name: "mako"           # transitive via dbt-core/alembic (CVE-2026-44307)
+      - dependency-name: "flask-cors"     # transitive via mlflow (PYSEC-2024-271)
+      - dependency-name: "joblib"         # transitive via scikit-learn (PYSEC-2024-277)
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    # One batched PR for all action bumps instead of one-per-action.
+    groups:
+      github-actions:
+        patterns: ["*"]
 
   - package-ecosystem: "terraform"
     directory: "/terraform/environments/dev"
