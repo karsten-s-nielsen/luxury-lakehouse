@@ -36,6 +36,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write # GitHub OIDC -> Databricks SP token exchange (replaces the retired PAT)
 
 concurrency:
   group: synced-table-heal-e2e
@@ -47,7 +48,7 @@ jobs:
     env:
       RUN_SERVERLESS_TESTS: "1"
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
-      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}  # pragma: allowlist secret
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
       DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
       # Lakebase host is derived from the Databricks REST API (ADR-041) — no LAKEBASE_HOST var needed.
       # HEAL_E2E_SCHEMA is the ONLY operator input: a disposable UC schema for the throwaway synced
@@ -58,7 +59,7 @@ jobs:
 
       - name: Validate required config
         run: |
-          for v in DATABRICKS_HOST DATABRICKS_TOKEN DATABRICKS_HTTP_PATH HEAL_E2E_SCHEMA; do
+          for v in DATABRICKS_HOST DATABRICKS_CLIENT_ID DATABRICKS_HTTP_PATH HEAL_E2E_SCHEMA; do
             if [ -z "${!v}" ]; then echo "::error::$v is required for the heal e2e"; exit 1; fi
           done
 
@@ -77,6 +78,28 @@ jobs:
 
       - name: Install sdk dependencies
         run: uv sync --frozen --extra sdk
+
+      # Mint a short-lived workspace token via GitHub OIDC (reuses the repo-wide
+      # terraform_ci SP federation policy) and export it as DATABRICKS_TOKEN for
+      # the e2e below. Replaces the retired stored admin PAT (2026-07-21).
+      - name: Acquire Databricks token via OIDC
+        env:
+          DATABRICKS_AUTH_TYPE: github-oidc
+        run: |
+          set -euo pipefail
+          TOKEN=$(uv run python -c "
+          import os
+          from databricks.sdk import WorkspaceClient
+          ws = WorkspaceClient(
+              host=os.environ['DATABRICKS_HOST'],
+              client_id=os.environ['DATABRICKS_CLIENT_ID'],
+              auth_type='github-oidc',
+          )
+          print(ws.config.authenticate()['Authorization'].replace('Bearer ', ''))
+          ")
+          if [ -z "$TOKEN" ]; then echo "::error::OIDC token mint returned empty"; exit 1; fi
+          echo "::add-mask::$TOKEN"
+          echo "DATABRICKS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
       - name: Run heal e2e
         run: uv run pytest src/tests/test_synced_table_heal_e2e.py -v --tb=short --no-header

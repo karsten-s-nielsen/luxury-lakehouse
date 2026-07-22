@@ -41,7 +41,9 @@ name: Lakebase Maintenance (Ownership + Grants + Indexes)
 #   3. workflow_dispatch: manual trigger for incident response.
 #
 # Required repo configuration (one-time):
-#   - secrets.DATABRICKS_TOKEN        Admin PAT with Lakebase admin role
+#   - vars.DATABRICKS_CLIENT_ID       terraform_ci SP app id — used to mint a
+#                                     short-lived workspace token via GitHub OIDC
+#                                     (replaces the retired admin PAT, 2026-07-21)
 #   - vars.DATABRICKS_HOST            Workspace hostname (with https://)
 #   - vars.HF_APP_SP_APPLICATION_ID   = terraform output -raw hf_app_sp_application_id
 #                                       (Taipy app SP UUID — single source of truth)
@@ -66,6 +68,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write # GitHub OIDC -> Databricks SP token exchange (replaces the retired PAT)
 
 # Serialize all maintenance runs (daily cron / post-Terraform-Apply / dispatch) so two runs never
 # delete+recreate the same synced table concurrently (spec H4). cancel-in-progress=false: let an
@@ -83,15 +86,15 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
-      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}  # pragma: allowlist secret
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
       HF_APP_SP_APPLICATION_ID: ${{ vars.HF_APP_SP_APPLICATION_ID }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Validate required config
         run: |
-          if [ -z "$DATABRICKS_HOST" ] || [ -z "$DATABRICKS_TOKEN" ]; then
-            echo "::error::DATABRICKS_HOST (var) and DATABRICKS_TOKEN (secret) are required"
+          if [ -z "$DATABRICKS_HOST" ] || [ -z "$DATABRICKS_CLIENT_ID" ]; then
+            echo "::error::DATABRICKS_HOST and DATABRICKS_CLIENT_ID (vars) are required for OIDC token minting"
             exit 1
           fi
           if [ -z "$HF_APP_SP_APPLICATION_ID" ]; then
@@ -122,6 +125,30 @@ jobs:
 
       - name: Install sdk dependencies
         run: uv sync --frozen --extra sdk
+
+      # Mint a short-lived workspace token via GitHub OIDC (reuses the repo-wide
+      # terraform_ci SP federation policy) and export it as DATABRICKS_TOKEN for
+      # every maintenance step below. Replaces the retired stored admin PAT.
+      # Runs on schedule / workflow_run / workflow_dispatch — all event types get
+      # id-token: write since the federation subject_claim is "repository".
+      - name: Acquire Databricks token via OIDC
+        env:
+          DATABRICKS_AUTH_TYPE: github-oidc
+        run: |
+          set -euo pipefail
+          TOKEN=$(uv run python -c "
+          import os
+          from databricks.sdk import WorkspaceClient
+          ws = WorkspaceClient(
+              host=os.environ['DATABRICKS_HOST'],
+              client_id=os.environ['DATABRICKS_CLIENT_ID'],
+              auth_type='github-oidc',
+          )
+          print(ws.config.authenticate()['Authorization'].replace('Bearer ', ''))
+          ")
+          if [ -z "$TOKEN" ]; then echo "::error::OIDC token mint returned empty"; exit 1; fi
+          echo "::add-mask::$TOKEN"
+          echo "DATABRICKS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
       # Step 0: Heal checkpoint-broken synced tables (recreate to reset the streaming checkpoint).
       # MUST run before the grants + index steps below: a recreated synced table is a brand-new PG

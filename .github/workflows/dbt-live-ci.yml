@@ -43,11 +43,12 @@ jobs:
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
       DATABRICKS_AUTH_TYPE: github-oidc
       # Required by dbt-databricks profiles.yml env_var() calls at parse time.
-      # Values may be empty on forks; dbt parse still works (no real connection).
-      # The Databricks trigger step uses OIDC (via DATABRICKS_AUTH_TYPE), so the
-      # static token here is only consumed by dbt parse on the runner.
+      # The Databricks trigger step uses OIDC (via DATABRICKS_AUTH_TYPE), so this
+      # static token is consumed ONLY by dbt parse on the runner (no live connection).
+      # A non-empty placeholder is required (empty -> browser-auth hang); the real PAT
+      # was retired workspace-wide (2026-07-21) and was never used here.
       DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
-      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}  # pragma: allowlist secret
+      DATABRICKS_TOKEN: dbt-live-ci-parse-placeholder  # pragma: allowlist secret
       # SK3-MIG (2026-05-02): silly-kicks 3.0.0+ raises on input-convention mismatches
       # under this flag instead of warning. Production-posture: same as Databricks
       # job env (terraform/modules/workflows/main.tf) — fail-loud on any regression.

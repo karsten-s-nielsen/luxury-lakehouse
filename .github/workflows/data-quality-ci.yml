@@ -25,6 +25,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write # GitHub OIDC -> Databricks SP token exchange (replaces the retired PAT)
 
 concurrency:
   group: data-quality-ci
@@ -55,14 +56,40 @@ jobs:
 
       # databricks-sql-connector is deliberately NOT in pyproject extras
       # (test-only dep). Install ad-hoc so pytest.importorskip passes.
+      # databricks-sdk is added here so the OIDC token-mint step below can run
+      # via `uv run` (this workflow syncs only --extra analytics).
       - name: Install databricks-sql-connector (ad-hoc, not in pyproject)
-        run: uv pip install databricks-sql-connector
+        run: uv pip install databricks-sql-connector databricks-sdk
+
+      # Mint a short-lived workspace token via GitHub OIDC (reuses the repo-wide
+      # terraform_ci SP federation policy) and export it as DATABRICKS_TOKEN for
+      # the data-quality tests below. Replaces the retired stored PAT (2026-07-21).
+      - name: Acquire Databricks token via OIDC
+        env:
+          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+          DATABRICKS_AUTH_TYPE: github-oidc
+        run: |
+          set -euo pipefail
+          TOKEN=$(uv run python -c "
+          import os
+          from databricks.sdk import WorkspaceClient
+          ws = WorkspaceClient(
+              host=os.environ['DATABRICKS_HOST'],
+              client_id=os.environ['DATABRICKS_CLIENT_ID'],
+              auth_type='github-oidc',
+          )
+          print(ws.config.authenticate()['Authorization'].replace('Bearer ', ''))
+          ")
+          if [ -z "$TOKEN" ]; then echo "::error::OIDC token mint returned empty"; exit 1; fi
+          echo "::add-mask::$TOKEN"
+          echo "DATABRICKS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
       - name: Run data quality tests
         env:
           DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
           DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}  # pragma: allowlist secret
+          # DATABRICKS_TOKEN inherited from $GITHUB_ENV (OIDC mint step above).
           BRONZE_SCHEMA: soccer_analytics.bronze
           STAGING_SCHEMA: soccer_analytics.dev_silver
         run: |

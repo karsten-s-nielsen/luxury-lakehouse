@@ -1,8 +1,21 @@
 #!/usr/bin/env python3
 """Manage Lakebase PostgreSQL roles for service principals.
 
-Declarative role management: defines the desired PG roles and ensures they exist
-on the Lakebase branch. Idempotent -- safe to re-run.
+Declarative role management: defines the desired PG roles (``DESIRED_SP_ROLES``)
+and ensures they exist on the Lakebase branch. Idempotent -- safe to re-run.
+
+This is a one-time fresh-install step AND the fix path when a service principal
+cannot authenticate to Lakebase (``psycopg2 ... password authentication failed
+for user '<app-id>'`` means the SP has no PG role here yet).
+
+Two privilege tiers (see ``DesiredRole.superuser``):
+    - plain grantee (default): the Taipy app SP, which only receives SELECT.
+    - ``superuser=True``: the CI OIDC SP (terraform_ci), created as a member of
+      ``databricks_superuser`` so ``lakebase-grants.yml`` can run GRANT /
+      ALTER DEFAULT PRIVILEGES + ``connect_as_superuser()``. This replaces the
+      retired admin PAT's superuser (workspace PATs were retired 2026-07-21;
+      see ADR-071). Must be run once by an existing superuser (a workspace admin
+      -- ``current_user`` is a ``databricks_superuser`` member).
 
 Usage:
     python scripts/setup_lakebase_roles.py [--verify] [--cleanup]
@@ -13,12 +26,17 @@ Options:
 
 Requires:
     - databricks-sdk >= 0.98.0 (w.postgres.create_role / list_roles / delete_role)
-    - DATABRICKS_HOST and auth configured (PAT, OAuth, or CLI profile)
+    - DATABRICKS_HOST and OAuth auth configured. PATs were retired 2026-07-21;
+      authenticate as a workspace admin via the OAuth CLI profile:
+      ``databricks auth login --profile OAUTH`` then run with that profile
+      (e.g. export a bearer via ``Config(profile="OAUTH")`` as DATABRICKS_TOKEN,
+      or set DATABRICKS_CONFIG_PROFILE=OAUTH).
 """
 
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 # PR-Cycle-B (2026-05-01): databricks-sdk is in the [sdk] optional extra.
@@ -29,6 +47,7 @@ if TYPE_CHECKING:
         Role,
         RoleAuthMethod,
         RoleIdentityType,
+        RoleMembershipRole,
         RoleRoleSpec,
     )
 else:
@@ -38,6 +57,7 @@ else:
             Role,
             RoleAuthMethod,
             RoleIdentityType,
+            RoleMembershipRole,
             RoleRoleSpec,
         )
     except ImportError:
@@ -45,6 +65,7 @@ else:
         Role = None  # type: ignore[assignment, misc]
         RoleAuthMethod = None  # type: ignore[assignment, misc]
         RoleIdentityType = None  # type: ignore[assignment, misc]
+        RoleMembershipRole = None  # type: ignore[assignment, misc]
         RoleRoleSpec = None  # type: ignore[assignment, misc]
 
 # ---------------------------------------------------------------------------
@@ -54,15 +75,43 @@ else:
 PROJECT = "projects/soccer-analytics-dev"
 BRANCH = f"{PROJECT}/branches/production"
 
+
+@dataclass(frozen=True)
+class DesiredRole:
+    """A desired Lakebase PG role for a Databricks service principal.
+
+    ``superuser=True`` creates the role as a member of ``databricks_superuser``
+    (via ``RoleMembershipRole.DATABRICKS_SUPERUSER``). That membership is what
+    grants ``CREATE ROLE`` / ``GRANT`` capability — the same privilege a human
+    workspace admin has (``current_user`` is a ``databricks_superuser`` member).
+    Only identities that must *administer* PG (run GRANT / connect_as_superuser)
+    need it; plain grantees (the Taipy app SP) must NOT have it (least privilege).
+    """
+
+    name: str
+    superuser: bool = False
+
+
 # Service principals that need Lakebase PG access.
-# Map: SP application_id -> human-readable name
-DESIRED_SP_ROLES: dict[str, str] = {
+# NOTE: these application_ids are for the dev deployment. A fresh install in a
+# different workspace resolves them from terraform outputs (see the comment on
+# each entry) and updates this map accordingly.
+DESIRED_SP_ROLES: dict[str, DesiredRole] = {
     # Auto-provisioned by Lakebase during synced table creation.
     # Listed here for completeness and verification.
-    "be66af99-5296-4fd9-887a-c081bce38bfa": "luxury-lakehouse-ingestion-sp (auto-provisioned)",
-    # OAuth M2M SP for HF Spaces Taipy app (v2).
+    "be66af99-5296-4fd9-887a-c081bce38bfa": DesiredRole("luxury-lakehouse-ingestion-sp (auto-provisioned)"),
+    # OAuth M2M SP for HF Spaces Taipy app (v2). Plain grantee of SELECT — NOT a superuser.
     # Created programmatically via w.postgres.create_role().
-    "1a1dbf08-df56-48de-b97a-276b2a4232d8": "luxury-lakehouse-hf-app-v2-dev",
+    "1a1dbf08-df56-48de-b97a-276b2a4232d8": DesiredRole("luxury-lakehouse-hf-app-v2-dev"),
+    # CI OIDC SP = `terraform output -raw terraform_ci_sp_application_id`
+    # (also GitHub repo var DATABRICKS_CLIENT_ID). lakebase-grants.yml authenticates
+    # as this SP via GitHub OIDC and runs GRANT / ALTER DEFAULT PRIVILEGES +
+    # connect_as_superuser(), which require databricks_superuser membership. This is
+    # parity with the retired admin PAT (whose human owner is a superuser). See ADR-071.
+    "521f5d6a-cfd4-4fe1-a5cb-d5b12e247276": DesiredRole(
+        "luxury-lakehouse-terraform-ci-dev (CI OIDC — Lakebase superuser for grants)",
+        superuser=True,
+    ),
 }
 
 
@@ -94,7 +143,7 @@ def verify_roles(ws: WorkspaceClient) -> None:
         if identity == "SERVICE_PRINCIPAL":
             existing_sp_roles.add(pg_role)
             if pg_role in DESIRED_SP_ROLES:
-                status = f"OK ({DESIRED_SP_ROLES[pg_role]})"
+                status = f"OK ({DESIRED_SP_ROLES[pg_role].name})"
             else:
                 status = "UNKNOWN (not in desired state)"
         elif identity == "USER":
@@ -112,7 +161,9 @@ def verify_roles(ws: WorkspaceClient) -> None:
     if missing:
         print("Missing desired SP roles:")
         for sp_id in missing:
-            print(f"  {sp_id} — {DESIRED_SP_ROLES[sp_id]}")
+            desired = DESIRED_SP_ROLES[sp_id]
+            suffix = " [superuser]" if desired.superuser else ""
+            print(f"  {sp_id} — {desired.name}{suffix}")
     else:
         print("All desired SP roles are present.")
 
@@ -127,12 +178,19 @@ def ensure_roles(ws: WorkspaceClient) -> int:
     }
 
     created = 0
-    for sp_id, name in DESIRED_SP_ROLES.items():
+    for sp_id, desired in DESIRED_SP_ROLES.items():
         if sp_id in existing_sp_ids:
-            print(f"  Role exists: {sp_id} ({name})")
+            # NOTE: create_role is skip-if-exists, so a role first created WITHOUT
+            # superuser is not retroactively promoted here. To (re)grant superuser to
+            # an existing role, delete it (--cleanup won't touch a live-login role) and
+            # re-run, or grant membership out-of-band. Fresh installs create it correctly.
+            suffix = " [superuser]" if desired.superuser else ""
+            print(f"  Role exists: {sp_id} ({desired.name}){suffix}")
             continue
 
-        print(f"  Creating role: {sp_id} ({name})")
+        membership = [RoleMembershipRole.DATABRICKS_SUPERUSER] if desired.superuser else None
+        suffix = " as databricks_superuser member" if desired.superuser else ""
+        print(f"  Creating role: {sp_id} ({desired.name}){suffix}")
         try:
             ws.postgres.create_role(
                 parent=BRANCH,
@@ -141,6 +199,7 @@ def ensure_roles(ws: WorkspaceClient) -> int:
                         auth_method=RoleAuthMethod.LAKEBASE_OAUTH_V1,
                         identity_type=RoleIdentityType.SERVICE_PRINCIPAL,
                         postgres_role=sp_id,
+                        membership_roles=membership,
                     )
                 ),
             )
