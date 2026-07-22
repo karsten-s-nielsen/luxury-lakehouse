@@ -165,7 +165,7 @@ name = "apispec"
 version = "6.8.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "packaging" },
+    { name = "packaging", version = "26.0", source = { registry = "https://pypi.org/simple" } },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c0/21/2b86a14a01c800308226c018fa489991cc40ffc227954d4f59d8a4090477/apispec-6.8.2.tar.gz", hash = "sha256:ce5b69b9fcf0250cb56ba0c1a52a75ff22c2f7c586654e57884399018c519f26", size = 77148, upload-time = "2025-05-12T14:57:52.649Z" }
 wheels = [
@@ -786,7 +786,8 @@ dependencies = [
     { name = "huggingface-hub" },
     { name = "multiprocess" },
     { name = "numpy" },
-    { name = "packaging" },
+    { name = "packaging", version = "25.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-dbt'" },
+    { name = "packaging", version = "26.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-sdk' or extra == 'extra-16-luxury-lakehouse-taipy-app' or extra != 'extra-16-luxury-lakehouse-dbt'" },
     { name = "pandas" },
     { name = "pyarrow", version = "18.1.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-16-luxury-lakehouse-dbt' and extra == 'extra-16-luxury-lakehouse-sdk') or (extra != 'extra-16-luxury-lakehouse-sdk' and extra == 'extra-16-luxury-lakehouse-taipy-app') or (extra != 'extra-16-luxury-lakehouse-dbt' and extra == 'extra-16-luxury-lakehouse-taipy-app')" },
     { name = "pyarrow", version = "19.0.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-dbt' or extra != 'extra-16-luxury-lakehouse-taipy-app'" },
@@ -859,7 +860,7 @@ dependencies = [
     { name = "jsonschema" },
     { name = "mashumaro", extra = ["msgpack"], marker = "extra == 'extra-16-luxury-lakehouse-dbt'" },
     { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" } },
-    { name = "packaging" },
+    { name = "packaging", version = "25.0", source = { registry = "https://pypi.org/simple" } },
     { name = "pathspec" },
     { name = "protobuf" },
     { name = "pydantic" },
@@ -877,7 +878,7 @@ wheels = [
 
 [[package]]
 name = "dbt-databricks"
-version = "1.11.6"
+version = "1.12.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -888,11 +889,12 @@ dependencies = [
     { name = "dbt-core" },
     { name = "dbt-spark" },
     { name = "keyring" },
+    { name = "packaging", version = "25.0", source = { registry = "https://pypi.org/simple" } },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/36/60/0e37deb8ccbb32a6a2644edae9add0e359982a1c2c3db80c630709cee8fb/dbt_databricks-1.11.6.tar.gz", hash = "sha256:50a33064b4512c7a9906061c2510c7f6f29cc21044ac3f1d68dd39f235d18892", size = 94630, upload-time = "2026-03-11T09:26:48.785Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cc/0b/abf8eeb00e41c5079b0aa89455ec6f264df77a63986312c860f9455331a5/dbt_databricks-1.12.2.tar.gz", hash = "sha256:ceac10282f50ee86cda90c2a15f2eb595d772f0f55ac927ee5612c4016031074", size = 119260, upload-time = "2026-07-09T11:46:33.67Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d0/c7/cf5454707d4cf07b76de17425ded6e9ac27a7af2918ffef8db652a9a9d94/dbt_databricks-1.11.6-py3-none-any.whl", hash = "sha256:b35ffce84115da97dc796f5450ba9b1011a3fe6902f99e797b2234bc06035c5c", size = 146364, upload-time = "2026-03-11T09:26:46.816Z" },
+    { url = "https://files.pythonhosted.org/packages/5c/f2/b9713d353d558137745859a8b0967cc5ccabade89465ecd78ac49ceacc25/dbt_databricks-1.12.2-py3-none-any.whl", hash = "sha256:158d76c940f3f0b0a8229203d9efb0752c73b881ede21c8f0696cfe9484aec43", size = 177064, upload-time = "2026-07-09T11:46:32.172Z" },
 ]
 
 [[package]]
@@ -1428,7 +1430,8 @@ name = "gunicorn"
 version = "25.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "packaging" },
+    { name = "packaging", version = "25.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-dbt'" },
+    { name = "packaging", version = "26.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-sdk' or extra == 'extra-16-luxury-lakehouse-taipy-app' or extra != 'extra-16-luxury-lakehouse-dbt'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c4/f4/e78fa054248fab913e2eab0332c6c2cb07421fca1ce56d8fe43b6aef57a4/gunicorn-25.3.0.tar.gz", hash = "sha256:f74e1b2f9f76f6cd1ca01198968bd2dd65830edc24b6e8e4d78de8320e2fe889", size = 634883, upload-time = "2026-03-27T00:00:26.092Z" }
 wheels = [
@@ -1506,7 +1509,8 @@ dependencies = [
     { name = "fsspec" },
     { name = "hf-xet", marker = "platform_machine == 'AMD64' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64' or (extra == 'extra-16-luxury-lakehouse-dbt' and extra == 'extra-16-luxury-lakehouse-sdk') or (extra == 'extra-16-luxury-lakehouse-dbt' and extra == 'extra-16-luxury-lakehouse-taipy-app')" },
     { name = "httpx" },
-    { name = "packaging" },
+    { name = "packaging", version = "25.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-dbt'" },
+    { name = "packaging", version = "26.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-sdk' or extra == 'extra-16-luxury-lakehouse-taipy-app' or extra != 'extra-16-luxury-lakehouse-dbt'" },
     { name = "pyyaml" },
     { name = "tqdm" },
     { name = "typer" },
@@ -1580,7 +1584,7 @@ name = "incremental"
 version = "24.11.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "packaging" },
+    { name = "packaging", version = "26.0", source = { registry = "https://pypi.org/simple" } },
     { name = "tomli" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/ef/3c/82e84109e02c492f382c711c58a3dd91badda6d746def81a1465f74dc9f5/incremental-24.11.0.tar.gz", hash = "sha256:87d3480dbb083c1d736222511a8cf380012a8176c2456d01ef483242abbbcf8c", size = 24000, upload-time = "2025-11-28T02:30:17.861Z" }
@@ -1975,7 +1979,7 @@ requires-dist = [
     { name = "databricks-sql-connector", marker = "extra == 'analytics'", specifier = ">=4.0.0" },
     { name = "datasets", marker = "extra == 'training'", specifier = ">=3.0" },
     { name = "dbt-core", marker = "extra == 'dbt'", specifier = ">=1.10.0" },
-    { name = "dbt-databricks", marker = "extra == 'dbt'", specifier = ">=1.10.0" },
+    { name = "dbt-databricks", marker = "extra == 'dbt'", specifier = ">=1.12.2" },
     { name = "gensim", marker = "extra == 'embeddings'", specifier = ">=4.3.0" },
     { name = "gitpython", specifier = ">=3.1.51" },
     { name = "huggingface-hub", specifier = ">=1.5.0" },
@@ -2118,7 +2122,7 @@ name = "marshmallow"
 version = "3.21.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "packaging" },
+    { name = "packaging", version = "26.0", source = { registry = "https://pypi.org/simple" } },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a2/16/06ad266adc423f9d7ee49dce26787b973907aa70213760c9fe1711745405/marshmallow-3.21.2.tar.gz", hash = "sha256:82408deadd8b33d56338d2182d455db632c6313aa2af61916672146bb32edc56", size = 176330, upload-time = "2024-05-01T21:10:53.32Z" }
 wheels = [
@@ -2152,7 +2156,8 @@ dependencies = [
     { name = "fonttools" },
     { name = "kiwisolver" },
     { name = "numpy" },
-    { name = "packaging" },
+    { name = "packaging", version = "25.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-dbt'" },
+    { name = "packaging", version = "26.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-sdk' or extra == 'extra-16-luxury-lakehouse-taipy-app' or extra != 'extra-16-luxury-lakehouse-dbt'" },
     { name = "pillow" },
     { name = "pyparsing" },
     { name = "python-dateutil" },
@@ -2244,7 +2249,8 @@ dependencies = [
     { name = "opentelemetry-api" },
     { name = "opentelemetry-proto" },
     { name = "opentelemetry-sdk" },
-    { name = "packaging" },
+    { name = "packaging", version = "25.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-dbt'" },
+    { name = "packaging", version = "26.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-sdk' or extra == 'extra-16-luxury-lakehouse-taipy-app' or extra != 'extra-16-luxury-lakehouse-dbt'" },
     { name = "protobuf" },
     { name = "pydantic" },
     { name = "python-dotenv", version = "1.0.1", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-16-luxury-lakehouse-dbt' and extra == 'extra-16-luxury-lakehouse-sdk') or (extra != 'extra-16-luxury-lakehouse-sdk' and extra == 'extra-16-luxury-lakehouse-taipy-app') or (extra != 'extra-16-luxury-lakehouse-dbt' and extra == 'extra-16-luxury-lakehouse-taipy-app')" },
@@ -2272,7 +2278,8 @@ dependencies = [
     { name = "opentelemetry-api" },
     { name = "opentelemetry-proto" },
     { name = "opentelemetry-sdk" },
-    { name = "packaging" },
+    { name = "packaging", version = "25.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-dbt'" },
+    { name = "packaging", version = "26.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-sdk' or extra == 'extra-16-luxury-lakehouse-taipy-app' or extra != 'extra-16-luxury-lakehouse-dbt'" },
     { name = "protobuf" },
     { name = "pydantic" },
 ]
@@ -2749,7 +2756,8 @@ dependencies = [
     { name = "alembic" },
     { name = "colorlog" },
     { name = "numpy" },
-    { name = "packaging" },
+    { name = "packaging", version = "25.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-dbt'" },
+    { name = "packaging", version = "26.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-sdk' or extra == 'extra-16-luxury-lakehouse-taipy-app' or extra != 'extra-16-luxury-lakehouse-dbt'" },
     { name = "pyyaml" },
     { name = "sqlalchemy" },
     { name = "tqdm" },
@@ -2792,6 +2800,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f5/d6/3b5a4e3cfaef7a53869a26ceb034d1ff5e5c27c814ce77260a96d50ab7bb/packageurl_python-0.17.6.tar.gz", hash = "sha256:1252ce3a102372ca6f86eb968e16f9014c4ba511c5c37d95a7f023e2ca6e5c25", size = 50618, upload-time = "2025-11-24T15:20:17.998Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b1/2f/c7277b7615a93f51b5fbc1eacfc1b75e8103370e786fd8ce2abf6e5c04ab/packageurl_python-0.17.6-py3-none-any.whl", hash = "sha256:31a85c2717bc41dd818f3c62908685ff9eebcb68588213745b14a6ee9e7df7c9", size = 36776, upload-time = "2025-11-24T15:20:16.962Z" },
+]
+
+[[package]]
+name = "packaging"
+version = "25.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a1/d4/1fc4078c65507b51b96ca8f8c3ba19e6a61c8253c72794544580a7b6c24d/packaging-25.0.tar.gz", hash = "sha256:d443872c98d677bf60f6a1f2f8c1cb748e8fe762d2bf9d3148b5599295b0fc4f", size = 165727, upload-time = "2025-04-19T11:48:59.673Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/20/12/38679034af332785aac8774540895e234f4d07f7545804097de4b666afd8/packaging-25.0-py3-none-any.whl", hash = "sha256:29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484", size = 66469, upload-time = "2025-04-19T11:48:57.875Z" },
 ]
 
 [[package]]
@@ -2910,7 +2927,8 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cachecontrol", extra = ["filecache"] },
     { name = "cyclonedx-python-lib" },
-    { name = "packaging" },
+    { name = "packaging", version = "25.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-dbt'" },
+    { name = "packaging", version = "26.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-sdk' or extra == 'extra-16-luxury-lakehouse-taipy-app' or extra != 'extra-16-luxury-lakehouse-dbt'" },
     { name = "pip-api" },
     { name = "pip-requirements-parser" },
     { name = "platformdirs" },
@@ -2929,7 +2947,8 @@ name = "pip-requirements-parser"
 version = "32.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "packaging" },
+    { name = "packaging", version = "25.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-dbt'" },
+    { name = "packaging", version = "26.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-sdk' or extra == 'extra-16-luxury-lakehouse-taipy-app' or extra != 'extra-16-luxury-lakehouse-dbt'" },
     { name = "pyparsing" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/5e/2a/63b574101850e7f7b306ddbdb02cb294380d37948140eecd468fae392b54/pip-requirements-parser-32.0.1.tar.gz", hash = "sha256:b4fa3a7a0be38243123cf9d1f3518da10c51bdb165a2b2985566247f9155a7d3", size = 209359, upload-time = "2022-12-21T15:25:22.732Z" }
@@ -2952,7 +2971,7 @@ version = "6.7.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "narwhals" },
-    { name = "packaging" },
+    { name = "packaging", version = "26.0", source = { registry = "https://pypi.org/simple" } },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/3a/7f/0f100df1172aadf88a929a9dbb902656b0880ba4b960fe5224867159d8f4/plotly-6.7.0.tar.gz", hash = "sha256:45eea0ff27e2a23ccd62776f77eb43aa1ca03df4192b76036e380bb479b892c6", size = 6911286, upload-time = "2026-04-09T20:36:45.738Z" }
 wheels = [
@@ -3284,7 +3303,8 @@ dependencies = [
     { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-16-luxury-lakehouse-dbt' and extra == 'extra-16-luxury-lakehouse-sdk') or (extra == 'extra-16-luxury-lakehouse-dbt' and extra == 'extra-16-luxury-lakehouse-taipy-app')" },
     { name = "exceptiongroup" },
     { name = "iniconfig" },
-    { name = "packaging" },
+    { name = "packaging", version = "25.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-dbt'" },
+    { name = "packaging", version = "26.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-sdk' or extra == 'extra-16-luxury-lakehouse-taipy-app' or extra != 'extra-16-luxury-lakehouse-dbt'" },
     { name = "pluggy" },
     { name = "pygments" },
     { name = "tomli" },
@@ -3799,7 +3819,8 @@ version = "0.13.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
-    { name = "packaging" },
+    { name = "packaging", version = "25.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-dbt'" },
+    { name = "packaging", version = "26.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-sdk' or extra == 'extra-16-luxury-lakehouse-taipy-app' or extra != 'extra-16-luxury-lakehouse-dbt'" },
     { name = "prettytable" },
     { name = "scikit-learn" },
     { name = "scipy" },

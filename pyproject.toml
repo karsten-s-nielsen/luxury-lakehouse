@@ -84,7 +84,7 @@ analytics = [
 ]
 dbt = [
     "dbt-core>=1.10.0",
-    "dbt-databricks>=1.10.0",
+    "dbt-databricks>=1.12.2",
 ]
 sdk = [
     "databricks-sdk==0.121.0",
