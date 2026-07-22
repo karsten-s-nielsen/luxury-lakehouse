@@ -1,17 +1,26 @@
 version: 2
 updates:
-  # Python: dependabot-pip only scans pyproject.toml (direct dependencies).
+  # Python: the `uv` ecosystem. Dependabot reads uv.lock directly — unlike the
+  # old `pip` ecosystem, which only scanned pyproject.toml DIRECT deps and so
+  # never saw transitive CVEs (e.g. the pyasn1 CVE-2026-59885/-59886 that slipped
+  # through and only surfaced as a red pip-audit in CI; see ADR-071 follow-up).
   #
-  # `hf_taipy_app/requirements.txt` is NO LONGER committed (see .gitignore).
-  # It is regenerated fresh at deploy time by scripts/manage_space.py and at
-  # CI time as needed. This permanently closes the false-positive class where
-  # dependabot-pip treated every transitive pin in the compiled lockfile as a
-  # "direct" dependency (requirements.txt has no transitive/direct distinction),
-  # opening weekly PRs for every transitive minor-version release on PyPI.
-  # History of closed false positives from this class: #138, #140, #141, #142,
-  # #143, #186 apispec, #187 deepdiff, #189 pyarrow, #193 simple-websocket,
+  # uv.lock DOES distinguish direct from transitive, so `allow: direct` keeps
+  # *version* updates limited to direct deps (no transitive minor-release spam),
+  # while Dependabot *security* updates — advisory-driven, NOT filtered by
+  # `allow` — cover vulnerable TRANSITIVE packages too.
+  #
+  # REQUIRED companion setting (cannot be expressed in this file): enable
+  # "Dependabot security updates" under repo Settings -> Code security. Without
+  # it, only the weekly version cadence runs and transitive CVEs still wait.
+  #
+  # The transitive-spam that originally forced `allow: direct` came from
+  # committing `hf_taipy_app/requirements.txt` (no direct/transitive distinction);
+  # it is no longer committed (.gitignore), and uv.lock does not have that flaw.
+  # History of that false-positive class: #138, #140, #141, #142, #143,
+  # #186 apispec, #187 deepdiff, #189 pyarrow, #193 simple-websocket,
   # #194 sqlalchemy, #195 url-normalize, #197 flask-cors.
-  - package-ecosystem: "pip"
+  - package-ecosystem: "uv"
     directory: "/"
     schedule:
       interval: "weekly"
