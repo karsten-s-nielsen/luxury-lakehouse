@@ -59,7 +59,7 @@ analytics = [
     "pandas>=2.1.0",
     "numpy>=1.26.0",
     "mplsoccer>=1.1.3",
-    "matplotlib>=3.8.0",
+    "matplotlib>=3.10.9",
     "scipy>=1.11.0",
     "scikit-learn>=1.3.0",
     # xgboost-cpu: drop-in for xgboost (same `import xgboost`, same API) without
@@ -427,20 +427,20 @@ torch = { index = "pytorch-cu128" }
 [dependency-groups]
 dev = [
     "ruff>=0.3.0",
-    "pyright>=1.1.350",
-    "pytest>=8.0.0",
-    "pytest-cov>=4.1.0",
+    "pyright>=1.1.411",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
     "pytest-benchmark>=5.2.3",
-    "pre-commit>=3.6.0",
-    "sqlfluff>=3.0.0",
-    "pip-audit>=2.7.0",
+    "pre-commit>=4.6.0",
+    "sqlfluff>=4.2.2",
+    "pip-audit>=2.10.1",
     # Transitive dep (pip-audit -> pip-api -> pip). Floored to >=26.1.2 to resolve
     # PYSEC-2026-196 (pip < 26.1.2 vulnerability). Durable pin per the idna/pyjwt
     # precedent rather than a pip-audit --ignore-vuln entry.
     "pip>=26.1.2",
-    "import-linter>=2.0",
+    "import-linter>=2.13",
     "numba>=0.66.0",
-    "matplotlib>=3.10.8",
+    "matplotlib>=3.10.9",
     "pydantic-settings>=2.0.0",
     "psycopg2-binary>=2.9.9",
     "luxury-lakehouse[analytics,embeddings,training,evolve]",
