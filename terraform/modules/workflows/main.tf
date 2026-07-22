@@ -1502,7 +1502,7 @@ resource "databricks_job" "data_ingestion" {
         # nvidia-nccl-cu12 core dep (300 MB GPU lib, useless on CPU-only
         # serverless). Cuts cold-start env build by ~60-90 s.
         "xgboost-cpu==3.2.0",
-        "rapidfuzz==3.14.3",
+        "rapidfuzz==3.14.5",
         "unidecode==1.4.0",
         "sparse-dot-topn==1.2.0",
         # mlflow-skinny: client-only mlflow (pyfunc + tracking). The analytics
