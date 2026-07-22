@@ -41,7 +41,7 @@ def main() -> int:
 
     print("==> dbt build succeeded. Triggering synced table refresh (--wait)...", flush=True)
 
-    refresh_result = subprocess.run(  # noqa: S603
+    refresh_result = subprocess.run(
         [sys.executable, "-m", "ingestion.refresh_synced_tables", "--wait"],
         check=False,
     )
