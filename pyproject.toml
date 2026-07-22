@@ -438,7 +438,7 @@ dev = [
     # PYSEC-2026-196 (pip < 26.1.2 vulnerability). Durable pin per the idna/pyjwt
     # precedent rather than a pip-audit --ignore-vuln entry.
     "pip>=26.1.2",
-    "import-linter>=2.0",
+    "import-linter>=2.13",
     "numba>=0.60.0",
     "matplotlib>=3.10.8",
     "pydantic-settings>=2.0.0",
