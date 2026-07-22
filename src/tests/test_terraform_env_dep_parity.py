@@ -315,3 +315,40 @@ def test_lakebase_sdk_pin_matches_pyproject_extra() -> None:
     assert tf_pin == m.group(1), (
         f"lakebase env pins databricks-sdk=={tf_pin} but pyproject's extra pins =={m.group(1)} — keep them in lockstep"
     )
+
+
+def test_dependabot_only_dev_deps_grouped() -> None:
+    """Only dev/tooling deps may be batched into a Dependabot VERSION group.
+
+    Grouping PROD deps perturbs the conflict-fork resolution: an mlflow bump drags
+    env-pinned mlflow-skinny, and a batch even downgraded dbt in the default fork,
+    tripping :func:`test_terraform_env_dep_parity` (the closed group #476). Env-pinned
+    deps must get INDIVIDUAL PRs so each can be completed with the ADR-046 TF
+    lockstep (#447). ``numba`` is dev-classified but env-pinned, so it must be
+    excluded even from the dev group. Guards ``.github/dependabot.yml`` against a
+    future broad/prod version group re-introducing the drift.
+    """
+    import yaml
+
+    dependabot = yaml.safe_load((_REPO / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
+    uv_update = next(u for u in dependabot["updates"] if u["package-ecosystem"] == "uv")
+
+    env_pins = {pkg for env in _parse_tf_env_deps().values() for pkg in env}
+    assert "numba" in env_pins, "expected numba to be a serverless-env pin in main.tf"
+
+    version_groups = {
+        name: g
+        for name, g in uv_update.get("groups", {}).items()
+        if g.get("applies-to", "version-updates") == "version-updates"
+    }
+    assert version_groups, "expected at least one version-update group in dependabot.yml"
+
+    for name, g in version_groups.items():
+        assert g.get("dependency-type") == "development", (
+            f"Dependabot version group '{name}' is not restricted to "
+            "dependency-type: development — grouping prod deps perturbs the ADR-046 "
+            "env-pin resolution (see the closed group #476). Prod deps must stay "
+            "individual so each gets the #447 lockstep."
+        )
+        excluded = {p.lower() for p in g.get("exclude-patterns", [])}
+        assert "numba" in excluded, f"env-pinned dev dep 'numba' must be in group '{name}' exclude-patterns"

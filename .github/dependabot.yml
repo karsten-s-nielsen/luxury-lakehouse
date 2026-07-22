@@ -31,42 +31,29 @@ updates:
     # security updates — those stay fast).
     cooldown:
       default-days: 7
-    # Batch updates into a few PRs instead of one-per-dependency. Each PR edits
-    # pyproject.toml/uv.lock and therefore triggers a full (live-warehouse)
-    # python-ci run, so grouping cuts PR volume AND CI cost. `applies-to` keeps
-    # version and security batches separate (a security fix is never blocked
-    # behind a routine bump). Majors are intentionally NOT grouped — they get an
-    # individual PR for solo review.
+    # Group ONLY dev/tooling deps (pytest, ruff, pyright, pip-audit, sqlfluff,
+    # pre-commit, import-linter). Each PR edits pyproject.toml/uv.lock and triggers
+    # a full (live-warehouse) python-ci run, so grouping cuts PR volume + CI cost.
+    #
+    # PROD deps are deliberately NOT grouped: batching them perturbs the
+    # conflict-fork resolution — an mlflow bump dragged env-pinned mlflow-skinny
+    # (3.13->3.14) and the batch even DOWNGRADED dbt in the default fork
+    # (1.11.6->1.10.x), tripping test_terraform_env_dep_parity (the closed group
+    # #476). Prod deps now get INDIVIDUAL PRs: reviewable, minimal-perturbation,
+    # and each completable with the ADR-046 TF lockstep if it touches an env pin
+    # (the #447 workflow). `applies-to` keeps version vs security batches separate;
+    # majors are never grouped (individual PR for solo review).
+    # Enforced by test_dependabot_only_dev_deps_grouped.
     groups:
-      python-minor-patch:
+      dev-tooling:
         applies-to: version-updates
+        dependency-type: development
         patterns: ["*"]
         update-types: ["minor", "patch"]
-        # Exclude the serverless-env-pinned deps (the `==` pins in
-        # terraform/modules/workflows/main.tf). Per ADR-046 each of these needs a
-        # coordinated pyproject + uv.lock + terraform lockstep (see #447), so they
-        # must NOT be batched into a group — a grouped bump can't be completed
-        # atomically and fails test_terraform_env_dep_parity. Excluded here, they
-        # get INDIVIDUAL PRs handled one at a time. Keep this list in sync with the
-        # env blocks in main.tf.
+        # numba is dev-classified but IS env-pinned (== in main.tf) — exclude it so
+        # it gets an individual PR + the ADR-046 lockstep, not a grouped bump.
         exclude-patterns:
-          - "accessible-space"
-          - "databricks-sdk"
-          - "dbt-core"
-          - "dbt-databricks"
-          - "gensim"
-          - "huggingface-hub"
-          - "matplotlib"
-          - "mlflow-skinny"
-          - "mplsoccer"
           - "numba"
-          - "numpy"
-          - "rapidfuzz"
-          - "scipy"
-          - "sparse-dot-topn"
-          - "statsbombpy"
-          - "unidecode"
-          - "xgboost-cpu"
       python-security:
         applies-to: security-updates
         patterns: ["*"]
