@@ -112,7 +112,7 @@ mlflow = [
     # by the cryptography>=48.0.1 CVE floor above) with
     # the runtime baseline. Training scripts (xg, vaep, psxg, football2vec,
     # scoutgpt) continue to use the same mlflow tracking client API.
-    "mlflow>=2.19.0",
+    "mlflow>=3.14.0",
     # ExT v2 Phase 1 harness wires Optuna's MLflowCallback for per-trial
     # logging. Optuna 4.x removed integrations from core into a separate
     # package; the [mlflow] extra here pulls the mlflow-flavoured callback.
