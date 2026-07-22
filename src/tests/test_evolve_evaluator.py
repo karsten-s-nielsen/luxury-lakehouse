@@ -611,10 +611,13 @@ class TestRemoteWorkerErrorCapture:
 
         # Capture stdout
         captured = io.StringIO()
-        monkeypatch.setattr("sys.stdout", captured)
+        monkeypatch.setattr(sys, "stdout", captured)
 
-        # Set argv
-        monkeypatch.setattr("sys.argv", ["remote_worker", str(candidate), "cpu", "1", "42", "scoutgpt"])
+        # Set argv. Use the explicit 3-arg form: pytest 9.1.1 broke the 2-arg
+        # string-target form (`setattr("sys.argv", ...)`) for this test — main()
+        # then read pytest's own argv instead of the mocked one. The 3-arg form
+        # (module object + attr name) is unambiguous across pytest versions.
+        monkeypatch.setattr(sys, "argv", ["remote_worker", str(candidate), "cpu", "1", "42", "scoutgpt"])
 
         from evolve.remote_worker import main
 
