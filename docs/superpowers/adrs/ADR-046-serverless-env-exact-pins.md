@@ -80,3 +80,44 @@ terraform together — the sentinel makes a partial bump fail CI.
   `src/tests/test_terraform_env_dep_parity.py`
 - **External:** Databricks serverless environment version 1 package list (base-image
   versions cited above)
+
+## Addendum — 2026-07-22: automate the lockstep, guard cross-env consistency
+
+`==` exactness is **reaffirmed**; relaxing to `~=` was considered and **rejected** —
+because envs re-resolve at build time, `~=X.Y.Z` (`>=X.Y.Z,<X.(Y+1).0`) permits the
+patch drift (4.21.0 → 4.21.2) this ADR exists to stop, and *increases* intra-build drift.
+
+Two additions keep `==` while removing the manual toil and strengthening consistency:
+
+1. **Shared pure core `scripts/_tf_env_pins.py`** — one module owns the TF/lock/[sdk]
+   parsers, the exemption policy, `resolve_desired_version` (exempt-first, then single
+   lock version, then fork → `PinForkError`, then missing → `PinResolutionError`),
+   `find_pin_drift`, and the cross-env invariant. Both the parity sentinel
+   (`test_terraform_env_dep_parity.py`) and the sync CLI import it, so fixer ≡ checker by
+   construction. Lives in `scripts/` (dev tooling; not `src/shared` which is stdlib-only,
+   not `src/ingestion` which ships in the wheel); importable from tests via
+   `pythonpath = ["."]`.
+2. **`scripts/sync_tf_env_pins.py`** — human-invoked (never a CI autofix; the sentinel
+   stays the gate). Bump workflow: `edit pyproject → uv lock → python scripts/sync_tf_env_pins.py`.
+   It rewrites only the version substring inside each env block's `dependencies = [...]`
+   span, and only the **code portion** of each line — a trailing or full-line comment
+   (e.g. a version-shaped string in a rationale comment) is split off and preserved
+   verbatim — keeping extras/comments/`concat`/formatting intact.
+3. **Cross-env consistency guard** (`test_cross_env_pin_consistency`) — a package pinned
+   in ≥2 env blocks must carry the same version. For **lock-managed** pins this is implied
+   by lock-parity (each == the single lock value); its unique coverage is the **exempt**
+   packages (`databricks-sdk`, `statsbombpy`), for which lock-parity is off.
+
+**uv.lock version forks:** `parse_lock_versions` returns a *set* per package;
+`resolve_desired_version` **fails loud** on a non-exempt multi-version fork rather than
+guessing file-order-last. Today only `databricks-sdk` forks (0.117.0 dbt / 0.121.0
+sdk/lakebase) and it is exempt (resolves from the `[sdk]` extra), so no pin trips it.
+
+**Alternatives rejected:** (a) `python-hcl2` parse→modify→emit and (b) generating pins
+into `*.auto.tfvars.json` — both **lossy on the inline comments** that carry this ADR's
+per-pin rationale (the numba footgun, `xgboost-cpu`'s GPU-lib omission, the base-image
+downgrade fence). Surgical version-substring rewrite is therefore the *correct* choice.
+
+**Out of scope:** transitive cross-env forks (the `databricks-sdk` split lives in
+different task envs, is constraint-driven, and detecting it needs full per-env resolution)
+— documented limitation, not built.
