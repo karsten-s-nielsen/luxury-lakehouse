@@ -83,7 +83,9 @@ jobs:
         run: uv run ruff format --check src/ scripts/
 
       - name: Type check with pyright
-        run: uv run pyright src/ hf_taipy_app/src/
+        # scripts/ is on pyright's extraPaths (imports resolve) but not in the default check
+        # scope; the two ADR-046 pin-sync files are the design's keystone, so gate them in CI.
+        run: uv run pyright src/ hf_taipy_app/src/ scripts/_tf_env_pins.py scripts/sync_tf_env_pins.py
 
       - name: Import boundary check
         run: uv run lint-imports

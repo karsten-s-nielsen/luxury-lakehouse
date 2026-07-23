@@ -28,6 +28,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             deployWheel = container "deploy_wheel.py" "Downloads wheel from HF Hub, uploads to UC Volume" "Python, databricks-sdk"
             bumpWheel = container "bump_wheel.py" "Syncs wheel version to all static consumers (25+ files)" "Python"
             dbtBuildAndRefresh = container "dbt_build_and_refresh.py" "Chains dbt build with synced table refresh" "Python, subprocess"
+            syncTfEnvPins = container "sync_tf_env_pins.py" "Mirrors uv.lock library pins into the terraform env blocks (ADR-046); shares one pure policy core with the parity sentinel (fixer=checker)" "Python"
         }
 
         pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "47 workflow-card-registered workflows. Centralized hooks, lifecycle tracking, three-tier cost tracking." {
@@ -98,6 +99,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         developer -> deployScript "Deploys to staging/production" "CLI"
         developer -> deployWheel "Pushes wheel to UC Volume" "CLI"
         developer -> bumpWheel "Syncs version after bump" "CLI"
+        developer -> syncTfEnvPins "Syncs TF env pins after uv lock" "CLI"
         developer -> dbtBuildAndRefresh "Rebuilds gold + Lakebase" "CLI"
         developer -> adminApi "Cache clear (incident response)" "HTTPS"
         operator -> orchestratorScript "Triggers retrain cycles" "CLI"

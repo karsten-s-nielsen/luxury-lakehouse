@@ -12,8 +12,12 @@ bump in ``pyproject.toml`` left the TF analytics env at ``>=1.0.0,<2.0`` →
 2.5.0 was supposed to fix. The drift went undetected for 24+ hours
 (2026-04-29 PR-LL2 silly-kicks 2.0.0 bump → 2026-04-30 daily-job verify).
 
-This test fails CI if any package listed in BOTH pyproject and a TF env
-spec has version constraints whose intersection is empty.
+The overlap test here fails CI if any package listed in BOTH pyproject and a
+TF env spec has version constraints whose intersection is empty. Since the
+2026-07-22 ADR-046 addendum, the exact-pin lock-parity, fork, and
+cross-env-consistency checks in this module delegate to the shared pure core
+``scripts/_tf_env_pins.py`` — the sync CLI (``scripts/sync_tf_env_pins.py``)
+imports the same core, so fixer == checker by construction.
 """
 
 from __future__ import annotations
@@ -24,20 +28,19 @@ from pathlib import Path
 from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 
+from scripts._tf_env_pins import (
+    CROSS_ENV_SPLIT_ALLOWED,
+    find_cross_env_divergences,
+    find_pin_drift,
+    parse_dep_line,
+    parse_lock_versions,
+    parse_sdk_extra_pin,
+    parse_tf_env_deps,
+)
+
 _REPO = Path(__file__).resolve().parents[2]
 _PYPROJECT = _REPO / "pyproject.toml"
 _TF = _REPO / "terraform" / "modules" / "workflows" / "main.tf"
-
-
-def _parse_dep_line(line: str) -> tuple[str | None, str | None]:
-    """Parse ``'silly-kicks>=2.5.0,<3.0'`` → ``('silly-kicks', '>=2.5.0,<3.0')``."""
-    line = line.strip().strip(",").strip('"')
-    m = re.match(r"^([A-Za-z0-9._-]+)(?:\[[^\]]*\])?\s*([<>=!~,\d\s.\w-]*)$", line)
-    if not m:
-        return None, None
-    name = m.group(1).lower().replace("_", "-")
-    spec = m.group(2).strip()
-    return name, spec
 
 
 def _parse_pyproject_deps() -> dict[str, str]:
@@ -56,51 +59,15 @@ def _parse_pyproject_deps() -> dict[str, str]:
     ):
         block = block_match.group(1)
         for line in block.splitlines():
-            pkg, spec = _parse_dep_line(line)
+            pkg, spec = parse_dep_line(line)
             if pkg and spec:
                 deps.setdefault(pkg, spec)
     return deps
 
 
 def _parse_tf_env_deps() -> dict[str, dict[str, str]]:
-    """Read each ``environment`` block in ``terraform/modules/workflows/main.tf``,
-    returning ``{env_key: {pkg: spec}}``.
-
-    Tolerates both inline dep lists and ``concat([...], [...])`` wrappers.
-    Skips ``var.wheel_path`` (path reference, not a versioned package) and
-    blank/comment lines.
-    """
-    text = _TF.read_text(encoding="utf-8")
-    envs: dict[str, dict[str, str]] = {}
-    for env_match in re.finditer(
-        r'environment\s*\{\s*\n\s*environment_key\s*=\s*"([^"]+)"\s*\n\s*spec\s*\{(.*?)\n\s*\}\s*\n\s*\}',
-        text,
-        re.DOTALL,
-    ):
-        env_key = env_match.group(1)
-        body = env_match.group(2)
-        # The list-closing "]" sits alone on its own line — anchor on "\n + whitespace + ]"
-        # so inline brackets inside dep strings (e.g. "silly-kicks[das,ghost-gk]==4.20.1")
-        # don't truncate the captured block.
-        dep_match = re.search(
-            r"dependencies\s*=\s*(?:concat\s*\(\s*\[[^\]]*\]\s*,\s*)?\[(.*?)\n\s*\]",
-            body,
-            re.DOTALL,
-        )
-        if not dep_match:
-            envs[env_key] = {}
-            continue
-        block = dep_match.group(1)
-        env_deps: dict[str, str] = {}
-        for line in block.splitlines():
-            stripped = line.strip().rstrip(",").strip()
-            if not stripped or stripped.startswith("#") or "var." in stripped:
-                continue
-            pkg, spec = _parse_dep_line(stripped)
-            if pkg and pkg != "luxury-lakehouse" and spec:
-                env_deps[pkg] = spec
-        envs[env_key] = env_deps
-    return envs
+    """Adapter over the shared pin-policy core (ADR-046): parse the real main.tf env deps."""
+    return parse_tf_env_deps(_TF.read_text(encoding="utf-8"))
 
 
 def _representative_lower_version(spec_set: SpecifierSet) -> Version | None:
@@ -243,26 +210,6 @@ def test_parser_finds_known_analytics_deps() -> None:
 
 _LOCK = _REPO / "uv.lock"
 
-# Pins whose source of truth is NOT uv.lock's default resolution — each with the reason.
-_LOCK_PARITY_EXEMPT: dict[str, str] = {
-    # The dev lock's default resolution pins databricks-sdk 0.77.0 (extras-conflict
-    # artifact — see memory reference_local_venv_sdk_077_migrate_test_fail). The
-    # lakebase env intentionally runs the [sdk]-extra pin (postgres APIs); parity
-    # with pyproject's ==pin is asserted separately below.
-    "databricks-sdk": "pyproject [sdk] extra is the source of truth",
-    # TF-only ingestion API client — not declared in pyproject, so not lock-managed.
-    "statsbombpy": "terraform-only dep; exact pin required but no lock entry",
-}
-
-
-def _parse_lock_versions() -> dict[str, str]:
-    """Parse uv.lock ``[[package]]`` blocks → {normalized_name: version}."""
-    text = _LOCK.read_text(encoding="utf-8")
-    out: dict[str, str] = {}
-    for m in re.finditer(r'\[\[package\]\]\nname = "([^"]+)"\nversion = "([^"]+)"', text):
-        out[m.group(1).lower().replace("_", "-")] = m.group(2)
-    return out
-
 
 def test_tf_env_deps_are_exact_pins() -> None:
     """Every PyPI dep in every TF env spec must use ``==`` — floors re-resolve to
@@ -280,40 +227,42 @@ def test_tf_env_deps_are_exact_pins() -> None:
 
 
 def test_tf_exact_pins_match_uv_lock() -> None:
-    """Each TF ``pkg==X`` must equal uv.lock's resolved version for ``pkg`` — prod
-    runs exactly what local tests + goldens validated. Exemptions (with reasons)
-    in ``_LOCK_PARITY_EXEMPT``."""
-    tf_envs = _parse_tf_env_deps()
-    lock = _parse_lock_versions()
-    drifts: list[str] = []
-    for env_key, env_deps in tf_envs.items():
-        for pkg, spec in env_deps.items():
-            if pkg in _LOCK_PARITY_EXEMPT:
-                continue
-            pinned = spec.replace(" ", "").removeprefix("==")
-            if pkg not in lock:
-                drifts.append(
-                    f"  [{env_key}] {pkg}=={pinned}: not in uv.lock — add to pyproject or exempt with a reason"
-                )
-            elif lock[pkg] != pinned:
-                drifts.append(f"  [{env_key}] {pkg}: TF pins {pinned} but uv.lock (tested) has {lock[pkg]}")
-    assert not drifts, (
-        "TF env pins drifted from uv.lock — prod would run versions local tests never saw. "
-        "Bump pyproject + `uv lock` + terraform together:\n" + "\n".join(drifts)
+    """Each non-exempt TF ``pkg==X`` must equal uv.lock's single resolved version — prod runs
+    exactly what local tests + goldens validated (ADR-046). Fail-loud on lock forks / a
+    non-exempt pin missing from the lock, via the shared core (``resolve_desired_version``).
+    Exemptions + policy live in ``scripts/_tf_env_pins.py`` (``EXEMPT``)."""
+    drifts = find_pin_drift(
+        _TF.read_text(encoding="utf-8"),
+        parse_lock_versions(_LOCK.read_text(encoding="utf-8")),
+        parse_sdk_extra_pin(_PYPROJECT.read_text(encoding="utf-8")),
+    )
+    assert not drifts, "TF env pins drifted from uv.lock — run `python scripts/sync_tf_env_pins.py`:\n" + "\n".join(
+        f"  [{d.env_key}] {d.pkg}: TF pins {d.current} but resolved {d.desired}" for d in drifts
     )
 
 
 def test_lakebase_sdk_pin_matches_pyproject_extra() -> None:
     """databricks-sdk is lock-parity-exempt; its parity contract is the pyproject
-    ``[sdk]`` extra's exact pin instead."""
+    ``[sdk]`` extra's exact pin instead (parsed via the shared core)."""
     tf_envs = _parse_tf_env_deps()
     tf_pin = tf_envs.get("lakebase", {}).get("databricks-sdk", "").replace(" ", "").removeprefix("==")
     assert tf_pin, "lakebase env must pin databricks-sdk"
-    py_text = _PYPROJECT.read_text(encoding="utf-8")
-    m = re.search(r'"databricks-sdk==([\w.\-]+)"', py_text)
-    assert m is not None, "pyproject must carry an exact databricks-sdk pin in the [sdk] extra"
-    assert tf_pin == m.group(1), (
-        f"lakebase env pins databricks-sdk=={tf_pin} but pyproject's extra pins =={m.group(1)} — keep them in lockstep"
+    extra_pin = parse_sdk_extra_pin(_PYPROJECT.read_text(encoding="utf-8"))
+    assert tf_pin == extra_pin, (
+        f"lakebase env pins databricks-sdk=={tf_pin} but pyproject's extra pins =={extra_pin} — keep them in lockstep"
+    )
+
+
+def test_cross_env_pin_consistency() -> None:
+    """A package pinned in >=2 env blocks must carry the SAME version. For lock-managed pins
+    this is IMPLIED by lock-parity (each == the single lock value — today's huggingface_hub is
+    already covered there); the unique coverage here is the lock-parity-EXEMPT packages
+    (databricks-sdk, statsbombpy), whose cross-env divergence nothing else would catch.
+    Intentional splits: ``CROSS_ENV_SPLIT_ALLOWED`` (core)."""
+    envs = _parse_tf_env_deps()
+    offenders = {p: e for p, e in find_cross_env_divergences(envs).items() if p not in CROSS_ENV_SPLIT_ALLOWED}
+    assert not offenders, "cross-env pin divergence (same package, different versions):\n" + "\n".join(
+        f"  {pkg}: {divs}" for pkg, divs in offenders.items()
     )
 
 
