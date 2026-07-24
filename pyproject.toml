@@ -72,7 +72,7 @@ analytics = [
     # Optuna powers the ExT v2 reproduction harness (src/analytics/ext_v2/).
     # Phase 0 uses a single-trial study with no axes active; Phases 1-4
     # progressively activate KDE/KNN/contextual-feature suggests via TPE.
-    "optuna>=4.0",
+    "optuna>=4.9.0",
     # PR-1.5 (SK3-MIG-B): Live Kimball contract tests require direct SQL
     # queries to dev_gold marts. The databricks-sql-connector provides the
     # `databricks.sql` module used by tests/data_quality/ live tests and
