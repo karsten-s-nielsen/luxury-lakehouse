@@ -118,7 +118,7 @@ mlflow = [
     # package; the [mlflow] extra here pulls the mlflow-flavoured callback.
     "optuna-integration[mlflow]>=4.0",
 ]
-training = ["torch>=2.0", "pyarrow>=14.0", "datasets>=3.0", "safetensors>=0.4.0"]
+training = ["torch>=2.0", "pyarrow>=14.0", "datasets>=3.0", "safetensors>=0.8.0"]
 evolve = ["openevolve>=0.2.0"]
 taipy-app = [
     "taipy==4.1.1",
