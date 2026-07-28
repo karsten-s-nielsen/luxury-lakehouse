@@ -47,7 +47,9 @@ import json
 import logging
 import os
 import sys
+import time
 import uuid
+from typing import Any
 
 import psycopg2
 import requests
@@ -257,7 +259,7 @@ def connect_as_superuser() -> psycopg2.extensions.connection:
     host = _normalize_host(raw_host)
     dns = _get_lakebase_dns(host)
     jwt, pg_user = _get_lakebase_credential(host)
-    conn = psycopg2.connect(
+    conn = _connect_pg_with_retry(
         host=dns,
         port=5432,
         database="databricks_postgres",
@@ -268,6 +270,52 @@ def connect_as_superuser() -> psycopg2.extensions.connection:
     )
     conn.autocommit = True
     return conn
+
+
+#: Cold-start retry budget. 3 attempts at 10s connect_timeout + backoff bounds the worst case
+#: at well under a minute -- long enough for a sleeping Lakebase endpoint to wake, short enough
+#: that a genuine outage still fails the job promptly instead of hanging the daily maintenance run.
+_PG_CONNECT_ATTEMPTS = 3
+_PG_CONNECT_BACKOFF_S = (2.0, 5.0)
+
+
+def _connect_pg_with_retry(**kwargs: Any) -> psycopg2.extensions.connection:
+    """``psycopg2.connect`` with a bounded cold-start retry.
+
+    Lakebase endpoints sleep. Observed 2026-07-28 04:03 UTC: the scheduled `lakebase-grants`
+    run failed outright with ``OperationalError: timeout expired`` on the first connect, and a
+    manual re-dispatch minutes later succeeded unchanged -- i.e. the endpoint was cold, not
+    broken, and a one-shot connect turned that into a red nightly.
+
+    Retries ONLY ``OperationalError`` (the observed class, which covers connect timeouts and
+    refusals). Anything else -- bad credential, wrong database, programming error -- propagates
+    immediately; retrying those would just delay a real diagnosis. The final attempt re-raises
+    with the attempt count so an exhausted budget is distinguishable in logs from a first-try
+    failure.
+
+    Raising ``connect_timeout`` alone was the tempting one-line fix and is worse: it makes a
+    genuine outage hang longer without helping a cold start, which needs elapsed wall-clock
+    between attempts, not a longer single wait.
+    """
+    last: Exception | None = None
+    for attempt in range(1, _PG_CONNECT_ATTEMPTS + 1):
+        try:
+            return psycopg2.connect(**kwargs)
+        except psycopg2.OperationalError as exc:
+            last = exc
+            if attempt == _PG_CONNECT_ATTEMPTS:
+                break
+            delay = _PG_CONNECT_BACKOFF_S[attempt - 1]
+            logger.warning(
+                "Lakebase connect attempt %d/%d failed (%s); retrying in %.1fs (endpoint may be cold)",
+                attempt,
+                _PG_CONNECT_ATTEMPTS,
+                str(exc).strip(),
+                delay,
+            )
+            time.sleep(delay)
+    msg = f"Lakebase connect failed after {_PG_CONNECT_ATTEMPTS} attempts: {last}"
+    raise RuntimeError(msg) from last
 
 
 def _existing_synced_tables(cur: psycopg2.extensions.cursor) -> set[tuple[str, str]]:
@@ -324,7 +372,7 @@ def main() -> int:
     jwt, pg_user = _get_lakebase_credential(host)
     logger.info("Connected as PG user: %s", pg_user)
 
-    conn = psycopg2.connect(
+    conn = _connect_pg_with_retry(
         host=dns,
         port=5432,
         database="databricks_postgres",

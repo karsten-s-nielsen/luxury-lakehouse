@@ -54,6 +54,42 @@ _SCHEMA = os.environ.get("HEAL_E2E_SCHEMA", "heal_e2e")
 _SOURCE = "fct_heal_e2e_src"
 _SYNCED = "fct_heal_e2e_src_synced"
 
+
+def _sweep_leaked_event_logs(ws: Any) -> None:
+    """Drop the ``event_log_<pipeline_uuid>`` tables DLT leaves behind. Best-effort.
+
+    ``sdk_delete`` removes the synced table and its DLT pipeline, but the event-log table
+    DLT provisioned in this schema OUTLIVES the pipeline -- one orphan per run, forever.
+    Found 2026-07-28: ``event_log_9548d8c1_cace_47d9_b6e3_a0d7543ca254`` from the 07-20 run
+    still sat here while its pipeline returned ``ResourceDoesNotExist``.
+
+    Swept, not targeted by pipeline id: the id is unresolvable in the teardown path where
+    the synced table was never created, and this schema is disposable and single-purpose,
+    so any ``event_log_*`` in it is by definition this test's litter. The workflow
+    serialises runs (concurrency group) and these tests run sequentially, so no live
+    pipeline owns one at teardown time.
+
+    NOT to be confused with ``scripts/fix_event_log_ownership.py``, the other ``event_log_*``
+    handler: that one REPAIRS OWNERSHIP of live production pipelines' event logs (conventions.md
+    -> Lakebase Ops). This one DELETES dead ones, and only ever inside the disposable
+    ``HEAL_E2E_SCHEMA``. The two never touch the same tables.
+
+    Best-effort by design: this runs inside a ``finally``, where a raised exception would
+    REPLACE the assertion that actually failed. Logged at ERROR (never warning, per
+    ADR-002) so a persistent sweep failure is visible in error-log queries rather than
+    accumulating silently -- which is precisely how the orphan above went unnoticed.
+    """
+    try:
+        for t in ws.tables.list(catalog_name=_CATALOG, schema_name=_SCHEMA):
+            if (t.name or "").startswith("event_log_"):
+                ws.tables.delete(full_name=f"{_CATALOG}.{_SCHEMA}.{t.name}")
+                print(f"swept leaked DLT event log: {t.name}")
+    # Broad by intent: ANY failure here (auth, listing, delete race) must yield to the
+    # assertion this finally is unwinding from.
+    except Exception as exc:
+        print(f"ERROR: event-log sweep failed ({type(exc).__name__}: {exc}); orphan may remain")
+
+
 # Pipeline-update terminal state (databricks.sdk UpdateInfoState value) used by the repro guard.
 _UPDATE_COMPLETED = "COMPLETED"
 
@@ -282,6 +318,7 @@ def test_heal_resets_checkpoint_and_resumes_incremental_cdf() -> None:
         ports.writer.sdk_delete(fqn)
         ports.ghost.drop_pg_ghost(_SCHEMA, _SYNCED)
         sql(f"DROP TABLE IF EXISTS {src}")
+        _sweep_leaked_event_logs(ws)
 
 
 def test_d_mechanism_delete_insert_keeps_synced_online() -> None:
@@ -345,6 +382,7 @@ def test_d_mechanism_delete_insert_keeps_synced_online() -> None:
         writer.sdk_delete(fqn)
         PsycopgGhostAdapter(_make_pg_connect(ws)).drop_pg_ghost(_SCHEMA, synced_name)
         sql(f"DROP TABLE IF EXISTS {src}")
+        _sweep_leaked_event_logs(ws)
 
 
 def test_t_mechanism_create_or_replace_converges_healing_if_stranded() -> None:
@@ -427,3 +465,4 @@ def test_t_mechanism_create_or_replace_converges_healing_if_stranded() -> None:
         writer.sdk_delete(fqn)
         PsycopgGhostAdapter(_make_pg_connect(ws)).drop_pg_ghost(_SCHEMA, synced_name)
         sql(f"DROP TABLE IF EXISTS {src}")
+        _sweep_leaked_event_logs(ws)

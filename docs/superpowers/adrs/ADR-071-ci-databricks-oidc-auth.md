@@ -157,6 +157,38 @@ needs a non-empty value to render at parse time. Those never authenticate anythi
   otherwise pay a GitHub fetch plus a token exchange. The cache sits at the exchanged-token layer,
   never at `ClientCredentials`: that class's `refresh()` re-posts its original `endpoint_params`,
   which embed the now-expired subject JWT, so caching there works until it abruptly does not.
-- **The exact token lifetime is still unmeasured** — bounded to (3:59, 5:13]. The freshness
-  regression in `synced-table-heal-e2e.yml` logs it and asserts `t1.expiry > t0.expiry`, so it
-  cannot pass on a frozen bearer the way an elapsed-time-only test would.
+- ~~**The exact token lifetime is still unmeasured**~~ — **measured 2026-07-27: 299 s** (was bounded
+  to (3:59, 5:13]). The freshness regression in `synced-table-heal-e2e.yml` logs it and asserts
+  `t1.expiry > t0.expiry`, so it cannot pass on a frozen bearer the way an elapsed-time-only test
+  would.
+
+### Tier 2 call volume — measured 2026-07-28
+
+The saving was asserted qualitatively above and left unquantified. Measured at the
+`credentials_provider.github_oidc` seam with a counting stub (one "exchange" = one GitHub
+id-token fetch **plus** one token-exchange POST = **2 HTTP round-trips**):
+
+| Scenario | Stock exchanges | Cached exchanges | Reduction |
+|---|---|---|---|
+| 60 calls inside one TTL (synthetic ceiling) | 60 | **1** | 60× |
+| `wait_until_online` 900 s @15 s (heal-e2e) | 60 | ~4 | ~15× |
+| `poll_run` 1800 s @15 s (`trigger_dbt_job`) | 120 | ~7 | ~17× |
+
+Only real CI poll loops are listed. `_POLL_INTERVAL_S = 15` / `_MAX_POLL_ATTEMPTS = 120` are read
+from `scripts/trigger_dbt_job.py:43-44`. Long *Databricks-side* jobs (e.g. the 28800 s AC drain) do
+**not** belong here at any scale — they run on-cluster under ambient runtime auth, where this
+strategy is inert.
+
+Stock is 1:1 with API calls **by construction**, not by measurement: `github_oidc` (line 505) is a
+thin wrapper over `_oidc_credentials_provider` (line 439), whose `refreshed_headers()` calls
+`token_source_for(audience).token()` on a freshly built `TokenSource` every time
+(`credentials_provider.py:473`, `:494-497`) — so the `Refreshable` cache it inherits is unreachable.
+
+The effective cache window is **259 s** — the 299 s lifetime minus `Refreshable`'s 40 s pre-expiry
+skew (`oauth.py:115-116`). The 60× figure is a synthetic ceiling (no wall-clock elapses);
+**~15–17× is the honest number** for the long-poll jobs this was built for, because a real job
+outlives the token and must re-exchange.
+
+No new test was added: `test_cache_engages_within_the_freshness_window` (two calls → 1 exchange) and
+`test_refresh_refetches_the_github_subject_jwt` (inside the skew window → re-exchange, never a stale
+bearer) already lock both behaviours. Only the magnitude was missing, and it belongs here.
