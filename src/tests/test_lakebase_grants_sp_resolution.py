@@ -94,3 +94,62 @@ def test_sdk_rejects_ambiguous_or_missing(monkeypatch: pytest.MonkeyPatch) -> No
         fake_ws.service_principals.list.return_value = iter(matches)
         with patch("databricks.sdk.WorkspaceClient", return_value=fake_ws), pytest.raises(RuntimeError):
             mod._resolve_sp_application_id()
+
+
+class TestLakebaseConnectRetry:
+    """Cold-start retry for the PG connect (2026-07-28).
+
+    The scheduled ``lakebase-grants`` run failed at 04:03 UTC with
+    ``OperationalError: timeout expired`` on the first connect; a manual re-dispatch
+    minutes later succeeded with no code change. The endpoint was asleep, not broken,
+    and a one-shot connect turned that into a red nightly.
+    """
+
+    def test_retries_a_cold_endpoint_then_succeeds(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        mod = _load_module()
+        import psycopg2
+
+        attempts = {"n": 0}
+
+        def _flaky(**_kwargs: object) -> str:
+            attempts["n"] += 1
+            if attempts["n"] < 3:
+                raise psycopg2.OperationalError("timeout expired")
+            return "live-connection"
+
+        monkeypatch.setattr(mod.psycopg2, "connect", _flaky)
+        monkeypatch.setattr(mod.time, "sleep", lambda _s: None)  # no real backoff in tests
+
+        assert mod._connect_pg_with_retry(host="h") == "live-connection"
+        assert attempts["n"] == 3, "did not retry the cold endpoint to success"
+
+    def test_exhausted_budget_raises_with_attempt_count(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A persistently-down endpoint must fail the job loudly, not hang or pass."""
+        mod = _load_module()
+        import psycopg2
+
+        def _always_cold(**_kwargs: object) -> object:
+            raise psycopg2.OperationalError("timeout expired")
+
+        monkeypatch.setattr(mod.psycopg2, "connect", _always_cold)
+        monkeypatch.setattr(mod.time, "sleep", lambda _s: None)
+
+        with pytest.raises(RuntimeError, match=r"after 3 attempts"):
+            mod._connect_pg_with_retry(host="h")
+
+    def test_a_credential_error_is_not_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Only OperationalError is transient. Retrying a bad password just delays the diagnosis."""
+        mod = _load_module()
+
+        calls = {"n": 0}
+
+        def _bad_auth(**_kwargs: object) -> object:
+            calls["n"] += 1
+            raise ValueError("invalid dsn")
+
+        monkeypatch.setattr(mod.psycopg2, "connect", _bad_auth)
+        monkeypatch.setattr(mod.time, "sleep", lambda _s: None)
+
+        with pytest.raises(ValueError, match="invalid dsn"):
+            mod._connect_pg_with_retry(host="h")
+        assert calls["n"] == 1, "a non-transient error must not be retried"
