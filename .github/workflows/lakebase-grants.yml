@@ -87,15 +87,18 @@ jobs:
     env:
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
-      # Downstream maintenance steps authenticate with the OIDC-minted
-      # DATABRICKS_TOKEN (a bearer token, exported to $GITHUB_ENV by the mint
-      # step). Because CLIENT_ID is also present job-wide, a bare
-      # WorkspaceClient() would otherwise see two auth methods and raise
-      # "more than one authorization method configured: oauth and pat". Pinning
-      # auth_type=pat selects the token and ignores CLIENT_ID. The mint step
-      # overrides this with a step-level github-oidc (+ constructor arg), so
-      # token minting is unaffected.
-      DATABRICKS_AUTH_TYPE: pat
+      # Every step authenticates through the SDK's LIVE github-oidc credential --
+      # there is no minted token to go stale. The SDK re-mints per request
+      # (_base_client.py:84 -> :105-110 -> credentials_provider.py:494-497 ->
+      # oidc_token_supplier.py:16-32), so a long job is safe by construction.
+      #
+      # This replaces the 2026-07-22 "mint once into $GITHUB_ENV + auth_type=pat"
+      # pattern, which snapshotted that live credential into a dead string: measured
+      # valid at mint+3:59 and 403 Invalid Token at +5:13, in this job, on the same
+      # API. An explicit github-oidc also disambiguates the oauth-vs-pat pair (#489)
+      # that the old `pat` pin existed to resolve -- see dbt-live-ci.yml:42-51 and
+      # terraform-plan.yml:24, both already running this configuration.
+      DATABRICKS_AUTH_TYPE: github-oidc
       HF_APP_SP_APPLICATION_ID: ${{ vars.HF_APP_SP_APPLICATION_ID }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -130,34 +133,14 @@ jobs:
           DATABRICKS_HOST: https://example.databricks.com
           DATABRICKS_HTTP_PATH: /sql/1.0/warehouses/dummywarehouseid0
           DATABRICKS_TOKEN: dummy  # pragma: allowlist secret
-        run: uvx --from "dbt-core>=1.10.0,<1.12.0" dbt deps --project-dir dbt_project --profiles-dir dbt_project
+        run: uvx --from "dbt-core==1.11.12" dbt deps --project-dir dbt_project --profiles-dir dbt_project
 
       - name: Install sdk dependencies
         run: uv sync --frozen --extra sdk
 
-      # Mint a short-lived workspace token via GitHub OIDC (reuses the repo-wide
-      # terraform_ci SP federation policy) and export it as DATABRICKS_TOKEN for
-      # every maintenance step below. Replaces the retired stored admin PAT.
-      # Runs on schedule / workflow_run / workflow_dispatch — all event types get
-      # id-token: write since the federation subject_claim is "repository".
-      - name: Acquire Databricks token via OIDC
-        env:
-          DATABRICKS_AUTH_TYPE: github-oidc
-        run: |
-          set -euo pipefail
-          TOKEN=$(uv run python -c "
-          import os
-          from databricks.sdk import WorkspaceClient
-          ws = WorkspaceClient(
-              host=os.environ['DATABRICKS_HOST'],
-              client_id=os.environ['DATABRICKS_CLIENT_ID'],
-              auth_type='github-oidc',
-          )
-          print(ws.config.authenticate()['Authorization'].replace('Bearer ', ''))
-          ")
-          if [ -z "$TOKEN" ]; then echo "::error::OIDC token mint returned empty"; exit 1; fi
-          echo "::add-mask::$TOKEN"
-          echo "DATABRICKS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+      # No mint step: the job-level DATABRICKS_AUTH_TYPE=github-oidc above gives every
+      # step a live, self-refreshing credential. The federation subject_claim is
+      # "repository", so schedule / workflow_run / workflow_dispatch all authenticate.
 
       # Step 0: Heal checkpoint-broken synced tables (recreate to reset the streaming checkpoint).
       # MUST run before the grants + index steps below: a recreated synced table is a brand-new PG

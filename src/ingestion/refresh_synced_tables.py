@@ -131,6 +131,11 @@ def _get_workspace_client() -> WorkspaceClient:
             "it's an opt-in to keep the wheel lean for Databricks serverless)."
         )
         raise ImportError(msg)
+    # Deliberately NOT ingestion.databricks_auth.workspace_client(): this module runs as a
+    # Databricks task (terraform/modules/workflows/main.tf:1315) under ambient runtime auth,
+    # never under GitHub OIDC, so the caching strategy would be inert here — and the
+    # module-level WorkspaceClient symbol is a documented test seam (see the header comment
+    # and test_refresh_synced_tables.py:51,68).
     return WorkspaceClient()
 
 

@@ -40,7 +40,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             artifactDeploy = container "Artifact Deploy" "Training-to-production contract (ADR-012). MLflow + UC Volume helpers." "Python"
             hfPublish = container "HF Publish Helper" "README delivery (ADR-014) + per-match HF redistribution (ADR-064): access_tier classifier (shared core), split_restricted on access_tier, enumerate-all fail-closed leak guard over every publisher." "Python"
             databricksSqlFetch = container "Databricks SQL Fetch" "HTTP helper for HF Jobs trainers querying gold marts (no Spark)" "Python, requests"
-            ingestionPipelines = container "Compute Pipelines" "39 @workflow-decorated Databricks ingestion/compute pipelines across 6 providers (incl. pre-shot xG scorer, ADR-066). GS bronze dedup (ADR-030), ET-direction derivers (ADR-029), DFL via silly-kicks (ADR-055)." "Python, PySpark, silly-kicks 4.43.0"
+            ingestionPipelines = container "Compute Pipelines" "39 @workflow Databricks ingestion/compute pipelines, 6 providers (incl. pre-shot xG, ADR-066). GS bronze dedup (ADR-030), ET-direction derivers (ADR-029), DFL via silly-kicks (ADR-055)." "Python, PySpark, silly-kicks 4.43.0"
             refreshSyncedTables = container "Synced Table Refresh" "Triggers refresh on 41 synced tables; detect-only for checkpoint-broken TRIGGERED tables — flags + dispatches the heal, never deletes (ADR-041)" "Python, databricks-sdk"
             migrateSyncedTables = container "Synced Table Migration" "SDK-managed lifecycle: delete, CDF enable, create, wait (ADR-026). Replaces Terraform module." "Python, databricks-sdk"
             rederiveSyncedMarts = container "Strand-safe Re-derive" "Operator re-derive of TRIGGERED synced marts (ADR-043): D MERGE-reprocess / T plain-rebuild / B delete+full-refresh+recreate. Pure planner + thin executor." "Python, databricks-sdk"
@@ -48,7 +48,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             evolveEngine = container "Evolve Engine" "LLM-guided architecture search. AST validation, restricted exec." "Python, OpenEvolve"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models: xG + canonical-SPADL pre-shot xG v3 (SB-360 freeze-frame builder, two-mode gate, OOF calibration; ADR-066), xT, VAEP, OBSO, pitch control, PSxG (ADR-059), embeddings" "Python, PyTorch"
             execVisibility = container "Executor Visibility (exec_visibility)" "Driver heartbeat + executor env-fingerprint/faulthandler markers + silly-kicks env-drift guard (ADR-044). Spark-Connect-safe applyInPandas progress + hang diagnostics (ADR-031)." "Python"
-            actionContextHexagon = container "Action Context Hexagon" "Pure-domain AC enrichment (ADR-028): ports + enrich_batch, one Spark+local UDF. Frames-required (ADR-057); sb360 cogroup (ADR-058); velocity via silly-kicks (ADR-067). Unit-event log + drain completeness gate (ADR-068)." "Python, pandas, silly-kicks 4.43.0"
+            actionContextHexagon = container "Action Context Hexagon" "Pure-domain AC enrichment (ADR-028): ports + enrich_batch, one Spark+local UDF. Frames-required (ADR-057); sb360 cogroup (ADR-058); velocity via silly-kicks (ADR-067); drain gate (ADR-068)." "Python, pandas, silly-kicks 4.43.0"
             sharedLibrary = container "Shared Library" "Cross-package constants, identifiers, and the per-match access_tier classifier — a fail-safe ALLOWLIST (ADR-064): open-data providers public, everything else restricted. Zero external deps." "Python"
         }
 
@@ -84,7 +84,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         hfJobs = softwareSystem "HuggingFace Jobs" "L40S GPU / cpu-basic compute for training and batch analytics" "External"
         openRouter = softwareSystem "OpenRouter" "LLM API: Claude Sonnet 4 (80%), Haiku 4.5 (20%) for Evolve mutations" "External"
 
-        githubActions = softwareSystem "GitHub Actions CI/CD" "Platform automation: Terraform, Python CI, dbt CI, Data Quality CI, Semgrep, Lakebase grants" {
+        githubActions = softwareSystem "GitHub Actions CI/CD" "Platform automation: Terraform, Python CI, dbt CI, Data Quality CI, Semgrep, Lakebase grants. Databricks auth is GitHub OIDC, minted per request, never materialised (ADR-071)." {
             terraformApply = container "Terraform Apply" "Auto-apply on push to main. AWS OIDC + Databricks federation." ".github/workflows/"
             terraformPlan = container "Terraform Plan" "Plan on PR, posts diff. Human reviews before merge." ".github/workflows/"
             pythonCi = container "Python CI" "ruff, pyright, pytest, detect-secrets, pip-audit. Deploys wheel on main." ".github/workflows/"
@@ -235,10 +235,10 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         # Relationships - GitHub Actions
         terraformApply -> databricksApi "Applies TF resources" "OIDC"
         terraformPlan -> databricksApi "Reads state for diff" "OIDC"
-        pythonCi -> bronzeSchema "Deploys wheel on main" "HTTPS"
+        pythonCi -> bronzeSchema "Deploys wheel on main" "HTTPS/OIDC"
         dataQualityCi -> bronzeSchema "DESCRIBE + count parity" "SQL"
-        dataQualityCi -> databricksApi "Warehouse auto-resume" "HTTPS"
-        lakebaseGrantsWorkflow -> databricksApi "Gets PG credential" "HTTPS"
+        dataQualityCi -> databricksApi "Warehouse auto-resume" "HTTPS/OIDC"
+        lakebaseGrantsWorkflow -> databricksApi "Gets PG credential" "HTTPS/OIDC"
         lakebaseGrantsWorkflow -> lakebase "GRANT SELECT" "PostgreSQL"
         terraformApply -> lakebaseGrantsWorkflow "workflow_run trigger" "GH Actions"
         developer -> pythonCi "Opens PR / pushes" "git"
@@ -294,7 +294,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             autoLayout
         }
 
-        container githubActions "CIContainers" {
+        container githubActions "Containers_CI" {
             include *
             include databricksApi
             include lakebase
@@ -303,33 +303,77 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             autoLayout
         }
 
-        container pipelinePlatform "PipelineContainers" {
-            include *
+        container pipelinePlatform "Containers_PipelineCompute" {
+            include ingestionPipelines
+            include actionContextHexagon
+            include analyticsLibrary
+            include execVisibility
+            include evolveEngine
+            include sharedLibrary
             include databricksWorkflows
-            include hfJobs
-            include hfHub
-            include observabilitySchema
             include bronzeSchema
+            include hfJobs
             include openRouter
-            include developer
-            include operator
-            include dbtProject
             autoLayout
         }
 
-        container taipyApp "TaipyContainers" {
-            include *
+        container pipelinePlatform "Containers_PipelinePlatformServices" {
+            include workflowFramework
+            include workflowCards
+            include guardRegistry
+            include costEstimateHook
+            include hfCostRecorder
+            include artifactDeploy
+            include hfPublish
+            include databricksSqlFetch
+            include observabilitySchema
+            include hfHub
+            include operator
+            autoLayout
+        }
+
+        container pipelinePlatform "Containers_PipelineDataOps" {
+            include refreshSyncedTables
+            include migrateSyncedTables
+            include rederiveSyncedMarts
+            include dbtRunner
             include lakebase
             include databricksApi
-            include hfHub
+            include dbtProject
+            include operator
+            autoLayout
+        }
+
+        container taipyApp "Containers_TaipyPresentation" {
+            include guiLayer
+            include templateEngine
+            include sidebarWidgets
+            include stateModules
+            include renderEngine
+            include staticAssets
+            include guiExtensions
             include hfIdentity
+            include hfHub
+            autoLayout
+        }
+
+        container taipyApp "Containers_TaipyDataAccess" {
+            include adminApi
+            include queryLayer
+            include filterLayer
+            include dbLayer
+            include configLayer
+            include pitchControl
+            include ghostGridService
+            include lakebase
+            include databricksApi
             include refreshSyncedTables
             include analyticsLibrary
             include sharedLibrary
             autoLayout
         }
 
-        container unityCatalog "DataStores" {
+        container unityCatalog "Containers_DataStores" {
             include *
             include ingestionPipelines
             include actionContextHexagon
@@ -339,7 +383,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             autoLayout
         }
 
-        container sk3MigBOrch "RetrainOrchestrator" {
+        container sk3MigBOrch "Containers_RetrainOrchestrator" {
             include *
             include databricksWorkflows
             include hfJobs
@@ -350,7 +394,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             autoLayout
         }
 
-        dynamic pipelinePlatform "CostTracking" {
+        dynamic pipelinePlatform "Dynamic_CostTracking" {
             ingestionPipelines -> workflowFramework "Pipeline starts"
             workflowFramework -> costEstimateHook "on_start hook"
             costEstimateHook -> observabilitySchema "MERGE RUNNING state"
@@ -360,7 +404,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             autoLayout
         }
 
-        dynamic taipyApp "FilterCascade" {
+        dynamic taipyApp "Dynamic_FilterCascade" {
             analyst -> guiLayer "Selects competition"
             guiLayer -> stateModules "Fires callback"
             stateModules -> filterLayer "Fetches filtered options"
@@ -372,7 +416,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             autoLayout
         }
 
-        dynamic pipelinePlatform "GuardAsWrapper" {
+        dynamic pipelinePlatform "Dynamic_GuardAsWrapper" {
             databricksWorkflows -> ingestionPipelines "Job starts"
             ingestionPipelines -> guardRegistry "Calls timed_check()"
             guardRegistry -> observabilitySchema "DESCRIBE HISTORY + watermark check"
@@ -382,7 +426,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             autoLayout
         }
 
-        dynamic pipelinePlatform "EvolveLevel2" {
+        dynamic pipelinePlatform "Dynamic_EvolveLevel2" {
             developer -> evolveEngine "Launch --code-evolution"
             evolveEngine -> openRouter "Generate candidate"
             evolveEngine -> analyticsLibrary "AST-validate + exec"
@@ -390,7 +434,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             autoLayout
         }
 
-        dynamic pipelinePlatform "DailyJobHardening" {
+        dynamic pipelinePlatform "Dynamic_DailyJobHardening" {
             databricksWorkflows -> ingestionPipelines "9 leaf computes run"
             databricksWorkflows -> dbtRunner "dbt_build after leaves"
             dbtRunner -> guardRegistry "Watermark check upstream tables"
@@ -403,7 +447,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             autoLayout
         }
 
-        deployment taipyApp "Production" "Deployment" {
+        deployment taipyApp "Production" "Deployment_Production" {
             include *
             autoLayout
         }

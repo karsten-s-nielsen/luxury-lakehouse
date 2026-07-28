@@ -32,7 +32,11 @@ Usage:
 
 Environment:
     DATABRICKS_HOST        Workspace hostname (with or without https:// prefix)
-    DATABRICKS_TOKEN       Admin PAT (must have Lakebase admin privileges)
+    Credential             Either DATABRICKS_TOKEN (local dev), or
+                           DATABRICKS_AUTH_TYPE=github-oidc plus
+                           ACTIONS_ID_TOKEN_REQUEST_TOKEN/_URL (CI). Bearers are resolved
+                           per call via ``auth_headers()``, never snapshotted at start-up
+                           (ADR-071 amendment).
 """
 
 from __future__ import annotations
@@ -47,6 +51,8 @@ import uuid
 
 import psycopg2
 import requests
+
+from ingestion.databricks_auth import auth_headers, has_databricks_auth, workspace_client
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-5s  %(message)s")
 logger = logging.getLogger(__name__)
@@ -107,9 +113,7 @@ def _resolve_sp_application_id() -> str:
         logger.info("Using Taipy SP application_id from %s", _SP_APP_ID_ENV)
         return override.strip()
 
-    from databricks.sdk import WorkspaceClient
-
-    ws = WorkspaceClient()
+    ws = workspace_client()
     matches = [
         sp
         for sp in ws.service_principals.list(filter=f'displayName eq "{_HF_APP_SP_DISPLAY_NAME}"')
@@ -146,14 +150,18 @@ def _load_expected_synced_tables() -> list[tuple[str, str]]:
     return expected
 
 
-def _get_lakebase_credential(host: str, token: str) -> tuple[str, str]:
+def _get_lakebase_credential(host: str) -> tuple[str, str]:
     """Get a Lakebase PG credential via the REST API.
 
     Returns ``(jwt_token, pg_username)``.
+
+    Resolves the bearer at the point of use rather than taking one as a parameter: under
+    GitHub OIDC the SDK mints per request, so a caller-held token is a snapshot that can
+    already be dead (ADR-071 amendment).
     """
     resp = requests.post(
         f"https://{host}/api/2.0/postgres/credentials",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        headers={**auth_headers(), "Content-Type": "application/json"},
         json={"endpoint": ENDPOINT_NAME, "request_id": str(uuid.uuid4())},
         verify=True,
         timeout=(10, 30),
@@ -164,12 +172,12 @@ def _get_lakebase_credential(host: str, token: str) -> tuple[str, str]:
     return jwt, payload["sub"]
 
 
-def _get_lakebase_dns(host: str, token: str) -> str:
+def _get_lakebase_dns(host: str) -> str:
     """Discover the Lakebase endpoint DNS from the API."""
     project_path = ENDPOINT_NAME.rsplit("/endpoints/", 1)[0]
     resp = requests.get(
         f"https://{host}/api/2.0/postgres/{project_path}/endpoints",
-        headers={"Authorization": f"Bearer {token}"},
+        headers=auth_headers(),
         verify=True,
         timeout=(10, 30),
     )
@@ -241,12 +249,14 @@ def connect_as_superuser() -> psycopg2.extensions.connection:
     step-by-step logs for operator clarity.
     """
     raw_host = os.environ.get("DATABRICKS_HOST")
-    token = os.environ.get("DATABRICKS_TOKEN")
-    if not raw_host or not token:
-        raise RuntimeError("DATABRICKS_HOST and DATABRICKS_TOKEN must be set")
+    if not raw_host or not has_databricks_auth():
+        raise RuntimeError(
+            "DATABRICKS_HOST and a credential are required: either DATABRICKS_TOKEN, or "
+            "DATABRICKS_AUTH_TYPE=github-oidc with ACTIONS_ID_TOKEN_REQUEST_* present."
+        )
     host = _normalize_host(raw_host)
-    dns = _get_lakebase_dns(host, token)
-    jwt, pg_user = _get_lakebase_credential(host, token)
+    dns = _get_lakebase_dns(host)
+    jwt, pg_user = _get_lakebase_credential(host)
     conn = psycopg2.connect(
         host=dns,
         port=5432,
@@ -295,9 +305,11 @@ def main() -> int:
     args = parser.parse_args()
 
     raw_host = os.environ.get("DATABRICKS_HOST")
-    token = os.environ.get("DATABRICKS_TOKEN")
-    if not raw_host or not token:
-        logger.error("DATABRICKS_HOST and DATABRICKS_TOKEN must be set")
+    if not raw_host or not has_databricks_auth():
+        logger.error(
+            "DATABRICKS_HOST and a credential are required: either DATABRICKS_TOKEN, or "
+            "DATABRICKS_AUTH_TYPE=github-oidc with ACTIONS_ID_TOKEN_REQUEST_* present."
+        )
         return 2
     host = _normalize_host(raw_host)
 
@@ -305,11 +317,11 @@ def main() -> int:
     logger.info("Target SP UUID: %s", sp_uuid)
 
     logger.info("Discovering Lakebase endpoint DNS...")
-    dns = _get_lakebase_dns(host, token)
+    dns = _get_lakebase_dns(host)
     logger.info("Lakebase DNS: %s", dns)
 
     logger.info("Obtaining admin credential via REST API...")
-    jwt, pg_user = _get_lakebase_credential(host, token)
+    jwt, pg_user = _get_lakebase_credential(host)
     logger.info("Connected as PG user: %s", pg_user)
 
     conn = psycopg2.connect(

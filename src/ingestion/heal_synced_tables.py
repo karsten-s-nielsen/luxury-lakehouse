@@ -41,6 +41,8 @@ from shared.constants import IDENTIFIER_RE
 if TYPE_CHECKING:
     from databricks.sdk import WorkspaceClient
 
+from ingestion.databricks_auth import workspace_client
+
 logger = logging.getLogger(__name__)
 
 _PG_DATABASE = "databricks_postgres"
@@ -136,9 +138,7 @@ def main() -> None:
         print("synced-table heal disabled by kill-switch (SYNCED_TABLE_HEAL_ENABLED=0) -- nothing to do")
         return
 
-    from databricks.sdk import WorkspaceClient
-
-    ws = WorkspaceClient()
+    ws = workspace_client()
     reader = SdkReaderAdapter(ws)
     sql_exec = _make_sql_exec(ws)  # one warehouse exec, shared by ensure-CDF and strand-state recording
     ports = HealPorts(

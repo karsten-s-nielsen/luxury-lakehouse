@@ -17,15 +17,15 @@ See:
 
 from __future__ import annotations
 
-import os
-
 import pytest
+
+from ingestion.databricks_auth import has_databricks_auth
 
 _ORPHAN_ROLE = "be66af99-5296-4fd9-887a-c081bce38bfa"
 
 
 @pytest.mark.skipif(
-    not os.getenv("DATABRICKS_HOST") or not os.getenv("DATABRICKS_TOKEN"),
+    not has_databricks_auth(),
     reason="Lakebase credentials not available (DATABRICKS_HOST / DATABRICKS_TOKEN unset)",
 )
 def test_orphan_pg_role_absent_from_pg_roles() -> None:

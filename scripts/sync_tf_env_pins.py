@@ -23,12 +23,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts._tf_env_pins import (
+    CI_DBT_SUBMIT_SCRIPT,
+    CI_DBT_UVX_WORKFLOWS,
     Drift,
     iter_dep_block_spans,
     normalize,
     parse_lock_versions,
     parse_sdk_extra_pin,
     resolve_desired_version,
+    rewrite_ci_dbt_text,
 )
 
 _REPO = Path(__file__).resolve().parents[1]
@@ -88,16 +91,31 @@ def main() -> int:
 
     new_text, changes = rewrite_tf_text(tf_text, lock=lock, sdk_extra_pin=sdk_pin)
 
+    # CI dbt pins ride the same lockstep (ADR-046, 2026-07-27): the dbt-live-ci job's
+    # declared serverless deps and the `uvx --from` runner invocations.
+    repo = _TF.parents[3]
+    ci_edits: list[tuple[Path, str]] = []
+    for rel in (*CI_DBT_UVX_WORKFLOWS, CI_DBT_SUBMIT_SCRIPT):
+        path = repo / rel
+        text = path.read_text(encoding="utf-8")
+        rewritten, drifts = rewrite_ci_dbt_text(rel, text, lock)
+        if drifts:
+            changes.extend(drifts)
+            ci_edits.append((path, rewritten))
+
     if not changes:
-        print("All TF env pins already in sync with uv.lock.")
+        print("All TF env pins and CI dbt pins already in sync with uv.lock.")
         return 0
     for c in changes:
-        print(f"  {c.pkg}: {c.current} -> {c.desired}")
+        print(f"  [{c.env_key}] {c.pkg}: {c.current} -> {c.desired}")
     if args.check:
         print(f"{len(changes)} pin(s) out of sync (--check).", file=sys.stderr)
         return 1
-    _TF.write_text(new_text, encoding="utf-8")
-    print(f"{len(changes)} pin(s) updated in {_TF}.")
+    if new_text != tf_text:
+        _TF.write_text(new_text, encoding="utf-8")
+    for path, rewritten in ci_edits:
+        path.write_text(rewritten, encoding="utf-8")
+    print(f"{len(changes)} pin(s) updated.")
     return 0
 
 

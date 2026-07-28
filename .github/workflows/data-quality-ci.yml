@@ -35,6 +35,14 @@ jobs:
   live-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # Live github-oidc credential, re-minted by the SDK per request — no token is
+      # materialised (ADR-071 amendment). This job only ever passed because it finishes
+      # in ~4m50s, inside the ~5-minute life of the bearer the old mint step snapshotted;
+      # its sibling workflows, which run longer, failed daily from 2026-07-22.
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_AUTH_TYPE: github-oidc
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -49,7 +57,7 @@ jobs:
           DATABRICKS_HOST: https://example.databricks.com
           DATABRICKS_HTTP_PATH: /sql/1.0/warehouses/dummywarehouseid0
           DATABRICKS_TOKEN: dummy
-        run: uvx --from "dbt-core>=1.10.0,<1.12.0" dbt deps --project-dir dbt_project --profiles-dir dbt_project
+        run: uvx --from "dbt-core==1.11.12" dbt deps --project-dir dbt_project --profiles-dir dbt_project
 
       - name: Install dependencies
         run: uv sync --frozen --extra analytics
@@ -61,35 +69,10 @@ jobs:
       - name: Install databricks-sql-connector (ad-hoc, not in pyproject)
         run: uv pip install databricks-sql-connector databricks-sdk
 
-      # Mint a short-lived workspace token via GitHub OIDC (reuses the repo-wide
-      # terraform_ci SP federation policy) and export it as DATABRICKS_TOKEN for
-      # the data-quality tests below. Replaces the retired stored PAT (2026-07-21).
-      - name: Acquire Databricks token via OIDC
-        env:
-          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
-          DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
-          DATABRICKS_AUTH_TYPE: github-oidc
-        run: |
-          set -euo pipefail
-          TOKEN=$(uv run python -c "
-          import os
-          from databricks.sdk import WorkspaceClient
-          ws = WorkspaceClient(
-              host=os.environ['DATABRICKS_HOST'],
-              client_id=os.environ['DATABRICKS_CLIENT_ID'],
-              auth_type='github-oidc',
-          )
-          print(ws.config.authenticate()['Authorization'].replace('Bearer ', ''))
-          ")
-          if [ -z "$TOKEN" ]; then echo "::error::OIDC token mint returned empty"; exit 1; fi
-          echo "::add-mask::$TOKEN"
-          echo "DATABRICKS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
-
       - name: Run data quality tests
         env:
-          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
           DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
-          # DATABRICKS_TOKEN inherited from $GITHUB_ENV (OIDC mint step above).
+          # DATABRICKS_HOST + github-oidc come from the job env; no token is materialised.
           BRONZE_SCHEMA: soccer_analytics.bronze
           STAGING_SCHEMA: soccer_analytics.dev_silver
         run: |
