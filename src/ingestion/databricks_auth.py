@@ -31,6 +31,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 __all__ = [
     "CachedGitHubOidcStrategy",
     "auth_headers",
+    "bearer_token",
     "has_databricks_auth",
     "workspace_client",
 ]
@@ -69,6 +70,31 @@ def has_databricks_auth() -> bool:
     if _is_set("DATABRICKS_TOKEN"):
         return True
     return all(_is_set(var) for var in _GITHUB_OIDC_VARS)
+
+
+def bearer_token() -> str:
+    """A **fresh** bearer token string, resolved through the SDK's provider chain.
+
+    For call sites that need the raw credential rather than a header -- chiefly
+    ``databricks.sql.connect(access_token=...)`` in the live data-quality suite, whose
+    driver takes a token, not an ``Authorization`` value.
+
+    This is the read-only replacement for ``os.environ["DATABRICKS_TOKEN"]``. Those direct
+    reads are why the 2026-07-28 Data Quality CI run on main produced ``1 passed, 119
+    errors``: once the workflows stopped materialising the token, ``has_databricks_auth()``
+    correctly reported auth-available via OIDC, so the tests *ran* -- and then every module
+    fixture died on ``KeyError: 'DATABRICKS_TOKEN'``. Migrating the skip guards without
+    migrating the connection bodies converted a silent skip into a loud collection error.
+
+    Works unchanged under a static ``DATABRICKS_TOKEN`` (local dev) or GitHub OIDC (CI).
+    Call it at the point of use, never once at start-up.
+
+    Raises
+    ------
+    RuntimeError
+        Via :func:`auth_headers`, if the SDK cannot produce a ``Bearer`` header.
+    """
+    return auth_headers()["Authorization"].removeprefix("Bearer ")
 
 
 def auth_headers() -> dict[str, str]:

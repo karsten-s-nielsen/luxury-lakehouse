@@ -137,13 +137,40 @@ def upload_tarball(local_path: Path, volume_path: str) -> None:
         ws.files.upload(volume_path, f, overwrite=True)
 
 
-def submit_run(*, host: str, token: str, payload: dict[str, Any]) -> int:
+def _submit_auth_header(token: str | None) -> str:
+    """``Authorization`` value for the submit call.
+
+    An explicit ``--token`` still wins, for manual invocations against a workspace where
+    OIDC is not configured. With no token we resolve through the SDK, which under
+    ``github-oidc`` mints a fresh bearer at the moment of use.
+
+    Deliberately inlined rather than importing ``ingestion.databricks_auth`` -- the
+    dbt-live-ci job installs with ``--no-install-project``, so the wheel's packages are not
+    importable here. Same constraint, and the same duplication, as ``patch_job_retries``.
+    """
+    if token:
+        return f"Bearer {token}"
+
+    from databricks.sdk import WorkspaceClient
+
+    value = (WorkspaceClient().config.authenticate() or {}).get("Authorization", "")
+    if not value.startswith("Bearer "):
+        msg = (
+            "Databricks SDK returned no Bearer authorization header for runs/submit "
+            f"(got {value[:24]!r}). Set DATABRICKS_AUTH_TYPE=github-oidc with "
+            "ACTIONS_ID_TOKEN_REQUEST_* present, or pass --token explicitly."
+        )
+        raise RuntimeError(msg)
+    return value
+
+
+def submit_run(*, host: str, token: str | None, payload: dict[str, Any]) -> int:
     """POST to /api/2.0/jobs/runs/submit and return the new run_id."""
     host = host.rstrip("/").removeprefix("https://").removeprefix("http://")
     resp = requests.post(
         # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
         f"https://{host}/api/2.0/jobs/runs/submit",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        headers={"Authorization": _submit_auth_header(token), "Content-Type": "application/json"},
         json=payload,
         timeout=(10, 60),
         verify=True,
@@ -223,7 +250,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--select-arg", required=True)
     parser.add_argument("--host", required=True)
-    parser.add_argument("--token", required=True)
+    # Optional since 2026-07-28: CI relies on ambient github-oidc rather than materialising
+    # a bearer. Kept (not removed) so manual invocations documented in the module docstring
+    # keep working unchanged.
+    parser.add_argument("--token", default=None)
     parser.add_argument("--volume-prefix", required=True)
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
 

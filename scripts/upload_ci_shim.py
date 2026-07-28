@@ -1,7 +1,20 @@
 #!/usr/bin/env python3
-"""Upload the CI dbt shim to Workspace Files. Re-run when the shim changes.
+"""Upload the CI dbt shim to Workspace Files.
 
 Destination: /Workspace/Shared/luxury-lakehouse-ci/run_dbt_in_databricks.py
+
+Run automatically by ``.github/workflows/dbt-live-ci.yml`` immediately before it triggers
+the Databricks job, so the deployed shim is always the one in the triggering commit.
+
+It used to say "re-run when the shim changes" and nothing enforced that. The copy was
+uploaded by hand on 2026-04-23 and drifted for three months: on 2026-07-28 the nightly was
+still executing a retired ``install_dbt()`` that pip-installed dbt from a RANGE, resolving
+1.11.8 against a manifest written by 1.11.12, and dbt rejected it with
+``Field "macros" ... in WritableManifest has invalid value``. The repo file had been
+correct for hours; the job had never seen it. Hence the CI step, and the sentinel
+``test_dbt_live_ci_deploys_the_shim_before_triggering``.
+
+Still safe to run by hand (idempotent, ``overwrite=True``, no arguments).
 
 Workspace Files chosen over UC Volumes because serverless-job
 spark_python_task resolution against UC Volume paths failed in PR 4a E2E

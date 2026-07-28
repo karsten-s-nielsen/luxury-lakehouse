@@ -148,3 +148,23 @@ invocations. **`pyproject.toml` is a consistency check only, never a rewrite tar
 that direction for `databricks-sdk` alone (`ExemptStrategy.SDK_EXTRA`) because the dbt extra forks
 that package in the lock; dbt has no equivalent fork, so the normal direction holds and the test
 asserts floor ≤ lock.
+
+### Follow-up — 2026-07-28: the fix above did not reach the job
+
+The amendment landed and the very next nightly failed **identically**. The deleted
+`install_dbt()` ran anyway, because the Databricks task does not execute
+`scripts/ci/run_dbt_in_databricks.py` from the checkout — it executes a copy at
+`/Workspace/Shared/luxury-lakehouse-ci/run_dbt_in_databricks.py`, uploaded by hand on
+**2026-04-23** and never again. Measured on the failing run: deployed copy still contained
+`_DBT_PIN` and `def install_dbt`; the repo file already contained neither. `scripts/upload_ci_shim.py`
+existed, its docstring said "re-run when the shim changes", and **no workflow ran it**.
+
+A pin is only as good as its delivery. `dbt-live-ci.yml` now runs the uploader immediately before
+triggering, making the deployed shim a function of the triggering commit;
+`test_dbt_live_ci_deploys_the_shim_before_triggering` asserts both its presence and its ordering
+(uploading after the trigger would deploy for the *following* run).
+
+Generalisation worth carrying: **an artifact executed from a mutable location outside the repo is
+not covered by any repo-side test.** The test suite, the ADR and the diff all agreed the pin was
+fixed; the running system disagreed for two nightlies, silently, because nothing compared them.
+When a change targets code that runs elsewhere, verify the *deployed* copy, not the source.

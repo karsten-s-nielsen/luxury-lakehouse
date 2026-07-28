@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from ingestion.databricks_auth import has_databricks_auth
+from ingestion.databricks_auth import bearer_token, has_databricks_auth
 
 _databricks_sql_mod: Any
 try:
@@ -43,7 +43,7 @@ class TestFctPausaValuesLive:
         c = _databricks_sql_mod.connect(
             server_hostname=host,
             http_path=os.environ["DATABRICKS_HTTP_PATH"],
-            access_token=os.environ["DATABRICKS_TOKEN"],
+            access_token=bearer_token(),
         )
         try:
             yield c

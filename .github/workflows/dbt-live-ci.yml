@@ -85,27 +85,24 @@ jobs:
             dbt_project/
           ls -la /tmp/dbt_project.tar.gz
 
-      # GitHub OIDC -> Databricks SP short-lived bearer token. The SDK's
-      # github-oidc auth type talks to the Databricks OIDC endpoint; we extract
-      # the Authorization header value so downstream REST calls in
-      # trigger_dbt_job.py can reuse it. Masked immediately.
-      - name: Acquire Databricks token via OIDC
-        id: databricks_token
-        run: |
-          set -euo pipefail
-          TOKEN=$(uv run --no-sync python -c "
-          import os
-          from databricks.sdk import WorkspaceClient
-          ws = WorkspaceClient(
-              host=os.environ['DATABRICKS_HOST'],
-              client_id=os.environ['DATABRICKS_CLIENT_ID'],
-              auth_type='github-oidc',
-          )
-          auth = ws.config.authenticate()
-          print(auth['Authorization'].replace('Bearer ', ''))
-          ")
-          echo "::add-mask::$TOKEN"
-          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+      # The job that runs on Databricks executes a COPY of scripts/ci/run_dbt_in_databricks.py
+      # living at /Workspace/Shared/luxury-lakehouse-ci/, not the file in this checkout.
+      # That copy was uploaded once by hand (2026-04-23) and then drifted for three months:
+      # the 2026-07-28 nightly still ran the retired `install_dbt()`, resolving dbt 1.11.8
+      # from a range while the manifest above was written by 1.11.12 -- the exact producer/
+      # consumer skew that ADR-046's dbt lockstep exists to prevent, failing with
+      # `Field "macros" ... in WritableManifest has invalid value`.
+      #
+      # Uploading here makes the deployed shim a function of the commit, so editing the
+      # repo file is sufficient to change job behaviour. The uploader is idempotent
+      # (overwrite=True) and takes no arguments.
+      - name: Deploy dbt shim to Workspace Files
+        run: uv run --no-sync python scripts/upload_ci_shim.py
+
+      # No token step: DATABRICKS_AUTH_TYPE=github-oidc at job level gives every
+      # WorkspaceClient a live, self-refreshing credential. The retired step minted a
+      # bearer into $GITHUB_OUTPUT and passed it as --token; that bearer lives ~299s
+      # (measured 2026-07-27) and the poll below runs up to 30 min.
 
       # Daily scheduled run: full build (+all) validates the entire graph.
       # Manual dispatch: use select_override input for targeted validation.
@@ -124,7 +121,6 @@ jobs:
             --manifest dbt_project/target/manifest.json \
             --select-arg "${SELECT_ARG}" \
             --host "${{ vars.DATABRICKS_HOST }}" \
-            --token "${{ steps.databricks_token.outputs.token }}" \
             --volume-prefix "/Volumes/soccer_analytics/dev_gold/ci_dbt/daily-${SHORT_SHA:0:7}" \
             > /tmp/trigger_result.json
           cat /tmp/trigger_result.json
