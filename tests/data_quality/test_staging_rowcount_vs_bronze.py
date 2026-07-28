@@ -55,7 +55,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from ingestion.databricks_auth import has_databricks_auth
+from ingestion.databricks_auth import bearer_token, has_databricks_auth
 
 databricks_sql = pytest.importorskip("databricks.sql")
 
@@ -114,7 +114,7 @@ def conn() -> Iterator[object]:
     c = databricks_sql.connect(
         server_hostname=host,
         http_path=os.environ["DATABRICKS_HTTP_PATH"],
-        access_token=os.environ["DATABRICKS_TOKEN"],
+        access_token=bearer_token(),
     )
     try:
         yield c

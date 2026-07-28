@@ -46,6 +46,23 @@ _WORKFLOWS_DIR = _REPO / ".github" / "workflows"
 _TOKEN_ASSIGN_RE = re.compile(r"^\s*DATABRICKS_TOKEN\s*:\s*(?P<value>\S.*?)\s*$")
 # A shell line exporting DATABRICKS_TOKEN into the env/output files.
 _TOKEN_EXPORT_RE = re.compile(r"DATABRICKS_TOKEN\s*=.*GITHUB_(?:ENV|OUTPUT)")
+# Name-agnostic sibling. The two rules above both anchor on the literal name
+# DATABRICKS_TOKEN, on the theory that a bearer must land there to be usable. That was
+# WRONG, and dbt-live-ci.yml proved it: it minted into `token=$TOKEN >> $GITHUB_OUTPUT`
+# and passed the value as `--token`, never touching the env var -- so it sailed through a
+# rule written to be exhaustive. Any key whose name contains "token" counts now, whatever
+# it is called. ACTIONS_ID_TOKEN_REQUEST_* is excluded: that is GitHub's own OIDC request
+# plumbing, an INPUT to minting rather than a minted Databricks bearer.
+#
+# Matches "token" anywhere on the line, not just as the key: `x=$TOKEN` materialises a
+# bearer just as surely as `token=$X`, and an anchored key pattern also missed
+# MY_BEARER_TOKEN (the `_` before TOKEN is a word character, so `\btoken` never matched).
+# Over-flagging is the safe direction for a credential rule -- a false positive costs one
+# comment, a false negative cost three months of a dead bearer in a step output.
+_ANY_BEARER_EXPORT_RE = re.compile(
+    r"^(?!.*ACTIONS_ID_TOKEN_REQUEST).*token.*GITHUB_(?:ENV|OUTPUT)",
+    re.IGNORECASE,
+)
 
 
 def _iter_jobs() -> list[tuple[str, str, dict[str, Any]]]:
@@ -157,7 +174,7 @@ def _materialisation_offenders(directory: Path | None = None) -> list[str]:
         for lineno, raw in enumerate(wf.read_text(encoding="utf-8").splitlines(), start=1):
             if raw.lstrip().startswith("#"):
                 continue
-            if _TOKEN_EXPORT_RE.search(raw):
+            if _TOKEN_EXPORT_RE.search(raw) or _ANY_BEARER_EXPORT_RE.search(raw):
                 offenders.append(f"{wf.name}:{lineno} exports a bearer into $GITHUB_ENV/$GITHUB_OUTPUT")
                 continue
             m = _TOKEN_ASSIGN_RE.match(raw)
@@ -208,3 +225,134 @@ def test_materialisation_detector_flags_both_transports() -> None:
     assert any("probe.yml:5" in f for f in found), "missed the step-output transport"
     assert not any("probe.yml:8" in f for f in found), "flagged an allowed hardcoded placeholder"
     assert len(found) == 2, f"expected exactly the two transports, got {found}"
+
+
+def test_materialisation_detector_is_name_agnostic() -> None:
+    """The rule must not depend on the bearer being called ``DATABRICKS_TOKEN``.
+
+    Regression for the dbt-live-ci miss: ``echo "token=$TOKEN" >> "$GITHUB_OUTPUT"``
+    materialised a live bearer and passed the original rule untouched.
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        wf = Path(tmp) / "probe.yml"
+        wf.write_text(
+            'a:\n  run: echo "token=$TOKEN" >> "$GITHUB_OUTPUT"\n'
+            'b:\n  run: echo "MY_BEARER_TOKEN=$X" >> "$GITHUB_ENV"\n'
+            'c:\n  run: echo "ACTIONS_ID_TOKEN_REQUEST_URL=$U" >> "$GITHUB_ENV"\n'
+            'd:\n  run: echo "select_arg=${SELECT_ARG}" >> "$GITHUB_OUTPUT"\n',
+            encoding="utf-8",
+        )
+        found = _materialisation_offenders(Path(tmp))
+
+    assert any("probe.yml:2" in f for f in found), "missed the lowercase `token=` export"
+    assert any("probe.yml:4" in f for f in found), "missed a differently-named bearer"
+    assert not any("probe.yml:6" in f for f in found), "flagged GitHub's own OIDC request plumbing"
+    assert not any("probe.yml:8" in f for f in found), "flagged a non-credential step output"
+
+
+def test_dbt_live_ci_deploys_the_shim_before_triggering() -> None:
+    """The Databricks job runs a workspace COPY of the shim, so CI must redeploy it.
+
+    Without this step the copy is whatever an operator last uploaded by hand. It drifted
+    from 2026-04-23 to 2026-07-28 and silently ran a retired code path -- the repo file
+    said one thing, the job did another, and nothing failed until dbt's manifest reader
+    rejected a manifest written by a different dbt.
+
+    Order matters: uploading AFTER the trigger would deploy for the following run.
+    """
+    wf = (_WORKFLOWS_DIR / "dbt-live-ci.yml").read_text(encoding="utf-8")
+    assert "scripts/upload_ci_shim.py" in wf, (
+        "dbt-live-ci must run scripts/upload_ci_shim.py; otherwise edits to "
+        "scripts/ci/run_dbt_in_databricks.py never reach the Databricks job."
+    )
+    assert wf.index("scripts/upload_ci_shim.py") < wf.index("scripts/trigger_dbt_job.py"), (
+        "the shim upload must precede the trigger, or the job runs the previous shim."
+    )
+
+
+# ---------------------------------------------------------------------------
+# The consumer half of the same invariant
+# ---------------------------------------------------------------------------
+#
+# The rule above stops a WORKFLOW from materialising the bearer. On its own that is only
+# half an invariant, and the missing half cost a red main on 2026-07-28: the skip guards
+# were migrated to has_databricks_auth() (which correctly reports auth-available under
+# OIDC, so the live tests RUN) while seven test bodies still read the raw env var to build
+# their connection. Result: `1 passed, 119 errors`, every one a KeyError on a name the
+# workflows had — correctly — stopped setting.
+#
+# Producer and consumer must therefore be guarded together. Guarding either alone leaves a
+# tree that is internally inconsistent and only fails once it reaches CI.
+
+_TOKEN_READ_RE = re.compile(r"""os\.environ(?:\.get\(|\[)\s*["']DATABRICKS_TOKEN["']""")
+
+_TEST_ROOTS = ("tests", "src/tests")
+
+
+def _token_read_offenders(roots: tuple[Path, ...] | None = None) -> list[str]:
+    """Test code that reads ``DATABRICKS_TOKEN`` out of the environment directly.
+
+    Such a read is only correct when something materialises the token — which is exactly
+    what the producer-side rule forbids. The supported accessor is
+    ``ingestion.databricks_auth.bearer_token()`` (raw token, e.g. for
+    ``databricks.sql.connect(access_token=...)``) or ``auth_headers()`` (for raw
+    ``requests``); both resolve through the SDK, so they work under a static token locally
+    AND under OIDC in CI.
+
+    ``has_databricks_auth()`` is deliberately NOT flagged: it reads the variable through a
+    helper to decide whether to skip, and returning False on a fork PR is the point.
+    """
+    search = roots or tuple((_REPO / r) for r in _TEST_ROOTS)
+    offenders: list[str] = []
+    for root in search:
+        if not root.is_dir():
+            continue
+        for py in sorted(root.rglob("*.py")):
+            for lineno, raw in enumerate(py.read_text(encoding="utf-8").splitlines(), start=1):
+                if raw.lstrip().startswith("#"):
+                    continue
+                if _TOKEN_READ_RE.search(raw):
+                    # relative_to() only when the file really is under the repo -- the
+                    # self-test below scans a tmpdir, which would otherwise raise here.
+                    try:
+                        label = py.relative_to(_REPO).as_posix()
+                    except ValueError:
+                        label = py.name
+                    offenders.append(f"{label}:{lineno}")
+    return offenders
+
+
+def test_no_test_reads_databricks_token_from_the_environment() -> None:
+    """Live tests must obtain credentials through the SDK, not a materialised env var."""
+    offenders = _token_read_offenders()
+    assert not offenders, (
+        "these tests read DATABRICKS_TOKEN directly, so they break the moment CI stops "
+        "materialising it (2026-07-28: 119 collection errors on main). Use "
+        "ingestion.databricks_auth.bearer_token() for a raw token or auth_headers() for a "
+        f"request header. Offenders: {offenders}"
+    )
+
+
+def test_token_read_detector_flags_both_accessor_forms() -> None:
+    """Self-test: subscript AND ``.get()`` both count, and the skip helper does not."""
+    import tempfile
+
+    # Assembled, never spelled: a literal here would make this file its own offender, and
+    # exempting the file by name would blind the rule to a real read added to it later.
+    var = "DATABRICKS_" + "TOKEN"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        probe = Path(tmp) / "probe.py"
+        probe.write_text(
+            f'a = os.environ["{var}"]\n'
+            f'b = os.environ.get("{var}", "")\n'
+            "c = has_databricks_auth()\n"
+            f'd = os.environ["{var}"]  # a trailing comment must not exempt the line\n',
+            encoding="utf-8",
+        )
+        found = _token_read_offenders((Path(tmp),))
+
+    assert len(found) == 3, f"expected the two accessor forms plus the commented-suffix line, got {found}"
+    assert not any(line.endswith(":3") for line in found), "flagged the skip-guard helper"

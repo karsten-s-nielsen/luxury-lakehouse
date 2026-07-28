@@ -20,6 +20,7 @@ import os
 from typing import TYPE_CHECKING
 
 from analytics.ext_v2.harness import run_phase0_harness
+from ingestion.databricks_auth import bearer_token
 from tests.smoke_gates.sk3_mig_b.conftest import chunked_sql_to_pandas
 
 if TYPE_CHECKING:
@@ -37,7 +38,7 @@ def test_phase_0_nll_within_threshold(
 ) -> None:
     """Refit Singh on current fct_action_values; assert NLL ≤ baseline + 1%."""
     host = os.environ["DATABRICKS_HOST"].replace("https://", "").replace("http://", "").rstrip("/")
-    token = os.environ["DATABRICKS_TOKEN"]
+    token = bearer_token()
 
     # fct_action_values stores SPADL action / result names directly in
     # `action_type` and `action_result` (verified to match silly-kicks'
