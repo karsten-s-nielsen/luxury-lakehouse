@@ -55,7 +55,16 @@ _RETRY_DELAY_SECONDS = 3
 # before PoolError, which is easily saturated by 2-3 concurrent users loading
 # heavier pages (Conversion Funnel, GK Passes). 15 gives ~7.5 QPS of headroom
 # while staying well under typical Lakebase endpoint connection limits.
-_POOL_MIN_CONN = 1
+#
+# minconn MUST be 0 (2026-07-28). ThreadedConnectionPool opens `minconn` connections
+# EAGERLY at construction and holds them for the pool's lifetime, and Lakebase only
+# suspends at ZERO client connections. minconn=1 therefore pinned the endpoint ACTIVE
+# 24/7 at its 0.5 CU floor -- measured: `current_state=ACTIVE` unbroken across a 20-minute
+# watch, with every Databricks warehouse STOPPED and all 41 pipelines idle. It also made
+# the scale-to-zero retry in `execute_query` dead code, since the wake it handles could
+# never occur. 0 means connections are opened on demand and released back, so an idle app
+# drops to zero and the endpoint suspends.
+_POOL_MIN_CONN = 0
 _POOL_MAX_CONN = 15
 
 
