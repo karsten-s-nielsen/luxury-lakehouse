@@ -24,13 +24,13 @@ import re
 
 import pytest
 
+from ingestion.databricks_auth import has_databricks_auth
+
 pytest.importorskip("databricks.sdk", reason="databricks-sdk not installed (run `uv sync --extra sdk`)")
 
-_REQUIRED_ENV = ("DATABRICKS_HOST", "DATABRICKS_TOKEN")
-
 requires_databricks = pytest.mark.skipif(
-    not all(os.environ.get(v) for v in _REQUIRED_ENV),
-    reason="requires live Databricks credentials",
+    not has_databricks_auth(),
+    reason="requires live Databricks credentials (DATABRICKS_HOST + token or GitHub OIDC)",
 )
 
 _LOGGER = logging.getLogger("test_action_context_live_ddl_parity")

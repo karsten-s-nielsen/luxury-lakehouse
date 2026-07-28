@@ -16,6 +16,8 @@ from typing import Any
 
 import pytest
 
+from ingestion.databricks_auth import has_databricks_auth
+
 _databricks_sql_mod: Any
 try:
     _databricks_sql_mod = importlib.import_module("databricks.sql")
@@ -23,8 +25,7 @@ except ImportError:  # pragma: no cover
     _databricks_sql_mod = None
 
 _requires_databricks = pytest.mark.skipif(
-    _databricks_sql_mod is None
-    or not all(os.environ.get(var) for var in ("DATABRICKS_HOST", "DATABRICKS_HTTP_PATH", "DATABRICKS_TOKEN")),
+    _databricks_sql_mod is None or not (has_databricks_auth() and os.environ.get("DATABRICKS_HTTP_PATH")),
     reason="databricks-sql-connector not installed or DATABRICKS_* env vars not set",
 )
 _MD5_HEX_RE = re.compile(r"^[0-9a-f]{32}$")

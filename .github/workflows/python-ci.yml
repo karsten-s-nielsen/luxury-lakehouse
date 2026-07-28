@@ -48,6 +48,10 @@ jobs:
       # under this flag instead of warning. Production-posture: same as Databricks
       # job env (terraform/modules/workflows/main.tf) — fail-loud on any regression.
       SILLY_KICKS_ASSERT_INVARIANTS: "1"
+      # Live github-oidc credential, re-minted by the SDK per request (ADR-071 amendment).
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_AUTH_TYPE: github-oidc
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -71,7 +75,7 @@ jobs:
           DATABRICKS_HOST: https://example.databricks.com
           DATABRICKS_HTTP_PATH: /sql/1.0/warehouses/dummywarehouseid0
           DATABRICKS_TOKEN: dummy
-        run: uvx --from "dbt-core>=1.10.0,<1.12.0" dbt deps --project-dir dbt_project --profiles-dir dbt_project
+        run: uvx --from "dbt-core==1.11.12" dbt deps --project-dir dbt_project --profiles-dir dbt_project
 
       - name: Install dependencies
         run: uv sync --frozen --extra analytics --extra embeddings --extra mlflow --extra jax
@@ -90,38 +94,17 @@ jobs:
       - name: Import boundary check
         run: uv run lint-imports
 
-      # Mint a short-lived workspace token via GitHub OIDC (reuses the repo-wide
-      # terraform_ci SP federation policy — terraform/modules/service_principals/main.tf)
-      # and export it as DATABRICKS_TOKEN for the live tests + wheel deploy below.
-      # Replaces the retired stored PAT (workspace moved off PATs 2026-07-21).
-      # Same-repo PRs get id-token: write (proven by terraform-plan.yml on PR);
-      # fork PRs get neither and are auto-closed by close-fork-prs.yml.
-      - name: Acquire Databricks token via OIDC
-        env:
-          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
-          DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
-          DATABRICKS_AUTH_TYPE: github-oidc
-        run: |
-          set -euo pipefail
-          TOKEN=$(uv run python -c "
-          import os
-          from databricks.sdk import WorkspaceClient
-          ws = WorkspaceClient(
-              host=os.environ['DATABRICKS_HOST'],
-              client_id=os.environ['DATABRICKS_CLIENT_ID'],
-              auth_type='github-oidc',
-          )
-          print(ws.config.authenticate()['Authorization'].replace('Bearer ', ''))
-          ")
-          if [ -z "$TOKEN" ]; then echo "::error::OIDC token mint returned empty"; exit 1; fi
-          echo "::add-mask::$TOKEN"
-          echo "DATABRICKS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+      # No mint step: DATABRICKS_AUTH_TYPE=github-oidc at job level (see the job env above)
+      # gives every step a live, self-refreshing credential — nothing is materialised
+      # (ADR-071 amendment). The federation policy is repo-wide
+      # (terraform/modules/service_principals/main.tf). Same-repo PRs get id-token: write
+      # (proven by terraform-plan.yml on PR); fork PRs get neither, so has_databricks_auth()
+      # returns False there and the live tests skip rather than fail.
 
       - name: Run tests
         env:
-          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
           DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
-          # DATABRICKS_TOKEN inherited from $GITHUB_ENV (OIDC mint step above).
+          # DATABRICKS_HOST + github-oidc come from the job env; no token is materialised.
         run: uv run pytest
 
       - name: Validate workflow cards
@@ -181,9 +164,7 @@ jobs:
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          # Hostname is a public URL, not sensitive — repo var (see dbt-ci.yml note).
-          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
-          # DATABRICKS_TOKEN inherited from $GITHUB_ENV (OIDC mint step above).
+          # DATABRICKS_HOST + github-oidc come from the job env; no token is materialised.
         run: uv run python scripts/deploy_wheel.py
 
       - name: Scan for secrets

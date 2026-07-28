@@ -18,13 +18,14 @@ from __future__ import annotations
 
 import csv
 import importlib.util
-import os
 import re
 import sys
 from pathlib import Path
 from types import ModuleType
 
 import pytest
+
+from ingestion.databricks_auth import has_databricks_auth
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _ORCHESTRATOR_PATH = _REPO_ROOT / "scripts" / "sk3_mig_b_retrain.py"
@@ -159,7 +160,7 @@ def test_orchestrator_flavor_map_matches_trainer_constants() -> None:
 
 
 @pytest.mark.skipif(
-    not (os.environ.get("DATABRICKS_TOKEN") and os.environ.get("DATABRICKS_HOST")),
+    not has_databricks_auth(),
     reason="DATABRICKS_TOKEN+DATABRICKS_HOST required to query live mega-job task list",
 )
 def test_seed_csv_subset_of_live_mega_job() -> None:

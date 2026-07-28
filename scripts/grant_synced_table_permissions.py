@@ -86,6 +86,8 @@ else:
         AccessControlRequest = None  # type: ignore[assignment, misc]
         PermissionLevel = None  # type: ignore[assignment, misc]
 
+from ingestion.databricks_auth import workspace_client
+
 _LOG_SOURCE = "grant_synced_table_permissions"
 
 # When databricks-sdk isn't installed (the [sdk] extra is opt-in), keep
@@ -348,7 +350,7 @@ def main() -> int:
     if not (args.grant or args.revoke or args.status):
         args.grant = True
 
-    ws = WorkspaceClient()
+    ws = workspace_client()
     mode = "status" if args.status else ("revoke" if args.revoke else "grant")
     _log("start", environment=args.environment, mode=mode, dry_run=args.dry_run)
 

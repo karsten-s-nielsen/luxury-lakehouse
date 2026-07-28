@@ -49,12 +49,13 @@ jobs:
       RUN_SERVERLESS_TESTS: "1"
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
-      # Downstream steps authenticate with the OIDC-minted DATABRICKS_TOKEN
-      # (bearer). Pin auth_type=pat so the job-level CLIENT_ID does not make a
-      # bare WorkspaceClient() raise "more than one authorization method
-      # configured: oauth and pat". The mint step overrides this with a
-      # step-level github-oidc (+ constructor arg), so minting is unaffected.
-      DATABRICKS_AUTH_TYPE: pat
+      # Live github-oidc credential, re-minted by the SDK per request. This job is the
+      # reason the old "mint once into $GITHUB_ENV" pattern had to go: `Run heal e2e` is a
+      # SINGLE step polling for 12-15 min, so no per-step re-mint could have bounded it --
+      # the bearer died mid-poll and wait_until_online logged 403 Invalid Token every cycle
+      # until the timeout. An explicit github-oidc also disambiguates the oauth-vs-pat pair
+      # (#489) that the old `pat` pin existed to resolve.
+      DATABRICKS_AUTH_TYPE: github-oidc
       DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
       # Lakebase host is derived from the Databricks REST API (ADR-041) — no LAKEBASE_HOST var needed.
       # HEAL_E2E_SCHEMA is the ONLY operator input: a disposable UC schema for the throwaway synced
@@ -80,32 +81,44 @@ jobs:
           DATABRICKS_HOST: https://example.databricks.com
           DATABRICKS_HTTP_PATH: /sql/1.0/warehouses/dummywarehouseid0
           DATABRICKS_TOKEN: dummy  # pragma: allowlist secret
-        run: uvx --from "dbt-core>=1.10.0,<1.12.0" dbt deps --project-dir dbt_project --profiles-dir dbt_project
+        run: uvx --from "dbt-core==1.11.12" dbt deps --project-dir dbt_project --profiles-dir dbt_project
 
       - name: Install sdk dependencies
         run: uv sync --frozen --extra sdk
 
-      # Mint a short-lived workspace token via GitHub OIDC (reuses the repo-wide
-      # terraform_ci SP federation policy) and export it as DATABRICKS_TOKEN for
-      # the e2e below. Replaces the retired stored admin PAT (2026-07-21).
-      - name: Acquire Databricks token via OIDC
-        env:
-          DATABRICKS_AUTH_TYPE: github-oidc
-        run: |
-          set -euo pipefail
-          TOKEN=$(uv run python -c "
-          import os
-          from databricks.sdk import WorkspaceClient
-          ws = WorkspaceClient(
-              host=os.environ['DATABRICKS_HOST'],
-              client_id=os.environ['DATABRICKS_CLIENT_ID'],
-              auth_type='github-oidc',
-          )
-          print(ws.config.authenticate()['Authorization'].replace('Bearer ', ''))
-          ")
-          if [ -z "$TOKEN" ]; then echo "::error::OIDC token mint returned empty"; exit 1; fi
-          echo "::add-mask::$TOKEN"
-          echo "DATABRICKS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+      # No mint step: the job-level DATABRICKS_AUTH_TYPE=github-oidc gives this long
+      # single-step poll a live, self-refreshing credential.
 
       - name: Run heal e2e
         run: uv run pytest src/tests/test_synced_table_heal_e2e.py -v --tb=short --no-header
+
+      # Token-freshness regression. Asserts the SDK actually REFRESHED -- not merely that a
+      # later call succeeded, which would pass vacuously on a frozen bearer if Databricks
+      # ever lengthened the token lifetime. Also logs the measured lifetime, which is the
+      # number the 2026-07-27 investigation could only bound to (4:12, 5:13].
+      # Hosted here because this is the only workflow already running longer than the sleep.
+      #
+      # if: always() -- credential lifetime is an INDEPENDENT invariant from whether DLT
+      # reconciles a synced table in time. Gating this on `Run heal e2e` made the one
+      # measurement that closes the lifetime question hostage to platform weather: the
+      # 2026-07-28 run skipped it because the e2e hit a leaked-pipeline repro poisoning,
+      # which has nothing to do with auth.
+      - name: Token-freshness regression (must outlive the token lifetime)
+        if: always()
+        run: |
+          uv run python -c "
+          from datetime import datetime
+          import time
+          from databricks.sdk import WorkspaceClient
+
+          ws = WorkspaceClient()
+          t0 = ws.config.oauth_token()
+          ttl = (t0.expiry - datetime.now(tz=t0.expiry.tzinfo)).total_seconds()
+          print(f'::notice::measured OIDC bearer lifetime: {ttl:.0f}s')
+          ws.current_user.me()
+          time.sleep(420)
+          t1 = ws.config.oauth_token()
+          assert t1.expiry > t0.expiry, 'token did not refresh -- the SDK returned a frozen bearer'
+          ws.current_user.me()
+          print('::notice::token refreshed and remained usable after 420s')
+          "

@@ -15,10 +15,12 @@ from collections.abc import Iterator
 
 import pytest
 
+from ingestion.databricks_auth import has_databricks_auth
+
 databricks_sql = pytest.importorskip("databricks.sql")
 
 requires_databricks = pytest.mark.skipif(
-    not all(os.environ.get(var) for var in ("DATABRICKS_HOST", "DATABRICKS_HTTP_PATH", "DATABRICKS_TOKEN")),
+    not (has_databricks_auth() and os.environ.get("DATABRICKS_HTTP_PATH")),
     reason="Databricks SQL env vars not set",
 )
 

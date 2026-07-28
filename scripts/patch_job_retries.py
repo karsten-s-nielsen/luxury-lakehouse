@@ -87,11 +87,29 @@ def _get_base_url() -> str:
 
 
 def _get_headers() -> dict[str, str]:
-    token = os.environ.get("DATABRICKS_TOKEN", "")
-    if not token:
-        logger.error("DATABRICKS_TOKEN not set")
+    """A fresh bearer, resolved through the SDK at the point of use.
+
+    Deliberately duplicates ``ingestion.databricks_auth.auth_headers`` rather than importing
+    it: terraform-apply.yml runs this with a bare ``python`` and a pip-installed
+    ``databricks-sdk``, without the project wheel on sys.path. Keep the two in sync — the
+    canonical version, with tests, is the ``ingestion`` one.
+
+    ``Config.authenticate()`` dispatches on whatever is configured, so this works for a
+    static ``DATABRICKS_TOKEN`` locally and for ``github-oidc`` in CI, where it mints per
+    call. The previous version read ``DATABRICKS_TOKEN`` directly, which required the
+    workflow to materialise a bearer into ``$GITHUB_OUTPUT`` (ADR-071 amendment).
+    """
+    from databricks.sdk import WorkspaceClient
+
+    value = (WorkspaceClient().config.authenticate() or {}).get("Authorization", "")
+    if not value.startswith("Bearer "):
+        logger.error(
+            "Databricks SDK returned no Bearer authorization header (got %r). Set "
+            "DATABRICKS_HOST and either DATABRICKS_TOKEN or DATABRICKS_AUTH_TYPE=github-oidc.",
+            value[:24],
+        )
         sys.exit(1)
-    return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    return {"Authorization": value, "Content-Type": "application/json"}
 
 
 def _find_job_id(base_url: str, headers: dict[str, str], job_name: str) -> int:

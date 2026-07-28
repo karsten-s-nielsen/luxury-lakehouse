@@ -1,9 +1,12 @@
 """Unit tests for scripts.ci.run_dbt_in_databricks (PR 4a shim).
 
 The shim runs inside a Databricks Job cluster. It reads a tarball of
-dbt_project/ + manifest-main.json from UC Volume, extracts, installs
-dbt, runs `dbt build --select <arg>`, and uploads run_results.json
-back to UC Volume.
+dbt_project/ + manifest-main.json from UC Volume, extracts, runs
+`dbt build --select <arg>`, and uploads run_results.json back to UC Volume.
+
+dbt is DECLARED on the job's serverless environment (scripts/trigger_dbt_job.py),
+not installed by the shim — the former runtime `pip install` used a version range
+and resolved a different dbt than the runner used to write the manifest.
 
 All subprocess and file-system interactions are mocked here; integration
 testing happens in Phase 5 E2E.
@@ -13,6 +16,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -91,9 +95,13 @@ class TestRunDbt:
 
         calls = mock_run.call_args_list
         assert len(calls) == 2
-        # First call: dbt deps
-        assert calls[0][0][0][:2] == ["dbt", "deps"]
-        # Second call: dbt build --select ...
+        # First call: dbt deps, invoked as a MODULE not the `dbt` console script.
+        # dbt is declared on the job's serverless environment (trigger_dbt_job.py) rather
+        # than pip-installed at runtime, so nothing guarantees `dbt` is on PATH; a miss
+        # would surface as a bare FileNotFoundError deep inside the job.
+        assert calls[0][0][0][:4] == [sys.executable, "-m", "dbt.cli.main", "deps"]
+        # Second call: dbt build --select ..., same module form
+        assert calls[1][0][0][:4] == [sys.executable, "-m", "dbt.cli.main", "build"]
         assert "--select" in calls[1][0][0]
         assert "state:modified+" in calls[1][0][0]
 
@@ -134,7 +142,6 @@ class TestMainEndToEnd:
     @patch("scripts.ci.run_dbt_in_databricks.upload_output")
     @patch("scripts.ci.run_dbt_in_databricks.run_dbt")
     @patch("scripts.ci.run_dbt_in_databricks.ensure_dbt_env_vars")
-    @patch("scripts.ci.run_dbt_in_databricks.install_dbt")
     @patch("scripts.ci.run_dbt_in_databricks.stage_dbt_workspace")
     @patch("scripts.ci.run_dbt_in_databricks.extract_tarball")
     @patch("scripts.ci.run_dbt_in_databricks.download_from_volume")
@@ -143,7 +150,6 @@ class TestMainEndToEnd:
         mock_dl: MagicMock,
         mock_ex: MagicMock,
         mock_stage: MagicMock,
-        mock_install: MagicMock,
         mock_env: MagicMock,
         mock_run: MagicMock,
         mock_up: MagicMock,

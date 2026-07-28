@@ -187,3 +187,62 @@ def find_cross_env_divergences(envs: dict[str, dict[str, str]]) -> dict[str, dic
         for pkg, spec in deps.items():
             seen.setdefault(pkg, {})[env_key] = spec.replace(" ", "").removeprefix("==")
     return {pkg: e for pkg, e in seen.items() if len(set(e.values())) > 1}
+
+
+# ---------------------------------------------------------------------------
+# CI dbt pins (ADR-046 lockstep, 2026-07-27)
+# ---------------------------------------------------------------------------
+#
+# Same policy as the TF env pins, different surface, so it reuses this module's
+# `parse_lock_versions` rather than `parse_tf_env_deps` (that parser is shaped for TF
+# `environment { spec { dependencies } }` blocks; these are a Python dict literal and YAML
+# `uvx --from` strings). Shared lock parsing, separate site scanner -- deliberate, so the
+# fixer and the checker (src/tests/test_ci_dbt_pin_parity.py) cannot diverge.
+#
+# pyproject.toml is NOT a site here: it is the INPUT to uv.lock, so rewriting it would
+# create pyproject -> lock -> pyproject. The parity test asserts floor <= lock instead.
+
+CI_DBT_UVX_WORKFLOWS = (
+    ".github/workflows/data-quality-ci.yml",
+    ".github/workflows/lakebase-grants.yml",
+    ".github/workflows/python-ci.yml",
+    ".github/workflows/synced-table-heal-e2e.yml",
+)
+CI_DBT_SUBMIT_SCRIPT = "scripts/trigger_dbt_job.py"
+
+_UVX_ANY_RE = re.compile(r'(uvx --from ")dbt-core[^"]*(")')
+_SUBMIT_DEP_ANY_RE = re.compile(r'"(dbt-core|dbt-databricks)[^"]*"')
+
+
+def rewrite_ci_dbt_text(path: str, text: str, lock: dict[str, set[str]]) -> tuple[str, list[Drift]]:
+    """Rewrite one CI dbt pin site to uv.lock's versions. Pure: returns (new_text, drifts)."""
+
+    def _one(pkg: str) -> str:
+        versions = lock.get(pkg, set())
+        if len(versions) != 1:
+            raise PinForkError(f"{pkg} has {len(versions)} versions in uv.lock: {sorted(versions)}")
+        return next(iter(versions))
+
+    drifts: list[Drift] = []
+    if path in CI_DBT_UVX_WORKFLOWS:
+        want = f"dbt-core=={_one('dbt-core')}"
+
+        def _sub(m: re.Match[str]) -> str:
+            found = m.group(0)[len(m.group(1)) : -len(m.group(2))]
+            if found != want:
+                drifts.append(Drift(env_key="ci-uvx", pkg="dbt-core", current=found, desired=want))
+            return f"{m.group(1)}{want}{m.group(2)}"
+
+        text = _UVX_ANY_RE.sub(_sub, text)
+    elif path == CI_DBT_SUBMIT_SCRIPT:
+
+        def _sub_dep(m: re.Match[str]) -> str:
+            pkg = m.group(1)
+            want = f"{pkg}=={_one(pkg)}"
+            found = m.group(0).strip('"')
+            if found != want:
+                drifts.append(Drift(env_key="ci-submit", pkg=pkg, current=found, desired=want))
+            return f'"{want}"'
+
+        text = _SUBMIT_DEP_ANY_RE.sub(_sub_dep, text)
+    return text, drifts

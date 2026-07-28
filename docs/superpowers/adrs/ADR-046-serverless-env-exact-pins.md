@@ -121,3 +121,30 @@ downgrade fence). Surgical version-substring rewrite is therefore the *correct* 
 **Out of scope:** transitive cross-env forks (the `databricks-sdk` split lives in
 different task envs, is constraint-driven, and detecting it needs full per-env resolution)
 — documented limitation, not built.
+
+---
+
+## Amendment — 2026-07-27: CI dbt joins the lockstep; the runtime install is deleted
+
+`dbt-live-ci` failed nightly from 2026-07-22 for this ADR's exact reason, at a site the sync tool
+did not cover. The runner produced `manifest_main.json` with uv.lock's dbt-core (1.11.12) while
+`scripts/ci/run_dbt_in_databricks.py` pip-installed a **range** (`>=1.10.0,<1.12.0`) into the live
+job, which resolved 1.11.8. dbt rejected the newer manifest — `Field "macros" of type
+Mapping[str, Macro] in WritableManifest has invalid value` — and exited 2.
+
+Rather than pin the runtime install, it is **deleted**. `scripts/trigger_dbt_job.py` already
+submitted an `environments` block; it now declares `dependencies` there, so dbt arrives with the
+environment, version-locked, and `_DBT_PIN` / `_DBT_DATABRICKS_PIN` / `install_dbt()` are gone. A
+pinned runtime install would still need hand-syncing; a declared environment does not.
+
+Send `dependencies` alongside `environment_version`, never with `client` — the 2026-06-10
+Databricks rollout rejects that pair with `INVALID_PARAMETER_VALUE` and broke this workflow once
+already.
+
+Remaining dbt pin sites ride `scripts/sync_tf_env_pins.py` and are checked by
+`src/tests/test_ci_dbt_pin_parity.py`: the submitted environment, and the four `uvx --from` runner
+invocations. **`pyproject.toml` is a consistency check only, never a rewrite target** — it is the
+*input* to `uv.lock`, so syncing it would create pyproject → lock → pyproject. This ADR inverts
+that direction for `databricks-sdk` alone (`ExemptStrategy.SDK_EXTRA`) because the dbt extra forks
+that package in the lock; dbt has no equivalent fork, so the normal direction holds and the test
+asserts floor ≤ lock.

@@ -81,28 +81,12 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Acquire Databricks token via OIDC
-        id: databricks_token
-        run: |
-          set -euo pipefail
-          pip install -q databricks-sdk
-          TOKEN=$(python -c "
-          import os
-          from databricks.sdk import WorkspaceClient
-          ws = WorkspaceClient(
-              host=os.environ['DATABRICKS_HOST'],
-              client_id=os.environ['DATABRICKS_CLIENT_ID'],
-              auth_type='github-oidc',
-          )
-          auth = ws.config.authenticate()
-          print(auth['Authorization'].replace('Bearer ', ''))
-          ")
-          echo "::add-mask::$TOKEN"
-          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
-
+      # No mint step: DATABRICKS_AUTH_TYPE=github-oidc is already set at workflow-env level
+      # (see the top of this file), so patch_job_retries.py resolves a live credential
+      # through the SDK. The removed step routed the bearer through $GITHUB_OUTPUT, which
+      # records it in the run's step-output metadata — the same anti-pattern as the
+      # $GITHUB_ENV exports, one transport over (ADR-071 amendment).
       - name: Patch job retry settings
-        env:
-          DATABRICKS_TOKEN: ${{ steps.databricks_token.outputs.token }}
         run: |
-          pip install -q requests
+          pip install -q "databricks-sdk==0.121.0" requests
           python scripts/patch_job_retries.py

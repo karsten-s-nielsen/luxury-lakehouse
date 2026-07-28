@@ -90,8 +90,19 @@ def build_runs_submit_payload(
                 # pair at runs/submit with INVALID_PARAMETER_VALUE ("Only one of them must be
                 # provided for serverless environments") — broke the daily dbt-live-ci.
                 # environment_version is the current canonical field; client is its legacy alias.
+                #
+                # `dependencies` DECLARES dbt on the environment instead of pip-installing it
+                # at runtime (ADR-046 lockstep, 2026-07-27). The old runtime install used a
+                # RANGE, so the job resolved dbt 1.11.8 while the runner produced the manifest
+                # with uv.lock's 1.11.12 — dbt rejected the newer WritableManifest and exited 2
+                # nightly. Exact `==`, kept equal to uv.lock by
+                # src/tests/test_ci_dbt_pin_parity.py.
                 "spec": {
                     "environment_version": "2",
+                    "dependencies": [
+                        "dbt-core==1.11.12",
+                        "dbt-databricks==1.12.2",
+                    ],
                 },
             }
         ],

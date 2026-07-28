@@ -15,10 +15,12 @@ import os
 
 import pytest
 
+from ingestion.databricks_auth import has_databricks_auth
+
 pytest.importorskip("databricks.sdk", reason="databricks-sdk not installed (run `uv sync --extra sdk`)")
 
 requires_databricks = pytest.mark.skipif(
-    not all(os.environ.get(var) for var in ("DATABRICKS_HOST", "DATABRICKS_TOKEN")),
+    not has_databricks_auth(),
     reason="DATABRICKS_HOST + DATABRICKS_TOKEN env vars required for live state check",
 )
 
