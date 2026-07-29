@@ -89,8 +89,13 @@ jobs:
       # No mint step: the job-level DATABRICKS_AUTH_TYPE=github-oidc gives this long
       # single-step poll a live, self-refreshing credential.
 
+      # -s + --log-cli-level: this suite's diagnostics are its POINT. pytest captures stdout by
+      # default and surfaces it only for failures, so the T-mechanism state/row timeline and the
+      # event-log sweep were invisible on every passing run -- and on the 2026-07-28 failure the
+      # captured section never rendered either, so a SKIPPED_PREFLIGHT had to be root-caused from
+      # source rather than from the log that was written to explain it.
       - name: Run heal e2e
-        run: uv run pytest src/tests/test_synced_table_heal_e2e.py -v --tb=short --no-header
+        run: uv run pytest src/tests/test_synced_table_heal_e2e.py -v -s --log-cli-level=INFO --tb=short --no-header
 
       # Token-freshness regression. Asserts the SDK actually REFRESHED -- not merely that a
       # later call succeeded, which would pass vacuously on a frozen bearer if Databricks

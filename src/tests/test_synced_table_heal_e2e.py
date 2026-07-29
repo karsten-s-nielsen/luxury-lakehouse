@@ -168,7 +168,16 @@ def _assert_replace_converges_healing_if_stranded(
                 )
             return
         if not healed and is_checkpoint_mismatch_failure(reader, pipeline_id):
-            timeline.append(f"t+{elapsed}s STRAND detected (XXKST) -> invoking heal_synced_table")
+            # Record BOTH pipeline ids. The test checks the id it captured up front; heal_synced_table
+            # RE-RESOLVES it via get_pipeline_id(fqn). If a SKIPPED_PREFLIGHT ever recurs, these two
+            # lines discriminate the two candidate causes instantly — a divergent id (checked against
+            # the wrong pipeline) versus the same id whose newest update went in-flight between the
+            # two calls. On 2026-07-28 neither was recorded and the cause had to be inferred.
+            heal_pid = reader.get_pipeline_id(fqn)
+            timeline.append(
+                f"t+{elapsed}s STRAND detected (XXKST) -> invoking heal_synced_table "
+                f"(test_pid={pipeline_id} heal_pid={heal_pid} same={heal_pid == pipeline_id})"
+            )
             outcome = heal_synced_table(heal_ports, cfg, catalog, schema)
             timeline.append(f"t+{int(time.monotonic() - start)}s heal outcome={outcome.name}")
             if outcome is not HealOutcome.HEALED:

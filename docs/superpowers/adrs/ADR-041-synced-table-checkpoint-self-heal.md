@@ -110,5 +110,51 @@ Key decisions and the findings/risks they answer:
   (`test_synced_table_cdf_contract`) prevents anyone re-opening F2 by adding a TRIGGERED synced table
   over a CDF-off source.
 
+## Amendment — 2026-07-28: the classifier was blind to a strand mid-retry
+
+The heal-e2e T-mechanism failed with `strand detected but heal returned SKIPPED_PREFLIGHT`
+(run 30384832625). The strand was real; the classifier could not see it.
+
+`is_checkpoint_mismatch_failure` asks whether the **newest** pipeline update failed with `XXKST`,
+via `latest_failed_events`, which scoped strictly to the newest `update_id` (P9: stop a stale
+historical failure from matching). But DLT **retries a failed update with growing backoff**, and the
+instant a retry starts it *becomes* the newest update — `RUNNING`, with no error events yet:
+
+```
+T1  detect:  newest update = U1 (FAILED, XXKST)      -> True   -> invoke heal
+T2  heal:    newest update = U2 (RUNNING, no errors) -> False  -> SKIPPED_PREFLIGHT
+```
+
+In the e2e those two calls are one function apart. **In production they are separate jobs minutes
+apart** — the SP detects and fires a `workflow_dispatch`; the maintenance pass heals — so the window
+is far wider there and a genuine strand could be silently skipped.
+
+Two things were wrong, and both are fixed:
+
+1. **The classifier now reports on the latest CONCLUDED update**, skipping ones still in flight
+   (`_TERMINAL_UPDATE_STATES`, walk bounded by `_MAX_INFLIGHT_UPDATES_SKIPPED`). P9's intent is
+   intact: the walk stops at the FIRST concluded update, so a successful newest run still yields no
+   errors and a stale older failure can never be resurrected. Fail-safe preserved in both
+   directions — an unreadable update state is treated as concluded, i.e. exactly the pre-amendment
+   behaviour, never more destructive. State is read via `pipelines.get_update`, **not** parsed from
+   the event message: an `update_progress` event carries its state only inside human-readable text
+   ("Update d28ad5 is COMPLETED.", verified live), and a classifier gating a destructive heal must
+   not hinge on message wording.
+
+2. **`SKIPPED_PREFLIGHT` now logs at ERROR** in `run_heal_pass`. It previously fell through with no
+   log at all; the sole trace was a *warning* inside `heal_synced_table` — invisible to error-log
+   queries, so a recovery path that never recovered looked identical to one with nothing to do.
+   That is precisely the pattern ADR-002 exists to forbid, inside the ADR-041 machinery itself.
+
+Regression-locked by `test_synced_table_lifecycle_ports.py`: an in-flight retry no longer masks the
+failure it is retrying, a concluded-successful newest update still buries older failures, unreadable
+state stays fail-safe, and the walk-back is bounded.
+
+Diagnosis note: the e2e's timeline `print` — written expressly to explain this class of failure —
+was swallowed by pytest's stdout capture, so the root cause had to be reconstructed from source.
+The workflow now runs with `-s --log-cli-level=INFO`, and the timeline records BOTH the test's
+captured pipeline id and the one `heal_synced_table` re-resolves, which discriminates the two
+candidate causes immediately if it recurs.
+
 References: ADR-002 (no silent warning-swallows), ADR-005 (synced-table grants), ADR-018 (format-contract
 tests), ADR-026 (SDK-managed synced-table lifecycle), ADR-038 (concurrent-commit retry).
