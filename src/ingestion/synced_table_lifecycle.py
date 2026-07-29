@@ -47,6 +47,30 @@ _TERMINAL_FAILURE_STATES = (
     "SYNCED_TABLE_ONLINE_PIPELINE_FAILED",
 )
 _NOT_FOUND_MARKERS = ("not found", "does not exist")
+# States in which a single pipeline UPDATE is still IN FLIGHT (databricks.sdk UpdateInfoState;
+# the terminal ones it omits are COMPLETED / FAILED / CANCELED). Deliberately an ALLOWLIST of
+# in-flight states rather than a denylist of terminal ones: latest_failed_events only looks PAST an
+# update when it positively knows that update is still running. An unrecognised or unreadable state
+# therefore behaves exactly as it did before the 2026-07-28 amendment — the update is used as-is —
+# so a future SDK enum value can never silently widen a destructive search. Getting this backwards
+# made every update look in-flight under a MagicMock and broke the P9 scoping test.
+_IN_FLIGHT_UPDATE_STATES = frozenset(
+    {
+        "CREATED",
+        "QUEUED",
+        "INITIALIZING",
+        "RESETTING",
+        "SETTING_UP_TABLES",
+        "RUNNING",
+        "STOPPING",
+        "WAITING_FOR_RESOURCES",
+    }
+)
+# How many consecutive in-flight updates latest_failed_events may look past. DLT retries a failed
+# update ~6 times with growing backoff, but each retry supersedes the last, so more than a couple of
+# simultaneously-in-flight updates is pathological. Bounded so the walk can never march back through
+# history and resurrect a stale failure, which is the exact thing P9 scoping exists to prevent.
+_MAX_INFLIGHT_UPDATES_SKIPPED = 3
 # A freshly (re)created synced table auto-starts its initial sync, so an explicit start_update races
 # with it: "An active update '<id>' already exists for pipeline '<id>'." That in-flight update IS the
 # refresh we wanted, so trigger_refresh tolerates this conflict (idempotent) and lets wait_until_online
@@ -107,20 +131,68 @@ class SdkReaderAdapter:
             raise RuntimeError(f"Synced table {fqn} has no pipeline_id in status")
         return pid
 
-    def latest_failed_events(self, pipeline_id: str) -> list[dict[str, Any]]:
-        """Error events of the LATEST pipeline update only (spec P9 scoping).
+    def _update_state(self, pipeline_id: str, update_id: str) -> str | None:
+        """Structured state of one update, or ``None`` if unreadable.
 
-        ``list_pipeline_events`` returns newest-first; the first event's ``origin.update_id`` is the
-        latest update. Scoping to it means a stale historical failure can never match the classifier.
+        Read via ``get_update`` rather than parsed out of the event stream: an
+        ``update_progress`` event carries the state ONLY in its human-readable ``message``
+        ("Update d28ad5 is COMPLETED.") -- verified against live events 2026-07-28 -- and a
+        classifier that drives a destructive heal must not hinge on message text.
+        """
+        try:
+            upd = self._ws.pipelines.get_update(pipeline_id=pipeline_id, update_id=update_id)
+        except Exception:  # noqa: BLE001 -- unreadable state must fail SAFE, see caller
+            logger.warning("pipeline %s: could not read state of update %s", pipeline_id, update_id)
+            return None
+        state = getattr(getattr(upd, "update", None), "state", None)
+        return getattr(state, "value", state) if state is not None else None
+
+    def latest_failed_events(self, pipeline_id: str) -> list[dict[str, Any]]:
+        """Error events of the latest CONCLUDED pipeline update (spec P9 scoping, amended).
+
+        ``list_pipeline_events`` returns newest-first, so the first event's ``origin.update_id``
+        is the newest update. Scoping to it stops a stale historical failure from matching.
+
+        **Amendment (2026-07-28).** Scoping to the *literally* newest update made the classifier
+        blind exactly when it mattered. DLT retries a failed update with growing backoff, and the
+        instant a retry starts it becomes the newest update -- ``RUNNING``, with no error events
+        yet -- so the checkpoint-mismatch classifier returned False while the strand was entirely
+        real. In the e2e that turned a detected strand into ``SKIPPED_PREFLIGHT`` one function
+        call later; in production the detect and heal are SEPARATE JOBS minutes apart, so the
+        window is far wider and a genuine strand could be silently skipped.
+
+        Fix: skip updates that are still IN FLIGHT and report on the newest one that actually
+        concluded. P9's intent is preserved -- the walk stops at the FIRST concluded update, so a
+        successful newest run still returns no errors and a stale older failure never matches.
+
+        Fail-safe in every direction: the skip is driven by an ALLOWLIST of known in-flight states,
+        so an unreadable OR unrecognised state behaves exactly as it did before the amendment (the
+        update is used as-is, never more destructive), and the walk is bounded so a pathological
+        event stream cannot march back through history.
         """
         events = [
             e.as_dict() for e in self._ws.pipelines.list_pipeline_events(pipeline_id=pipeline_id, max_results=250)
         ]
-        latest_uid = next(
-            (e.get("origin", {}).get("update_id") for e in events if e.get("origin", {}).get("update_id")), None
-        )
-        scoped = [e for e in events if e.get("origin", {}).get("update_id") == latest_uid] if latest_uid else events
-        return [e for e in scoped if e.get("error")]
+        ordered_uids: list[str] = []
+        for e in events:
+            uid = (e.get("origin") or {}).get("update_id")
+            if uid and uid not in ordered_uids:
+                ordered_uids.append(uid)
+        if not ordered_uids:
+            return [e for e in events if e.get("error")]
+
+        for uid in ordered_uids[: 1 + _MAX_INFLIGHT_UPDATES_SKIPPED]:
+            state = self._update_state(pipeline_id, uid)
+            if state is not None and str(state).upper() in _IN_FLIGHT_UPDATE_STATES:
+                logger.info(
+                    "pipeline %s: update %s is %s (in flight) -- looking past it for the last concluded update",
+                    pipeline_id,
+                    uid,
+                    state,
+                )
+                continue
+            return [e for e in events if (e.get("origin") or {}).get("update_id") == uid and e.get("error")]
+        return []
 
 
 class SdkWriterAdapter:

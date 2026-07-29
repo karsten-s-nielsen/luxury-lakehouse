@@ -166,4 +166,17 @@ def run_heal_pass(
                 logger.exception("heal: %s healed but mark_healed failed (recurrence tracking may be stale)", name)
         elif outcome is HealOutcome.HEAL_FAILED:
             logger.error("heal: %s -> HEAL_FAILED (needs attention)", name)
+        elif outcome is HealOutcome.SKIPPED_PREFLIGHT:
+            # ERROR, not warning (ADR-002). The detect side had already classified this table as
+            # stranded, so a preflight that disagrees means one of two things, and BOTH warrant a
+            # human: the strand cleared on its own (benign, but the detect/heal pair disagreed), or
+            # the classifier could not see the strand through an in-flight DLT retry and this heal
+            # silently no-opped on a real one. Before 2026-07-28 this branch did not exist and the
+            # only trace was a warning inside heal_synced_table -- invisible to error-log queries,
+            # so a recovery path that never recovered looked identical to one with nothing to do.
+            logger.error(
+                "heal: %s -> SKIPPED_PREFLIGHT (detect said stranded, preflight disagreed; "
+                "table NOT healed and recurrence will re-fire next detect run)",
+                name,
+            )
     return outcomes
