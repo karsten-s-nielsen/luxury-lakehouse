@@ -426,7 +426,7 @@ torch = { index = "pytorch-cu128" }
 
 [dependency-groups]
 dev = [
-    "ruff>=0.3.0",
+    "ruff>=0.16.0",
     "pyright>=1.1.350",
     "pytest>=8.0.0",
     "pytest-cov>=4.1.0",
