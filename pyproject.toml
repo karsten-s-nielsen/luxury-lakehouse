@@ -135,7 +135,7 @@ mlflow = [
     "optuna-integration[mlflow]>=4.0",
 ]
 training = ["torch>=2.0", "pyarrow>=14.0", "datasets>=3.0", "safetensors>=0.4.0"]
-evolve = ["openevolve>=0.2.0"]
+evolve = ["openevolve>=0.3.2"]
 taipy-app = [
     "taipy==4.1.1",
     "psycopg2-binary==2.9.12",
