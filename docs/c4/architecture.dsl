@@ -38,7 +38,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             hfCostRecorder = container "HFJobsCostRecorder" "Cost recorder for HF Jobs. Writes to HF Hub repos. 90-day pruning." "Python"
             guardRegistry = container "Guard Registry" "SkipGuard protocol, FilterResult, find_new_ids(), timed_check(), watermark guards (ADR-024)" "Python"
             artifactDeploy = container "Artifact Deploy" "Training-to-production contract (ADR-012). MLflow + UC Volume helpers." "Python"
-            hfPublish = container "HF Publish Helper" "README delivery (ADR-014) + per-match HF redistribution (ADR-064): access_tier classifier (shared core), split_restricted on access_tier, enumerate-all fail-closed leak guard over every publisher." "Python"
+            hfPublish = container "HF Publish Helper" "README delivery (ADR-014) + ADR-072 publish seam: prepare_public_upload guards/splits/drops; GuardedFrame gates writes; upload_guarded derives repo privacy from tier, refuses unaccounted files." "Python"
             databricksSqlFetch = container "Databricks SQL Fetch" "HTTP helper for HF Jobs trainers querying gold marts (no Spark)" "Python, requests"
             ingestionPipelines = container "Compute Pipelines" "39 @workflow Databricks ingestion/compute pipelines, 6 providers (incl. pre-shot xG, ADR-066). GS bronze dedup (ADR-030), ET-direction derivers (ADR-029), DFL via silly-kicks (ADR-055)." "Python, PySpark, silly-kicks 4.43.0"
             refreshSyncedTables = container "Synced Table Refresh" "Triggers refresh on 41 synced tables; detect-only for checkpoint-broken TRIGGERED tables — flags + dispatches the heal, never deletes (ADR-041)" "Python, databricks-sdk"
@@ -55,7 +55,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         # SK3-MIG-B Retrain Orchestrator (new)
         sk3MigBOrch = softwareSystem "Retrain Orchestrator" "Idempotent retrain cycle: pre-flight gates, input publish, HF Jobs trainers, dbt build, output publish, Lakebase refresh." {
             orchestratorScript = container "sk3_mig_b_retrain.py" "PEP 723 single-file orchestrator. Resumable, cost-capped, walltime-capped." "Python"
-            hfInputPublishers = container "Input Dataset Publishers" "3 scripts: SPADL/VAEP, xG shots, freeze frames. Publish to HF pre-training; restricted rows split to a private companion repo by per-match access_tier, fail-closed leak guard (ADR-064)." "Python"
+            hfInputPublishers = container "Input Dataset Publishers" "3 scripts: SPADL/VAEP, xG shots, freeze frames. Publish to HF pre-training through the ADR-072 seam; restricted rows to a private companion repo by per-match access_tier (ADR-064)." "Python"
             hfOutputPublishers = container "Output Dataset Publishers" "5 scripts: embeddings, OBSO grids, line-breaking, pitch control, shots-on-target." "Python"
             hfJobsTrainers = container "HF Jobs Trainers" "Cloud-GPU training: VAEP, xG v2, PSxG, Football2Vec v2/360, ScoutGPT." "Python, PyTorch"
             extV2Gates = container "ExT Smoke Gates" "Local NLL validation for Expected Threat Phase 0/1. Baseline thresholds." "pytest"

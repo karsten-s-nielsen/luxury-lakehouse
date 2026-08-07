@@ -88,21 +88,15 @@ class TestSourceSql:
 class TestSplitAndPublishFlow:
     """The ADR-049/064 split + ADR-054 flat-layout wiring specific to this publisher."""
 
-    def test_splits_on_access_tier(self) -> None:
-        assert 'column="access_tier"' in _source(), (
-            'publisher must call split_restricted(df, column="access_tier") (per-match boundary, spec §6.5).'
-        )
-
-    def test_calls_leak_guard(self) -> None:
-        assert "assert_no_private_leak(" in _source(), (
-            "publisher must call assert_no_private_leak(public_df, publisher=...) on the PUBLIC frame before upload."
-        )
-
-    def test_drops_access_tier_before_upload(self) -> None:
-        content = _source()
-        assert 'drop(columns=["access_tier"]' in content, (
-            "publisher must drop access_tier from BOTH frames after split+guard, before upload (spec R2)."
-        )
+    # RETIRED (ADR-072): test_splits_on_access_tier, test_calls_leak_guard and
+    # test_drops_access_tier_before_upload asserted the literals 'column="access_tier"',
+    # "assert_no_private_leak(" and 'drop(columns=["access_tier"]' in this publisher's source. All
+    # three moved INSIDE prepare_public_upload, so all three became false on migration. They were
+    # substring checks — they pass on a mention in a comment, on a call against the RESTRICTED
+    # frame, and on a call placed AFTER the upload. Replaced by the AST gates in
+    # src/tests/test_publisher_seam_conformance.py, which are derived from PUBLISHER_REGISTRY.
+    # The two tests below survive: delete_patterns is still passed by the publisher (to
+    # upload_guarded), and the ADR-014 card push is outside the seam.
 
     def test_delete_patterns_sweep_whole_path_in_repo(self) -> None:
         assert 'delete_patterns=["**"]' in _source(), (

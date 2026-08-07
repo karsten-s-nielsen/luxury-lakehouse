@@ -318,14 +318,15 @@ class TestRestrictedPublishLockstep:
 
     _TRAINER: ClassVar[Path] = _REPO_SCRIPTS_DIR / "train_vaep_model_hf.py"
 
-    @pytest.mark.parametrize("publisher", sorted(_ADR049_SPLIT_PUBLISHER_CARDS))
-    def test_publisher_imports_shared_split_helpers(self, publisher: str) -> None:
-        names = _imported_names_from_hf_publish(_REPO_SCRIPTS_DIR / publisher)
-        missing = {"RESTRICTED_HF_PROVIDERS", "restricted_repo_id", "split_restricted"} - names
-        assert not missing, (
-            f"{publisher} must import {sorted(missing)} from ingestion.hf_publish "
-            "(ADR-049 single source of truth — no local restriction filters)."
-        )
+    # RETIRED (ADR-072): test_publisher_imports_shared_split_helpers required every split publisher
+    # to import {RESTRICTED_HF_PROVIDERS, restricted_repo_id, split_restricted} from hf_publish.
+    # After the seam migration, split_restricted is an implementation detail INSIDE
+    # prepare_public_upload — asserting that callers import a helper the seam invokes for them tests
+    # the old topology, not the invariant. The invariant ("the split criterion lives in one place")
+    # is now stronger: publishers cannot express a different criterion at all.
+    # The restricted_repo_id half of the check is deliberately traded for upload_guarded's tier
+    # assertion, which fires at publish time on the real repo id rather than on source text, plus
+    # test_hf_upload_seam.test_restricted_repo_suffix_matches_the_shared_helper.
 
     def test_trainer_imports_shared_restriction_constants(self) -> None:
         names = _imported_names_from_hf_publish(self._TRAINER)
@@ -344,19 +345,12 @@ class TestRestrictedPublishLockstep:
             f"{publisher} filters providers in SQL — move the gate to split_restricted (ADR-049)."
         )
 
-    @pytest.mark.parametrize("publisher", sorted(_ADR049_SPLIT_PUBLISHER_CARDS))
-    def test_publisher_splits_on_access_tier_and_calls_leak_guard(self, publisher: str) -> None:
-        # Per-match boundary (spec 2026-06-29 §6.5): the split keys on access_tier (NOT provider),
-        # and the PUBLIC frame is enforced by the fail-closed leak guard before upload.
-        source = (_REPO_SCRIPTS_DIR / publisher).read_text(encoding="utf-8")
-        assert 'column="access_tier"' in source, (
-            f'{publisher} must call split_restricted(df, column="access_tier") — a provider-level '
-            f"split cannot express the per-match SkillCorner boundary and would leak restricted rows."
-        )
-        assert "assert_no_private_leak" in source, (
-            f"{publisher} must call assert_no_private_leak(public_df, publisher=...) on the PUBLIC "
-            f"frame before upload (fail-closed leak guard, spec C3/§9.7)."
-        )
+    # RETIRED (ADR-072): test_publisher_splits_on_access_tier_and_calls_leak_guard asserted the
+    # literals 'column="access_tier"' and "assert_no_private_leak" appeared in each publisher's
+    # source. A substring check passes on a mention in a comment, on a call against the RESTRICTED
+    # frame, and on a call placed AFTER the upload — it cannot fail for the right reason. Replaced
+    # by the AST gates in src/tests/test_publisher_seam_conformance.py, which are derived from
+    # PUBLISHER_REGISTRY so a new publisher is covered the day it is added.
 
     @pytest.mark.parametrize("publisher", sorted(_ADR049_SPLIT_PUBLISHER_CARDS))
     def test_publisher_delete_patterns_sweep_whole_path_in_repo(self, publisher: str) -> None:

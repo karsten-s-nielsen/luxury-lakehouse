@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.85-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.86-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -39,6 +39,7 @@ import pandas as pd
 import requests
 
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
+from ingestion.hf_upload_seam import GuardedFrame, prepare_public_upload, upload_guarded
 
 logging.basicConfig(
     level=logging.INFO,
@@ -64,10 +65,18 @@ SELECT
     e.y,
     sync.frame_id,
     sync.alignment_confidence,
-    sync.alignment_error_seconds
+    sync.alignment_error_seconds,
+    dm.access_tier
 FROM soccer_analytics.bronze.idsse_events e
 INNER JOIN soccer_analytics.bronze.elastic_sync_results sync
     ON e.match_id = sync.match_id AND e.event_id = sync.event_id
+-- ADR-072 / R-13: prepare_public_upload refuses a frame with no access_tier column, so "no
+-- restricted rows" and "no tier column" are not interchangeable. idsse_events carries the NATIVE
+-- string match id, so the join is on (provider, native_match_id) — NOT match_key, which this
+-- bronze source does not have. IDSSE is public-by-licence, so this publisher stays fail_closed;
+-- the join lets it PROVE that rather than assume it.
+LEFT JOIN soccer_analytics.dev_gold.dim_matches dm
+    ON dm.provider = 'idsse' AND dm.native_match_id = e.match_id
 """
 
 _POLL_INTERVAL_S = 2.0
@@ -139,33 +148,26 @@ def query_databricks_sql(host: str, token: str, sql: str, warehouse_id: str) -> 
     return combined.to_pandas()
 
 
-def publish_to_hf_hub(df: pd.DataFrame, hf_token: str) -> str:
-    from huggingface_hub import HfApi
-
-    api = HfApi(token=hf_token)
-    api.create_repo(DATASET_REPO, exist_ok=True, repo_type="dataset", token=hf_token)
-
+def publish_to_hf_hub(guarded: GuardedFrame, hf_token: str) -> str:
+    """Write match-partitioned Parquet and upload. Repo creation is handled by upload_guarded."""
     with tempfile.TemporaryDirectory() as tmpdir:
         staging_dir = Path(tmpdir) / "data"
         staging_dir.mkdir(parents=True, exist_ok=True)
         # Partition by match_id for efficient downstream loading by match.
-        for match_id, sub_df in df.groupby("match_id"):
-            partition_dir = staging_dir / f"match_id={match_id}"
-            partition_dir.mkdir(parents=True, exist_ok=True)
-            sub_df.drop(columns=["match_id"]).to_parquet(
-                partition_dir / "data.parquet",
-                index=False,
-                engine="pyarrow",
-            )
-        api.upload_folder(
-            folder_path=str(staging_dir),
-            path_in_repo="data",
+        for match_id, sub in guarded.groupby("match_id"):
+            sub.drop_columns(["match_id"]).write_parquet(staging_dir / f"match_id={match_id}" / "data.parquet")
+        # delete_patterns are matched RELATIVE to path_in_repo ("data"), so the only correct
+        # whole-path sweep is ["**"] — this call previously passed ["data/*"], which matches
+        # NOTHING and had silently no-opped since it was written (the ADR-049 stale-part-file
+        # class; CLAUDE.md mandates ["**"]). Re-uploaded files are pruned from the delete set by
+        # upload_folder itself, so the sweep removes stale siblings and keeps what we just wrote.
+        url = upload_guarded(
+            staging_dir,
+            frames=[guarded],
             repo_id=DATASET_REPO,
-            repo_type="dataset",
             token=hf_token,
-            delete_patterns=["data/*"],
+            delete_patterns=["**"],
         )
-    url = f"https://huggingface.co/datasets/{DATASET_REPO}"
     logger.info("Published %s", url)
     return url
 
@@ -188,7 +190,18 @@ def main() -> None:
         raise RuntimeError("Query returned 0 rows — verify idsse_events + elastic_sync_results are populated")
     logger.info("Retrieved %s rows across %s matches", f"{len(df):,}", df["match_id"].nunique())
 
-    url = publish_to_hf_hub(df, hf_token)
+    # R-13: LEFT JOIN on dim_matches, so an unmatched match yields NULL. split_restricted
+    # fail-safes NULL to restricted, which for this fail_closed publisher would silently WITHHOLD
+    # public open data. Fail loud instead.
+    unmatched = int(df["access_tier"].isna().sum())
+    if unmatched:
+        raise RuntimeError(
+            f"publish_obso_pausa_inputs_hf: {unmatched} rows have NULL access_tier "
+            f"(idsse match_id missing from dim_matches) — refusing to publish and silently withhold public data"
+        )
+
+    prepared = prepare_public_upload(df, publisher="publish_obso_pausa_inputs_hf")
+    url = publish_to_hf_hub(prepared.public, hf_token)
     upload_hf_readme(
         repo_id=DATASET_REPO,
         readme_path=get_hf_card_path("obso-pausa-inputs.md", kind="dataset"),

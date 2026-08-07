@@ -1,7 +1,7 @@
 # Databricks Lakebase Architecture — Soccer Analytics Platform
 
 > **Status**: SEC1 cycle (EU AI Act gap analysis) — 17 Taipy pages, 42 synced tables, 75 PG indexes (69 btree + 6 HNSW at 192d/208d/13d). Hugging Face Hub: 16 models + 20 datasets published, GPU training on HF Jobs L40S. Regulation (EU) 2024/1689 gap analysis in [`AI_GOVERNANCE.md`](AI_GOVERNANCE.md) covering 13 per-player evaluative ML systems; every model card carries an "EU AI Act — Intended Use and Non-Use" stanza, enforced by `src/tests/test_ai_governance_md.py`. Daily Job Hardening (D59/D56/SEC2): self-healing daily job with dbt_build python_wheel_task + SHA-256 artifact integrity verification on model loads. PSxG model (Brier 0.129). ScoutGPT decoder + training pipeline (D32). Guard-as-wrapper: 36 skip guards with mandatory `FilterResult` injection. `fct_workflow_costs` enriched with warm-tier lifecycle data (D51). HF-app SP codified in Terraform with UC grants (TF-SP). M2 OAuth infrastructure complete. Mart classification taxonomy (PR-Cycle-C, ADR-019): every gold mart tagged `dimension`/`input_mart`/`intermediate_mart`/`output_mart` and the daily-job DAG enforces the three-stage `dbt_build` topology (PR-α metadata 2026-05-01; PR-β TF restructure + ADR-020 CAN_RUN auto-heal 2026-05-02). `run_model_validation` is now a sibling of `refresh_synced_tables` under `dbt_build_output_marts`, supplanting ADR-017's pre-three-stage yesterday-gold workaround. 6-source SPADL pipeline: StatsBomb, Wyscout, IDSSE, Metrica, SkillCorner, Gradient Sports (64 WC2022 matches).
-> **Last Updated**: 2026-05-21
+> **Last Updated**: 2026-08-07
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready
 
@@ -758,7 +758,7 @@ luxury-lakehouse/
 | Admin API auth | `POST /api/cache/clear` on the Taipy app validates an HF user access token against `whoami-v2` and requires `luxury-lakehouse` org membership with `admin`/`write` role. No shared secret stored — each call validates independently against HF, so revocation is immediate. See `hf_taipy_app/src/admin_api.py`. |
 | Network | TLS everywhere; HTTPS-only for all data fetches |
 | IAM | Least-privilege; separate service principals per workload. Terraform CI SP runs with three co-floor privileges — documented: workspace-admins-group membership per [ADR-007](docs/superpowers/adrs/ADR-007-workspace-admin-floor.md) (TF-planner cascade makes reduction destructive), `account_admin` per [ADR-006](docs/superpowers/adrs/ADR-006-account-admin-floor.md) (no narrower account-scope named role in provider v1.112/v1.113), and Unity-Catalog `ALL_PRIVILEGES` + group ownership. SEC4 (SEC-AUDIT-v1.12.0 INF-01 partially closed 2026-04-17) added explicit ACLs for the Lakebase project + 37 synced-table pipelines, reducing the transitive-admin surface. |
-| Data classification | Open-source data only (no PII); Unity Catalog ACLs applied |
+| Data classification | No PII. **Not all data is open-source**: per-match `access_tier` (`public`/`restricted`) governs HF redistribution ([ADR-064](docs/superpowers/adrs/ADR-064-per-match-access-tier.md)) — e.g. the private SkillCorner Real Madrid matches. Unity Catalog ACLs applied; restricted rows split to permanently-private `-restricted` companion repos ([ADR-049](docs/superpowers/adrs/ADR-049-restricted-hf-dataset-companion-repos.md)). |
 | Audit | Unity Catalog audit logs; Terraform state versioning |
 | Input validation | Regex on all user-supplied identifiers (`^[a-zA-Z_][a-zA-Z0-9_]*$`) |
 | SSL verification | Explicit `verify=True` on all HTTP requests |
@@ -766,6 +766,7 @@ luxury-lakehouse/
 | Retry safety | Exponential backoff on transient errors (429/5xx); max 3 retries |
 | Bandit compliance | Ruff S rules enforced on `src/` and `scripts/`; no eval/exec/pickle/shell=True. Scoped exception: `exec()` permitted in `src/evolve/targets/*/evaluator.py` and `src/evolve/remote_worker.py` only, under [ADR-001](docs/superpowers/adrs/ADR-001-evolve-code-execution.md) defense-in-depth (AST allowlist + restricted globals + subprocess isolation) |
 | SAST | Semgrep in CI (`p/python` + `p/security-audit` rulesets) |
+| HF redistribution boundary | Every public-HF publish goes through one seam ([ADR-072](docs/superpowers/adrs/ADR-072-publish-seam-guarded-frame.md)): `prepare_public_upload` guards/splits/drops `access_tier`; the returned `GuardedFrame` is the only object able to write a Parquet; `upload_guarded` refuses any staged file no receipt accounts for and derives repo privacy from the frame tier. Direct `HfApi` use is AST-banned in `publish_*_hf.py`. |
 | Content validation | Schema checks and non-empty assertions before every Delta write |
 | Model serialization | MLflow cloudpickle bounded by UC ACLs; executors receive JSON only (see [SECURITY.md](SECURITY.md)) |
 | Full audit | See [SECURITY.md](SECURITY.md) — 31 findings, 28 resolved, 3 accepted |

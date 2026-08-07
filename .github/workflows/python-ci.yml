@@ -192,7 +192,7 @@ jobs:
           --ignore-vuln PYSEC-2026-113 --ignore-vuln PYSEC-2025-183
           --ignore-vuln PYSEC-2026-161
           --ignore-vuln CVE-2025-58367 --ignore-vuln CVE-2026-33155
-          --ignore-vuln PYSEC-2026-3447
+          --ignore-vuln PYSEC-2026-3447 --ignore-vuln PYSEC-2026-3552
 
       - name: Generate SBOM (CycloneDX)
         run: >-
@@ -204,7 +204,7 @@ jobs:
           --ignore-vuln PYSEC-2026-113 --ignore-vuln PYSEC-2025-183
           --ignore-vuln PYSEC-2026-161
           --ignore-vuln CVE-2025-58367 --ignore-vuln CVE-2026-33155
-          --ignore-vuln PYSEC-2026-3447
+          --ignore-vuln PYSEC-2026-3447 --ignore-vuln PYSEC-2026-3552
           -o sbom.json
 
       - name: Upload SBOM artifact

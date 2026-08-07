@@ -128,3 +128,18 @@ Two changes close it, mirroring the 2026-07-02 pair:
    `access_tier='public'` (never NULL/restricted), so a stale-NULL gold fact fails the build **before** any publish can
    mis-route. Shares the `public_by_license_providers` var + compile-time drift guard. `access_tier` is now bounded from
    both sides on **both** the bronze sources AND the published gold fact.
+
+## Amendment 2026-08-06 — the guard is reached through a seam (ADR-072)
+
+The Decision above says every public-HF publisher "is wrapped by ... `assert_no_private_leak`". That
+was enforced by substring searches over publisher source in four hand-maintained lists, and two
+publishers registered `fail_closed` (`publish_shots_on_target_hf`, `publish_obso_pausa_inputs_hf`)
+turned out to call the guard **nowhere** — the invocation assertion was parametrized over the six
+*split* publishers only.
+
+Since [ADR-072](ADR-072-publish-seam-guarded-frame.md) the guard is reached through
+`ingestion.hf_upload_seam.prepare_public_upload`, which also performs the split and the `access_tier`
+drop, and returns `GuardedFrame`s that are the only objects able to write a Parquet. Enforcement is
+now AST-based and derived from `PUBLISHER_REGISTRY`, so a new publisher is covered the day it is
+added. The classification core (`classify_access_tier`, the allowlist, the per-row stamp) is
+unchanged.

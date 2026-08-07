@@ -95,22 +95,20 @@ def test_publisher_mode_sets_are_disjoint() -> None:
 
 @pytest.mark.parametrize("publisher", _ADR049_SPLIT_PUBLISHERS)
 def test_split_publisher_uses_access_tier_split_and_leak_guard(publisher: str) -> None:
-    """Each split publisher: imports split_restricted, splits on access_tier, calls the leak
-    guard, and carries NO SQL provider filter (spec §6.5/D1/C3)."""
+    """Each split publisher carries NO SQL provider filter (spec §6.5/D1/C3).
+
+    RETIRED (ADR-072): the import / `column="access_tier"` / `assert_no_private_leak` substring
+    assertions that used to live here. All three became false when the publisher migrated onto the
+    seam, where `split_restricted` and the leak guard run INSIDE `prepare_public_upload`. The
+    invariant is now enforced structurally by src/tests/test_publisher_seam_conformance.py.
+
+    What survives is a DIFFERENT invariant the seam does not subsume: the redistribution decision
+    must never be a SQL-side provider filter. The seam guarantees the public frame is all-public;
+    it does not guarantee the SQL pulled every provider.
+    """
     path = _SCRIPTS_DIR / publisher
     assert path.exists(), f"Expected publisher script {path} to exist"
     source = path.read_text(encoding="utf-8")
-    assert _imports_split_restricted(source), (
-        f"{publisher} must import split_restricted from ingestion.hf_publish — the restricted gate is missing."
-    )
-    assert 'column="access_tier"' in source, (
-        f'{publisher} must split on access_tier — `split_restricted(df, column="access_tier")` '
-        f"(per-match redistribution boundary, spec §6.5). A provider-level split leaks restricted SkillCorner."
-    )
-    assert "assert_no_private_leak" in source, (
-        f"{publisher} must call assert_no_private_leak(public_df, publisher=...) on the PUBLIC frame "
-        f"before upload (fail-closed leak guard, spec C3/§9.7)."
-    )
     assert not _EXCLUSION_RE.search(source), (
         f"{publisher} uses a SQL-side `data_source != '<provider>'` filter — the redistribution gate "
         f"must be the access_tier split, never SQL (a SQL filter silently shrinks the restricted repo)."
@@ -142,10 +140,18 @@ def test_no_publisher_restricts_by_data_source(path: Path) -> None:
     )
 
 
-def test_src_ingestion_spadl_vaep_twin_splits_on_access_tier() -> None:
+def test_src_ingestion_spadl_vaep_twin_carries_no_sql_provider_filter() -> None:
     """C5/B2: the wired src/ingestion/ spadl_vaep twin reads a SkillCorner-carrying mart and must
-    NOT survive as a no-split path — it splits on access_tier and calls the leak guard."""
+    NOT survive as a no-split path.
+
+    RETIRED (ADR-072): the three substring assertions that used to live here — the twin now routes
+    through the publish seam, so `split_restricted` / `assert_no_private_leak` no longer appear in
+    its source. That it routes through the seam AT ALL is enforced by
+    src/tests/test_publisher_seam_conformance.py, which covers `src/ingestion/` twins explicitly.
+    The SQL-filter invariant below is the part the seam does not subsume.
+    """
     source = (_SRC_INGESTION_DIR / "publish_spadl_vaep_hf.py").read_text(encoding="utf-8")
-    assert _imports_split_restricted(source), "src/ingestion/publish_spadl_vaep_hf.py must import split_restricted"
-    assert 'column="access_tier"' in source, "src/ingestion/publish_spadl_vaep_hf.py must split on access_tier"
-    assert "assert_no_private_leak" in source, "src/ingestion/publish_spadl_vaep_hf.py must call the leak guard"
+    assert not _EXCLUSION_RE.search(source), (
+        "src/ingestion/publish_spadl_vaep_hf.py restricts redistribution via a SQL data_source "
+        "filter — the gate must be the per-match access_tier split (spec §6.5/D6)."
+    )

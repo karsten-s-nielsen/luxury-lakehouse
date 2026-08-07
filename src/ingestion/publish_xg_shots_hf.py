@@ -15,8 +15,8 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ingestion.hf_leak_guard import assert_no_private_leak
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
+from ingestion.hf_upload_seam import GuardedFrame, prepare_public_upload, upload_guarded
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
 from workflows import workflow
 
@@ -67,6 +67,33 @@ LEFT JOIN {catalog}.{schema}.dim_matches dm
 """
 
 
+def publish_to_hf_hub(guarded: GuardedFrame, hf_token: str) -> str:
+    """Write data_source-partitioned Parquet and upload, sweeping stale siblings.
+
+    ``delete_patterns`` are matched RELATIVE to ``path_in_repo`` ("data"), so the only correct
+    whole-path sweep is ``["**"]`` — this call previously passed ``["data/*"]``, which matches
+    NOTHING and had silently no-opped since it was written (the ADR-049 stale-part-file class;
+    CLAUDE.md mandates ``["**"]``). Re-uploaded files are pruned from the delete set by
+    ``upload_folder`` itself, so the sweep removes stale siblings and keeps what we just wrote.
+
+    Extracted from ``run_pipeline`` (ADR-072) so the staged tree and upload contract are testable
+    without Spark or credentials, and so this twin has the same shape as
+    ``scripts/publish_xg_shots_hf.py``.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        staging_dir = Path(tmpdir) / "data"
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        for source, sub in guarded.groupby("data_source"):
+            sub.drop_columns(["data_source"]).write_parquet(staging_dir / f"data_source={source}" / "data.parquet")
+        return upload_guarded(
+            staging_dir,
+            frames=[guarded],
+            repo_id=DATASET_REPO,
+            token=hf_token,
+            delete_patterns=["**"],
+        )
+
+
 @workflow("wf-publish-xg-shots", phase="export")
 def run_pipeline(
     spark: SparkSession,
@@ -78,7 +105,7 @@ def run_pipeline(
 ) -> int:
     """Query shot data from gold layer and publish to HF Hub."""
     _ = ctx
-    from huggingface_hub import HfApi, get_token
+    from huggingface_hub import get_token
 
     hf_token = os.environ.get("HF_TOKEN", "") or (get_token() or "")
     if not hf_token:
@@ -95,32 +122,8 @@ def run_pipeline(
 
     # Fail-closed leak guard (spec §6.7/D11): halts the publish if a restricted row ever appears.
     # Drop the internal access_tier column AFTER the guard, before upload (R2).
-    assert_no_private_leak(df, publisher="publish_xg_shots_hf")
-    df = df.drop(columns=["access_tier"], errors="ignore")
-
-    api = HfApi(token=hf_token)
-    api.create_repo(DATASET_REPO, exist_ok=True, repo_type="dataset", token=hf_token)
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        staging_dir = Path(tmpdir) / "data"
-        staging_dir.mkdir(parents=True, exist_ok=True)
-
-        for source, source_df in df.groupby("data_source"):
-            partition_dir = staging_dir / f"data_source={source}"
-            partition_dir.mkdir(parents=True, exist_ok=True)
-            partition_df = source_df.drop(columns=["data_source"])
-            out_path = partition_dir / "data.parquet"
-            partition_df.to_parquet(out_path, index=False, engine="pyarrow")
-            pipeline_logger.info("Wrote partition data_source=%s: %d rows", source, len(partition_df))
-
-        api.upload_folder(
-            folder_path=str(staging_dir),
-            path_in_repo="data",
-            repo_id=DATASET_REPO,
-            repo_type="dataset",
-            token=hf_token,
-            delete_patterns=["data/*"],
-        )
+    prepared = prepare_public_upload(df, publisher="publish_xg_shots_hf")
+    publish_to_hf_hub(prepared.public, hf_token)
 
     readme_result = upload_hf_readme(
         repo_id=DATASET_REPO,

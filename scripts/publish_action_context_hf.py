@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.85-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.86-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -27,14 +27,13 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-from ingestion.hf_leak_guard import assert_no_private_leak
 from ingestion.hf_publish import (
     RESTRICTED_HF_PROVIDERS,
     get_hf_card_path,
     restricted_repo_id,
-    split_restricted,
     upload_hf_readme,
 )
+from ingestion.hf_upload_seam import GuardedFrame, prepare_public_upload, upload_guarded
 
 logging.basicConfig(
     level=logging.INFO,
@@ -111,31 +110,28 @@ def query_databricks_sql(host: str, token: str, sql: str, warehouse_id: str) -> 
     return pa.concat_tables(arrow_tables).to_pandas()
 
 
-def publish_to_hf_hub(df: pd.DataFrame, hf_token: str, *, repo_id: str = DATASET_REPO, private: bool = False) -> str:
+def publish_to_hf_hub(guarded: GuardedFrame, hf_token: str, *, repo_id: str = DATASET_REPO) -> str:
     """Write partitioned Parquet and upload to a HF dataset repo.
 
     Args:
-        df: Action context DataFrame to publish (may be empty — see below).
+        guarded: Action context frame that passed the ADR-072 seam guard (may be
+            empty — see below).
         hf_token: HuggingFace API token.
         repo_id: Target dataset repo (default: the public DATASET_REPO; the
             restricted companion passes RESTRICTED_DATASET_REPO).
-        private: Create the repo private (org-members only) if it does not
-            exist yet. Does NOT flip an existing repo's visibility.
-    """
-    from huggingface_hub import HfApi
 
-    api = HfApi(token=hf_token)
-    api.create_repo(repo_id, exist_ok=True, repo_type="dataset", token=hf_token, private=private)
-    logger.info("Ensured dataset repo exists: %s (private=%s)", repo_id, private)
+    Repo privacy is DERIVED from ``guarded.tier`` inside ``upload_guarded`` — no ``private``
+    flag to forget, and a restricted frame targeting a non-``-restricted`` repo is refused.
+    """
     with tempfile.TemporaryDirectory() as tmpdir:
         staging_dir = Path(tmpdir) / "data"
         staging_dir.mkdir(parents=True, exist_ok=True)
-        if df.empty:
+        if guarded.frame.empty:
             # Sweep-only publish (ADR-049): zero partitions uploaded; the recursive
             # delete_patterns below removes any previously-restricted partitions —
             # the migration-to-public mechanic.
             logger.info("0 partitions for %s — sweep-only publish (delete_patterns clears stale data/)", repo_id)
-        for source, sub_df in df.groupby("data_source"):
+        for source, sub in guarded.groupby("data_source"):
             # Flat per-provider files (data/<provider>.parquet) and KEEP the data_source
             # column. This lets the dataset card declare one HF config per provider so
             # consumers can pull a single provider (e.g. load_dataset(repo, "skillcorner"))
@@ -143,25 +139,19 @@ def publish_to_hf_hub(df: pd.DataFrame, hf_token: str, *, repo_id: str = DATASET
             # explicit column so EVERY config (incl. the default "all") carries it — we do
             # NOT rely on Hive `data_source=<x>/` path-key recovery, which HF does not apply
             # to explicitly-listed `data_files`. See the card's `configs:` block.
-            sub_df.to_parquet(
-                staging_dir / f"{source}.parquet",
-                index=False,
-                engine="pyarrow",
-            )
+            sub.write_parquet(staging_dir / f"{source}.parquet")
         # delete_patterns match paths RELATIVE to path_in_repo ("data/"), so the
         # pattern must be "**" — a "data/"-prefixed pattern matches nothing and
         # silently no-ops (ADR-049; the no-op left stale Spark part-files in
         # spadl-vaep partitions for months). Re-uploaded files are pruned from
         # the delete set by upload_folder itself.
-        api.upload_folder(
-            folder_path=str(staging_dir),
-            path_in_repo="data",
+        return upload_guarded(
+            staging_dir,
+            frames=[guarded],
             repo_id=repo_id,
-            repo_type="dataset",
             token=hf_token,
             delete_patterns=["**"],
         )
-    return f"https://huggingface.co/datasets/{repo_id}"
 
 
 def main() -> None:
@@ -184,10 +174,12 @@ def main() -> None:
 
     # Per-match split keyed on access_tier (spec §6.5): restricted AND NULL/unknown rows →
     # PRIVATE companion repo (fail-safe; split_restricted never leaks an unclassified row).
-    public_df, restricted_df = split_restricted(df, column="access_tier")
+    prepared = prepare_public_upload(df, publisher="publish_action_context_hf")
+    if prepared.restricted is None:
+        raise RuntimeError("publish_action_context_hf is registered 'split' — expected a restricted frame")
+    public_df, restricted_df = prepared.public.frame, prepared.restricted.frame
 
     # Fail-closed leak guard on the PUBLIC frame BEFORE upload — needs access_tier present.
-    assert_no_private_leak(public_df, publisher="publish_action_context_hf")
 
     # Per-tier observability (spec C7): row counts per repo at INFO.
     pub_by = public_df["data_source"].value_counts().to_dict()
@@ -203,11 +195,9 @@ def main() -> None:
     # R2: drop the internal access_tier column from BOTH frames AFTER split + guard, before
     # upload — constant per repo; keeping it is a Hyrum additive-schema change to the public
     # dataset. Order: split -> guard -> drop -> upload.
-    public_df = public_df.drop(columns=["access_tier"], errors="ignore")
-    restricted_df = restricted_df.drop(columns=["access_tier"], errors="ignore")
 
     logger.info("Publishing PUBLIC action context to HF Hub: %s", DATASET_REPO)
-    url = publish_to_hf_hub(public_df, hf_token)
+    url = publish_to_hf_hub(prepared.public, hf_token)
 
     # Fail-loud ONLY when the restricted set expects data the mart doesn't have
     # (the silent-corpus-shrink class). An EMPTY restricted set is healthy: the
@@ -223,7 +213,7 @@ def main() -> None:
         f"{len(restricted_df):,}",
         RESTRICTED_DATASET_REPO,
     )
-    publish_to_hf_hub(restricted_df, hf_token, repo_id=RESTRICTED_DATASET_REPO, private=True)
+    publish_to_hf_hub(prepared.restricted, hf_token, repo_id=RESTRICTED_DATASET_REPO)
 
     # Inject a data-driven per-provider `configs:` block into each card so the viewer shows a
     # per-provider subset selector and consumers can pull one provider —
