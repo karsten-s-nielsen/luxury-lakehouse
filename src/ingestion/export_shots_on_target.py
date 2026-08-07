@@ -196,6 +196,20 @@ def run_pipeline(
     parquet_path = f"{volume_path}/{_PARQUET_FILENAME}"
     logger.info("Writing %d rows to %s", row_count, parquet_path)
 
+    # R2 / ADR-072: access_tier is an INTERNAL column. It is selected (R-12) so this Spark path
+    # can prove the population is public, then dropped before the write -- publishing it would be
+    # an additive schema change to a public dataset (Hyrum) and leaks the redistribution decision.
+    # This module writes via Spark -> UC Volume, so it cannot use the pandas publish seam; the
+    # guard below is the Spark-path equivalent and is asserted by
+    # test_publisher_upload_contract.test_spark_path_publisher_drops_access_tier.
+    non_public = shots_df.filter("access_tier IS NULL OR access_tier <> 'public'").count()
+    if non_public:
+        raise RuntimeError(
+            f"export_shots_on_target: {non_public} row(s) with access_tier != 'public' in "
+            f"{source_table} -- refusing to publish to the PUBLIC dataset {DATASET_REPO}"
+        )
+    shots_df = shots_df.drop("access_tier")
+
     start = time.time()
     shots_df.coalesce(1).write.mode("overwrite").parquet(parquet_path)
     elapsed = time.time() - start
