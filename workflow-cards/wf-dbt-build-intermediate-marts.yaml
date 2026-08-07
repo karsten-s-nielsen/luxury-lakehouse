@@ -24,13 +24,13 @@ references: []
 inputs:
   datasets:
     # Stage 1 gold outputs consumed by fct_action_values
-    - id: "{catalog}.{schema}.dim_matches"
+    - id: "{catalog}.dev_gold.dim_matches"
       source: delta-table
       description: "Match dimension (fct_action_values.sql:67)"
-    - id: "{catalog}.{schema}.dim_players"
+    - id: "{catalog}.dev_gold.dim_players"
       source: delta-table
       description: "Player dimension (fct_action_values.sql:219)"
-    - id: "{catalog}.{schema}.dim_teams"
+    - id: "{catalog}.dev_gold.dim_teams"
       source: delta-table
       description: "Team dimension (fct_action_values.sql:214,226)"
     # Compute bronze tables consumed by intermediate staging models

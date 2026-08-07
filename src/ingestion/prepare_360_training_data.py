@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING
 from ingestion.guards import FilterResult, timed_check
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 from ingestion.utils import resolve_hf_token
-from shared.constants import IDENTIFIER_RE
+from shared.constants import DEFAULT_GOLD_SCHEMA, DEFAULT_SILVER_SCHEMA, IDENTIFIER_RE
 from workflows import workflow
 from workflows.exceptions import WorkflowSkippedError
 
@@ -99,7 +99,7 @@ _ACTION_TYPE_IDS: dict[str, int] = {
 _DEFAULT_VOLUME_PATH = "/Volumes/soccer_analytics/dev_gold/training_data/football2vec_360"
 
 # Silver schema where stg_statsbomb__360 lives
-_SILVER_SCHEMA = "dev_silver"
+_SILVER_SCHEMA = DEFAULT_SILVER_SCHEMA
 
 
 class _Prepare360Guard:
@@ -113,10 +113,17 @@ class _Prepare360Guard:
 
         volume_path = _DEFAULT_VOLUME_PATH
 
+        # fct_action_values is a GOLD mart; hf_sync passes --schema bronze. Under the
+        # caller-passed schema this read raised TABLE_OR_VIEW_NOT_FOUND, which
+        # tolerate_missing_table absorbed at INFO and turned into "nothing to do" —
+        # so this export silently did nothing on every run (2026-08-07). ADR-073.
+        _ = schema  # reads from DEFAULT_GOLD_SCHEMA, not the pipeline schema
         upstream_count: int | None = None
-        with tolerate_missing_table(_guard_logger, f"Upstream fct_action_values missing in {catalog}.{schema}"):
+        with tolerate_missing_table(
+            _guard_logger, f"Upstream fct_action_values missing in {catalog}.{DEFAULT_GOLD_SCHEMA}"
+        ):
             upstream_count = (
-                spark.table(f"{catalog}.{schema}.fct_action_values")
+                spark.table(f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_action_values")
                 .filter("data_source = 'statsbomb'")
                 .select("player_id", "match_id")
                 .distinct()
@@ -167,7 +174,7 @@ def _validate_identifier(field_name: str, value: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _build_query(catalog: str, schema: str) -> str:
+def _build_query(catalog: str, gold: str) -> str:
     """Build the SQL query joining SPADL actions with 360 freeze frames.
 
     Uses explicit catalog-level reference for the silver schema
@@ -176,12 +183,14 @@ def _build_query(catalog: str, schema: str) -> str:
 
     Args:
         catalog: Unity Catalog name (already validated).
-        schema: Gold schema name (already validated).
+        gold: Gold-layer schema name (DEFAULT_GOLD_SCHEMA -- a trusted constant).
 
     Returns:
         SQL string.
     """
-    # catalog and schema are validated by _validate_identifier before this call
+    # catalog is validated by _validate_identifier before this call; `gold` is the
+    # module-level DEFAULT_GOLD_SCHEMA constant (ADR-073) -- a trusted literal, never
+    # user input, which is a stronger guarantee than runtime validation.
     return f"""\
 SELECT
     CAST(dp.canonical_player_id AS STRING)    AS canonical_player_id,
@@ -200,10 +209,10 @@ SELECT
     CAST(ff.location_y / {_SB_PITCH_WIDTH}    AS FLOAT) AS ff_y_norm,
     CAST(ff.is_keeper                          AS BOOLEAN) AS ff_is_keeper,
     CAST(ff.is_teammate                        AS BOOLEAN) AS ff_is_teammate
-FROM {catalog}.{schema}.fct_action_values av
+FROM {catalog}.{gold}.fct_action_values av
 INNER JOIN {catalog}.{_SILVER_SCHEMA}.stg_statsbomb__360 ff
     ON av.original_event_id = ff.event_uuid
-INNER JOIN {catalog}.{schema}.dim_players dp
+INNER JOIN {catalog}.{gold}.dim_players dp
     ON av.player_id = dp.player_id
 WHERE av.data_source = 'statsbomb'
   AND av.player_id IS NOT NULL
@@ -257,8 +266,10 @@ def _build_training_dataset(
         StructType,
     )
 
-    sql = _build_query(catalog, schema)
-    logger.info("Querying fct_action_values + stg_statsbomb__360 join from %s.%s", catalog, schema)
+    # _build_query's `schema` contract is "gold schema" — hf_sync passes bronze (ADR-073).
+    _ = schema  # reads from DEFAULT_GOLD_SCHEMA, not the pipeline schema
+    sql = _build_query(catalog, DEFAULT_GOLD_SCHEMA)
+    logger.info("Querying fct_action_values + stg_statsbomb__360 join from %s.%s", catalog, DEFAULT_GOLD_SCHEMA)
 
     start = time.time()
     raw_sdf = spark.sql(sql)
@@ -266,7 +277,7 @@ def _build_training_dataset(
     # Quick emptiness check — limit(1) avoids full DAG computation.
     if raw_sdf.limit(1).count() == 0:
         raise RuntimeError(
-            f"No rows returned from {catalog}.{schema}.fct_action_values joined with "
+            f"No rows returned from {catalog}.{DEFAULT_GOLD_SCHEMA}.fct_action_values joined with "
             f"{catalog}.{_SILVER_SCHEMA}.stg_statsbomb__360. "
             "Check that fct_action_values has been built by dbt and that StatsBomb 360 "
             "data has been ingested (data_source = 'statsbomb', original_event_id not null)."

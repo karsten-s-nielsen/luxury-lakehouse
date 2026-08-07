@@ -19,7 +19,7 @@ references:
 
 inputs:
   tables:
-    - id: "{catalog}.{schema}.fct_action_values"
+    - id: "{catalog}.dev_gold.fct_action_values"
       source: delta-table
       description: "Gold-layer per-action SPADL records with VAEP offensive/defensive value labels"
 

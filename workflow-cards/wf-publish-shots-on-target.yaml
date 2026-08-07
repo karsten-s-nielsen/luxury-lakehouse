@@ -24,10 +24,10 @@ references: []
 
 inputs:
   tables:
-    - id: "{catalog}.{schema}.fct_shots"
+    - id: "{catalog}.dev_gold.fct_shots"
       source: delta-table
       description: "Gold-layer shot facts (filtered to on-target via end_location_z IS NOT NULL)"
-    - id: "{catalog}.{schema}.dim_matches"
+    - id: "{catalog}.dev_gold.dim_matches"
       source: delta-table
       description: "Kimball match dimension — used to recover native_match_id alongside match_key"
 

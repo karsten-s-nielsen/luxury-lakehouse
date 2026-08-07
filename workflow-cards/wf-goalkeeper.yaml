@@ -31,7 +31,7 @@ inputs:
     - id: "luxury-lakehouse/statsbomb-shots-on-target"
       source: huggingface
       description: "On-target shot events with goalmouth coordinates (end_location_y, end_location_z)"
-    - id: "{catalog}.{schema}.fct_action_values"
+    - id: "{catalog}.dev_gold.fct_action_values"
       source: delta-table
       description: "SPADL action values for GK distribution xT delta computation"
     - id: "{catalog}.bronze.psxg_predictions"
@@ -40,7 +40,7 @@ inputs:
 
 outputs:
   tables:
-    - id: "{catalog}.{schema}.fct_goalkeeper_stats"
+    - id: "{catalog}.dev_gold.fct_goalkeeper_stats"
       destination: delta-table
       dbt_model: fct_goalkeeper_stats
   models:

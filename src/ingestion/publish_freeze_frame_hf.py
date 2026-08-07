@@ -22,6 +22,7 @@ from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 from ingestion.hf_upload_seam import GuardedFrame, prepare_public_upload, upload_guarded
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
 from shared.access_tier import classify_access_tier
+from shared.constants import DEFAULT_SILVER_SCHEMA
 from workflows import workflow
 
 if TYPE_CHECKING:
@@ -42,8 +43,8 @@ SELECT
     m.competition_id,
     m.season_id,
     e.shot_freeze_frame
-FROM {catalog}.dev_silver.stg_statsbomb__events e
-INNER JOIN {catalog}.dev_silver.stg_statsbomb__matches m
+FROM {catalog}.{silver}.stg_statsbomb__events e
+INNER JOIN {catalog}.{silver}.stg_statsbomb__matches m
     ON e.match_id = m.match_id
 WHERE e.event_type = 'Shot'
   AND e.shot_freeze_frame IS NOT NULL
@@ -145,7 +146,7 @@ def run_pipeline(
             "cached CLI login) — cannot upload to HF Hub"
         )
 
-    sql = _FREEZE_FRAME_SQL.format(catalog=catalog)
+    sql = _FREEZE_FRAME_SQL.format(catalog=catalog, silver=DEFAULT_SILVER_SCHEMA)
     pipeline_logger.info("Querying freeze-frame data from %s.dev_silver", catalog)
     raw_df = spark.sql(sql).toPandas()
     pipeline_logger.info("Retrieved %d shots with freeze frames", len(raw_df))

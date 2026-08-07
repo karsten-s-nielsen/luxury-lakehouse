@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING
 
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 from ingestion.utils import resolve_hf_token
-from shared.constants import IDENTIFIER_RE
+from shared.constants import DEFAULT_GOLD_SCHEMA, IDENTIFIER_RE
 from workflows import workflow
 
 if TYPE_CHECKING:
@@ -90,7 +90,7 @@ def _validate_identifier(field_name: str, value: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _build_query(catalog: str, schema: str) -> str:
+def _build_query(catalog: str, gold: str) -> str:
     """Build the SQL query for on-target shots.
 
     On-target = ``shot_outcome IN ('Goal','Saved','Post','Saved to Post')``
@@ -104,12 +104,14 @@ def _build_query(catalog: str, schema: str) -> str:
 
     Args:
         catalog: Unity Catalog name (already validated).
-        schema: Schema name (already validated).
+        gold: Gold-layer schema name (DEFAULT_GOLD_SCHEMA -- a trusted constant).
 
     Returns:
         SQL string selecting on-target shot columns.
     """
-    # catalog and schema are validated by _validate_identifier before this call
+    # catalog is validated by _validate_identifier before this call; `gold` is the
+    # module-level DEFAULT_GOLD_SCHEMA constant (ADR-073) -- a trusted literal, never
+    # user input, which is a stronger guarantee than runtime validation.
     return f"""\
 SELECT
     s.shot_id                                              AS event_id,
@@ -134,8 +136,8 @@ SELECT
     -- and silent withholding is the failure class this change exists to prevent) — the publisher
     -- asserts non-null instead, loudly.
     dm.access_tier
-FROM {catalog}.{schema}.fct_shots s
-LEFT JOIN {catalog}.{schema}.dim_matches dm
+FROM {catalog}.{gold}.fct_shots s
+LEFT JOIN {catalog}.{gold}.dim_matches dm
     ON s.match_key = dm.match_key
 WHERE s.shot_outcome IN ('Goal', 'Saved', 'Post', 'Saved to Post')
   AND s.end_location_z IS NOT NULL
@@ -172,8 +174,13 @@ def run_pipeline(
     # ------------------------------------------------------------------
     # 1. Query on-target shots from gold layer
     # ------------------------------------------------------------------
-    sql = _build_query(catalog, schema)
-    source_table = f"{catalog}.{schema}.fct_shots"
+    # fct_shots + dim_matches are GOLD marts. This module is invoked BOTH standalone
+    # (CLI default --schema dev_gold, correct) and from hf_sync, which passes
+    # --schema bronze for its import leg — so the caller-passed value was the wrong
+    # layer here and resolved to `bronze.fct_shots`. Name the layer (ADR-073).
+    _ = schema  # reads from DEFAULT_GOLD_SCHEMA, not the pipeline schema
+    sql = _build_query(catalog, DEFAULT_GOLD_SCHEMA)
+    source_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_shots"
     logger.info("Querying on-target shots from %s", source_table)
 
     start = time.time()
@@ -245,10 +252,12 @@ def run_pipeline(
 
 
 def main() -> None:
-    """CLI entry point for on-target shots export."""
-    # Late import — PySpark only available in Databricks runtime
-    from pyspark.sql import SparkSession  # type: ignore[import-not-found]
+    """CLI entry point for on-target shots export.
 
+    Argument parsing and validation run BEFORE the PySpark import so a bad
+    invocation fails on the argument, not on an unrelated ImportError — and so
+    the argument guards are testable off-platform (ADR-073).
+    """
     logger.info("Starting on-target shots export pipeline")
 
     parser = argparse.ArgumentParser(description="Export on-target shots to HF Hub")
@@ -259,8 +268,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--schema",
-        default="dev_gold",
-        help="Schema name (default: dev_gold)",
+        default=DEFAULT_GOLD_SCHEMA,
+        help=(
+            f"Gold schema (default: {DEFAULT_GOLD_SCHEMA}). ADR-073: the layer is a constant, "
+            "so any other value is refused rather than silently ignored."
+        ),
     )
     parser.add_argument(
         "--volume-path",
@@ -276,6 +288,20 @@ def main() -> None:
     # Validate SQL identifiers before interpolating into queries
     _validate_identifier("catalog", catalog)
     _validate_identifier("schema", schema)
+
+    # ADR-073: the query reads GOLD marts from DEFAULT_GOLD_SCHEMA regardless of this
+    # flag. Rather than silently substitute (the failure class this whole change exists
+    # to remove), refuse a value we would not honour. The default is already dev_gold,
+    # so the normal path is unaffected.
+    if schema != DEFAULT_GOLD_SCHEMA:
+        raise SystemExit(
+            f"--schema {schema!r} is not honoured: this exporter reads gold marts from "
+            f"{DEFAULT_GOLD_SCHEMA!r} (ADR-073 — the layer is a constant, not a parameter). "
+            f"Re-run without --schema, or with --schema {DEFAULT_GOLD_SCHEMA}."
+        )
+
+    # Late import — PySpark only available in Databricks runtime
+    from pyspark.sql import SparkSession  # type: ignore[import-not-found]
 
     spark = SparkSession.builder.getOrCreate()  # type: ignore[attr-defined]
 

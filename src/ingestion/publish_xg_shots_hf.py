@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 from ingestion.hf_upload_seam import GuardedFrame, prepare_public_upload, upload_guarded
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
+from shared.constants import DEFAULT_GOLD_SCHEMA
 from workflows import workflow
 
 if TYPE_CHECKING:
@@ -60,8 +61,8 @@ SELECT
     -- derived from dim_matches so the fail-closed leak guard halts the publish if a restricted
     -- match ever appears. NULL (unmatched) → guard fails closed.
     dm.access_tier
-FROM {catalog}.{schema}.fct_shots s
-LEFT JOIN {catalog}.{schema}.dim_matches dm
+FROM {catalog}.{gold}.fct_shots s
+LEFT JOIN {catalog}.{gold}.dim_matches dm
     ON s.match_key = dm.match_key
 """
 
@@ -118,8 +119,12 @@ def run_pipeline(
             "cached CLI login) — cannot upload to HF Hub"
         )
 
-    sql = _SHOTS_SQL.format(catalog=catalog, schema=schema)
-    pipeline_logger.info("Querying fct_shots from %s.%s", catalog, schema)
+    # fct_shots + dim_matches are GOLD marts. hf_sync passes --schema bronze (its import
+    # leg writes there), so the passed schema is the wrong layer for this publisher —
+    # it resolved to `bronze.fct_shots`, which does not exist. Name the layer (ADR-073).
+    _ = schema  # reads from DEFAULT_GOLD_SCHEMA, not the pipeline schema
+    sql = _SHOTS_SQL.format(catalog=catalog, gold=DEFAULT_GOLD_SCHEMA)
+    pipeline_logger.info("Querying fct_shots from %s.%s", catalog, DEFAULT_GOLD_SCHEMA)
     df = spark.sql(sql).toPandas()
     row_count = len(df)
     pipeline_logger.info("Retrieved %d shot rows", row_count)
