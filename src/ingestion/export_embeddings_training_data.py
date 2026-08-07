@@ -300,7 +300,6 @@ def _upload_to_hf_hub(
         volume_path,
         _HF_DATASET_REPO,
         logger=upload_logger,
-        delete_patterns=["data/*.parquet", "data/_*"],
     )
     if url.startswith("file://"):
         upload_logger.warning("HF Hub upload skipped — data at UC Volume only")

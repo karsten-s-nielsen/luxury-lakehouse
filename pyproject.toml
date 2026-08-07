@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.5.87"
+version = "0.5.88"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -62,7 +62,7 @@ dependencies = [
     "huggingface_hub>=1.5.0",
     # Floored to >=3.1.51 to resolve GHSA-2f96-g7mh-g2hx / -v396-v7q4-x2qj /
     # -956x-8gvw-wg5v (gitpython < 3.1.51).
-    "gitpython>=3.1.55",
+    "gitpython>=3.1.58",
 ]
 
 [project.optional-dependencies]

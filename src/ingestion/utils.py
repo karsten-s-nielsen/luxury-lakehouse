@@ -879,10 +879,17 @@ def upload_volume_to_hf_hub(
         repo_type: Repository type (``dataset``, ``model``, etc.).
         path_in_repo: Target path within the repo (default ``data``).
         logger: Optional logger; falls back to module-level ``_hf_logger``.
-        delete_patterns: Optional glob patterns passed to
-            ``upload_folder(delete_patterns=...)`` to remove stale files
-            before uploading.  E.g. ``["data/*.parquet", "data/_*"]``
-            ensures each upload atomically replaces the data directory.
+        delete_patterns: Sweep patterns passed to ``upload_folder``. Defaults to
+            ``["**"]`` -- every caller of this helper uploads a Spark
+            ``mode("overwrite")`` output directory, so the upload REPLACES the
+            previous state by definition; sweeping is the semantics, not an option.
+            Patterns are matched RELATIVE to ``path_in_repo``, so a
+            ``path_in_repo``-prefixed pattern (the form this docstring used to
+            recommend) matches NOTHING and silently no-ops -- all three callers had
+            no effective sweep, and one had copied the broken example from here.
+            ``validate_delete_patterns`` now refuses that form (ADR-072 amendment).
+            Pass a scoped list (e.g. ``["career/**"]``) only when a partial replace
+            is genuinely intended.
 
     Returns:
         URL of the published HF Hub repository.
@@ -906,6 +913,15 @@ def upload_volume_to_hf_hub(
             volume_path,
         )
         return f"file://{volume_path}"
+
+    # ADR-072 amendment: sweeping is the SEMANTICS of this helper, not an option. Every caller
+    # uploads a Spark mode("overwrite") output directory, so the upload replaces prior state.
+    # Leaving it to each caller produced three callers with no effective sweep.
+    if delete_patterns is None:
+        delete_patterns = ["**"]
+    from ingestion.hf_upload_seam import validate_delete_patterns
+
+    validate_delete_patterns(delete_patterns, path_in_repo=path_in_repo)
 
     api = HfApi(token=hf_token)
 
