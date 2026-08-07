@@ -11,7 +11,6 @@ Wired into the daily pipeline via ``src/ingestion/hf_sync.py`` sub-operations.
 from __future__ import annotations
 
 import logging
-import os
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -112,11 +111,19 @@ def run_pipeline(
 ) -> int:
     """Query action values from gold layer and publish to HF Hub."""
     _ = ctx
-    from huggingface_hub import get_token
+    # resolve_hf_token() is the ONLY sanctioned resolver: env -> Databricks secret scope
+    # "hf"/"token" -> cached CLI login. This module runs on Databricks serverless, where there is
+    # no HF_TOKEN env var and no CLI cache -- ONLY the secret scope. The previous
+    # `os.environ.get(...) or get_token()` skipped that middle source, so this publisher raised
+    # before doing any work on every job run, and hf_sync swallowed it and reported SUCCESS.
+    from ingestion.utils import resolve_hf_token
 
-    hf_token = os.environ.get("HF_TOKEN", "") or (get_token() or "")
+    hf_token = resolve_hf_token()
     if not hf_token:
-        raise RuntimeError("HF_TOKEN required for HF Hub upload")
+        raise RuntimeError(
+            "No HF token from any source (HF_TOKEN env / Databricks secret scope 'hf' key 'token' / "
+            "cached CLI login) — cannot upload to HF Hub"
+        )
 
     sql = _ACTION_VALUES_SQL.format(catalog=catalog, schema=schema)
     pipeline_logger.info("Querying fct_action_values from %s.%s", catalog, schema)

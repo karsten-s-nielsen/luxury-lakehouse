@@ -54,6 +54,10 @@ class TierMismatchError(RuntimeError):
     """A repo's privacy or naming does not match the tier of the frames being uploaded to it."""
 
 
+class TokenUnavailableError(RuntimeError):
+    """No HF token could be resolved from any source."""
+
+
 class UnauthorizedFrameError(RuntimeError):
     """A ``GuardedFrame`` holds a DataFrame the seam never produced."""
 
@@ -227,7 +231,7 @@ def upload_guarded(
     *,
     frames: list[GuardedFrame],
     repo_id: str,
-    token: str,
+    token: str | None = None,
     path_in_repo: str = "data",
     delete_patterns: list[str] | None = None,
     repo_type: str = "dataset",
@@ -279,6 +283,22 @@ def upload_guarded(
             f"{publisher}: {len(unaccounted)} unguarded file(s) in staging dir — every file must be "
             f"written via GuardedFrame.write_parquet: {unaccounted}"
         )
+
+    # Token is DERIVED, not required from the caller (ADR-072 amendment). resolve_hf_token() is the
+    # only sanctioned resolver: env -> Databricks secret scope "hf"/"token" -> cached CLI login.
+    # Three publishers had hand-rolled `os.environ.get(...) or get_token()`, which skips the secret
+    # scope -- the ONLY source that exists on Databricks serverless -- so they raised before doing
+    # any work on every job run. An explicit token is still honoured for tests and for callers that
+    # already hold one.
+    if token is None:
+        from ingestion.utils import resolve_hf_token
+
+        token = resolve_hf_token()
+        if not token:
+            raise TokenUnavailableError(
+                f"{publisher}: no HF token from any source (HF_TOKEN env / Databricks secret scope "
+                f"'hf' key 'token' / cached CLI login) — refusing to attempt an upload"
+            )
 
     api = HfApi(token=token)
     api.create_repo(repo_id, exist_ok=True, repo_type=repo_type, token=token, private=private)

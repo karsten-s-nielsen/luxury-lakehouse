@@ -473,3 +473,90 @@ def test_no_source_file_uses_a_path_in_repo_prefixed_delete_pattern() -> None:
         f"RELATIVE to path_in_repo, so these match NOTHING and the sweep silently no-ops. "
         f"Use ['**'], or drop the prefix for a scoped sweep."
     )
+
+
+# ---------------------------------------------------------------------------
+# HF token resolution: one sanctioned resolver, enforced where it is fatal.
+# ---------------------------------------------------------------------------
+
+
+def test_no_databricks_module_resolves_the_hf_token_ad_hoc() -> None:
+    """Modules under ``src/ingestion/`` must use ``resolve_hf_token()``, never a hand-rolled chain.
+
+    ``src/ingestion/`` is what runs on Databricks serverless, where there is NO ``HF_TOKEN`` env var
+    and NO cached CLI login -- the Databricks secret scope ``hf``/``token`` is the only source.
+    ``resolve_hf_token()`` checks all three; the hand-rolled
+    ``os.environ.get("HF_TOKEN", "") or get_token()`` skips the middle one.
+
+    Three publishers carried that exact copy-paste, so each raised before doing any work on every
+    job run while ``hf_sync`` swallowed the failure and reported SUCCESS -- which is why the stale
+    part-files in xg-freeze-frame-data were never swept.
+
+    AST-based, not textual: these modules legitimately NAME the broken pattern in comments
+    explaining why it was wrong, and a regex flags its own documentation.
+
+    ``scripts/`` is deliberately out of scope -- PEP 723 jobs run on HF Jobs with ``HF_TOKEN``
+    injected via ``--secrets``, so env-first is correct there.
+    """
+    import ast
+
+    root = Path(__file__).resolve().parents[2]
+    offenders: list[str] = []
+    for f in sorted((root / "src" / "ingestion").rglob("*.py")):
+        if f.name == "utils.py":
+            continue  # defines resolve_hf_token -- the one sanctioned place
+        tree = ast.parse(f.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            fn = node.func
+            # bare get_token() / hf.get_token()
+            if (isinstance(fn, ast.Name) and fn.id == "get_token") or (
+                isinstance(fn, ast.Attribute) and fn.attr == "get_token"
+            ):
+                offenders.append(f.name)
+            # os.environ.get("HF_TOKEN", ...)
+            if (
+                isinstance(fn, ast.Attribute)
+                and fn.attr == "get"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and node.args[0].value == "HF_TOKEN"
+            ):
+                offenders.append(f.name)
+        # os.environ["HF_TOKEN"]
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Subscript)
+                and isinstance(node.slice, ast.Constant)
+                and node.slice.value == "HF_TOKEN"
+            ):
+                offenders.append(f.name)
+    offenders = sorted(set(offenders))
+    assert not offenders, (
+        f"ad-hoc HF token resolution in {offenders}. On Databricks serverless the only source is "
+        f"the 'hf'/'token' secret scope, which a hand-rolled env-or-cache chain skips. "
+        f"Use ingestion.utils.resolve_hf_token()."
+    )
+
+
+def test_upload_guarded_derives_the_token_when_not_given(
+    tmp_path: Path, fake_api: type[_FakeApi], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The seam resolves the token itself, so a publisher cannot supply a broken one."""
+    import ingestion.utils as _utils
+    from ingestion.hf_upload_seam import TokenUnavailableError, upload_guarded
+
+    df = pd.DataFrame({"access_tier": ["public"], "v": [1]})
+    prepared = prepare_public_upload(df, publisher="publish_xg_shots_hf")
+    staging = tmp_path / "data"
+    prepared.public.write_parquet(staging / "x.parquet")
+
+    resolved = "resolved-token"  # a test double handed to the fake HfApi, never a credential
+    monkeypatch.setattr(_utils, "resolve_hf_token", lambda: resolved)
+    upload_guarded(staging, frames=[prepared.public], repo_id="org/repo")
+    assert _uploads(fake_api)[0]["token"] == resolved
+
+    monkeypatch.setattr(_utils, "resolve_hf_token", lambda: "")
+    with pytest.raises(TokenUnavailableError, match="no HF token"):
+        upload_guarded(staging, frames=[prepared.public], repo_id="org/repo")
