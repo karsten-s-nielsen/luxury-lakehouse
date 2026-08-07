@@ -19,10 +19,10 @@ references:
 
 inputs:
   tables:
-    - id: "{catalog}.{schema}.fct_action_values"
+    - id: "{catalog}.dev_gold.fct_action_values"
       source: delta-table
       description: "Per-player-match SPADL action sequences with value labels"
-    - id: "{catalog}.{schema}.dim_players"
+    - id: "{catalog}.dev_gold.dim_players"
       source: delta-table
       description: "Player dimension for canonical_player_id and position_group"
 

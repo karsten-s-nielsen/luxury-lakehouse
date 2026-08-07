@@ -23,6 +23,7 @@ from ingestion.hf_publish import (
 )
 from ingestion.hf_upload_seam import GuardedFrame, prepare_public_upload, upload_guarded
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
+from shared.constants import DEFAULT_GOLD_SCHEMA
 from workflows import workflow
 
 if TYPE_CHECKING:
@@ -67,7 +68,7 @@ SELECT
     original_event_id,
     data_source,
     access_tier
-FROM {catalog}.{schema}.fct_action_values
+FROM {catalog}.{gold}.fct_action_values
 """
 
 
@@ -125,8 +126,12 @@ def run_pipeline(
             "cached CLI login) — cannot upload to HF Hub"
         )
 
-    sql = _ACTION_VALUES_SQL.format(catalog=catalog, schema=schema)
-    pipeline_logger.info("Querying fct_action_values from %s.%s", catalog, schema)
+    # fct_action_values is a GOLD mart. hf_sync passes --schema bronze (its import leg
+    # writes there), so the passed schema is the wrong layer for this publisher — it
+    # resolved to `bronze.fct_action_values`, which does not exist. Name it (ADR-073).
+    _ = schema  # reads from DEFAULT_GOLD_SCHEMA, not the pipeline schema
+    sql = _ACTION_VALUES_SQL.format(catalog=catalog, gold=DEFAULT_GOLD_SCHEMA)
+    pipeline_logger.info("Querying fct_action_values from %s.%s", catalog, DEFAULT_GOLD_SCHEMA)
     df = spark.sql(sql).toPandas()
     row_count = len(df)
     pipeline_logger.info("Retrieved %d action value rows", row_count)

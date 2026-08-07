@@ -21,7 +21,7 @@ references: []
 
 inputs:
   tables:
-    - id: "{catalog}.{schema}.fct_shots"
+    - id: "{catalog}.dev_gold.fct_shots"
       source: delta-table
       description: "Gold-layer shot facts across StatsBomb and Wyscout sources"
 

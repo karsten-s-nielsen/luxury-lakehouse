@@ -19,12 +19,17 @@ references: []
 
 inputs:
   tables:
-    - id: "{catalog}.dev_silver.stg_statsbomb__events"
+    # Watermark upstreams must be TABLES, not views: record_watermarks runs
+    # DESCRIBE HISTORY, and a view has no Delta history. The dbt stg_* models
+    # these queries read are materialized as views (dbt_project.yml staging:
+    # +materialized: view), so the watermark is declared on the bronze tables
+    # they select from — same change signal, and DESCRIBE HISTORY works. ADR-073.
+    - id: "{catalog}.bronze.statsbomb_events"
       source: delta-table
-      description: "StatsBomb events with shot_freeze_frame JSON"
-    - id: "{catalog}.dev_silver.stg_statsbomb__matches"
+      description: "Bronze source of stg_statsbomb__events (shot_freeze_frame JSON)"
+    - id: "{catalog}.bronze.statsbomb_matches"
       source: delta-table
-      description: "Match metadata for competition_id and season_id"
+      description: "Bronze source of stg_statsbomb__matches (competition_id, season_id)"
 
 outputs:
   datasets:

@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 from huggingface_hub import hf_hub_download
 
 from ingestion.guards import FilterResult, check_hf_dataset_freshness, record_import_sha, timed_check
-from shared.constants import IDENTIFIER_RE
+from shared.constants import DEFAULT_BRONZE_SCHEMA, IDENTIFIER_RE
 from workflows import workflow
 from workflows.exceptions import WorkflowSkippedError
 
@@ -111,7 +111,11 @@ def run_pipeline(
     # ------------------------------------------------------------------
     # 2. Read from Volume and write to Delta
     # ------------------------------------------------------------------
-    table = f"{catalog}.{schema}.{TABLE_NAME}"
+    # This is the ONE hf_sync sub-operation that genuinely writes BRONZE — it is why
+    # hf_sync is passed --schema bronze at all, and why every gold-reading sibling in
+    # that task got the wrong layer. Name it rather than inherit it (ADR-073).
+    _ = schema  # writes to DEFAULT_BRONZE_SCHEMA, not the pipeline schema
+    table = f"{catalog}.{DEFAULT_BRONZE_SCHEMA}.{TABLE_NAME}"
 
     logger.info("Reading PSxG predictions from %s", volume_file)
     df = spark.read.parquet(volume_file)

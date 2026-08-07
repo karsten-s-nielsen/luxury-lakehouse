@@ -195,8 +195,10 @@ def _run_sub_workflow(
     catalog: str,
     schema: str,
     logger_arg: logging.Logger,
-) -> None:
+) -> bool:
     """Run a single sub-workflow, logging failures at ERROR level and continuing.
+
+    Returns ``True`` if the sub-workflow succeeded, ``False`` if it raised.
 
     This is an orchestration-level best-effort — the hf_sync workflow runs
     several independent sub-workflows and should complete the remaining ones
@@ -204,6 +206,9 @@ def _run_sub_workflow(
     standard error-log queries; previously-used WARNING level hid real bugs
     (e.g. the 2026-04-12 cost-hook schema drift was a sub-workflow failure
     that nobody saw for 62+ hours).
+
+    Continuing is NOT the same as passing. The caller MUST fail the task via
+    :func:`raise_on_failed_sub_workflows` — see ADR-073.
     """
     try:
         op(spark, catalog, schema, logger_arg)
@@ -213,6 +218,32 @@ def _run_sub_workflow(
             label,
             exc_info=True,
         )
+        return False
+    return True
+
+
+def raise_on_failed_sub_workflows(failed: list[str], *, attempted: int) -> None:
+    """Fail the task if any sub-workflow failed (ADR-067 §1 applied to hf_sync).
+
+    The per-op ``except Exception`` in :func:`_run_sub_workflow` is deliberate
+    and STAYS: one bad publisher must not stop the other eight from syncing.
+    The defect it enabled was that the TASK then exited 0 — so a publisher that
+    uploaded nothing and one that uploaded correctly were indistinguishable
+    from the job.
+
+    On 2026-08-07 five of nine sub-workflows failed and a sixth silently
+    swallowed a missing upstream, inside a run that reported SUCCESS. Those
+    failures had been happening on every run for months.
+    """
+    if not failed:
+        return
+    ops = ", ".join(failed)
+    raise RuntimeError(
+        f"hf_sync had {len(failed)} of {attempted} FAILED sub-workflow(s): {ops}. "
+        "Each failed sub-workflow published NOTHING — its HF dataset is stale. "
+        "Do NOT accept this run: read the per-op ERROR tracebacks above, fix the "
+        "cause, and re-run."
+    )
 
 
 @workflow("wf-hf-sync", phase="orchestration")
@@ -229,9 +260,13 @@ def run_pipeline(
     if filter_result.count == 0:
         raise WorkflowSkippedError("No HF sync work")
     completed = 0
+    failed: list[str] = []
     for label, op in _SUB_OPERATIONS:
-        _run_sub_workflow(label, op, spark, catalog, schema, logger_arg)
-        completed += 1
+        if _run_sub_workflow(label, op, spark, catalog, schema, logger_arg):
+            completed += 1
+        else:
+            failed.append(label)
+    raise_on_failed_sub_workflows(failed, attempted=len(_SUB_OPERATIONS))
     return completed
 
 

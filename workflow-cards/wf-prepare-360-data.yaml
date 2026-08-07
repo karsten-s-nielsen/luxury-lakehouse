@@ -23,9 +23,11 @@ inputs:
     - id: "{catalog}.dev_gold.fct_action_values"
       source: delta-table
       description: "SPADL action values with original_event_id for 360 join"
-    - id: "{catalog}.dev_silver.stg_statsbomb__360"
+    # Bronze table, not the stg_ view — see ADR-073 (views have no Delta history,
+    # so a view declared here breaks record_watermarks).
+    - id: "{catalog}.bronze.statsbomb_360"
       source: delta-table
-      description: "StatsBomb 360 freeze-frame data"
+      description: "Bronze source of stg_statsbomb__360 (freeze-frame data)"
     - id: "{catalog}.dev_gold.dim_players"
       source: delta-table
       description: "Player dimension for canonical player ID resolution"

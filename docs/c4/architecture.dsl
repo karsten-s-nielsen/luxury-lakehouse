@@ -40,7 +40,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             artifactDeploy = container "Artifact Deploy" "Training-to-production contract (ADR-012). MLflow + UC Volume helpers." "Python"
             hfPublish = container "HF Publish Helper" "README delivery (ADR-014) + ADR-072 publish seam: prepare_public_upload guards/splits/drops; GuardedFrame gates writes; upload_guarded derives repo privacy, sweep and HF token; refuses unaccounted files." "Python"
             databricksSqlFetch = container "Databricks SQL Fetch" "HTTP helper for HF Jobs trainers querying gold marts (no Spark)" "Python, requests"
-            ingestionPipelines = container "Compute Pipelines" "39 @workflow Databricks ingestion/compute pipelines, 6 providers (incl. pre-shot xG, ADR-066). GS bronze dedup (ADR-030), ET-direction derivers (ADR-029), DFL via silly-kicks (ADR-055)." "Python, PySpark, silly-kicks 4.43.0"
+            ingestionPipelines = container "Compute Pipelines" "36 @workflow Databricks ingestion/compute pipelines, 6 providers (incl. pre-shot xG, ADR-066). GS bronze dedup (ADR-030), ET-direction derivers (ADR-029), DFL via silly-kicks (ADR-055)." "Python, PySpark, silly-kicks 4.43.0"
             refreshSyncedTables = container "Synced Table Refresh" "Triggers refresh on 41 synced tables; detect-only for checkpoint-broken TRIGGERED tables — flags + dispatches the heal, never deletes (ADR-041)" "Python, databricks-sdk"
             migrateSyncedTables = container "Synced Table Migration" "SDK-managed lifecycle: delete, CDF enable, create, wait (ADR-026). Replaces Terraform module." "Python, databricks-sdk"
             rederiveSyncedMarts = container "Strand-safe Re-derive" "Operator re-derive of TRIGGERED synced marts (ADR-043): D MERGE-reprocess / T plain-rebuild / B delete+full-refresh+recreate. Pure planner + thin executor." "Python, databricks-sdk"
@@ -77,7 +77,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
 
         lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL endpoint syncing 41 Delta tables (68 indexes: 62 btree + 6 HNSW). SDK-managed (ADR-026)." "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth, synced table metadata, pipeline triggers, state polling" "External"
-        databricksWorkflows = softwareSystem "Databricks Workflows" "41-task daily DAG: 7 ingest, 16 compute (incl. compute_xg_shot_scores), 5 preflight, 3 dbt_build, 2 backfill, 8 other (hf_sync, import, extract, refresh, resolve, validate, staleness monitor)" "External"
+        databricksWorkflows = softwareSystem "Databricks Workflows" "40-task daily DAG: 7 ingest, 16 compute (incl. compute_xg_shot_scores), 4 preflight, 3 dbt_build, 2 backfill, 8 other (hf_sync, import, extract, refresh, resolve, validate, staleness monitor)" "External"
         hfIdentity = softwareSystem "HuggingFace Identity API" "Token validation via /api/whoami-v2. Org membership check." "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds Dockerfile, serves port 7860." "External"
         hfHub = softwareSystem "HuggingFace Hub" "18 models (incl. xg_model_v3 pre-shot xG) + build-artifacts wheel, 23 public datasets + private -restricted companions split by per-match access_tier (ADR-064/049), 3 Spaces. READMEs via ADR-014." "External"

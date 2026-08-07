@@ -20,10 +20,10 @@ references:
 
 inputs:
   tables:
-    - id: "{catalog}.{schema}.fct_action_values"
+    - id: "{catalog}.dev_gold.fct_action_values"
       source: delta-table
       description: "SPADL action sequences with VAEP values"
-    - id: "{catalog}.{schema}.dim_players"
+    - id: "{catalog}.dev_gold.dim_players"
       source: delta-table
       description: "Player dimension for canonical_player_id mapping"
 
