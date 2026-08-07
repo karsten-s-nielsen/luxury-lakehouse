@@ -78,3 +78,25 @@ Four publishers passed `delete_patterns=["data/*"]` with `path_in_repo="data"`. 
 Corrected in `src/ingestion/publish_freeze_frame_hf.py`, `src/ingestion/publish_xg_shots_hf.py`, `scripts/publish_line_breaking_passes_hf.py`, `scripts/publish_obso_pausa_inputs_hf.py`. `scripts/publish_freeze_frame_hf.py` had no sweep at all while its twin did; both now sweep `["**"]`, since divergent behaviour between twins publishing the *same* repo makes the outcome depend on run order.
 
 **This is the one behavioural change in an otherwise behaviour-preserving PR.** Five repos that previously deleted nothing will begin deleting stale siblings on their next run. That is the intended fix — the stale-part-file class poisoned a PSxG retrain on 2026-06-21 — but it warrants an operator dry-run on one repo before the first scheduled publish. The pre-existing coverage (`test_publisher_delete_patterns_sweep_whole_path_in_repo`) is parametrized over the six split publishers only, so four of the five changed files had zero tests; `test_publisher_upload_contract.py` was added to close that.
+
+## Amendment 2026-08-07 — the token is derived too
+
+Third instance of this ADR's core principle, found by running the seam for real.
+
+`upload_guarded` took `token: str` from the caller. Three `src/ingestion/` publishers resolved it with a hand-rolled `os.environ.get("HF_TOKEN", "") or get_token()` — byte-identical copy-paste that skips `ingestion.utils.resolve_hf_token()`'s **second** source, the Databricks secret scope `hf`/`token`. On serverless there is no env var and no CLI cache, so that scope is the *only* source: all three raised `RuntimeError` before doing any work, on every job run, while `hf_sync` caught the exception, logged ERROR and reported **SUCCESS**.
+
+That is why `xg-freeze-frame-data` accumulated 103 stale part-files nobody ever swept — the publisher that would have swept them had never once run to completion from the job.
+
+`upload_guarded` now derives the token via `resolve_hf_token()` when none is passed, raising `TokenUnavailableError` if nothing resolves. An explicit token is still honoured for tests and callers that already hold one.
+
+The pattern is now consistent across all three properties the seam owns:
+
+| Property | Was | Now |
+|---|---|---|
+| Repo privacy | `private: bool = False` — caller-passed, fail-open | derived from `GuardedFrame.tier` |
+| Sweep | `delete_patterns` optional — 4/4 callers wrong | derived from write semantics (`["**"]`) |
+| HF token | `token: str` — caller-passed, 3/3 serverless publishers wrong | derived via `resolve_hf_token()` |
+
+Each was a safety property a caller could get wrong silently, and each was got wrong. **A safety property that can be passed will eventually be passed wrong; derive it or enforce it.**
+
+Enforced by an AST gate over `src/ingestion/` (no ad-hoc `get_token()` / `HF_TOKEN` read outside `resolve_hf_token`). `scripts/` is deliberately out of scope — PEP 723 jobs run on HF Jobs with `HF_TOKEN` injected via `--secrets`, so env-first is correct there. `CLAUDE.md`'s token rule, which stated the orchestration-script guidance unconditionally and would have sanctioned the bug if applied to a Databricks module, is scoped in the same change.
