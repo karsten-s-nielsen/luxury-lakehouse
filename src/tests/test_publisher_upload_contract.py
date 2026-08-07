@@ -397,3 +397,36 @@ def test_publisher_upload_contract(
         f"{where}/{module_id} delete_patterns={patterns!r} — must be ['**'] or absent, never 'data/'-prefixed"
     )
     assert _created(fake_api) == [(upload["repo_id"], False)], "a public frame must not create a private repo"
+
+
+# ---------------------------------------------------------------------------
+# Spark-path publisher: NOT a publish_*_hf.py module, so the AST gate's glob does
+# not see it -- yet it publishes to a PUBLIC HF dataset.
+# ---------------------------------------------------------------------------
+
+
+def test_spark_path_publisher_drops_access_tier() -> None:
+    """``ingestion.export_shots_on_target`` selects access_tier but must not PUBLISH it.
+
+    It shares ``_build_query`` with ``scripts/publish_shots_on_target_hf.py``, where R-12 added
+    ``dm.access_tier`` so the frame could be guarded. This module writes via Spark -> UC Volume ->
+    ``upload_volume_to_hf_hub``, so it cannot use the pandas seam and is NOT matched by the AST
+    gate's ``publish_*_hf.py`` glob. Without an explicit drop it would publish the internal column
+    to a public dataset -- an additive schema change (Hyrum) and an R2 leak.
+
+    Asserted on the source because the write path needs Spark. The paired non-public guard is
+    asserted too, so the drop can never be reduced to a bare projection that hides restricted rows.
+    """
+    src = (Path(__file__).resolve().parents[2] / "src" / "ingestion" / "export_shots_on_target.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'shots_df.drop("access_tier")' in src, (
+        "export_shots_on_target must drop access_tier before the parquet write (R2) -- it selects "
+        "the column for the guard but publishes to a PUBLIC dataset."
+    )
+    assert "refusing to publish to the PUBLIC dataset" in src, (
+        "export_shots_on_target must fail closed on any non-public row before writing."
+    )
+    drop_at = src.index('shots_df.drop("access_tier")')
+    write_at = src.index("shots_df.coalesce(1).write")
+    assert drop_at < write_at, "the drop must precede the parquet write, not follow it"
