@@ -192,6 +192,36 @@ def prepare_public_upload(
     return PreparedUpload(public=_guard(df, "public"), restricted=None)
 
 
+class DeletePatternError(ValueError):
+    """A ``delete_patterns`` entry is prefixed with ``path_in_repo`` and therefore matches nothing."""
+
+
+def validate_delete_patterns(patterns: list[str] | None, *, path_in_repo: str) -> None:
+    """Reject sweep patterns that are silently inert (ADR-072 amendment).
+
+    ``huggingface_hub`` matches ``delete_patterns`` RELATIVE to ``path_in_repo``
+    (``_prepare_folder_deletions`` strips the prefix before filtering), so a pattern written as
+    ``"data/*.parquet"`` against ``path_in_repo="data"`` matches **nothing** and the sweep is a
+    silent no-op. CLAUDE.md has mandated ``["**"]`` for a long time; nothing enforced it outside
+    six publishers, and every Spark-path caller got it wrong — including one that copied the
+    broken form straight out of ``upload_volume_to_hf_hub``'s own docstring.
+
+    Scoped sweeps stay legal (``["career/**", "season/**"]``); only the prefixed form is refused,
+    because it is never what the author meant.
+    """
+    if not patterns or not path_in_repo:
+        return
+    prefix = f"{path_in_repo.strip('/')}/"
+    bad = [p for p in patterns if p.startswith(prefix)]
+    if bad:
+        raise DeletePatternError(
+            f"delete_patterns {bad} are prefixed with path_in_repo={path_in_repo!r}. Patterns are "
+            f"matched RELATIVE to path_in_repo, so these match NOTHING and the sweep silently "
+            f"no-ops. Use ['**'] for a whole-path sweep, or drop the prefix for a scoped one "
+            f"(e.g. {[p[len(prefix) :] for p in bad]})."
+        )
+
+
 def upload_guarded(
     staging_dir: Path,
     *,
@@ -232,6 +262,8 @@ def upload_guarded(
         )
     if not private and repo_id.endswith(_RESTRICTED_REPO_SUFFIX):
         raise TierMismatchError(f"{publisher}: public frames target the restricted companion {repo_id!r}")
+
+    validate_delete_patterns(delete_patterns, path_in_repo=path_in_repo)
 
     recorded = {p for f in frames for p in f.receipt.paths}
     actual = {p.resolve() for p in Path(staging_dir).rglob("*") if p.is_file()}

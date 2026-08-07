@@ -456,12 +456,10 @@ def _upload_to_hf_hub(volume_path: str, spark: object) -> str:
 
     from ingestion.utils import upload_volume_to_hf_hub
 
-    return upload_volume_to_hf_hub(
-        volume_path,
-        DATASET_REPO,
-        logger=logger,
-        delete_patterns=["data/*.parquet", "data/_*"],
-    )
+    # delete_patterns intentionally omitted: upload_volume_to_hf_hub now sweeps ["**"] by default
+    # (ADR-072 amendment). This call previously passed ["data/*.parquet", "data/_*"], the
+    # path_in_repo-prefixed form copied from the helper's old docstring, which matched NOTHING.
+    return upload_volume_to_hf_hub(volume_path, DATASET_REPO, logger=logger)
 
 
 # ---------------------------------------------------------------------------

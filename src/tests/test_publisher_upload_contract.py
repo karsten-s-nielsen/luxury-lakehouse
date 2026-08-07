@@ -430,3 +430,46 @@ def test_spark_path_publisher_drops_access_tier() -> None:
     drop_at = src.index('shots_df.drop("access_tier")')
     write_at = src.index("shots_df.coalesce(1).write")
     assert drop_at < write_at, "the drop must precede the parquet write, not follow it"
+
+
+# ---------------------------------------------------------------------------
+# The inert-sweep class, closed repo-wide rather than per-caller.
+# ---------------------------------------------------------------------------
+
+
+def test_validator_refuses_path_in_repo_prefixed_patterns() -> None:
+    """The prefixed form matches nothing; scoped and whole-path forms stay legal."""
+    from ingestion.hf_upload_seam import DeletePatternError, validate_delete_patterns
+
+    with pytest.raises(DeletePatternError, match="match NOTHING"):
+        validate_delete_patterns(["data/*.parquet", "data/_*"], path_in_repo="data")
+    # legal forms
+    validate_delete_patterns(["**"], path_in_repo="data")
+    validate_delete_patterns(["career/**", "season/**"], path_in_repo="data")
+    validate_delete_patterns(None, path_in_repo="data")
+
+
+def test_no_source_file_uses_a_path_in_repo_prefixed_delete_pattern() -> None:
+    """No module may write the inert ``"data/..."`` sweep form.
+
+    CLAUDE.md has mandated ``["**"]`` for a long time, but the only enforcement was parametrized
+    over six split publishers -- so four publishers plus every Spark-path caller carried the
+    inert form for months, and ``upload_volume_to_hf_hub``'s docstring recommended it. This test
+    covers BOTH publish paths and any future caller.
+    """
+    import re
+
+    root = Path(__file__).resolve().parents[2]
+    pat = re.compile(r"""delete_patterns\s*=\s*\[[^\]]*["']data/""")
+    offenders = []
+    for sub in ("src", "scripts"):
+        for f in (root / sub).rglob("*.py"):
+            if f.name == "test_publisher_upload_contract.py":
+                continue  # this file names the bad form in its own assertions
+            if pat.search(f.read_text(encoding="utf-8")):
+                offenders.append(str(f.relative_to(root)))
+    assert not offenders, (
+        f"path_in_repo-prefixed delete_patterns found in {offenders}. Patterns are matched "
+        f"RELATIVE to path_in_repo, so these match NOTHING and the sweep silently no-ops. "
+        f"Use ['**'], or drop the prefix for a scoped sweep."
+    )
