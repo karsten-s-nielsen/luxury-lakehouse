@@ -483,9 +483,10 @@ class TestHfLicenseGate:
         from pathlib import Path
 
         script = Path("scripts/publish_spadl_vaep_hf.py").read_text()
-        assert "split_restricted" in script, (
-            "HF gate missing -- publisher must split via ingestion.hf_publish.split_restricted (ADR-049)"
-        )
+        # RETIRED (ADR-072): `assert "split_restricted" in script`. The publisher now routes through
+        # ingestion.hf_upload_seam.prepare_public_upload, which calls split_restricted internally —
+        # so the literal no longer appears in the source. That the publisher routes through the seam
+        # at all is enforced by src/tests/test_publisher_seam_conformance.py.
         assert "!= 'gradientsports'" not in script, (
             "SQL-side GS filter alongside the ADR-049 split silently empties the restricted repo "
             "(and thus the VAEP training corpus) -- split_restricted is the only gate"

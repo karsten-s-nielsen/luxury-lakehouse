@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.85-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.86-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -31,8 +31,8 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-from ingestion.hf_leak_guard import assert_no_private_leak
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
+from ingestion.hf_upload_seam import GuardedFrame, prepare_public_upload, upload_guarded
 
 logging.basicConfig(
     level=logging.INFO,
@@ -116,31 +116,24 @@ def query_databricks_sql(host: str, token: str, sql: str, warehouse_id: str) -> 
     return pa.concat_tables(arrow_tables).to_pandas()
 
 
-def publish_to_hf_hub(df: pd.DataFrame, hf_token: str) -> str:
-    from huggingface_hub import HfApi
-
-    api = HfApi(token=hf_token)
-    api.create_repo(DATASET_REPO, exist_ok=True, repo_type="dataset", token=hf_token)
+def publish_to_hf_hub(guarded: GuardedFrame, hf_token: str) -> str:
     with tempfile.TemporaryDirectory() as tmpdir:
         staging_dir = Path(tmpdir) / "data"
         staging_dir.mkdir(parents=True, exist_ok=True)
-        for source, sub_df in df.groupby("data_source"):
-            partition_dir = staging_dir / f"data_source={source}"
-            partition_dir.mkdir(parents=True, exist_ok=True)
-            sub_df.drop(columns=["data_source"]).to_parquet(
-                partition_dir / "data.parquet",
-                index=False,
-                engine="pyarrow",
-            )
-        api.upload_folder(
-            folder_path=str(staging_dir),
-            path_in_repo="data",
+        for source, sub in guarded.groupby("data_source"):
+            sub.drop_columns(["data_source"]).write_parquet(staging_dir / f"data_source={source}" / "data.parquet")
+        # delete_patterns are matched RELATIVE to path_in_repo ("data"), so the only correct
+        # whole-path sweep is ["**"] — this call previously passed ["data/*"], which matches
+        # NOTHING and had silently no-opped since it was written (the ADR-049 stale-part-file
+        # class; CLAUDE.md mandates ["**"]). Re-uploaded files are pruned from the delete set by
+        # upload_folder itself, so the sweep removes stale siblings and keeps what we just wrote.
+        return upload_guarded(
+            staging_dir,
+            frames=[guarded],
             repo_id=DATASET_REPO,
-            repo_type="dataset",
             token=hf_token,
-            delete_patterns=["data/*"],
+            delete_patterns=["**"],
         )
-    return f"https://huggingface.co/datasets/{DATASET_REPO}"
 
 
 def main() -> None:
@@ -164,10 +157,9 @@ def main() -> None:
     # Fail-closed leak guard (spec §6.7/D11): this mart carries no SkillCorner today, but the guard
     # halts the publish (rather than leaking) if a restricted row ever appears. Drop the internal
     # access_tier column AFTER the guard, before upload (R2).
-    assert_no_private_leak(df, publisher="publish_line_breaking_passes_hf")
-    df = df.drop(columns=["access_tier"], errors="ignore")
+    prepared = prepare_public_upload(df, publisher="publish_line_breaking_passes_hf")
 
-    url = publish_to_hf_hub(df, hf_token)
+    url = publish_to_hf_hub(prepared.public, hf_token)
     upload_hf_readme(
         repo_id=DATASET_REPO,
         readme_path=get_hf_card_path("line-breaking-passes.md", kind="dataset"),

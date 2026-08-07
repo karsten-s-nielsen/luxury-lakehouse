@@ -19,8 +19,8 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from ingestion.hf_leak_guard import assert_no_private_leak
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
+from ingestion.hf_upload_seam import GuardedFrame, prepare_public_upload, upload_guarded
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
 from shared.access_tier import classify_access_tier
 from workflows import workflow
@@ -92,6 +92,35 @@ def _parse_freeze_frames(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def publish_to_hf_hub(guarded: GuardedFrame, hf_token: str) -> str:
+    """Write competition-partitioned Parquet and upload, sweeping stale siblings.
+
+    ``delete_patterns`` are matched RELATIVE to ``path_in_repo`` ("data"), so the only correct
+    whole-path sweep is ``["**"]`` — this call previously passed ``["data/*"]``, which matches
+    NOTHING and had silently no-opped since it was written (the ADR-049 stale-part-file class;
+    CLAUDE.md mandates ``["**"]``). Re-uploaded files are pruned from the delete set by
+    ``upload_folder`` itself, so the sweep removes stale siblings and keeps what we just wrote.
+
+    Extracted from ``run_pipeline`` (ADR-072) so the staged tree and upload contract are testable
+    without Spark or credentials — ``test_publisher_upload_contract.py`` — and so this twin has the
+    same shape as ``scripts/publish_freeze_frame_hf.py``.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        staging_dir = Path(tmpdir) / "data"
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        for comp_id, part in guarded.groupby("competition_id"):
+            part.drop_columns(["competition_id"]).write_parquet(
+                staging_dir / f"competition_id={comp_id}" / "data.parquet"
+            )
+        return upload_guarded(
+            staging_dir,
+            frames=[guarded],
+            repo_id=DATASET_REPO,
+            token=hf_token,
+            delete_patterns=["**"],
+        )
+
+
 @workflow("wf-publish-freeze-frames", phase="export")
 def run_pipeline(
     spark: SparkSession,
@@ -103,7 +132,7 @@ def run_pipeline(
 ) -> int:
     """Query freeze-frame data from silver layer and publish to HF Hub."""
     _ = (schema, ctx)
-    from huggingface_hub import HfApi, get_token
+    from huggingface_hub import get_token
 
     hf_token = os.environ.get("HF_TOKEN", "") or (get_token() or "")
     if not hf_token:
@@ -127,32 +156,8 @@ def run_pipeline(
     # tier is the StatsBomb provider default (public), stamped via the classifier so the guard is
     # a real check. Drop the internal column AFTER the guard, before upload (R2).
     freeze_df["access_tier"] = classify_access_tier(provider="statsbomb", visibility=None).value
-    assert_no_private_leak(freeze_df, publisher="publish_freeze_frame_hf")
-    freeze_df = freeze_df.drop(columns=["access_tier"], errors="ignore")
-
-    api = HfApi(token=hf_token)
-    api.create_repo(DATASET_REPO, exist_ok=True, repo_type="dataset", token=hf_token)
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        staging_dir = Path(tmpdir) / "data"
-        staging_dir.mkdir(parents=True, exist_ok=True)
-
-        for comp_id, comp_df in freeze_df.groupby("competition_id"):
-            partition_dir = staging_dir / f"competition_id={comp_id}"
-            partition_dir.mkdir(parents=True, exist_ok=True)
-            partition_df = comp_df.drop(columns=["competition_id"])
-            out_path = partition_dir / "data.parquet"
-            partition_df.to_parquet(out_path, index=False, engine="pyarrow")
-            pipeline_logger.info("Wrote partition competition_id=%s: %d rows", comp_id, len(partition_df))
-
-        api.upload_folder(
-            folder_path=str(staging_dir),
-            path_in_repo="data",
-            repo_id=DATASET_REPO,
-            repo_type="dataset",
-            token=hf_token,
-            delete_patterns=["data/*"],
-        )
+    prepared = prepare_public_upload(freeze_df, publisher="publish_freeze_frame_hf")
+    publish_to_hf_hub(prepared.public, hf_token)
 
     readme_result = upload_hf_readme(
         repo_id=DATASET_REPO,

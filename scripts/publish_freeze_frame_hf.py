@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.85-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.86-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -40,8 +40,8 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-from ingestion.hf_leak_guard import assert_no_private_leak
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
+from ingestion.hf_upload_seam import GuardedFrame, prepare_public_upload, upload_guarded
 from shared.access_tier import classify_access_tier
 
 # ---------------------------------------------------------------------------
@@ -253,61 +253,42 @@ def parse_freeze_frames(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-def publish_to_hf_hub(df: pd.DataFrame, hf_token: str) -> str:
+def publish_to_hf_hub(guarded: GuardedFrame, hf_token: str) -> str:
     """Write freeze-frame data as partitioned Parquet and upload to HF Hub.
 
     Data is partitioned by competition_id for efficient downstream loading.
 
     Args:
-        df: Freeze-frame DataFrame to publish.
+        guarded: Freeze-frame frame that has passed the ADR-072 seam guard.
         hf_token: HuggingFace API token.
 
     Returns:
         URL of the published dataset.
     """
-    from huggingface_hub import HfApi
-
-    api = HfApi(token=hf_token)
-
-    # Create or reuse the dataset repo
-    api.create_repo(
-        DATASET_REPO,
-        exist_ok=True,
-        repo_type="dataset",
-        token=hf_token,
-    )
-    logger.info("Ensured dataset repo exists: %s", DATASET_REPO)
-
     with tempfile.TemporaryDirectory() as tmpdir:
         staging_dir = Path(tmpdir) / "data"
         staging_dir.mkdir(parents=True, exist_ok=True)
 
-        # Write partitioned Parquet files (one per competition_id)
-        for comp_id, comp_df in df.groupby("competition_id"):
-            partition_dir = staging_dir / f"competition_id={comp_id}"
-            partition_dir.mkdir(parents=True, exist_ok=True)
-
-            # Drop the partition column from the file (it's encoded in the path)
-            partition_df = comp_df.drop(columns=["competition_id"])
-            out_path = partition_dir / "data.parquet"
-            partition_df.to_parquet(out_path, index=False, engine="pyarrow")
-            logger.info(
-                "Wrote partition competition_id=%s: %d rows -> %s",
-                comp_id,
-                len(partition_df),
-                out_path,
+        # One Parquet per competition_id. The partition column is dropped from the file because it
+        # is encoded in the path. Both derivations keep the parent's receipt, so every partition is
+        # accounted for by the single upload_guarded below.
+        for comp_id, part in guarded.groupby("competition_id"):
+            part.drop_columns(["competition_id"]).write_parquet(
+                staging_dir / f"competition_id={comp_id}" / "data.parquet"
             )
 
-        # Upload the entire data/ directory
-        api.upload_folder(
-            folder_path=str(staging_dir),
-            path_in_repo="data",
+        # Sweep stale siblings: delete_patterns are matched RELATIVE to path_in_repo ("data"),
+        # so the only correct whole-path pattern is ["**"] (CLAUDE.md). Matches the src/ingestion
+        # twin, which publishes the SAME repo from the same source — divergent sweep behaviour
+        # between the twins would make the winner depend on run order.
+        dataset_url = upload_guarded(
+            staging_dir,
+            frames=[guarded],
             repo_id=DATASET_REPO,
-            repo_type="dataset",
             token=hf_token,
+            delete_patterns=["**"],
         )
 
-    dataset_url = f"https://huggingface.co/datasets/{DATASET_REPO}"
     logger.info("Published dataset to %s", dataset_url)
     return dataset_url
 
@@ -410,11 +391,10 @@ def main() -> None:
     # future source change ever pulls in a restricted provider, the guard halts the publish. Drop
     # the internal column AFTER the guard, before upload (R2).
     freeze_df["access_tier"] = classify_access_tier(provider="statsbomb", visibility=None).value
-    assert_no_private_leak(freeze_df, publisher="publish_freeze_frame_hf")
-    freeze_df = freeze_df.drop(columns=["access_tier"], errors="ignore")
+    prepared = prepare_public_upload(freeze_df, publisher="publish_freeze_frame_hf")
 
     logger.info("Publishing freeze-frame data to HF Hub")
-    dataset_url = publish_to_hf_hub(freeze_df, hf_token)
+    dataset_url = publish_to_hf_hub(prepared.public, hf_token)
 
     # ------------------------------------------------------------------
     # 5. Publish README alongside data (PR 4c)

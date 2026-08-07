@@ -127,7 +127,13 @@ SELECT
     s.distance_to_goal,
     s.shot_angle,
     s.shot_outcome,
-    CASE WHEN s.shot_outcome = 'Goal' THEN 1 ELSE 0 END    AS is_goal
+    CASE WHEN s.shot_outcome = 'Goal' THEN 1 ELSE 0 END    AS is_goal,
+    -- ADR-072 / R-12: the dim_matches join already existed but access_tier was never selected, so
+    -- this publisher had no tier column and could not be guarded at all. LEFT JOIN is kept
+    -- deliberately (an INNER would silently DROP a shot whose match is missing from dim_matches,
+    -- and silent withholding is the failure class this change exists to prevent) — the publisher
+    -- asserts non-null instead, loudly.
+    dm.access_tier
 FROM {catalog}.{schema}.fct_shots s
 LEFT JOIN {catalog}.{schema}.dim_matches dm
     ON s.match_key = dm.match_key

@@ -20,6 +20,18 @@ from shared.access_tier import (
         ("skillcorner", "public", AccessTier.PUBLIC),
         ("gradientsports", "private", AccessTier.RESTRICTED),
         ("gradientsports", "public", AccessTier.PUBLIC),
+        # An ALLOWLISTED provider carrying an explicit signal: the explicit-visibility branches fire
+        # BEFORE the allowlist check (access_tier.py:46-49), so being public-by-licence does not
+        # override a per-match 'private'. This is the mechanism the prospective commercial StatsBomb
+        # subscription depends on, and it was previously untested for any allowlisted provider —
+        # only the `None` row below existed. See
+        # docs/superpowers/specs/2026-08-06-statsbomb-commercial-360-containment-design.md.
+        ("statsbomb", "private", AccessTier.RESTRICTED),
+        ("statsbomb", "public", AccessTier.PUBLIC),
+        ("statsbomb", "embargoed", AccessTier.RESTRICTED),  # unknown value still fails safe
+        ("wyscout", "private", AccessTier.RESTRICTED),
+        ("idsse", "private", AccessTier.RESTRICTED),
+        ("metrica", "private", AccessTier.RESTRICTED),
         # No feed -> allowlist (P1): open-data providers public, everything else fail-safe restricted.
         ("statsbomb", None, AccessTier.PUBLIC),
         ("wyscout", None, AccessTier.PUBLIC),

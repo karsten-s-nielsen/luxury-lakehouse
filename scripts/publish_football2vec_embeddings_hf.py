@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.85-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.86-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -33,8 +33,9 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-from ingestion.hf_leak_guard import LeakDetectedError, assert_no_private_leak
+from ingestion.hf_leak_guard import LeakDetectedError
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
+from ingestion.hf_upload_seam import GuardedFrame, UploadReceipt, prepare_public_upload, upload_guarded
 
 logging.basicConfig(
     level=logging.INFO,
@@ -132,9 +133,8 @@ def query_databricks_sql(host: str, token: str, sql: str, warehouse_id: str) -> 
     return pa.concat_tables(arrow_tables).to_pandas()
 
 
-def _drop_access_tier(df: pd.DataFrame) -> pd.DataFrame:
-    """Drop the internal access_tier column before upload (spec R2 — never a Hyrum schema change)."""
-    return df.drop(columns=["access_tier"], errors="ignore")
+# _drop_access_tier removed (ADR-072): dropping the column is now part of prepare_public_upload,
+# so it happens inside the seam between the guard and the frame ever being writable.
 
 
 def public_player_vocabulary(per_match_df: pd.DataFrame) -> set[str]:
@@ -175,7 +175,7 @@ def select_publishable_tables(
     per_match_df: pd.DataFrame,
     career_df: pd.DataFrame | None,
     season_df: pd.DataFrame | None,
-) -> tuple[dict[str, pd.DataFrame], str | None]:
+) -> tuple[dict[str, GuardedFrame], str | None]:
     """Decide which embedding tables are safe to publish; returns ``(tables, withheld_reason)``.
 
     ``tables`` maps ``subdir -> frame`` with ``access_tier`` dropped (ready for upload, spec R2). The
@@ -184,52 +184,49 @@ def select_publishable_tables(
     all-public input AND vocabulary subset; otherwise they are withheld (``withheld_reason`` set) so the
     caller fails closed (spec §6.8 (c): publish only the per-match embeddings and raise).
     """
+    # ONE receipt across all three tables so a single upload_guarded accounts for every staged file
+    # (ADR-072). The guard runs INSIDE prepare_public_upload, before any derived computation — the
+    # vocabulary is then read off the GUARDED frame, so it can only ever contain public players.
+    receipt = UploadReceipt(PUBLISHER_NAME)
+
     # (a) input + (b) output assertions for per-match — must pass (the row-level split is authoritative).
-    assert_no_private_leak(per_match_df, publisher=PUBLISHER_NAME)
-    public_ids = public_player_vocabulary(per_match_df)
-    assert_output_vocabulary_subset(per_match_df, public_ids=public_ids, table_label="per_match")
-    tables: dict[str, pd.DataFrame] = {"per_match": _drop_access_tier(per_match_df)}
+    prepared = prepare_public_upload(per_match_df, publisher=PUBLISHER_NAME, receipt=receipt)
+    public_ids = public_player_vocabulary(prepared.public.frame)
+    assert_output_vocabulary_subset(prepared.public.frame, public_ids=public_ids, table_label="per_match")
+    tables: dict[str, GuardedFrame] = {"per_match": prepared.public}
 
     if career_df is None or season_df is None:
         return tables, "career/season aggregate unavailable (not provably public-recomputed)"
 
     try:
+        # Stage into a local dict merged only on FULL success, so a season failure cannot leave
+        # career in `tables`.
+        staged: dict[str, GuardedFrame] = {}
         for label, agg_df in (("career", career_df), ("season", season_df)):
-            assert_no_private_leak(agg_df, publisher=PUBLISHER_NAME)  # (a) input: all-public
-            assert_output_vocabulary_subset(agg_df, public_ids=public_ids, table_label=label)  # (b) output
+            guarded = prepare_public_upload(agg_df, publisher=PUBLISHER_NAME, receipt=receipt).public  # (a) input
+            assert_output_vocabulary_subset(guarded.frame, public_ids=public_ids, table_label=label)  # (b) output
+            staged[label] = guarded
     except LeakDetectedError as exc:
         return tables, f"career/season not provably public-recomputed: {exc}"
 
-    tables["career"] = _drop_access_tier(career_df)
-    tables["season"] = _drop_access_tier(season_df)
+    tables.update(staged)
     return tables, None
 
 
-def publish_to_hf_hub(tables: dict[str, pd.DataFrame], hf_token: str) -> str:
-    from huggingface_hub import HfApi
-
-    api = HfApi(token=hf_token)
-    api.create_repo(DATASET_REPO, exist_ok=True, repo_type="dataset", token=hf_token)
-
+def publish_to_hf_hub(tables: dict[str, GuardedFrame], hf_token: str) -> str:
     with tempfile.TemporaryDirectory() as tmpdir:
         staging_dir = Path(tmpdir) / "data"
-        for sub_dir, sub_df in tables.items():
-            target_dir = staging_dir / sub_dir
-            target_dir.mkdir(parents=True, exist_ok=True)
-            sub_df.to_parquet(target_dir / "data.parquet", index=False, engine="pyarrow")
-            logger.info("Wrote %s/%s: %s rows", sub_dir, "data.parquet", f"{len(sub_df):,}")
+        for sub_dir, guarded in tables.items():
+            guarded.write_parquet(staging_dir / sub_dir / "data.parquet")
         # Scope delete patterns to the subdirs being published (relative to path_in_repo per ADR-049),
         # so a fail-closed per-match-only publish never wipes a previously-published career/season table.
-        delete_patterns = [f"{sub_dir}/**" for sub_dir in tables]
-        api.upload_folder(
-            folder_path=str(staging_dir),
-            path_in_repo="data",
+        return upload_guarded(
+            staging_dir,
+            frames=list(tables.values()),
             repo_id=DATASET_REPO,
-            repo_type="dataset",
             token=hf_token,
-            delete_patterns=delete_patterns,
+            delete_patterns=[f"{sub_dir}/**" for sub_dir in tables],
         )
-    return f"https://huggingface.co/datasets/{DATASET_REPO}"
 
 
 def main() -> None:

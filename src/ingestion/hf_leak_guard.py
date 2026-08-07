@@ -43,6 +43,21 @@ PUBLISHER_REGISTRY: dict[str, str] = {
 }
 
 
+def assert_publishable_frame(df: pd.DataFrame, *, publisher: str) -> None:
+    """Fail closed unless ``df`` is a frame this publisher is permitted to attempt to publish.
+
+    Registry membership + tier-column presence — the preconditions of any tier decision. Extracted
+    (ADR-072) so ``ingestion.hf_upload_seam.prepare_public_upload`` can run them BEFORE
+    ``split_restricted``, which subscripts the column directly and would otherwise surface a missing
+    column as a bare ``KeyError`` on the split path. ``assert_no_private_leak`` calls this too, so
+    there is one owner for the question "what makes a frame publishable".
+    """
+    if publisher not in PUBLISHER_REGISTRY:
+        raise LeakDetectedError(f"publisher {publisher!r} not in PUBLISHER_REGISTRY — add it (fail-closed)")
+    if "access_tier" not in df.columns:
+        raise LeakDetectedError(f"{publisher}: public frame has no access_tier column — cannot prove it is public")
+
+
 def assert_no_private_leak(public_df: pd.DataFrame, *, publisher: str) -> None:
     """Raise ``LeakDetectedError`` if ``public_df`` contains any row whose ``access_tier`` is not exactly 'public'.
 
@@ -50,10 +65,7 @@ def assert_no_private_leak(public_df: pd.DataFrame, *, publisher: str) -> None:
     dropping ``access_tier`` for upload (spec R2). Fail-closed on an unregistered publisher or a missing
     ``access_tier`` column — the guard never assumes safety it cannot prove.
     """
-    if publisher not in PUBLISHER_REGISTRY:
-        raise LeakDetectedError(f"publisher {publisher!r} not in PUBLISHER_REGISTRY — add it (fail-closed)")
-    if "access_tier" not in public_df.columns:
-        raise LeakDetectedError(f"{publisher}: public frame has no access_tier column — cannot prove it is public")
+    assert_publishable_frame(public_df, publisher=publisher)
     non_public = public_df[public_df["access_tier"] != AccessTier.PUBLIC.value]
     if len(non_public) > 0:
         by_tier = non_public["access_tier"].fillna("<null>").value_counts().to_dict()

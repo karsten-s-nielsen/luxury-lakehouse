@@ -87,3 +87,13 @@ exactly one gating mode.
 - **Cards:** `docs/huggingface/dataset-cards/spadl-vaep-action-values-restricted.md`,
   `docs/huggingface/dataset-cards/spadl-action-context-restricted.md`
 - **Memory:** project_gs_hf_publishing_restriction
+
+## Amendment 2026-08-06 — superseded call path (ADR-072)
+
+Publishers no longer call `split_restricted` or `assert_no_private_leak` themselves. Both run inside
+`ingestion.hf_upload_seam.prepare_public_upload(df, publisher=...)`, and the upload goes through
+`upload_guarded(...)`, which derives repo privacy from the frame's tier and asserts the
+`-restricted` naming convention below in both directions. The split *criterion* still lives only in
+`split_restricted` — what changed is that publishers reach it through one door instead of
+remembering to call it. See [ADR-072](ADR-072-publish-seam-guarded-frame.md); direct `HfApi` use in
+`publish_*_hf.py` is now AST-banned.

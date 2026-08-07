@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the current [architecture](ARCHITECTURE.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-05-02 (refreshed ExT-style Conditional xT (xT v2 Candidate) section to reflect the spike's conclusion: design doc + ADR-015 shipped 2026-04-25/26 [PR #205]; Phase 0 Singh baseline shipped 2026-04-26 [PR #206, NLL 3.78924]; Phase 1 KDE-smoothed Singh shipped 2026-04-27 [PR #213, NLL 3.74823 / +1.082%]; Phase 2 KNN-replaces-transition is the next step, tracked in TODO/On-Deck as **ExT2-P2** — not D66, which has been retired)
+**Last updated**: 2026-08-07 (corrected the "What already works" claim: StatsBomb's open-to-commercial switch is zero-code for FETCH only — containment is not, and setting `SB_USERNAME`/`SB_PASSWORD` today would publish paid data to public HF with the leak guard reporting success. See the commercial-StatsBomb-360 containment spec.)
 
 ---
 
@@ -409,9 +409,11 @@ The framework needs to support three ingestion triggers (batch first, streaming 
 | **S3 event-driven** | Stats Perform, Sportec/DFL, Hawk-Eye | S3 event notification &rarr; EventBridge &rarr; Databricks workflow |
 | **WebSocket subscription** (deferred) | StatsBomb Live, Stats Perform, Genius Sports | Persistent connection &mdash; fundamentally different architecture |
 
-### What already works (no refactoring needed)
+### What already works (and what does not)
 
-StatsBomb's open-to-commercial switch is already zero-code: `statsbombpy` checks for `SB_USERNAME`/`SB_PASSWORD` env vars and switches endpoints automatically. This is the gold standard the other providers should match.
+StatsBomb's open-to-commercial **fetch** switch is zero-code: `statsbombpy` checks for `SB_USERNAME`/`SB_PASSWORD` env vars and switches endpoints automatically.
+
+**Containment is not.** Setting those variables today would pull paid data into the same bronze tables under `data_source='statsbomb'`, where `dim_matches.sql` hardcodes `access_tier = 'public'` and `statsbomb` sits on `PUBLIC_BY_LICENSE_PROVIDERS` — so the rows would publish to public HuggingFace datasets with the leak guard reporting success. See `docs/superpowers/specs/2026-08-06-statsbomb-commercial-360-containment-design.md`; the containment work must land before any commercial credential is configured.
 
 ### Industry context
 

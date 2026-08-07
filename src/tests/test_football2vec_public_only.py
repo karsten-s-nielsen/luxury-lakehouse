@@ -125,9 +125,12 @@ def test_happy_path_publishes_all_three_and_drops_access_tier() -> None:
 
     assert withheld is None
     assert set(tables) == {"per_match", "career", "season"}
-    # R2: the internal access_tier column is dropped from every uploaded frame.
-    for frame in tables.values():
-        assert "access_tier" not in frame.columns
+    # R2: the internal access_tier column is dropped from every uploaded frame (now inside the
+    # ADR-072 seam, so the values are GuardedFrames rather than bare DataFrames).
+    for guarded in tables.values():
+        assert "access_tier" not in guarded.frame.columns
+    # ADR-072: all three share ONE receipt, so a single upload_guarded accounts for every file.
+    assert len({id(guarded.receipt) for guarded in tables.values()}) == 1
 
 
 def test_fail_closed_when_career_season_unavailable_publishes_only_per_match() -> None:
@@ -138,7 +141,7 @@ def test_fail_closed_when_career_season_unavailable_publishes_only_per_match() -
 
     assert set(tables) == {"per_match"}
     assert withheld is not None and "public-recomputed" in withheld
-    assert "access_tier" not in tables["per_match"].columns
+    assert "access_tier" not in tables["per_match"].frame.columns
 
 
 def test_fail_closed_when_career_has_private_only_player_withholds_aggregates() -> None:
