@@ -22,8 +22,9 @@ class TestHfSync:
 
         # PR-Cycle-B (2026-05-01): import_obso_results split out — was 7, now 6.
         # PR-2 (2026-05-05): +4 sub-ops (scoutgpt export, 3 Group 0 publishers) — was 10.
-        # 2026-07 space_creation retirement: -1 (import_space_creation removed) — now 9.
-        assert mock_run.call_count == 9
+        # 2026-07 space_creation retirement: -1 (import_space_creation removed) — was 9.
+        # ADR-074 (2026-08-08): import_psxg_predictions split into its own task — now 8.
+        assert mock_run.call_count == 8
 
     def test_run_sub_workflow_swallows_failure(self) -> None:
         """_run_sub_workflow logs failure at ERROR and continues (doesn't raise).
@@ -118,15 +119,39 @@ class TestHfSync:
         assert "2 of 9" in msg
 
     def test_sub_operations_count(self) -> None:
-        """Verify all 9 sub-operations are registered.
+        """Verify all 8 sub-operations are registered.
 
         PR-Cycle-B (2026-05-01): split import_obso_results — was 7, now 6.
         PR-2 (2026-05-05): +4 (scoutgpt export, 3 Group 0 publishers) — was 10.
-        2026-07 space_creation retirement: -1 (import_space_creation removed) — now 9.
+        2026-07 space_creation retirement: -1 (import_space_creation removed) — was 9.
+        ADR-074 (2026-08-08): import_psxg_predictions promoted to its own task — now 8.
         """
         from ingestion.hf_sync import _SUB_OPERATIONS
 
-        assert len(_SUB_OPERATIONS) == 9
+        assert len(_SUB_OPERATIONS) == 8
+
+    def test_import_psxg_is_no_longer_an_hf_sync_sub_operation(self) -> None:
+        """SEC7 / ADR-074 — the ONLY leg dbt needs must not sit behind eight publishers.
+
+        Since ADR-073 hf_sync FAILS its task on any sub-op failure, leaving this here
+        meant an HF Hub outage could block dbt_build_output_marts and its two
+        dependents (refresh_synced_tables, run_model_validation).
+        """
+        from ingestion.hf_sync import _SUB_OPERATIONS, _VOLUME_PATHS
+
+        assert "ingestion.import_psxg_predictions" not in [label for label, _ in _SUB_OPERATIONS]
+        assert "ingestion.import_psxg_predictions" not in _VOLUME_PATHS
+
+    def test_hf_sync_is_export_only(self) -> None:
+        """No sub-operation may write a bronze table dbt reads — that coupling IS SEC7.
+
+        import_obso_results was split for this reason in PR-Cycle-B (2026-05-01) and
+        import_psxg_predictions in ADR-074. This asserts the class stays closed rather
+        than re-opening the next time an importer looks convenient to co-locate.
+        """
+        from ingestion.hf_sync import _SUB_OPERATIONS
+
+        assert not [x for x, _ in _SUB_OPERATIONS if "import_" in x]
 
     def test_sub_operations_all_callable(self) -> None:
         """Every sub-operation has a callable."""

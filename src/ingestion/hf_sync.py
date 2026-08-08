@@ -1,7 +1,7 @@
 """Combined HF Hub sync task — imports and exports in a single Databricks task.
 
 Replaces separate HF tasks with one task that calls each as a
-``@workflow``-decorated sub-operation (currently 9 sub-operations).
+``@workflow``-decorated sub-operation (currently 8 sub-operations).
 Each sub-operation gets its own record in ``workflow_cost_live``.
 """
 
@@ -43,7 +43,6 @@ skip_guard = _HfSyncGuard()
 # These match the CLI defaults in each sub-module's ``main()`` function.
 _VOLUME_PATHS: dict[str, str] = {
     "ingestion.import_obso_results": "/Volumes/soccer_analytics/dev_gold/model_weights/obso",
-    "ingestion.import_psxg_predictions": "/Volumes/soccer_analytics/dev_gold/model_weights/psxg",
     "ingestion.export_shots_on_target": "/Volumes/soccer_analytics/dev_gold/model_weights/psxg",
     "ingestion.prepare_360_training_data": "/Volumes/soccer_analytics/dev_gold/training_data/football2vec_360",
 }
@@ -160,8 +159,14 @@ def _make_sync_costs_op() -> Callable[..., None]:
 # yesterday's pausa_raw_scores when hf_sync took longer than the
 # elastic_sync→pausa chain. The standalone import_obso_results task makes
 # this dependency explicit; see terraform/modules/workflows/main.tf.
+#
+# ADR-074 / SEC7 (2026-08-08) split `ingestion.import_psxg_predictions` out for the
+# SAME reason: it writes bronze.psxg_predictions, which stg_psxg__predictions reads,
+# so dbt_build_output_marts depended on hf_sync. Since ADR-073 hf_sync FAILS its task
+# on any sub-op failure, that dependency let an HF Hub outage block the daily dbt
+# build and its two dependents. hf_sync is now EXPORT-ONLY and gates nothing --
+# enforced by test_hf_sync_is_export_only.
 _SUB_OPERATIONS: list[tuple[str, Callable[..., None]]] = [
-    ("ingestion.import_psxg_predictions", _make_volume_op("ingestion.import_psxg_predictions")),
     ("ingestion.export_embeddings_training_data", _make_logger_op("ingestion.export_embeddings_training_data")),
     (
         "ingestion.export_shots_on_target",

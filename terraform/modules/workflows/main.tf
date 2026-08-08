@@ -871,7 +871,8 @@ resource "databricks_job" "data_ingestion" {
     # (ADR-066; enforced by test_workflow_dag_bronze_reads).
     depends_on { task_key = "compute_xg_shot_scores" }
     depends_on { task_key = "dbt_build_intermediate_marts" }
-    depends_on { task_key = "hf_sync" }
+    # ADR-074/SEC7: was `hf_sync` — this is the only leg it needed (psxg_predictions).
+    depends_on { task_key = "import_psxg_predictions" }
 
     environment_key = "dbt"
   }
@@ -954,6 +955,40 @@ resource "databricks_job" "data_ingestion" {
       parameters = [
         "--catalog", var.catalog_name,
         "--schema", "bronze",
+      ]
+    }
+
+    environment_key = "hf"
+  }
+
+  # ── Task: Import PSxG predictions from HF Hub ───────────────────────────
+  # ADR-074 / SEC7 (2026-08-08) — split out of hf_sync for the SAME reason
+  # PR-Cycle-B split import_obso_results directly above. This writes
+  # bronze.psxg_predictions, which stg_psxg__predictions reads, so
+  # dbt_build_output_marts depended on hf_sync — a task that ALSO runs eight
+  # HF Hub publishers. Since ADR-073 made hf_sync fail its task on any
+  # sub-operation failure, that dependency let an HF Hub outage block the
+  # daily dbt build plus refresh_synced_tables and run_model_validation.
+  #
+  # NO depends_on, matching import_obso_results: a pure HF Hub download whose
+  # input comes from a PREVIOUS HF Jobs run, not from anything earlier in this
+  # one. wf-import-psxg.yaml's `depends_on: [wf-export-shots]` is lineage, not
+  # runtime ordering.
+  task {
+    task_key        = "import_psxg_predictions"
+    timeout_seconds = 600
+    max_retries     = 1 # HF Hub download — transient failures benefit from retry
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "import_psxg_predictions"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+        # REQUIRED (argparse required=True) — omitting it is a runtime failure,
+        # not a default. Matches _VOLUME_PATHS' former entry in hf_sync.py.
+        "--volume-path", "/Volumes/soccer_analytics/dev_gold/model_weights/psxg",
       ]
     }
 

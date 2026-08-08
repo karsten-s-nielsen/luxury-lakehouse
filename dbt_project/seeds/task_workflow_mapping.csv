@@ -35,6 +35,7 @@ backfill_statsbomb_extra,wf-backfill-extra
 backfill_statsbomb_360,wf-backfill-360
 extract_tracking_metadata,wf-tracking-metadata
 import_obso_results,wf-import-obso
+import_psxg_predictions,wf-import-psxg
 refresh_synced_tables,wf-refresh-synced-tables
 dbt_build_input_marts,wf-dbt-build-input-marts
 dbt_build_intermediate_marts,wf-dbt-build-intermediate-marts

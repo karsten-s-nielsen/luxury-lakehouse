@@ -75,6 +75,12 @@ _BRONZE_READ_REQUIREMENTS: list[tuple[str, str, str]] = [
     # (1-day lag class).
     ("dbt_build_output_marts", "pausa_values", "compute_pausa"),
     ("dbt_build_output_marts", "elastic_event_match", "compute_elastic_sync"),
+    # ADR-074 / SEC7 (2026-08-08): stg_psxg__predictions reads bronze.psxg_predictions,
+    # written by import_psxg_predictions. That import used to be an hf_sync sub-operation,
+    # so this stage depended on hf_sync — coupling the daily dbt build to eight HF Hub
+    # publishers. Registering the edge here is what stops the split being silently
+    # reverted by deleting one depends_on line.
+    ("dbt_build_output_marts", "psxg_predictions", "import_psxg_predictions"),
     # statsbomb_360 (backfill_statsbomb_360 writer) — read by stg_statsbomb_360
     # which is an ancestor of input_mart fct_shots. Migration to
     # dbt_build_input_marts is correct per ADR-019 § ingest-helper exemption.

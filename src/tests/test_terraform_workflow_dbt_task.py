@@ -209,7 +209,11 @@ def test_dbt_build_output_marts_depends_on_stage2_and_phase2_compute() -> None:
         # daily build via `--vars xg_v3_enabled=true`.
         "compute_xg_shot_scores",
         "dbt_build_intermediate_marts",
-        "hf_sync",
+        # ADR-074/SEC7 (2026-08-08): was "hf_sync". Stage 3 needed exactly ONE leg of it
+        # — bronze.psxg_predictions via stg_psxg__predictions — while the other eight
+        # sub-operations are HF Hub exports that gate nothing. Since ADR-073 made hf_sync
+        # fail its task on any sub-op failure, that edge let an HF outage block this build.
+        "import_psxg_predictions",
     ]
     missing = [d for d in expected_deps if f'task_key = "{d}"' not in window]
     assert not missing, f"dbt_build_output_marts task missing depends_on entries: {missing}"

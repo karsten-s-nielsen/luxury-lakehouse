@@ -469,6 +469,7 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     # PR-Cycle-B (2026-05-01): split out of wf-hf-sync into its own scheduled
     # Databricks task so wf-obso-pausa can declare an explicit dependency.
     "import_obso_results": "wf-import-obso",
+    "import_psxg_predictions": "wf-import-psxg",
     "run_model_validation": "wf-model-validation",
     # ADR-063 H4: cross-cutting derived-artifact staleness monitor (detect-and-alert).
     "run_staleness_monitor": "wf-staleness-monitor",
@@ -642,7 +643,6 @@ def test_every_direct_tf_task_has_scheduled_card() -> None:
 # hf_sync._SUB_OPERATIONS into its own Databricks task; mapping moved to
 # _DIRECT_TASK_ENTRY_POINT_TO_CARD above.
 _MODULE_TO_CARD: dict[str, str] = {
-    "ingestion.import_psxg_predictions": "wf-import-psxg",
     "ingestion.export_embeddings_training_data": "wf-football2vec-v2-export",
     "ingestion.export_shots_on_target": "wf-export-shots",
     "ingestion.prepare_360_training_data": "wf-prepare-360-data",

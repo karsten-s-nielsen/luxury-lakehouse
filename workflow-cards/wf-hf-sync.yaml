@@ -36,7 +36,6 @@ execution:
     # task so wf-obso-pausa can declare an explicit dependency on the import.
     # Was previously the 2nd sub-operation in this list.
     sub_operations:
-      - wf-import-psxg
       - wf-football2vec-v2-export
       - wf-export-shots
       - wf-prepare-360-data
