@@ -152,6 +152,65 @@ def _parse_tf_task_timeouts() -> dict[str, tuple[int, str | None]]:
     return result
 
 
+def _parse_tf_task_environments() -> dict[str, tuple[str, str | None]]:
+    """Return ``{task_key: (environment_key, entry_point)}`` from main.tf.
+
+    Mirrors :func:`_parse_tf_task_timeouts` exactly — same resource gating, same depth
+    tracking, same "FIRST task_key / LAST inner value / FIRST entry_point" rules. The two
+    parsers are a WELDED PAIR: an edit to one that is not mirrored in the other is a defect.
+
+    ``environment_key`` takes the LAST match (rule 1, as for ``timeout_seconds``): in a
+    for_each the INNER task carries the environment that actually runs.
+
+    The value regex is ``"([^"]+)"``, deliberately NOT ``"([a-z_]+)"`` — a restrictive
+    pattern silently SKIPS a key containing a digit or hyphen rather than failing, and with
+    ``assert checked > 0`` as the only net a partially-skipping parser still passes green.
+    """
+    text = _MAIN_TF.read_text(encoding="utf-8")
+    depth = 0
+    in_resource = False
+    result: dict[str, tuple[str, str | None]] = {}
+    task_key: str | None = None
+    environment: str | None = None
+    entry_point: str | None = None
+    in_task_depth: int | None = None
+    resource_re = re.compile(r'^resource\s+"databricks_job"\s+"data_ingestion"\s*\{')
+    task_re = re.compile(r"^\s*task\s*\{")
+    task_key_re = re.compile(r'^\s*task_key\s*=\s*"([^"]+)"')
+    entry_point_re = re.compile(r'^\s*entry_point\s*=\s*"([^"]+)"')
+    environment_re = re.compile(r'^\s*environment_key\s*=\s*"([^"]+)"')
+
+    for line in text.splitlines():
+        if not in_resource:
+            if resource_re.search(line):
+                in_resource = True
+                depth = 1
+            continue
+        opens = line.count("{")
+        closes = line.count("}")
+        if in_task_depth is None and depth == 1 and task_re.match(line):
+            in_task_depth = depth + opens
+            task_key, environment, entry_point = None, None, None
+        if in_task_depth is not None:
+            m = task_key_re.match(line)
+            if m and task_key is None:
+                task_key = m.group(1)
+            m = environment_re.match(line)
+            if m:
+                environment = m.group(1)
+            m = entry_point_re.match(line)
+            if m and entry_point is None:
+                entry_point = m.group(1)
+        depth += opens - closes
+        if in_task_depth is not None and depth < in_task_depth:
+            if task_key and environment is not None:
+                result[task_key] = (environment, entry_point)
+            in_task_depth = None
+        if depth <= 0:
+            break
+    return result
+
+
 def test_card_phase_timeouts_match_terraform() -> None:
     """A card's declared phase timeout must equal its Terraform task's `timeout_seconds`.
 
@@ -201,6 +260,104 @@ def test_card_phase_timeouts_match_terraform() -> None:
     assert not unjoinable, "card/terraform join is broken:\n  " + "\n  ".join(unjoinable)
     assert checked >= 30, f"only {checked} card phases paired with a TF task — the join is broken"
     assert not mismatches, "card/terraform timeout drift:\n  " + "\n  ".join(mismatches)
+
+
+def test_card_phase_environments_match_terraform() -> None:
+    """A card's declared phase ``environment`` must equal its Terraform ``environment_key``.
+
+    Sibling of :func:`test_card_phase_timeouts_match_terraform`, and it exists for the same
+    reason: TERRAFORM IS THE RUNTIME TRUTH and the card is documentation ABOUT it. An operator
+    reading ``environment: analytics`` will look for numba / xgboost / matplotlib that the task
+    does not actually have.
+
+    Found by review 2026-08-08 (ADR-074). The drift is WIDE, not a card or two: every
+    orchestrated sub-operation of ``wf-hf-sync`` claims ``analytics`` while running under ``hf``
+    (wheel + huggingface_hub only), and multiple direct-task cards claim ``analytics`` against
+    ``default`` / ``embeddings`` / ``statsbomb``. The timeout field was gated after its drift
+    proved total (21 of 42 cards); this field was never gated at all.
+
+    Covers BOTH legs. The orchestrated leg is not optional: a sub-operation card has no TF task
+    of its own, so a direct-task-only join is blind to exactly the nine cards that motivated
+    this guard — the same vacuity the timeout guard's first draft suffered.
+    """
+    tf = _parse_tf_task_environments()
+    assert tf, "parsed ZERO task environments from main.tf — the parser is broken, not the cards"
+    # Anti-vacuity anchor against a value verified via the Jobs API: if the parser reports
+    # anything else for hf_sync it is mis-assigning keys across task boundaries.
+    assert tf.get("hf_sync", ("",))[0] == "hf", f"parser mis-assigned hf_sync environment: {tf.get('hf_sync')}"
+
+    cards = {p.stem: _load_card(p) for p in _CARDS_DIR.glob("wf-*.yaml")}
+    mismatches: list[str] = []
+    unjoinable: list[str] = []
+    checked = 0
+
+    for task_key, (tf_env, tf_entry_point) in sorted(tf.items()):
+        card_id = _DIRECT_TASK_ENTRY_POINT_TO_CARD.get(task_key)
+        if card_id is None:
+            continue  # pure orchestration — intentionally no card
+        if card_id not in cards:
+            unjoinable.append(f"{card_id}: mapped from task_key={task_key} but no such card file")
+            continue
+        for phase_name, phase in _card_phases(cards[card_id]).items():
+            if phase.get("entry_point") not in (task_key, tf_entry_point):
+                continue
+            declared = phase.get("environment")
+            if declared is None:
+                continue  # environment is optional on a card; absent != wrong
+            checked += 1
+            if declared != tf_env:
+                mismatches.append(
+                    f"{card_id}.yaml [{phase_name}] (task {task_key}): card={declared}, terraform={tf_env}"
+                )
+
+    # Orchestrated sub-operation cards run INSIDE their orchestrator's process, and therefore
+    # in its environment. Resolve through the orchestrator's own card -> task -> environment.
+    card_to_task = {card: task for task, card in _DIRECT_TASK_ENTRY_POINT_TO_CARD.items() if card}
+    for card_id, card in sorted(cards.items()):
+        for phase_name, phase in _card_phases(card).items():
+            declared = phase.get("environment")
+            orchestrator = phase.get("orchestrated_by")
+            if declared is None or orchestrator is None:
+                continue
+            orch_task = card_to_task.get(orchestrator)
+            if orch_task is None or orch_task not in tf:
+                unjoinable.append(f"{card_id}.yaml [{phase_name}]: orchestrated_by={orchestrator} has no TF task")
+                continue
+            expected = tf[orch_task][0]
+            checked += 1
+            if declared != expected:
+                mismatches.append(
+                    f"{card_id}.yaml [{phase_name}] (via {orchestrator}): card={declared}, terraform={expected}"
+                )
+
+    assert not unjoinable, "card/terraform environment join is broken:\n  " + "\n  ".join(unjoinable)
+    assert checked >= 20, f"only {checked} card phases paired with an environment — the join is broken"
+    assert not mismatches, "card/terraform environment drift:\n  " + "\n  ".join(mismatches)
+
+
+def test_card_environments_are_defined_in_terraform() -> None:
+    """A card may not name an environment that does not exist.
+
+    Different defect from naming the WRONG one, so it gets its own assertion: a wrong name is
+    misleading, a non-existent one is unresolvable. ``wf-action-context`` declared
+    ``environment: spadl``, which no Terraform task defines.
+
+    NOTE: this is the set of environments REFERENCED by a task, not the set DECLARED in the
+    module. They coincide today. If a declared-but-unreferenced environment is ever added, a
+    card naming it would false-positive here — parse the ``environment {}`` blocks at that
+    point rather than loosening this assertion.
+    """
+    defined = {env for env, _ in _parse_tf_task_environments().values()}
+    assert defined, "parsed ZERO environments from main.tf — the parser is broken"
+
+    dangling: list[str] = []
+    for path in sorted(_CARDS_DIR.glob("wf-*.yaml")):
+        for phase_name, phase in _card_phases(_load_card(path)).items():
+            declared = phase.get("environment")
+            if declared is not None and declared not in defined:
+                dangling.append(f"{path.stem}.yaml [{phase_name}]: environment={declared} not in {sorted(defined)}")
+
+    assert not dangling, "cards naming undefined environments:\n  " + "\n  ".join(dangling)
 
 
 def _parse_hf_sync_sub_operations() -> list[str]:

@@ -40,7 +40,7 @@ execution:
     module: ingestion.publish_xg_shots_hf
     distribution: driver-bound
     timeout: "600s"
-    environment: analytics
+    environment: hf
   export_hf_jobs:
     trigger: manual
     runtime: hf-jobs

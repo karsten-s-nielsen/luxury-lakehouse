@@ -46,7 +46,7 @@ execution:
     module: ingestion.publish_freeze_frame_hf
     distribution: driver-bound
     timeout: "600s"
-    environment: analytics
+    environment: hf
 
 depends_on:
   - wf-statsbomb-ingest

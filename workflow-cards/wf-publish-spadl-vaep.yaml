@@ -38,7 +38,7 @@ execution:
     module: ingestion.publish_spadl_vaep_hf
     distribution: driver-bound
     timeout: "900s"
-    environment: analytics
+    environment: hf
   export_hf_jobs:
     trigger: manual
     runtime: hf-jobs

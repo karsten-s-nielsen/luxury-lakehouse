@@ -39,7 +39,7 @@ execution:
     module: ingestion.idsse
     distribution: driver-bound
     timeout: "900s"
-    environment: analytics
+    environment: default
 
 depends_on: []
 

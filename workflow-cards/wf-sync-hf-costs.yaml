@@ -41,7 +41,7 @@ execution:
     module: ingestion.sync_hf_costs
     distribution: driver-bound
     timeout: "300s"
-    environment: analytics
+    environment: hf
 
 depends_on: []
 
