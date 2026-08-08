@@ -470,6 +470,7 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     # Databricks task so wf-obso-pausa can declare an explicit dependency.
     "import_obso_results": "wf-import-obso",
     "import_psxg_predictions": "wf-import-psxg",
+    "publish_spadl_vaep": "wf-publish-spadl-vaep",
     "run_model_validation": "wf-model-validation",
     # ADR-063 H4: cross-cutting derived-artifact staleness monitor (detect-and-alert).
     "run_staleness_monitor": "wf-staleness-monitor",
@@ -647,7 +648,6 @@ _MODULE_TO_CARD: dict[str, str] = {
     "ingestion.export_shots_on_target": "wf-export-shots",
     "ingestion.prepare_360_training_data": "wf-prepare-360-data",
     "ingestion.export_scoutgpt_training_data": "wf-scoutgpt-export",
-    "ingestion.publish_spadl_vaep_hf": "wf-publish-spadl-vaep",
     "ingestion.publish_xg_shots_hf": "wf-publish-xg-shots",
     "ingestion.publish_freeze_frame_hf": "wf-publish-freeze-frames",
     "ingestion.sync_hf_costs": "wf-sync-hf-costs",

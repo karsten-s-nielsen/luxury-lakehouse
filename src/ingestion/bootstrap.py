@@ -44,6 +44,11 @@ def bootstrap_hooks(spark: SparkSession, catalog: str, schema: str) -> None:
         schema: Pipeline's target schema.
     """
     from ingestion.cost_hook import CostEstimateHook
+    from ingestion.memory_hook import MemoryHook
     from workflows import register_hook
 
     register_hook(CostEstimateHook(spark, catalog, schema))
+    # ADR-074: driver memory for EVERY @workflow, not just hf_sync's sub-operations.
+    # The 2026-08-07 OOM (exit 137) is unexplained, and the tasks being split out of
+    # hf_sync would otherwise be the platform's only unmeasured surface.
+    register_hook(MemoryHook())

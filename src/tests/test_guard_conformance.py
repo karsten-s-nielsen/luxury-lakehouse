@@ -1269,6 +1269,25 @@ class TestSelectorToCardParity:
                 )
 
 
+# ADR-074: modules behind their own TF task whose main() does NOT call bootstrap_hooks.
+# PRE-EXISTING, surfaced (not caused) by the hook-registration gate below. Deliberately
+# NOT fixed in this cycle: widening scope is the operator's call, and `dbt_runner` in
+# particular needs WHY before FIX — three dbt tasks with no CostEstimateHook either
+# means dbt builds have no workflow_cost_live rows (a finding) or they register hooks
+# by another path (a fence). Adding the call to find out is the wrong order.
+_PRE_EXISTING_HOOK_GAPS: frozenset[str] = frozenset(
+    {
+        "ingestion.staleness_monitor",
+        "ingestion.dbt_runner",
+        "ingestion.refresh_synced_tables",
+        # Found BY THIS GATE, not by the review that requested it — a manual spot-check
+        # named the three above and missed this one. `compute_shot_freeze_frames` is a
+        # real bronze producer, so if the gap is genuine it has no workflow_cost_live row.
+        "ingestion.shot_freeze_frames",
+    }
+)
+
+
 class TestWatermarkRecordAfterSuccess:
     """Modules with watermark guards must call record_watermarks after run_pipeline."""
 
@@ -1280,6 +1299,14 @@ class TestWatermarkRecordAfterSuccess:
         "ingestion.expected_threat",
         "ingestion.off_ball_xt",
         "ingestion.action_context",
+        # ADR-074: promoted OUT of hf_sync into its own task. hf_sync's
+        # `_make_watermark_op` factory used to supply the whole watermark cycle
+        # (resolve -> check_upstream_freshness -> skip-if-unchanged -> record). A
+        # standalone main() inherits none of it, so without this the most expensive
+        # driver operation in the platform — 9.76M rows via toPandas plus four HF Hub
+        # uploads — would run UNCONDITIONALLY every day. This list is hardcoded, which
+        # is exactly why the omission would otherwise be invisible.
+        "ingestion.publish_spadl_vaep_hf",
     ]
 
     @pytest.mark.parametrize("module_path", _STANDALONE_MODULES)
@@ -1318,3 +1345,54 @@ class TestWatermarkRecordAfterSuccess:
 
         missing = factory_names - found_factories
         assert not missing, f"hf_sync.py factories missing record_watermarks call: {missing}"
+
+
+def test_direct_task_modules_register_hooks_in_main() -> None:
+    """Every module behind its OWN Terraform task must call bootstrap_hooks in main().
+
+    A sub-operation inherits hook registration from its orchestrator's main(); a
+    standalone task does not. ADR-074 promoted publish_spadl_vaep_hf out of hf_sync
+    with a main() that called neither bootstrap_hooks nor the watermark guard — it
+    would have published 9.76M rows daily with NO workflow_cost_live row, and nothing
+    would have gone red, because the watermark list above is hardcoded and no gate
+    covered hook registration at all.
+
+    Resolves the module via the CARD's `module:` field, not from the map key: that map
+    is keyed by TASK_KEY, and task_key != entry_point != module for several tasks
+    (e.g. `dbt_build_input_marts` -> entry_point `dbt_build`; `publish_spadl_vaep` ->
+    module `ingestion.publish_spadl_vaep_hf`). Deriving a module from the key would
+    silently skip exactly the module this gate exists for.
+    """
+    from tests.test_card_parity_with_terraform import (
+        _CARDS_DIR,
+        _DIRECT_TASK_ENTRY_POINT_TO_CARD,
+        _card_phases,
+        _load_card,
+    )
+
+    missing: list[str] = []
+    for task_key, card_id in sorted(_DIRECT_TASK_ENTRY_POINT_TO_CARD.items()):
+        if card_id is None:
+            continue  # intentional gap — pure orchestration, no card
+        card_path = _CARDS_DIR / f"{card_id}.yaml"
+        if not card_path.exists():
+            continue
+        modules = {p["module"] for p in _card_phases(_load_card(card_path)).values() if p.get("module")}
+        for module_name in sorted(modules):
+            if module_name in _PRE_EXISTING_HOOK_GAPS:
+                continue
+            mod = importlib.import_module(module_name)
+            if mod.__file__ is None:
+                continue
+            tree = ast.parse(Path(mod.__file__).read_text(encoding="utf-8"))
+            main_fn = next(
+                (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "main"),
+                None,
+            )
+            if main_fn is None:
+                continue
+            calls = {n.func.id for n in ast.walk(main_fn) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+            if "bootstrap_hooks" not in calls:
+                missing.append(f"{module_name}.main() (task {task_key}) does not call bootstrap_hooks")
+
+    assert not missing, "standalone task modules missing hook registration:\n  " + "\n  ".join(missing)

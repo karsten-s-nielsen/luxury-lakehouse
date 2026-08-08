@@ -1,7 +1,7 @@
 """Combined HF Hub sync task — imports and exports in a single Databricks task.
 
 Replaces separate HF tasks with one task that calls each as a
-``@workflow``-decorated sub-operation (currently 8 sub-operations).
+``@workflow``-decorated sub-operation (currently 7 sub-operations).
 Each sub-operation gets its own record in ``workflow_cost_live``.
 """
 
@@ -176,10 +176,6 @@ _SUB_OPERATIONS: list[tuple[str, Callable[..., None]]] = [
     (
         "ingestion.export_scoutgpt_training_data",
         _make_watermark_op("ingestion.export_scoutgpt_training_data", "wf-scoutgpt-export"),
-    ),
-    (
-        "ingestion.publish_spadl_vaep_hf",
-        _make_watermark_op("ingestion.publish_spadl_vaep_hf", "wf-publish-spadl-vaep"),
     ),
     (
         "ingestion.publish_xg_shots_hf",

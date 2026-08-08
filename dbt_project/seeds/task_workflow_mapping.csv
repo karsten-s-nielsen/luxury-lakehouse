@@ -40,3 +40,4 @@ refresh_synced_tables,wf-refresh-synced-tables
 dbt_build_input_marts,wf-dbt-build-input-marts
 dbt_build_intermediate_marts,wf-dbt-build-intermediate-marts
 dbt_build_output_marts,wf-dbt-build-output-marts
+publish_spadl_vaep,wf-publish-spadl-vaep

@@ -40,7 +40,6 @@ execution:
       - wf-export-shots
       - wf-prepare-360-data
       - wf-scoutgpt-export
-      - wf-publish-spadl-vaep
       - wf-publish-xg-shots
       - wf-publish-freeze-frames
       - wf-sync-hf-costs

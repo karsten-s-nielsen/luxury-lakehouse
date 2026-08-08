@@ -1339,6 +1339,39 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "analytics"
   }
 
+  # ── Task: Publish SPADL/VAEP action values to HF Hub ───────────────────
+  # ADR-074: split out of hf_sync, which ran nine sub-operations in ONE driver
+  # process and was OOM-killed (exit 137, run 49905842293930). Measured at
+  # 6.97 GB peak ALONE in a ~16 GB driver (diagnostic run 939215830803445):
+  # safe on its own, fatal when sharing. A dedicated task = a fresh driver.
+  #
+  # depends_on dbt_build_intermediate_marts, NOT output_marts: fct_action_values
+  # is tagged `intermediate_mart`. This edge is NEW — hf_sync has no dbt
+  # dependency at all, so this publisher was a SIBLING of the stage that builds
+  # its input. Registered in _GOLD_READ_REQUIREMENTS.
+  task {
+    task_key        = "publish_spadl_vaep"
+    timeout_seconds = 1800
+    max_retries     = 1 # HF Hub network calls — transient failures benefit from retry
+
+    depends_on { task_key = "dbt_build_intermediate_marts" }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "publish_spadl_vaep_hf"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        # IGNORED for layer resolution: run_pipeline reads DEFAULT_GOLD_SCHEMA
+        # (ADR-073) and the card pins dev_gold. Passed only because
+        # parse_ingestion_args makes --schema required.
+        "--schema", "bronze",
+      ]
+    }
+
+    environment_key = "hf"
+  }
+
   # ── Task: Refresh Lakebase synced tables (final stage) ───────────────
   # SNAPSHOT-mode synced tables do not auto-refresh. This task closes the
   # propagation loop after dbt_build completes by refreshing all 37 synced

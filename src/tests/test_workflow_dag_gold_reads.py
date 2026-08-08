@@ -74,6 +74,11 @@ _GOLD_READ_REQUIREMENTS: list[tuple[str, str, str]] = [
     # ── compute_embeddings_v2: reads intermediate_mart fct_action_values ───
     # ML inference reads SPADL/VAEP action values from gold (intermediate stage).
     ("compute_embeddings_v2", "fct_action_values", "dbt_build_intermediate_marts"),
+    # ADR-074 (2026-08-08): publish_spadl_vaep promoted out of hf_sync. hf_sync had NO
+    # dbt edge at all, so this publisher was a SIBLING of the stage that builds its
+    # input and could publish a mart it had no ordering against — bounded only by its
+    # own watermark gate. Registering it here is what keeps the new edge from decaying.
+    ("publish_spadl_vaep", "fct_action_values", "dbt_build_intermediate_marts"),
     # ── run_model_validation: reads output_marts ──────────────────────────
     # ADR-019 supplants ADR-017's yesterday-gold carve-out: validation now
     # reads TODAY's gold, but its sibling-of-refresh_synced_tables position

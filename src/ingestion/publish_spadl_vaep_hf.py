@@ -187,8 +187,41 @@ def run_pipeline(
 
 
 def main() -> None:
-    """CLI entry point for SPADL/VAEP publisher."""
+    """CLI entry point for the SPADL/VAEP publisher.
+
+    ADR-074: this module was promoted OUT of hf_sync into its own Databricks task —
+    it peaks at 6.97 GB (diagnostic run 939215830803445) and must not share a driver.
+
+    hf_sync's ``_make_watermark_op`` factory previously supplied BOTH the watermark
+    cycle and (via ``hf_sync.main()``) the hook registration. A standalone ``main()``
+    inherits neither, so both are done explicitly here. Without them this publisher
+    would run UNCONDITIONALLY every day — 9.76M rows through ``toPandas`` plus four HF
+    Hub uploads — and produce no ``workflow_cost_live`` row.
+
+    Mirrors ``ingestion.model_validation.main``. Note the asymmetry with
+    ``import_psxg_predictions``, split in the same cycle: THAT module was already
+    standalone-capable (its own ``skip_guard`` + ``bootstrap_hooks``). This one never
+    was, which is why the two splits shipped as separate commits.
+    """
     configure_logging("publish_spadl_vaep_hf")
     args = parse_ingestion_args("Publish SPADL/VAEP action values to HF Hub")
     spark = get_spark_session()
+
+    from ingestion.bootstrap import bootstrap_hooks
+    from ingestion.guards import check_upstream_freshness, record_watermarks, resolve_upstream_tables_from_card
+
+    bootstrap_hooks(spark, args.catalog, args.schema)
+
+    # The card pins `{catalog}.dev_gold.fct_action_values` (ADR-073), so the
+    # `--schema bronze` argument never reaches this resolution. Do not "simplify" by
+    # threading args.schema anywhere it could change the layer.
+    card_id = "wf-publish-spadl-vaep"
+    upstream = resolve_upstream_tables_from_card(card_id, args.catalog, args.schema)
+    freshness = check_upstream_freshness(spark, args.catalog, card_id, upstream)
+    if freshness.count == 0:
+        logger.info("Watermark skip: %s — no upstream changes", card_id)
+        return
+
     run_pipeline(spark, args.catalog, args.schema, logger)
+
+    record_watermarks(spark, args.catalog, card_id, upstream)

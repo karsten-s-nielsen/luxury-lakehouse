@@ -31,13 +31,13 @@ outputs:
 
 execution:
   export:
-    trigger: orchestrated
-    orchestrated_by: wf-hf-sync
+    trigger: scheduled
     runtime: databricks-workflow
+    task_key: publish_spadl_vaep
     entry_point: publish_spadl_vaep_hf
     module: ingestion.publish_spadl_vaep_hf
     distribution: driver-bound
-    timeout: "900s"
+    timeout: "1800s"
     environment: hf
   export_hf_jobs:
     trigger: manual

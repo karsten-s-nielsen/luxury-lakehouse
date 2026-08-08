@@ -23,8 +23,9 @@ class TestHfSync:
         # PR-Cycle-B (2026-05-01): import_obso_results split out — was 7, now 6.
         # PR-2 (2026-05-05): +4 sub-ops (scoutgpt export, 3 Group 0 publishers) — was 10.
         # 2026-07 space_creation retirement: -1 (import_space_creation removed) — was 9.
-        # ADR-074 (2026-08-08): import_psxg_predictions split into its own task — now 8.
-        assert mock_run.call_count == 8
+        # ADR-074 (2026-08-08): import_psxg_predictions + publish_spadl_vaep_hf split
+        # into their own tasks (dbt decoupling + driver isolation) — now 7.
+        assert mock_run.call_count == 7
 
     def test_run_sub_workflow_swallows_failure(self) -> None:
         """_run_sub_workflow logs failure at ERROR and continues (doesn't raise).
@@ -124,11 +125,12 @@ class TestHfSync:
         PR-Cycle-B (2026-05-01): split import_obso_results — was 7, now 6.
         PR-2 (2026-05-05): +4 (scoutgpt export, 3 Group 0 publishers) — was 10.
         2026-07 space_creation retirement: -1 (import_space_creation removed) — was 9.
-        ADR-074 (2026-08-08): import_psxg_predictions promoted to its own task — now 8.
+        ADR-074 (2026-08-08): import_psxg_predictions + publish_spadl_vaep_hf promoted
+        to their own tasks — now 7.
         """
         from ingestion.hf_sync import _SUB_OPERATIONS
 
-        assert len(_SUB_OPERATIONS) == 8
+        assert len(_SUB_OPERATIONS) == 7
 
     def test_import_psxg_is_no_longer_an_hf_sync_sub_operation(self) -> None:
         """SEC7 / ADR-074 — the ONLY leg dbt needs must not sit behind eight publishers.
@@ -152,6 +154,17 @@ class TestHfSync:
         from ingestion.hf_sync import _SUB_OPERATIONS
 
         assert not [x for x, _ in _SUB_OPERATIONS if "import_" in x]
+
+    def test_publish_spadl_vaep_is_no_longer_an_hf_sync_sub_operation(self) -> None:
+        """ADR-074 — measured at 6.97 GB peak alone; it must not share a driver.
+
+        hf_sync runs its sub-operations in ONE process, so memory is cumulative. This
+        publisher pulls 9.76M rows via toPandas; alone it uses under half a 16 GB
+        driver, but the shared process was OOM-killed (exit 137) on 2026-08-07.
+        """
+        from ingestion.hf_sync import _SUB_OPERATIONS
+
+        assert "ingestion.publish_spadl_vaep_hf" not in [label for label, _ in _SUB_OPERATIONS]
 
     def test_sub_operations_all_callable(self) -> None:
         """Every sub-operation has a callable."""
