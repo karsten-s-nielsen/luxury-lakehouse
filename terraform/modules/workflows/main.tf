@@ -871,7 +871,8 @@ resource "databricks_job" "data_ingestion" {
     # (ADR-066; enforced by test_workflow_dag_bronze_reads).
     depends_on { task_key = "compute_xg_shot_scores" }
     depends_on { task_key = "dbt_build_intermediate_marts" }
-    depends_on { task_key = "hf_sync" }
+    # ADR-074/SEC7: was `hf_sync` — this is the only leg it needed (psxg_predictions).
+    depends_on { task_key = "import_psxg_predictions" }
 
     environment_key = "dbt"
   }
@@ -927,6 +928,17 @@ resource "databricks_job" "data_ingestion" {
     depends_on {
       task_key = "compute_spadl_vaep"
     }
+    # ADR-074 / SEC9: hf_sync had NO dbt edge at all, so its gold-reading
+    # sub-operations were SIBLINGS of the stages building their inputs and could
+    # publish marts they had no ordering against (bounded only by their own
+    # watermark gates). Stage 3 is the binding constraint: export_shots_on_target
+    # and publish_xg_shots_hf read `fct_shots`, which is tagged `output_mart` —
+    # NOT intermediate. Transitively this also covers fct_action_values (stage 2)
+    # and dim_matches/dim_players (stage 1). Only possible because ADR-074 removed
+    # the reverse edge (dbt_build_output_marts used to depend on hf_sync).
+    depends_on {
+      task_key = "dbt_build_output_marts"
+    }
     depends_on {
       task_key = "resolve_players"
     }
@@ -954,6 +966,40 @@ resource "databricks_job" "data_ingestion" {
       parameters = [
         "--catalog", var.catalog_name,
         "--schema", "bronze",
+      ]
+    }
+
+    environment_key = "hf"
+  }
+
+  # ── Task: Import PSxG predictions from HF Hub ───────────────────────────
+  # ADR-074 / SEC7 (2026-08-08) — split out of hf_sync for the SAME reason
+  # PR-Cycle-B split import_obso_results directly above. This writes
+  # bronze.psxg_predictions, which stg_psxg__predictions reads, so
+  # dbt_build_output_marts depended on hf_sync — a task that ALSO runs eight
+  # HF Hub publishers. Since ADR-073 made hf_sync fail its task on any
+  # sub-operation failure, that dependency let an HF Hub outage block the
+  # daily dbt build plus refresh_synced_tables and run_model_validation.
+  #
+  # NO depends_on, matching import_obso_results: a pure HF Hub download whose
+  # input comes from a PREVIOUS HF Jobs run, not from anything earlier in this
+  # one. wf-import-psxg.yaml's `depends_on: [wf-export-shots]` is lineage, not
+  # runtime ordering.
+  task {
+    task_key        = "import_psxg_predictions"
+    timeout_seconds = 600
+    max_retries     = 1 # HF Hub download — transient failures benefit from retry
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "import_psxg_predictions"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+        # REQUIRED (argparse required=True) — omitting it is a runtime failure,
+        # not a default. Matches _VOLUME_PATHS' former entry in hf_sync.py.
+        "--volume-path", "/Volumes/soccer_analytics/dev_gold/model_weights/psxg",
       ]
     }
 
@@ -1302,6 +1348,39 @@ resource "databricks_job" "data_ingestion" {
     }
 
     environment_key = "analytics"
+  }
+
+  # ── Task: Publish SPADL/VAEP action values to HF Hub ───────────────────
+  # ADR-074: split out of hf_sync, which ran nine sub-operations in ONE driver
+  # process and was OOM-killed (exit 137, run 49905842293930). Measured at
+  # 6.97 GB peak ALONE in a ~16 GB driver (diagnostic run 939215830803445):
+  # safe on its own, fatal when sharing. A dedicated task = a fresh driver.
+  #
+  # depends_on dbt_build_intermediate_marts, NOT output_marts: fct_action_values
+  # is tagged `intermediate_mart`. This edge is NEW — hf_sync has no dbt
+  # dependency at all, so this publisher was a SIBLING of the stage that builds
+  # its input. Registered in _GOLD_READ_REQUIREMENTS.
+  task {
+    task_key        = "publish_spadl_vaep"
+    timeout_seconds = 1800
+    max_retries     = 1 # HF Hub network calls — transient failures benefit from retry
+
+    depends_on { task_key = "dbt_build_intermediate_marts" }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "publish_spadl_vaep_hf"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        # IGNORED for layer resolution: run_pipeline reads DEFAULT_GOLD_SCHEMA
+        # (ADR-073) and the card pins dev_gold. Passed only because
+        # parse_ingestion_args makes --schema required.
+        "--schema", "bronze",
+      ]
+    }
+
+    environment_key = "hf"
   }
 
   # ── Task: Refresh Lakebase synced tables (final stage) ───────────────

@@ -42,7 +42,7 @@ execution:
     module: ingestion.export_scoutgpt_training_data
     distribution: driver-bound
     timeout: "900s"
-    environment: analytics
+    environment: hf
 
 depends_on:
   - wf-vaep

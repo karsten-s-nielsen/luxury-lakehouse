@@ -42,7 +42,7 @@ execution:
     module: ingestion.skillcorner
     distribution: driver-bound
     timeout: "1200s"
-    environment: analytics
+    environment: default
 
 depends_on: []
 

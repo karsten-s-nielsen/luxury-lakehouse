@@ -72,7 +72,7 @@ execution:
     partition_key: match_id
     schedule: "daily 06:00 UTC"
     timeout: "600s"
-    environment: analytics
+    environment: default
 
 depends_on:
   - wf-epv-reachability

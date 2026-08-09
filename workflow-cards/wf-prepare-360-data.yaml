@@ -47,7 +47,7 @@ execution:
     module: ingestion.prepare_360_training_data
     distribution: driver-bound
     timeout: "1800s"
-    environment: analytics
+    environment: hf
 
 depends_on:
   - wf-statsbomb

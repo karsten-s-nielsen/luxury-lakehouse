@@ -40,7 +40,7 @@ execution:
     module: ingestion.export_shots_on_target
     distribution: driver-bound
     timeout: "600s"
-    environment: analytics
+    environment: hf
 
 depends_on:
   - wf-vaep

@@ -1280,6 +1280,14 @@ class TestWatermarkRecordAfterSuccess:
         "ingestion.expected_threat",
         "ingestion.off_ball_xt",
         "ingestion.action_context",
+        # ADR-074: promoted OUT of hf_sync into its own task. hf_sync's
+        # `_make_watermark_op` factory used to supply the whole watermark cycle
+        # (resolve -> check_upstream_freshness -> skip-if-unchanged -> record). A
+        # standalone main() inherits none of it, so without this the most expensive
+        # driver operation in the platform — 9.76M rows via toPandas plus four HF Hub
+        # uploads — would run UNCONDITIONALLY every day. This list is hardcoded, which
+        # is exactly why the omission would otherwise be invisible.
+        "ingestion.publish_spadl_vaep_hf",
     ]
 
     @pytest.mark.parametrize("module_path", _STANDALONE_MODULES)
@@ -1318,3 +1326,66 @@ class TestWatermarkRecordAfterSuccess:
 
         missing = factory_names - found_factories
         assert not missing, f"hf_sync.py factories missing record_watermarks call: {missing}"
+
+
+def test_direct_task_modules_register_hooks_in_main() -> None:
+    """Every module behind its OWN Terraform task must call bootstrap_hooks in main().
+
+    A sub-operation inherits hook registration from its orchestrator's main(); a
+    standalone task does not. ADR-074 promoted publish_spadl_vaep_hf out of hf_sync
+    with a main() that called neither bootstrap_hooks nor the watermark guard — it
+    would have published 9.76M rows daily with NO workflow_cost_live row, and nothing
+    would have gone red, because the watermark list above is hardcoded and no gate
+    covered hook registration at all.
+
+    SCOPE: only modules that actually use @workflow. Hooks fire from run_workflow's
+    dispatch, so requiring bootstrap_hooks of a module outside the framework would be
+    demanding a no-op — the gate's first draft did exactly that and flagged four
+    modules whose absence is correct by construction.
+
+    Resolves the module via the CARD's `module:` field, not from the map key: that map
+    is keyed by TASK_KEY, and task_key != entry_point != module for several tasks
+    (e.g. `dbt_build_input_marts` -> entry_point `dbt_build`; `publish_spadl_vaep` ->
+    module `ingestion.publish_spadl_vaep_hf`). Deriving a module from the key would
+    silently skip exactly the module this gate exists for.
+    """
+    from tests.test_card_parity_with_terraform import (
+        _CARDS_DIR,
+        _DIRECT_TASK_ENTRY_POINT_TO_CARD,
+        _card_phases,
+        _load_card,
+    )
+
+    missing: list[str] = []
+    for task_key, card_id in sorted(_DIRECT_TASK_ENTRY_POINT_TO_CARD.items()):
+        if card_id is None:
+            continue  # intentional gap — pure orchestration, no card
+        card_path = _CARDS_DIR / f"{card_id}.yaml"
+        if not card_path.exists():
+            continue
+        modules = {p["module"] for p in _card_phases(_load_card(card_path)).values() if p.get("module")}
+        for module_name in sorted(modules):
+            mod = importlib.import_module(module_name)
+            if mod.__file__ is None:
+                continue
+            source = Path(mod.__file__).read_text(encoding="utf-8")
+            # A module that does not participate in the workflow framework has nothing
+            # for hooks to attach to: hooks fire from `run_workflow`'s dispatch, so
+            # `bootstrap_hooks` in a module with no @workflow would register hooks that
+            # NEVER FIRE. Verified 2026-08-08 for staleness_monitor, dbt_runner,
+            # refresh_synced_tables and shot_freeze_frames — all four have zero
+            # `workflows` imports. Their missing call is correct, not a gap.
+            if "@workflow(" not in source:
+                continue
+            tree = ast.parse(source)
+            main_fn = next(
+                (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "main"),
+                None,
+            )
+            if main_fn is None:
+                continue
+            calls = {n.func.id for n in ast.walk(main_fn) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+            if "bootstrap_hooks" not in calls:
+                missing.append(f"{module_name}.main() (task {task_key}) does not call bootstrap_hooks")
+
+    assert not missing, "standalone task modules missing hook registration:\n  " + "\n  ".join(missing)

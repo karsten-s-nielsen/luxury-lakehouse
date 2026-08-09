@@ -46,7 +46,7 @@ execution:
     module: ingestion.statsbomb
     distribution: driver-bound
     timeout: "1200s"
-    environment: analytics
+    environment: statsbomb
 
 depends_on: []
 

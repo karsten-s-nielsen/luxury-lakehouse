@@ -30,15 +30,21 @@ outputs:
 
 execution:
   import:
-    trigger: orchestrated
-    orchestrated_by: wf-hf-sync
+    trigger: scheduled
     runtime: databricks-workflow
+    task_key: import_psxg_predictions
     entry_point: import_psxg_predictions
     module: ingestion.import_psxg_predictions
     distribution: driver-bound
-    timeout: "900s"
-    environment: analytics
+    timeout: "600s"
+    environment: hf
 
+# ADR-074 / SEC7: LINEAGE ONLY, NOT RUNTIME ORDERING. This task deliberately has
+# no Terraform depends_on — matching the import_obso_results precedent, because
+# imports pull from a PREVIOUS HF Jobs run (see the _SUB_OPERATIONS header in
+# hf_sync.py), not from anything produced earlier in the same run. wf-export-shots
+# stays inside hf_sync, so after the split this import may well run before it;
+# that is correct and expected.
 depends_on:
   - wf-export-shots
 

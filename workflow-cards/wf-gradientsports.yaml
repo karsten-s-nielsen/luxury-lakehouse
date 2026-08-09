@@ -51,7 +51,7 @@ execution:
     distribution: fan-out
     concurrency: 8
     timeout: "900s"
-    environment: analytics
+    environment: default
 
 depends_on: []
 

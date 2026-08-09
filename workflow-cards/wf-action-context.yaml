@@ -57,7 +57,7 @@ execution:
     module: ingestion.action_context
     schedule: "daily 06:00 UTC"
     timeout: "28800s"
-    environment: spadl
+    environment: analytics
   # ADR-058: statsbomb sb360 arm — a single distributed cogroup.applyInPandas job (statsbomb exits
   # the per-match drain; scan each bronze table once, enrich per match on executors, distributed write).
   statsbomb_enrichment:

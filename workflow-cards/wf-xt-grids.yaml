@@ -49,7 +49,7 @@ execution:
     distribution: driver-bound
     schedule: "daily 06:00 UTC"
     timeout: "600s"
-    environment: analytics
+    environment: default
 
 depends_on:
   - wf-vaep

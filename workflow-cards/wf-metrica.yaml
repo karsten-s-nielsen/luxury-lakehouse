@@ -38,7 +38,7 @@ execution:
     module: ingestion.metrica
     distribution: driver-bound
     timeout: "600s"
-    environment: analytics
+    environment: default
 
 depends_on: []
 

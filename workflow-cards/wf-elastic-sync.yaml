@@ -39,7 +39,7 @@ execution:
     module: ingestion.elastic_sync
     distribution: driver-bound
     timeout: "600s"
-    environment: analytics
+    environment: default
 
 monitoring:
   freshness_sla_hours: 168

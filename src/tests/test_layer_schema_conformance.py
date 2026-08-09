@@ -139,9 +139,9 @@ def test_layer_schema_constants_are_sql_safe_identifiers() -> None:
 
 
 def test_hf_sync_gold_consumers_do_not_use_the_passed_schema() -> None:
-    """Every hf_sync sub-operation that reads gold must name the layer.
+    """Every `src/ingestion` module that reads gold must name the layer.
 
-    hf_sync is passed ``--schema bronze``. A sub-operation that interpolates the
+    hf_sync is passed ``--schema bronze``. Any module that interpolates the
     passed ``schema`` into an ``fct_``/``dim_`` reference is reading the wrong
     layer — that is the exact 2026-08-07 defect, in the exact modules it hit.
     """
