@@ -57,6 +57,16 @@ def test_flat_peak_reads_as_zero_delta_not_a_drop() -> None:
     assert "+0.00 GB" in format_memory(s)
 
 
+def test_small_peak_below_resident_is_not_flagged() -> None:
+    """Sampling skew between the two kernel interfaces must not read as a units bug.
+
+    Regression for the CI failure that produced this tolerance: peak trailed current by
+    151 KB on a ~1.8 GB process — healthy, and the exact comparison called it broken.
+    """
+    s = sample_memory("skew", None, peak_probe=lambda: 1_960_009_728, current_probe=lambda: 1_960_161_280)
+    assert "WARNING" not in format_memory(s)
+
+
 def test_peak_below_resident_is_flagged_as_a_units_mismatch() -> None:
     """Physically impossible, and the exact signature of the two adapters disagreeing on units.
 
@@ -90,5 +100,9 @@ def test_adapters_report_plausible_real_numbers() -> None:
 
     peak = peak_rss_bytes()
     assert peak is not None
-    assert peak >= after, "peak is a high-water mark; it cannot sit below a resident reading"
+    # NOT an exact `>=`: ru_maxrss and /proc/self/statm are different kernel interfaces
+    # sampled at different instants, so peak can trail current by a page or two. CI hit
+    # exactly this — peak=1,960,009,728 vs current=1,960,161,280, 151 KB apart — and an
+    # exact comparison called a healthy reading a units bug. 5% still catches 1024x.
+    assert peak >= after * 0.95, f"peak {peak} materially below resident {after} — check units"
     assert peak < 64 * _GB, f"implausible peak {peak} — units are probably wrong"

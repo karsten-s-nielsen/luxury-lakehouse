@@ -1269,25 +1269,6 @@ class TestSelectorToCardParity:
                 )
 
 
-# ADR-074: modules behind their own TF task whose main() does NOT call bootstrap_hooks.
-# PRE-EXISTING, surfaced (not caused) by the hook-registration gate below. Deliberately
-# NOT fixed in this cycle: widening scope is the operator's call, and `dbt_runner` in
-# particular needs WHY before FIX — three dbt tasks with no CostEstimateHook either
-# means dbt builds have no workflow_cost_live rows (a finding) or they register hooks
-# by another path (a fence). Adding the call to find out is the wrong order.
-_PRE_EXISTING_HOOK_GAPS: frozenset[str] = frozenset(
-    {
-        "ingestion.staleness_monitor",
-        "ingestion.dbt_runner",
-        "ingestion.refresh_synced_tables",
-        # Found BY THIS GATE, not by the review that requested it — a manual spot-check
-        # named the three above and missed this one. `compute_shot_freeze_frames` is a
-        # real bronze producer, so if the gap is genuine it has no workflow_cost_live row.
-        "ingestion.shot_freeze_frames",
-    }
-)
-
-
 class TestWatermarkRecordAfterSuccess:
     """Modules with watermark guards must call record_watermarks after run_pipeline."""
 
@@ -1357,6 +1338,11 @@ def test_direct_task_modules_register_hooks_in_main() -> None:
     would have gone red, because the watermark list above is hardcoded and no gate
     covered hook registration at all.
 
+    SCOPE: only modules that actually use @workflow. Hooks fire from run_workflow's
+    dispatch, so requiring bootstrap_hooks of a module outside the framework would be
+    demanding a no-op — the gate's first draft did exactly that and flagged four
+    modules whose absence is correct by construction.
+
     Resolves the module via the CARD's `module:` field, not from the map key: that map
     is keyed by TASK_KEY, and task_key != entry_point != module for several tasks
     (e.g. `dbt_build_input_marts` -> entry_point `dbt_build`; `publish_spadl_vaep` ->
@@ -1379,12 +1365,19 @@ def test_direct_task_modules_register_hooks_in_main() -> None:
             continue
         modules = {p["module"] for p in _card_phases(_load_card(card_path)).values() if p.get("module")}
         for module_name in sorted(modules):
-            if module_name in _PRE_EXISTING_HOOK_GAPS:
-                continue
             mod = importlib.import_module(module_name)
             if mod.__file__ is None:
                 continue
-            tree = ast.parse(Path(mod.__file__).read_text(encoding="utf-8"))
+            source = Path(mod.__file__).read_text(encoding="utf-8")
+            # A module that does not participate in the workflow framework has nothing
+            # for hooks to attach to: hooks fire from `run_workflow`'s dispatch, so
+            # `bootstrap_hooks` in a module with no @workflow would register hooks that
+            # NEVER FIRE. Verified 2026-08-08 for staleness_monitor, dbt_runner,
+            # refresh_synced_tables and shot_freeze_frames — all four have zero
+            # `workflows` imports. Their missing call is correct, not a gap.
+            if "@workflow(" not in source:
+                continue
+            tree = ast.parse(source)
             main_fn = next(
                 (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "main"),
                 None,

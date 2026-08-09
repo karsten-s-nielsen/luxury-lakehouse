@@ -171,41 +171,19 @@ jobs:
         run: uv run pip install detect-secrets && uv run detect-secrets scan --baseline .secrets.baseline
 
       - name: Audit dependencies
-        # CVE-2026-4539 (pygments), CVE-2026-0545 (mlflow), CVE-2026-33866 (?)  — no upstream fix yet.
-        # CVE-2026-28684 (python-dotenv 1.0.1): taipy-gui>=4.1 pins python-dotenv>=1.0.0,<=1.0.1; cannot upgrade to 1.2.2 without breaking taipy-app. Track upstream; revisit when taipy-gui 4.2+ lands with a relaxed pin.
-        # CVE-2026-3219 (pip 26.0.1, GHSA-58qw-9mgm-455v, medium): pip interpretation conflict handling both concatenated tar and ZIP files as ZIP. No patched version as of 2026-04-24. Not exploitable in this pipeline — we only install from trusted PyPI via uv; no attacker-controlled package sources. Revisit when pip ships a fix.
-        # CVE-2026-6357 (pip 26.0.1): fix in 26.1. pip is uv-managed build tool, not a runtime dependency. Not exploitable — uv manages all installs. Revisit when uv ships pip 26.1+.
-        # CVE-2026-44307 (mako 1.3.10): fix in 1.3.12. Transitive dep via dbt-core/alembic. Not directly exploitable — mako templates are developer-authored, not user-supplied. Revisit when dbt-core bumps alembic.
-        # PYSEC-2024-271 (flask-cors 6.0.2): transitive dep via mlflow. Not directly exploitable — no user-facing CORS in this pipeline. Revisit when mlflow bumps flask-cors.
-        # PYSEC-2024-277 (joblib 1.5.3): transitive dep via scikit-learn. Not exploitable — no untrusted pickle loading. Revisit when scikit-learn bumps joblib.
-        # PYSEC-2026-113 (pyarrow 19.0.1): fix in 23.0.1. Pinned by databricks-connect/pyspark compatibility. Not exploitable — all Parquet files are self-authored via bronze writers. Revisit when databricks-connect supports pyarrow 23+.
-        # PYSEC-2025-183 (pyjwt 2.12.1): transitive dep. Not exploitable — no JWT validation in pipeline code; only Databricks SDK uses it for auth. Revisit when upstream bumps.
-        # PYSEC-2026-161 (starlette 0.52.1): transitive dep via Gradio/Taipy. Fix in 1.0.1. Not exploitable — starlette is not used directly; only as ASGI server inside HF Spaces. Revisit when Gradio bumps starlette.
-        # CVE-2025-58367 + CVE-2026-33155 (deepdiff 7.0.1): transitive dep via taipy-common, which caps deepdiff <8 (fix is 8.6.2), so it cannot be floored without dropping Taipy 4.1.1. Not exploitable — deepdiff only diffs Taipy-internal config/state, never untrusted input. Revisit when Taipy bumps deepdiff. (Listed by CVE alias; the advisory's PYSEC alias may also appear depending on the DB snapshot.)
-        # PYSEC-2026-3447 (setuptools 81.0.0): fix in 83.0.0. Transitive dep via torch/sympy. Cannot be floored to >=83 without downgrading torch 2.11.0 -> 2.10.0 (hard conflict; pinning torch makes the resolution unsatisfiable). Not exploitable — this is a package-BUILD-path vuln and the lakehouse wheel builds via hatchling, so setuptools never builds untrusted packages at runtime. Revisit when torch 2.11+ accepts setuptools 83.
-        run: >-
-          uv run pip-audit
-          --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-0545 --ignore-vuln CVE-2026-33866
-          --ignore-vuln CVE-2026-28684 --ignore-vuln CVE-2026-3219 --ignore-vuln CVE-2026-6357
-          --ignore-vuln CVE-2026-44307
-          --ignore-vuln PYSEC-2024-271 --ignore-vuln PYSEC-2024-277
-          --ignore-vuln PYSEC-2026-113 --ignore-vuln PYSEC-2025-183
-          --ignore-vuln PYSEC-2026-161
-          --ignore-vuln CVE-2025-58367 --ignore-vuln CVE-2026-33155
-          --ignore-vuln PYSEC-2026-3447 --ignore-vuln PYSEC-2026-3552
+        # Ignore list lives in .pip-audit-ignores.yml — the SINGLE source (SEC5, 2026-08-08).
+        # It was 16 inline flags DUPLICATED here and in the SBOM step, with the rationale in a
+        # detached comment block; nothing kept the two in sync, and adding an ignore to one and
+        # not the other turned CI red a second time on 2026-08-07. Each entry now carries its
+        # blocking constraint, justification and — critically — a review_trigger, so an ignore
+        # has a stated condition for removal instead of living forever.
+        run: |
+          uv run python scripts/pip_audit_ignores.py --check
+          uv run pip-audit $(uv run python scripts/pip_audit_ignores.py)
 
       - name: Generate SBOM (CycloneDX)
-        run: >-
-          uv run pip-audit --format cyclonedx-json
-          --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-0545 --ignore-vuln CVE-2026-33866
-          --ignore-vuln CVE-2026-28684 --ignore-vuln CVE-2026-3219 --ignore-vuln CVE-2026-6357
-          --ignore-vuln CVE-2026-44307
-          --ignore-vuln PYSEC-2024-271 --ignore-vuln PYSEC-2024-277
-          --ignore-vuln PYSEC-2026-113 --ignore-vuln PYSEC-2025-183
-          --ignore-vuln PYSEC-2026-161
-          --ignore-vuln CVE-2025-58367 --ignore-vuln CVE-2026-33155
-          --ignore-vuln PYSEC-2026-3447 --ignore-vuln PYSEC-2026-3552
-          -o sbom.json
+        run: |
+          uv run pip-audit --format cyclonedx-json $(uv run python scripts/pip_audit_ignores.py) -o sbom.json
 
       - name: Upload SBOM artifact
         if: always()

@@ -130,24 +130,30 @@ plus the full watermark cycle, mirroring `ingestion.model_validation.main`.
 
 **Negative / bounded**
 
-- **The staleness fix covers ONE of five gold readers.** `hf_sync` retains four —
-  `export_shots_on_target`, `publish_xg_shots_hf`, `export_scoutgpt_training_data`,
-  `prepare_360_training_data` — and **still has no dbt edge at all**. They remain
-  siblings of the stages that build their inputs, bounded only by their own watermark
-  gates, and none is registered in `_GOLD_READ_REQUIREMENTS`. Tracked as **SEC9**;
-  registering `hf_sync` there today goes red immediately, which is what makes SEC9
-  actionable rather than speculative.
+- **`hf_sync` now waits for the entire dbt chain instead of racing it** — the cost of
+  covering ALL five gold readers rather than one. It depends on `dbt_build_output_marts`, and its four remaining
+  gold readers are registered in `_GOLD_READ_REQUIREMENTS`. **Stage 3 is the binding
+  constraint, not stage 2**: `export_shots_on_target` and `publish_xg_shots_hf` read
+  `fct_shots`, which is tagged `output_mart` — an earlier draft of this ADR said
+  `intermediate` and would have under-constrained the edge. The guard checks the
+  TRANSITIVE closure, so one edge covers `fct_action_values` (stage 2) and
+  `dim_matches` / `dim_players` (stage 1) as well. **This was only possible because
+  this same cycle removed the reverse edge** — `dbt_build_output_marts` used to depend
+  on `hf_sync`, so adding it before the SEC7 split would have been a cycle.
 - **Isolation fixes this publisher, not the unknown.** If the ~9 GB consumer is a real
   leak, it resurfaces for whichever sub-operation now runs last. `MemoryHook` is the
   detector, not the cure — **SEC8**.
 - **The `wf-hf-sync` memory line is an envelope, not a peer.** Its delta is the sum of
   its children's ceiling rises and will be the largest number every run, by
   construction. Compare sub-operation lines to each other.
-- **Four pre-existing modules** behind their own task never call `bootstrap_hooks`
-  (`staleness_monitor`, `dbt_runner`, `refresh_synced_tables`, `shot_freeze_frames`) —
-  allowlisted in `_PRE_EXISTING_HOOK_GAPS`, deliberately not fixed. `dbt_runner` needs
-  *why* before *fix*: three dbt tasks with no `CostEstimateHook` either means dbt
-  builds have no cost rows, or they register by another path.
+- **The four modules the hook gate flagged were NOT a defect** — investigated rather
+  than patched, per *why before fix*. `staleness_monitor`, `dbt_runner`,
+  `refresh_synced_tables` and `shot_freeze_frames` have **zero `workflows` imports and
+  zero `@workflow` decorators**: hooks fire from `run_workflow`'s dispatch, so
+  `bootstrap_hooks` there would register hooks that never fire. The **gate's premise
+  was too broad**, not the modules. It is now scoped to modules that actually use
+  `@workflow`, and the `_PRE_EXISTING_HOOK_GAPS` allowlist is deleted. Adding four
+  no-op calls would have been the wrong fix and would have made the gate lie.
 - `on_skip` emits nothing (a skipped workflow consumed nothing, and `hf_sync` already
   logs the skip). This differs from a loop-body probe, which would emit a line per skip.
 

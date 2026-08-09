@@ -928,6 +928,17 @@ resource "databricks_job" "data_ingestion" {
     depends_on {
       task_key = "compute_spadl_vaep"
     }
+    # ADR-074 / SEC9: hf_sync had NO dbt edge at all, so its gold-reading
+    # sub-operations were SIBLINGS of the stages building their inputs and could
+    # publish marts they had no ordering against (bounded only by their own
+    # watermark gates). Stage 3 is the binding constraint: export_shots_on_target
+    # and publish_xg_shots_hf read `fct_shots`, which is tagged `output_mart` —
+    # NOT intermediate. Transitively this also covers fct_action_values (stage 2)
+    # and dim_matches/dim_players (stage 1). Only possible because ADR-074 removed
+    # the reverse edge (dbt_build_output_marts used to depend on hf_sync).
+    depends_on {
+      task_key = "dbt_build_output_marts"
+    }
     depends_on {
       task_key = "resolve_players"
     }

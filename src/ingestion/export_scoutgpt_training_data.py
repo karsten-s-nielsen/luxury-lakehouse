@@ -235,6 +235,14 @@ def _export_possession_episodes(
           AND av.action_type IS NOT NULL
           AND av.start_x IS NOT NULL
           AND av.start_y IS NOT NULL
+          -- ADR-064 / SEC6: fct_action_values carries RESTRICTED providers (skillcorner,
+          -- gradientsports). This export lands in a PUBLIC HF dataset via
+          -- upload_volume_to_hf_hub, which bypasses the pandas seam entirely, so the
+          -- tier decision has to happen HERE. ADR-064 calls the football2vec chain
+          -- "rebuilt public-only upstream" and publish_football2vec_embeddings_hf
+          -- (registry mode "derived") asserts "the materialized source had ZERO
+          -- access_tier != 'public' rows" — this filter is what makes that true.
+          AND av.access_tier = 'public'
     """  # noqa: S608
 
     raw_sdf = spark.sql(query)

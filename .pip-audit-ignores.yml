@@ -1,0 +1,92 @@
+# pip-audit ignore list — the SINGLE source of truth (SEC5, 2026-08-08).
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# These 16 advisories were inline `--ignore-vuln` flags DUPLICATED across two steps of
+# python-ci.yml ("Audit dependencies" and "Generate SBOM"), with their rationale in a
+# detached comment block above them. Nothing kept the two lists in sync: adding an ignore
+# to one and not the other turned CI red a second time on 2026-08-07. A single parsed
+# source removes that drift class entirely — `scripts/pip_audit_ignores.py` emits the
+# flags for BOTH steps.
+#
+# EVERY entry MUST carry all six fields. `review_trigger` is the one that keeps this list
+# from rotting: an ignore with no stated condition for removal is an ignore nobody can
+# ever retire, which is how the alert count reached 18.
+#
+# Enforced by src/tests/test_pip_audit_ignores.py:
+#   - schema completeness (all six fields, non-empty)
+#   - no duplicate ids
+#   - python-ci.yml contains NO inline --ignore-vuln flags (they must come from here)
+#   - both pip-audit steps source their flags from the same generator
+
+# AUDITED 2026-08-08 (SEC5) against the live lock, not by inspection:
+#   16 -> 6 entries. NINE no longer fired at all and were deleted (CVE-2026-0545,
+#   CVE-2026-3219, CVE-2026-33866, CVE-2026-44307, CVE-2026-6357, PYSEC-2024-271,
+#   PYSEC-2024-277, PYSEC-2025-183, PYSEC-2026-161). ONE was RESOLVED rather than
+#   ignored: pygments is now floored >=2.20.0 in pyproject.toml — its entry claimed
+#   "no upstream fix available", which had silently become false. Exactly one package
+#   moved in the lock, so the floor is collateral-free.
+#
+#   pip-audit matches --ignore-vuln by ID, and the advisory DB reports these under
+#   PYSEC ids while several entries here are CVE aliases. All six below were confirmed
+#   to still suppress a live finding THROUGH their aliases; do not "tidy" an id without
+#   re-running the audit.
+
+ignores:
+  - id: CVE-2026-28684
+    package: python-dotenv (1.2.1 in the base resolution; the taipy-app extra caps it at 1.0.1)
+    fix_in: "1.2.2"
+    blocked_by: "taipy==4.1.1 requires python-dotenv>=1.0.0,<=1.0.1"
+    justification: >-
+      VERIFIED 2026-08-08 by attempting the floor: `uv add "python-dotenv>=1.2.2"` fails as
+      unsatisfiable against the taipy-app extra. The cap is real. The previously recorded
+      version (1.0.1) was stale — the BASE resolution carries 1.2.1 because the dev venv does
+      not install the taipy-app extra, which is why an audit reports 1.2.1 while the extra
+      would pull 1.0.1.
+    review_trigger: "a Taipy release relaxing the python-dotenv <=1.0.1 cap"
+
+  - id: PYSEC-2026-113
+    package: pyarrow 19.0.1
+    fix_in: "23.0.1"
+    blocked_by: "databricks-connect/pyspark compatibility pin"
+    justification: >-
+      All Parquet files are self-authored via the bronze writers; no untrusted Parquet is
+      read.
+    review_trigger: "databricks-connect supporting pyarrow 23+"
+
+  - id: CVE-2025-58367
+    package: deepdiff 7.0.1
+    fix_in: "8.6.2"
+    blocked_by: "taipy-common caps deepdiff <8"
+    justification: >-
+      Cannot be floored without dropping Taipy 4.1.1. deepdiff only diffs Taipy-internal
+      config/state, never untrusted input.
+    review_trigger: "Taipy bumping deepdiff past the <8 cap"
+
+  - id: CVE-2026-33155
+    package: deepdiff 7.0.1
+    fix_in: "8.6.2"
+    blocked_by: "taipy-common caps deepdiff <8"
+    justification: >-
+      Same advisory pair as CVE-2025-58367; listed by CVE alias because the PYSEC alias may
+      or may not appear depending on the advisory-DB snapshot.
+    review_trigger: "Taipy bumping deepdiff past the <8 cap"
+
+  - id: PYSEC-2026-3447
+    package: setuptools 81.0.0
+    fix_in: "83.0.0"
+    blocked_by: "torch 2.11.0 — flooring setuptools>=83 forces torch down to 2.10.0"
+    justification: >-
+      A package-BUILD-path vulnerability. The lakehouse wheel builds via hatchling, so
+      setuptools never builds untrusted packages at runtime.
+    review_trigger: "torch 2.11+ accepting setuptools 83"
+
+  - id: PYSEC-2026-3552
+    package: cryptography
+    fix_in: "50.0.0"
+    blocked_by: "mlflow caps cryptography (3.13.0 -> <49, 3.15.1 -> <50)"
+    justification: >-
+      Forcing cryptography>=50 finds no satisfying mlflow 3.x and backtracks to mlflow
+      3.2.0 — the last release with no cryptography constraint — dragging cachetools and
+      gunicorn down with it. Verified empirically 2026-08-07.
+    review_trigger: "an mlflow release allowing cryptography>=50"

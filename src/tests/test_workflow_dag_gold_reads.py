@@ -79,6 +79,19 @@ _GOLD_READ_REQUIREMENTS: list[tuple[str, str, str]] = [
     # input and could publish a mart it had no ordering against — bounded only by its
     # own watermark gate. Registering it here is what keeps the new edge from decaying.
     ("publish_spadl_vaep", "fct_action_values", "dbt_build_intermediate_marts"),
+    # ADR-074 / SEC9 (2026-08-08): hf_sync's four REMAINING gold readers, registered
+    # when it finally got a dbt edge. Producer stage is derived from each model's tag:
+    # fct_shots is `output_mart` (stage 3) — NOT intermediate, which is what the
+    # first draft of SEC9 assumed; fct_action_values is `intermediate_mart` (stage 2);
+    # dim_* are `dimension` (stage 1). The guard checks the TRANSITIVE closure, so
+    # hf_sync's single depends_on dbt_build_output_marts satisfies all three.
+    #   readers: export_shots_on_target + publish_xg_shots_hf -> fct_shots, dim_matches
+    #            export_scoutgpt_training_data + prepare_360_training_data
+    #                                          -> fct_action_values, dim_players
+    ("hf_sync", "fct_shots", "dbt_build_output_marts"),
+    ("hf_sync", "fct_action_values", "dbt_build_intermediate_marts"),
+    ("hf_sync", "dim_matches", "dbt_build_input_marts"),
+    ("hf_sync", "dim_players", "dbt_build_input_marts"),
     # ── run_model_validation: reads output_marts ──────────────────────────
     # ADR-019 supplants ADR-017's yesterday-gold carve-out: validation now
     # reads TODAY's gold, but its sibling-of-refresh_synced_tables position

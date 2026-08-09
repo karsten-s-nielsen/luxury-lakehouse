@@ -35,6 +35,10 @@ RssProbe = Callable[[], "int | None"]
 
 _BYTES_PER_GB = 1024**3
 
+# peak may trail current slightly (different kernel interfaces, different sample instants).
+# Only a MATERIAL inversion indicates a units mismatch — see format_memory.
+_INVERSION_TOLERANCE = 0.95
+
 
 def peak_rss_bytes() -> int | None:
     """Peak RSS of this process in bytes, or ``None`` where unsupported (e.g. Windows)."""
@@ -101,9 +105,19 @@ def format_memory(sample: MemorySample) -> str:
         return f"driver memory unavailable on this platform (after {sample.label})"
     delta = "n/a" if sample.peak_delta_bytes is None else f"+{sample.peak_delta_bytes / _BYTES_PER_GB:.2f} GB"
     suffix = ""
-    if sample.peak_bytes is not None and sample.current_bytes is not None and sample.peak_bytes < sample.current_bytes:
-        # Physically impossible: a high-water mark cannot sit below a live reading. This is
-        # the signature of the two adapters disagreeing on units (KiB vs bytes), which would
+    if (
+        sample.peak_bytes is not None
+        and sample.current_bytes is not None
+        and sample.peak_bytes < sample.current_bytes * _INVERSION_TOLERANCE
+    ):
+        # A high-water mark sitting MATERIALLY below a live reading is the signature of the
+        # two adapters disagreeing on units (KiB vs bytes) — a 1024x error that would
         # otherwise surface as a plausible-looking number nobody questions.
-        suffix = " [WARNING: peak < resident — probe units are inconsistent]"
+        #
+        # The tolerance is not slop: ru_maxrss and /proc/self/statm are DIFFERENT kernel
+        # interfaces sampled at different instants, so peak can trail current by a page or
+        # two during allocation. CI measured peak=1,960,009,728 vs current=1,960,161,280 —
+        # 151 KB apart — and an exact `<` comparison flagged that healthy reading as a units
+        # bug. 5% still catches a 1024x error by three orders of magnitude.
+        suffix = " [WARNING: peak << resident — probe units are inconsistent]"
     return f"peak={_gb(sample.peak_bytes)} (delta {delta}), resident={_gb(sample.current_bytes)}{suffix}"
