@@ -24,5 +24,32 @@ select
     -- `visibility` + the derived `access_tier`, stamped on bronze at ingestion.
     visibility,
     access_tier,
+
+    -- Bronze pass-through cols (PR-2a). Surfaced with snake_case names so every bronze column
+    -- is either preserved, renamed, or intentionally dropped — the invariant
+    -- src/tests/test_staging_coverage.py enforces with INITIAL_BRONZE_STAGING_GAPS locked
+    -- empty. These carry no analytical consumer today; they exist so the bronze contract is
+    -- complete and a NEW provider field cannot slip in undocumented.
+    `id`                              as gs_metadata_row_id,
+    `videoUrl`                        as video_url,
+    `startPeriod1`                    as start_period_1,
+    `endPeriod1`                      as end_period_1,
+    `startPeriod2`                    as start_period_2,
+    `endPeriod2`                      as end_period_2,
+    `period1`                         as period_1,
+    `period2`                         as period_2,
+    `halfPeriod`                      as half_period,
+    `stadium.pitches`                 as stadium_pitches,
+    `homeTeamKit.name`                as home_team_kit_name,
+    `homeTeamKit.primaryColor`        as home_team_kit_primary_color,
+    `homeTeamKit.primaryTextColor`    as home_team_kit_primary_text_color,
+    `homeTeamKit.secondaryColor`      as home_team_kit_secondary_color,
+    `homeTeamKit.secondaryTextColor`  as home_team_kit_secondary_text_color,
+    `awayTeamKit.name`                as away_team_kit_name,
+    `awayTeamKit.primaryColor`        as away_team_kit_primary_color,
+    `awayTeamKit.primaryTextColor`    as away_team_kit_primary_text_color,
+    `awayTeamKit.secondaryColor`      as away_team_kit_secondary_color,
+    `awayTeamKit.secondaryTextColor`  as away_team_kit_secondary_text_color,
+
     _ingested_at
 from {{ source('gradientsports', 'gradientsports_metadata') }}

@@ -553,6 +553,16 @@ models:
         description: Bronze passthrough — raw stadium name string from statsbomb_matches (also surfaced as `stadium_name`).
       - name: xy_fidelity_version
         description: Bronze passthrough — xy_fidelity_version from statsbomb_matches.
+      - name: visibility
+        description: >
+          RAW per-match redistribution signal (ADR-064). The open StatsBomb feed is public by
+          licence, so ingestion stamps 'public' explicitly (PR-2a R-16); a prospective commercial
+          360 subscription stamps 'private' at its own ingest site. Consumed by dim_matches.
+      - name: access_tier
+        description: >
+          Derived HF redistribution tier ('public'/'restricted'), classified from `visibility` by
+          shared.access_tier.classify_access_tier (ADR-064). Fail-safe — any non-'public'
+          visibility, including NULL, resolves to 'restricted'. Consumed by dim_matches.
 
   - name: stg_statsbomb__lineups
     config:

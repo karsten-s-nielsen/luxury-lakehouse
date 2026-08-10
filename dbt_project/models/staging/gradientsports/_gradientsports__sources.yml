@@ -57,6 +57,72 @@ sources:
           - name: _ingested_at
             description: UTC timestamp when the row was ingested
 
+          - name: endPeriod1
+            description: >
+              Raw feed clock marker: first-half end.
+          - name: endPeriod2
+            description: >
+              Raw feed clock marker: second-half end.
+          - name: halfPeriod
+            description: >
+              Raw feed half-period descriptor as supplied by the pining feed.
+          - name: id
+            description: >
+              Provider's own metadata row id. NOT a join key — `match_id` is (ADR-030).
+          - name: period1
+            description: >
+              Raw feed period-1 descriptor as supplied by the pining feed.
+          - name: period2
+            description: >
+              Raw feed period-2 descriptor as supplied by the pining feed.
+          - name: startPeriod1
+            description: >
+              Raw feed clock marker: first-half kickoff.
+          - name: startPeriod2
+            description: >
+              Raw feed clock marker: second-half kickoff.
+          - name: videoUrl
+            description: >
+              Broadcast video location for the match. Presentation metadata; not redistributable.
+          - name: awayTeamKit.name
+            description: >
+              Broadcast away-team kit name. Presentation metadata, no analytical consumer.
+          - name: awayTeamKit.primaryColor
+            description: >
+              Broadcast away-team primary kit colour. Presentation metadata, no analytical consumer.
+          - name: awayTeamKit.primaryTextColor
+            description: >
+              Broadcast away-team primary kit text colour. Presentation metadata, no analytical consumer.
+          - name: awayTeamKit.secondaryColor
+            description: >
+              Broadcast away-team secondary kit colour. Presentation metadata, no analytical consumer.
+          - name: awayTeamKit.secondaryTextColor
+            description: >
+              Broadcast away-team secondary kit text colour. Presentation metadata, no analytical consumer.
+          - name: homeTeamKit.name
+            description: >
+              Broadcast home-team kit name. Presentation metadata, no analytical consumer.
+          - name: homeTeamKit.primaryColor
+            description: >
+              Broadcast home-team primary kit colour. Presentation metadata, no analytical consumer.
+          - name: homeTeamKit.primaryTextColor
+            description: >
+              Broadcast home-team primary kit text colour. Presentation metadata, no analytical consumer.
+          - name: homeTeamKit.secondaryColor
+            description: >
+              Broadcast home-team secondary kit colour. Presentation metadata, no analytical consumer.
+          - name: homeTeamKit.secondaryTextColor
+            description: >
+              Broadcast home-team secondary kit text colour. Presentation metadata, no analytical consumer.
+          - name: stadium.pitches
+            description: >
+              Nested pitch-dimension array. Analytics uses canonical SPADL 105x68, never this raw field.
+          - name: visibility
+            description: >
+              RAW per-match redistribution signal from the pining feed (ADR-064). Stamped on bronze at ingest via MatchInfo.visibility, which is required-no-default. Rows written before the column existed hold NULL and are repaired by the PR-2a _backfill_artifacts run, not by a re-ingest (the guard is incremental).
+          - name: access_tier
+            description: >
+              Derived HF redistribution tier ('public'/'restricted'), classified from `visibility` by shared.access_tier.classify_access_tier (ADR-064). Gradient Sports is NOT in PUBLIC_BY_LICENSE_PROVIDERS, so a NULL/unknown visibility fail-safes to 'restricted'.
       - name: gradientsports_roster
         description: >
           Match roster (one row per player per match, ~51 rows/match).
@@ -81,3 +147,878 @@ sources:
             description: Whether player was in the starting lineup
           - name: _ingested_at
             description: UTC timestamp when the row was ingested
+      - name: gradientsports_events
+        description: >
+          Raw pining/PFF event feed (one row per possession event). 262 json_normalize-flattened columns whose names contain literal dots. NO staging model — consumed directly by the SPADL converter's backtick-quoted projection (_gs_needed_bronze_columns), so it is absent from test_staging_coverage's PROVIDER_COVERAGE and documenting it costs sources.yml only.
+        columns:
+          - name: gameId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEventId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEventId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: startTime
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: endTime
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: duration
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: eventTime
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: sequence
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: homePlayers
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: awayPlayers
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: ball
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.gameEventType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.initialNonEvent
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.startGameClock
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.startFormattedGameClock
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.period
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.videoMissing
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.teamId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.teamName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.homeTeam
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.playerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.playerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.touches
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.touchesInBox
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.setpieceType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.earlyDistribution
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.videoUrl
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.endType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.outType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.subType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.playerOffId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.playerOffName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.playerOffType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.playerOnId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: gameEvents.playerOnName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: initialTouch.initialBodyType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: initialTouch.initialHeightType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: initialTouch.facingType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: initialTouch.initialTouchType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: initialTouch.initialPressureType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: initialTouch.initialPressurePlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: initialTouch.initialPressurePlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.possessionEventType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.nonEvent
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.gameClock
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.formattedGameClock
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.eventVideoUrl
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.ballHeightType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.bodyType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.highPointType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.passerPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.passerPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.passType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.passOutcomeType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.crosserPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.crosserPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.crossType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.crossZoneType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.crossOutcomeType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.targetPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.targetPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.targetFacingType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.receiverPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.receiverPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.receiverFacingType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.defenderPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.defenderPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.blockerPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.blockerPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.deflectorPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.deflectorPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.failedBlockerPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.failedBlockerPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.failedBlocker2PlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.failedBlocker2PlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.accuracyType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.incompletionReasonType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.secondIncompletionReasonType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.linesBrokenType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.shooterPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.shooterPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.bodyMovementType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.ballMoving
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.shotType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.shotNatureType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.shotInitialHeightType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.shotOutcomeType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.keeperPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.keeperPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.saveHeightType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.saveReboundType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.keeperTouchType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.glClearerPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.glClearerPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.badParry
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.saveable
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.clearerPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.clearerPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.clearanceOutcomeType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.carrierPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.carrierPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.dribblerPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.dribblerPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.challengeType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.dribbleType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.tackleAttemptType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.trickType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.challengerPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.challengerPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.homeDuelPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.homeDuelPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.awayDuelPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.awayDuelPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.additionalDuelerPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.additionalDuelerPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.challengeKeeperPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.challengeKeeperPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.challengeWinnerPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.challengeWinnerPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.challengeOutcomeType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.ballCarrierPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.ballCarrierPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.touchPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.touchPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.carryType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.ballCarryOutcome
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.carryDefenderPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.carryDefenderPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.carryIntent
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.touchType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.touchOutcomeType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.rebounderPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.rebounderPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.originateType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.reboundOutcomeType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.missedTouchType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.missedTouchPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.missedTouchPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.pressureType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.pressurePlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.pressurePlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.opportunityType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.betterOptionType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.betterOptionPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.betterOptionPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.createsSpace
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.positionPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.positionPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.closingDownPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.closingDownPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.movementPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.movementPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: fouls.onFieldCulpritPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: fouls.onFieldCulpritPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: fouls.finalCulpritPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: fouls.finalCulpritPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: fouls.victimPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: fouls.victimPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: fouls.foulType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: fouls.onFieldOffenseType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: fouls.finalOffenseType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: fouls.onFieldFoulOutcomeType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: fouls.finalFoulOutcomeType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: fouls.var
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: fouls.varReasonType
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: fouls.correctDecision
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.awayDuelGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.ballCarrierGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.blockerGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.carrierGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.carryDefenderGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.challengerGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.clearerGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.closingDownGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.crosserGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.defenderGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.deflectorGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.dribblerGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.failedBlockerGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.failedBlocker2Grade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.glClearerGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.homeDuelGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.keeperGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.movementGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.passerGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.positionGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.receiverGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.shooterGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.targetGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.touchGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: stadiumMetadata.stadiumId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: stadiumMetadata.stadiumName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: stadiumMetadata.pitchLength
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: stadiumMetadata.pitchWidth
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: stadiumMetadata.homeTeamStartLeft
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: stadiumMetadata.teamAttackingDirection
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: match_id
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: _ingested_at
+            description: >
+              timestamp — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.failedBlocker3PlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.failedBlocker3PlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.failedShooterPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.failedShooterPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.dabPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.dabPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.additionalDuelerGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.dabGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.failedBlocker3Grade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.failedShooterGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.failedPasserPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.failedPasserPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.position2PlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.position3PlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.position4PlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.position5PlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.position2PlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.position3PlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.position4PlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.position5PlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.challengeKeeperGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.failedPasserGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.position2Grade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.position3Grade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.position4Grade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.position5Grade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.movement2PlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.movement2PlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.movement2Grade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: stadiumMetadata.homeTeamStartLeftExtraTime
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.csPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.csPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.csGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.disciplinePlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.discipline2PlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.disciplinePlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.discipline2PlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.csGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.disciplineGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.discipline2Grade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.additionalDueler2PlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.additionalDueler2PlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.additionalDueler2Grade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.failedClearerPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.failedClearerPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.failedClearerGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.closingDown2PlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.closingDown2PlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.dab2PlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.dab2PlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.closingDown2Grade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.dab2Grade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.movement3PlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.movement3PlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.movement3Grade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.challenger2PlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.challenger2PlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.challenger2Grade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.failedCrosserPlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.failedCrosserPlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.failedCrosserGrade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.discipline3PlayerId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possessionEvents.discipline3PlayerName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: grades.discipline3Grade
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+      - name: gradientsports_tracking
+        description: >
+          Raw pining/PFF tracking feed (one row per frame per player). NO staging model — consumed directly by the action-context adapters, so it is absent from test_staging_coverage's PROVIDER_COVERAGE.
+        columns:
+          - name: match_id
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: game_ref_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: frame_num
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: period
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: period_elapsed_time
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: period_game_clock_time
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: video_time_ms
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: version
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: generated_time
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: smoothed_time
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: game_event_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possession_event_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: _game_event_json
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: _possession_event_json
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: team_side
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: is_ball
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: jersey_num
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: confidence
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: visibility
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: x
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: y
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: z
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: x_smoothed
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: y_smoothed
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: z_smoothed
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: _ingested_at
+            description: >
+              timestamp — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: access_tier
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.

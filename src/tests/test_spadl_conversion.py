@@ -65,6 +65,11 @@ class TestStatsBombConverterErrorPropagation:
                 "match_id": [54321, 54321],
                 "competition_id": [2, 2],
                 "season_id": [44, 44],
+                # PR-2a R-6: the caller joins `home_sdf` (match_id, home_team_id, visibility)
+                # onto the events before groupBy, so every production group frame carries this.
+                # The UDF reads it pre-try and does NOT guard for absence — a tolerant read
+                # would mask a broken caller-side join by threading None for every match.
+                "visibility": ["public", "public"],
                 # Placeholder event columns — not validated by the UDF because
                 # `adapt_statsbomb_events` is patched to raise below.
                 "event_id": ["evt1", "evt2"],

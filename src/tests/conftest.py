@@ -69,6 +69,7 @@ def _make_gs_bronze_row(
     setpiece_type: str = "O",
     home_team_start_left: bool = True,
     home_team_start_left_extratime: object = None,
+    visibility: str | None = None,
     ball_x: float = 10.5,
     ball_y: float = 20.3,
     **overrides: object,
@@ -87,6 +88,13 @@ def _make_gs_bronze_row(
     """
     row: dict = {
         "match_id": match_id,
+        # PR-2a R-6b: the converter left-joins bronze.gradientsports_metadata onto the events
+        # before groupBy, so every production group frame carries `visibility`. The UDF reads
+        # it pre-try and does NOT guard for absence — a tolerant read would mask a broken join
+        # by threading None for every match. Defaults to None because that is the CURRENT live
+        # state (all 64 metadata rows hold NULL until the _backfill_artifacts run populates
+        # them); pass visibility="private"/"public" to exercise a populated feed.
+        "visibility": visibility,
         "gameId": game_id,
         "gameEventId": game_event_id,
         "possessionEventId": possession_event_id,

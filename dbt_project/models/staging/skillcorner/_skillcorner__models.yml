@@ -115,6 +115,9 @@ models:
         description: Bronze passthrough — ball detection flag
       - name: _ingested_at
         description: Bronze passthrough — UTC audit timestamp from ingestion
+      - name: access_tier
+        description: >
+          Per-match HF redistribution tier ('public'/'restricted'), ADR-064. Bronze passthrough — stamped at ingest by the classifier; any non-'public' value, including NULL, fail-safes to 'restricted'.
 
   - name: stg_skillcorner__events
     config:

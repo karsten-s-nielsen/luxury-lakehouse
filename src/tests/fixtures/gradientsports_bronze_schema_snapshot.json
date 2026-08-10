@@ -1,0 +1,1366 @@
+{
+  "schema_version": "gradientsports_bronze_2026_08",
+  "snapshot_source": "DESCRIBE TABLE soccer_analytics.bronze.gradientsports_* on 2026-08-09 (all four GS bronze tables; enumeration cross-checked against both soccer_analytics.information_schema.tables and SHOW TABLES). Refresh when GS ingestion adds cols or the pining feed surfaces new fields.",
+  "tables": {
+    "gradientsports_events": [
+      {
+        "name": "gameId",
+        "type": "double"
+      },
+      {
+        "name": "gameEventId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEventId",
+        "type": "double"
+      },
+      {
+        "name": "startTime",
+        "type": "double"
+      },
+      {
+        "name": "endTime",
+        "type": "double"
+      },
+      {
+        "name": "duration",
+        "type": "double"
+      },
+      {
+        "name": "eventTime",
+        "type": "double"
+      },
+      {
+        "name": "sequence",
+        "type": "double"
+      },
+      {
+        "name": "homePlayers",
+        "type": "string"
+      },
+      {
+        "name": "awayPlayers",
+        "type": "string"
+      },
+      {
+        "name": "ball",
+        "type": "string"
+      },
+      {
+        "name": "gameEvents.gameEventType",
+        "type": "string"
+      },
+      {
+        "name": "gameEvents.initialNonEvent",
+        "type": "boolean"
+      },
+      {
+        "name": "gameEvents.startGameClock",
+        "type": "double"
+      },
+      {
+        "name": "gameEvents.startFormattedGameClock",
+        "type": "string"
+      },
+      {
+        "name": "gameEvents.period",
+        "type": "double"
+      },
+      {
+        "name": "gameEvents.videoMissing",
+        "type": "boolean"
+      },
+      {
+        "name": "gameEvents.teamId",
+        "type": "double"
+      },
+      {
+        "name": "gameEvents.teamName",
+        "type": "string"
+      },
+      {
+        "name": "gameEvents.homeTeam",
+        "type": "boolean"
+      },
+      {
+        "name": "gameEvents.playerId",
+        "type": "double"
+      },
+      {
+        "name": "gameEvents.playerName",
+        "type": "string"
+      },
+      {
+        "name": "gameEvents.touches",
+        "type": "double"
+      },
+      {
+        "name": "gameEvents.touchesInBox",
+        "type": "double"
+      },
+      {
+        "name": "gameEvents.setpieceType",
+        "type": "string"
+      },
+      {
+        "name": "gameEvents.earlyDistribution",
+        "type": "boolean"
+      },
+      {
+        "name": "gameEvents.videoUrl",
+        "type": "string"
+      },
+      {
+        "name": "gameEvents.endType",
+        "type": "string"
+      },
+      {
+        "name": "gameEvents.outType",
+        "type": "string"
+      },
+      {
+        "name": "gameEvents.subType",
+        "type": "string"
+      },
+      {
+        "name": "gameEvents.playerOffId",
+        "type": "double"
+      },
+      {
+        "name": "gameEvents.playerOffName",
+        "type": "string"
+      },
+      {
+        "name": "gameEvents.playerOffType",
+        "type": "string"
+      },
+      {
+        "name": "gameEvents.playerOnId",
+        "type": "double"
+      },
+      {
+        "name": "gameEvents.playerOnName",
+        "type": "string"
+      },
+      {
+        "name": "initialTouch.initialBodyType",
+        "type": "string"
+      },
+      {
+        "name": "initialTouch.initialHeightType",
+        "type": "string"
+      },
+      {
+        "name": "initialTouch.facingType",
+        "type": "string"
+      },
+      {
+        "name": "initialTouch.initialTouchType",
+        "type": "string"
+      },
+      {
+        "name": "initialTouch.initialPressureType",
+        "type": "string"
+      },
+      {
+        "name": "initialTouch.initialPressurePlayerId",
+        "type": "double"
+      },
+      {
+        "name": "initialTouch.initialPressurePlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.possessionEventType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.nonEvent",
+        "type": "boolean"
+      },
+      {
+        "name": "possessionEvents.gameClock",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.formattedGameClock",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.eventVideoUrl",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.ballHeightType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.bodyType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.highPointType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.passerPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.passerPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.passType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.passOutcomeType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.crosserPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.crosserPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.crossType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.crossZoneType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.crossOutcomeType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.targetPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.targetPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.targetFacingType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.receiverPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.receiverPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.receiverFacingType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.defenderPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.defenderPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.blockerPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.blockerPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.deflectorPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.deflectorPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.failedBlockerPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.failedBlockerPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.failedBlocker2PlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.failedBlocker2PlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.accuracyType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.incompletionReasonType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.secondIncompletionReasonType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.linesBrokenType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.shooterPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.shooterPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.bodyMovementType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.ballMoving",
+        "type": "boolean"
+      },
+      {
+        "name": "possessionEvents.shotType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.shotNatureType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.shotInitialHeightType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.shotOutcomeType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.keeperPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.keeperPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.saveHeightType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.saveReboundType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.keeperTouchType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.glClearerPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.glClearerPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.badParry",
+        "type": "boolean"
+      },
+      {
+        "name": "possessionEvents.saveable",
+        "type": "boolean"
+      },
+      {
+        "name": "possessionEvents.clearerPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.clearerPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.clearanceOutcomeType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.carrierPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.carrierPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.dribblerPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.dribblerPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.challengeType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.dribbleType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.tackleAttemptType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.trickType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.challengerPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.challengerPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.homeDuelPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.homeDuelPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.awayDuelPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.awayDuelPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.additionalDuelerPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.additionalDuelerPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.challengeKeeperPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.challengeKeeperPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.challengeWinnerPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.challengeWinnerPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.challengeOutcomeType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.ballCarrierPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.ballCarrierPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.touchPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.touchPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.carryType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.ballCarryOutcome",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.carryDefenderPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.carryDefenderPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.carryIntent",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.touchType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.touchOutcomeType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.rebounderPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.rebounderPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.originateType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.reboundOutcomeType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.missedTouchType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.missedTouchPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.missedTouchPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.pressureType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.pressurePlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.pressurePlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.opportunityType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.betterOptionType",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.betterOptionPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.betterOptionPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.createsSpace",
+        "type": "boolean"
+      },
+      {
+        "name": "possessionEvents.positionPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.positionPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.closingDownPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.closingDownPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.movementPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.movementPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "fouls.onFieldCulpritPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "fouls.onFieldCulpritPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "fouls.finalCulpritPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "fouls.finalCulpritPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "fouls.victimPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "fouls.victimPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "fouls.foulType",
+        "type": "string"
+      },
+      {
+        "name": "fouls.onFieldOffenseType",
+        "type": "string"
+      },
+      {
+        "name": "fouls.finalOffenseType",
+        "type": "string"
+      },
+      {
+        "name": "fouls.onFieldFoulOutcomeType",
+        "type": "string"
+      },
+      {
+        "name": "fouls.finalFoulOutcomeType",
+        "type": "string"
+      },
+      {
+        "name": "fouls.var",
+        "type": "boolean"
+      },
+      {
+        "name": "fouls.varReasonType",
+        "type": "string"
+      },
+      {
+        "name": "fouls.correctDecision",
+        "type": "boolean"
+      },
+      {
+        "name": "grades.awayDuelGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.ballCarrierGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.blockerGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.carrierGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.carryDefenderGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.challengerGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.clearerGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.closingDownGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.crosserGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.defenderGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.deflectorGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.dribblerGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.failedBlockerGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.failedBlocker2Grade",
+        "type": "double"
+      },
+      {
+        "name": "grades.glClearerGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.homeDuelGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.keeperGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.movementGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.passerGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.positionGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.receiverGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.shooterGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.targetGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.touchGrade",
+        "type": "double"
+      },
+      {
+        "name": "stadiumMetadata.stadiumId",
+        "type": "double"
+      },
+      {
+        "name": "stadiumMetadata.stadiumName",
+        "type": "string"
+      },
+      {
+        "name": "stadiumMetadata.pitchLength",
+        "type": "double"
+      },
+      {
+        "name": "stadiumMetadata.pitchWidth",
+        "type": "double"
+      },
+      {
+        "name": "stadiumMetadata.homeTeamStartLeft",
+        "type": "boolean"
+      },
+      {
+        "name": "stadiumMetadata.teamAttackingDirection",
+        "type": "string"
+      },
+      {
+        "name": "match_id",
+        "type": "string"
+      },
+      {
+        "name": "_ingested_at",
+        "type": "timestamp"
+      },
+      {
+        "name": "possessionEvents.failedBlocker3PlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.failedBlocker3PlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.failedShooterPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.failedShooterPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.dabPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.dabPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "grades.additionalDuelerGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.dabGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.failedBlocker3Grade",
+        "type": "double"
+      },
+      {
+        "name": "grades.failedShooterGrade",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.failedPasserPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.failedPasserPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.position2PlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.position3PlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.position4PlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.position5PlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.position2PlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.position3PlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.position4PlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.position5PlayerName",
+        "type": "string"
+      },
+      {
+        "name": "grades.challengeKeeperGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.failedPasserGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.position2Grade",
+        "type": "double"
+      },
+      {
+        "name": "grades.position3Grade",
+        "type": "double"
+      },
+      {
+        "name": "grades.position4Grade",
+        "type": "double"
+      },
+      {
+        "name": "grades.position5Grade",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.movement2PlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.movement2PlayerName",
+        "type": "string"
+      },
+      {
+        "name": "grades.movement2Grade",
+        "type": "double"
+      },
+      {
+        "name": "stadiumMetadata.homeTeamStartLeftExtraTime",
+        "type": "boolean"
+      },
+      {
+        "name": "possessionEvents.csPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.csPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.csGrade",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.disciplinePlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.discipline2PlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.disciplinePlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.discipline2PlayerName",
+        "type": "string"
+      },
+      {
+        "name": "grades.csGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.disciplineGrade",
+        "type": "double"
+      },
+      {
+        "name": "grades.discipline2Grade",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.additionalDueler2PlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.additionalDueler2PlayerName",
+        "type": "string"
+      },
+      {
+        "name": "grades.additionalDueler2Grade",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.failedClearerPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.failedClearerPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "grades.failedClearerGrade",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.closingDown2PlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.closingDown2PlayerName",
+        "type": "string"
+      },
+      {
+        "name": "possessionEvents.dab2PlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.dab2PlayerName",
+        "type": "string"
+      },
+      {
+        "name": "grades.closingDown2Grade",
+        "type": "double"
+      },
+      {
+        "name": "grades.dab2Grade",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.movement3PlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.movement3PlayerName",
+        "type": "string"
+      },
+      {
+        "name": "grades.movement3Grade",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.challenger2PlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.challenger2PlayerName",
+        "type": "string"
+      },
+      {
+        "name": "grades.challenger2Grade",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.failedCrosserPlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.failedCrosserPlayerName",
+        "type": "string"
+      },
+      {
+        "name": "grades.failedCrosserGrade",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.discipline3PlayerId",
+        "type": "double"
+      },
+      {
+        "name": "possessionEvents.discipline3PlayerName",
+        "type": "string"
+      },
+      {
+        "name": "grades.discipline3Grade",
+        "type": "double"
+      }
+    ],
+    "gradientsports_metadata": [
+      {
+        "name": "date",
+        "type": "string"
+      },
+      {
+        "name": "endPeriod1",
+        "type": "double"
+      },
+      {
+        "name": "endPeriod2",
+        "type": "double"
+      },
+      {
+        "name": "halfPeriod",
+        "type": "double"
+      },
+      {
+        "name": "homeTeamStartLeft",
+        "type": "boolean"
+      },
+      {
+        "name": "homeTeamStartLeftExtraTime",
+        "type": "boolean"
+      },
+      {
+        "name": "id",
+        "type": "string"
+      },
+      {
+        "name": "period1",
+        "type": "double"
+      },
+      {
+        "name": "period2",
+        "type": "double"
+      },
+      {
+        "name": "season",
+        "type": "string"
+      },
+      {
+        "name": "startPeriod1",
+        "type": "double"
+      },
+      {
+        "name": "startPeriod2",
+        "type": "double"
+      },
+      {
+        "name": "week",
+        "type": "double"
+      },
+      {
+        "name": "fps",
+        "type": "double"
+      },
+      {
+        "name": "videoUrl",
+        "type": "string"
+      },
+      {
+        "name": "awayTeam.id",
+        "type": "string"
+      },
+      {
+        "name": "awayTeam.name",
+        "type": "string"
+      },
+      {
+        "name": "awayTeam.shortName",
+        "type": "string"
+      },
+      {
+        "name": "awayTeamKit.name",
+        "type": "string"
+      },
+      {
+        "name": "awayTeamKit.primaryColor",
+        "type": "string"
+      },
+      {
+        "name": "awayTeamKit.primaryTextColor",
+        "type": "string"
+      },
+      {
+        "name": "awayTeamKit.secondaryColor",
+        "type": "string"
+      },
+      {
+        "name": "awayTeamKit.secondaryTextColor",
+        "type": "string"
+      },
+      {
+        "name": "competition.id",
+        "type": "string"
+      },
+      {
+        "name": "competition.name",
+        "type": "string"
+      },
+      {
+        "name": "homeTeam.id",
+        "type": "string"
+      },
+      {
+        "name": "homeTeam.name",
+        "type": "string"
+      },
+      {
+        "name": "homeTeam.shortName",
+        "type": "string"
+      },
+      {
+        "name": "homeTeamKit.name",
+        "type": "string"
+      },
+      {
+        "name": "homeTeamKit.primaryColor",
+        "type": "string"
+      },
+      {
+        "name": "homeTeamKit.primaryTextColor",
+        "type": "string"
+      },
+      {
+        "name": "homeTeamKit.secondaryColor",
+        "type": "string"
+      },
+      {
+        "name": "homeTeamKit.secondaryTextColor",
+        "type": "string"
+      },
+      {
+        "name": "stadium.id",
+        "type": "string"
+      },
+      {
+        "name": "stadium.name",
+        "type": "string"
+      },
+      {
+        "name": "stadium.pitches",
+        "type": "string"
+      },
+      {
+        "name": "match_id",
+        "type": "string"
+      },
+      {
+        "name": "_ingested_at",
+        "type": "timestamp"
+      },
+      {
+        "name": "visibility",
+        "type": "string"
+      },
+      {
+        "name": "access_tier",
+        "type": "string"
+      }
+    ],
+    "gradientsports_roster": [
+      {
+        "name": "positionGroupType",
+        "type": "string"
+      },
+      {
+        "name": "shirtNumber",
+        "type": "string"
+      },
+      {
+        "name": "started",
+        "type": "boolean"
+      },
+      {
+        "name": "player.id",
+        "type": "string"
+      },
+      {
+        "name": "player.nickname",
+        "type": "string"
+      },
+      {
+        "name": "team.id",
+        "type": "string"
+      },
+      {
+        "name": "team.name",
+        "type": "string"
+      },
+      {
+        "name": "match_id",
+        "type": "string"
+      },
+      {
+        "name": "_ingested_at",
+        "type": "timestamp"
+      }
+    ],
+    "gradientsports_tracking": [
+      {
+        "name": "match_id",
+        "type": "string"
+      },
+      {
+        "name": "game_ref_id",
+        "type": "double"
+      },
+      {
+        "name": "frame_num",
+        "type": "double"
+      },
+      {
+        "name": "period",
+        "type": "double"
+      },
+      {
+        "name": "period_elapsed_time",
+        "type": "double"
+      },
+      {
+        "name": "period_game_clock_time",
+        "type": "double"
+      },
+      {
+        "name": "video_time_ms",
+        "type": "double"
+      },
+      {
+        "name": "version",
+        "type": "string"
+      },
+      {
+        "name": "generated_time",
+        "type": "string"
+      },
+      {
+        "name": "smoothed_time",
+        "type": "string"
+      },
+      {
+        "name": "game_event_id",
+        "type": "double"
+      },
+      {
+        "name": "possession_event_id",
+        "type": "double"
+      },
+      {
+        "name": "_game_event_json",
+        "type": "string"
+      },
+      {
+        "name": "_possession_event_json",
+        "type": "string"
+      },
+      {
+        "name": "team_side",
+        "type": "string"
+      },
+      {
+        "name": "is_ball",
+        "type": "boolean"
+      },
+      {
+        "name": "jersey_num",
+        "type": "string"
+      },
+      {
+        "name": "confidence",
+        "type": "string"
+      },
+      {
+        "name": "visibility",
+        "type": "string"
+      },
+      {
+        "name": "x",
+        "type": "double"
+      },
+      {
+        "name": "y",
+        "type": "double"
+      },
+      {
+        "name": "z",
+        "type": "double"
+      },
+      {
+        "name": "x_smoothed",
+        "type": "double"
+      },
+      {
+        "name": "y_smoothed",
+        "type": "double"
+      },
+      {
+        "name": "z_smoothed",
+        "type": "double"
+      },
+      {
+        "name": "_ingested_at",
+        "type": "timestamp"
+      },
+      {
+        "name": "access_tier",
+        "type": "string"
+      }
+    ]
+  }
+}

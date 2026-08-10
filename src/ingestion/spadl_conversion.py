@@ -199,6 +199,11 @@ def _make_sb_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
         match_id = int(pdf["match_id"].iloc[0])
         competition_id = int(pdf["competition_id"].iloc[0])
         season_id = int(pdf["season_id"].iloc[0])
+        # R-6: arrives via the caller-side lookup join; constant within the group (one match).
+        # pandas surfaces a SQL NULL as NaN here, so normalise to None — classify_access_tier
+        # fail-safes on any non-'public' value, and NaN would not read as "no signal".
+        _raw_visibility = pdf["visibility"].iloc[0]
+        _match_visibility = None if pd.isna(_raw_visibility) else str(_raw_visibility)
 
         try:
             adapted = _adapt(pdf, home_team_id)
@@ -227,11 +232,13 @@ def _make_sb_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
         actions["competition_id"] = competition_id
         actions["season_id"] = season_id
         actions["data_source"] = "statsbomb"
-        # Per-match HF redistribution tier (spec 2026-06-29). No-feed provider → provider default
-        # (public). DIRECT stamp, never a dim_matches join (spec D3/M1).
+        # Per-match HF redistribution tier (spec 2026-06-29). R-6: a REAL threaded signal,
+        # arriving via the caller-side lookup join. DIRECT stamp, never a dim_matches join
+        # (spec D3/M1). The open feed stamps 'public' at ingest (R-16), so this survives the
+        # PR-2b removal of statsbomb from PUBLIC_BY_LICENSE_PROVIDERS.
         from ingestion.spadl_udf_shared import stamp_access_tier as _stamp_tier
 
-        actions = _stamp_tier(actions, source="statsbomb")
+        actions = _stamp_tier(actions, source="statsbomb", visibility=_match_visibility)
 
         # Provider-namespace the preserved fields. silly-kicks returns them with
         # their input names (``possession``, ``possession_team_id``, etc.); the
@@ -351,7 +358,12 @@ def _convert_statsbomb_from_bronze(
 
     # Only now pull metadata tables needed for home_team_id resolution
     try:
-        all_matches_pdf = spark.table(matches_table).select("match_id", "home_team").toPandas()
+        # R-6: `visibility` is projected EXPLICITLY. This select is an explicit column list, so
+        # omitting it here would leave visibility_map empty and thread None for every match —
+        # the Finding-5 over-restriction this unit exists to prevent, arriving silently. The
+        # column is added by the PR-2a bronze migration, which is applied WITH the merge; if it
+        # is missing this read fails loudly rather than degrading to a no-signal default.
+        all_matches_pdf = spark.table(matches_table).select("match_id", "home_team", "visibility").toPandas()
     except Exception:
         logger.exception("Cannot read StatsBomb matches bronze table")
         return False
@@ -373,12 +385,26 @@ def _convert_statsbomb_from_bronze(
 
     logger.info("StatsBomb: converting %d new games (of %d total)", len(new_game_ids), len(all_game_ids))
 
+    # R-6: carry the per-match visibility INTO the group. The UDF closure takes no arguments
+    # and sees only its events group, so the signal must arrive via this existing caller-side
+    # lookup join — not a driver-side capture, which serverless would not ship to the executor.
+    # A match absent from all_matches_pdf yields None, which fails safe to restricted after the
+    # PR-2b flip rather than silently resolving public.
+    # No `if "visibility" in columns` guard: the projection above makes its presence a hard
+    # precondition. A tolerant guard here would convert a missing column into an empty map and
+    # thread None for EVERY match — silently restricting the whole open corpus after the PR-2b
+    # flip. Fail loud instead (CLAUDE.md: no silent degradation).
+    visibility_map: dict[int, str | None] = dict(
+        zip(all_matches_pdf["match_id"], all_matches_pdf["visibility"], strict=True)
+    )
+
     # Build home_team_id lookup as Spark DataFrame and join to events
-    home_rows = [(gid, home_team_map[gid]) for gid in new_game_ids]
+    home_rows = [(gid, home_team_map[gid], visibility_map.get(gid)) for gid in new_game_ids]
     home_schema = StructType(
         [
             StructField("match_id", LongType()),
             StructField("home_team_id", LongType()),
+            StructField("visibility", StringType()),
         ]
     )
     home_sdf = spark.createDataFrame(home_rows, schema=home_schema)
@@ -623,7 +649,9 @@ def _make_ws_spadl_udf(goalkeeper_ids: set[int] | None = None) -> Callable[[pd.D
         # Per-match HF redistribution tier (spec 2026-06-29). No-feed provider → public.
         from ingestion.spadl_udf_shared import stamp_access_tier as _stamp_tier
 
-        actions = _stamp_tier(actions, source="wyscout")
+        # visibility=None is EXPLICIT (R-6a): this provider has no per-match visibility feed.
+        # NOT an omission — the required-no-default signature makes that distinction visible.
+        actions = _stamp_tier(actions, source="wyscout", visibility=None)
 
         from ingestion.spadl_enrichments import apply_spadl_enrichments as _enrich
 
@@ -1137,7 +1165,9 @@ def _make_idsse_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
         # Per-match HF redistribution tier (spec 2026-06-29). No-feed provider → public.
         from ingestion.spadl_udf_shared import stamp_access_tier as _stamp_tier
 
-        actions = _stamp_tier(actions, source="idsse")
+        # visibility=None is EXPLICIT (R-6a): this provider has no per-match visibility feed.
+        # NOT an omission — the required-no-default signature makes that distinction visible.
+        actions = _stamp_tier(actions, source="idsse", visibility=None)
 
         # LL2 post-conversion enrichments (provider-agnostic).
         from ingestion.spadl_enrichments import apply_spadl_enrichments as _enrich
@@ -1561,7 +1591,9 @@ def _make_metrica_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
         # Per-match HF redistribution tier (spec 2026-06-29). No-feed provider → public.
         from ingestion.spadl_udf_shared import stamp_access_tier as _stamp_tier
 
-        actions = _stamp_tier(actions, source="metrica")
+        # visibility=None is EXPLICIT (R-6a): this provider has no per-match visibility feed.
+        # NOT an omission — the required-no-default signature makes that distinction visible.
+        actions = _stamp_tier(actions, source="metrica", visibility=None)
 
         from ingestion.spadl_enrichments import apply_spadl_enrichments as _enrich
 
@@ -2397,7 +2429,20 @@ def _make_gradientsports_spadl_udf(
         # DIRECT stamp via the classifier — never a dim_matches join (spec D3/M1).
         from ingestion.spadl_udf_shared import stamp_access_tier as _stamp_tier
 
-        actions = _stamp_tier(actions, source="gradientsports")
+        # R-6b: the REAL GS signal, arriving via the caller-side lookup join built from
+        # bronze.gradientsports_metadata (there is no pre-existing lookup frame on this leg —
+        # see the join above the groupBy). This leg previously discarded the signal and
+        # defaulted every GS action to `restricted`.
+        #
+        # pandas surfaces a SQL NULL as NaN, so normalise to None: classify_access_tier
+        # fail-safes on any non-'public' value, but NaN would not read as "no signal".
+        # NULL is expected until the _backfill_artifacts run populates bronze — a re-ingest
+        # cannot do it, because _GradientSportsGuard is incremental (Phase B keys on PROVIDER
+        # re-processing, not on our schema changes). Until then this threads None, which yields
+        # the same `restricted` GS default as before: inert, then live.
+        _raw_gs_visibility = pdf["visibility"].iloc[0]
+        _gs_match_visibility = None if _pd.isna(_raw_gs_visibility) else str(_raw_gs_visibility)
+        actions = _stamp_tier(actions, source="gradientsports", visibility=_gs_match_visibility)
 
         # enrichments
         from ingestion.spadl_enrichments import apply_spadl_enrichments as _enrich
@@ -2583,6 +2628,26 @@ def _convert_gradientsports_from_bronze(
     new_events_sdf = new_events_sdf.select(
         [spark_fn.col(f"`{c}`").alias(dot_to_safe.get(c, c)) for c in sorted(needed) if c in _bronze_field_names]
     )
+
+    # R-6b: GS has no caller-side lookup frame to extend (unlike StatsBomb's `home_sdf`), so
+    # build one. `visibility` lives in bronze.gradientsports_metadata, NOT in the events table,
+    # so it cannot ride _gs_needed_bronze_columns() — that set exists to backtick-project the
+    # ~264 dotted EVENT columns, and naming a column events does not have would fail the
+    # .select() outright. The join therefore lands AFTER that projection and before the groupBy.
+    #
+    # Key shape is safe by construction (verified live 2026-08-09): both sides are STRING
+    # carrying the same value. Events writes the raw `match.id`; metadata writes
+    # gradientsports_native_match_id(mid), which is value-preserving (str -> pattern check ->
+    # return the same string). The asymmetry is that metadata routes the id through a validator
+    # and events does not — benign precisely because the validator preserves the value.
+    metadata_table = f"{catalog}.{schema}.gradientsports_metadata"
+    vis_sdf = spark.table(metadata_table).select("match_id", "visibility").distinct()
+
+    # LEFT, never inner: a match present in events but absent from metadata must still convert,
+    # arriving with visibility=None and defaulting to 'restricted' — the fail-safe direction.
+    # An inner join would silently DROP those matches from SPADL entirely, trading an
+    # over-restriction for data loss.
+    new_events_sdf = new_events_sdf.join(vis_sdf, on="match_id", how="left")
 
     spadl_schema = StructType(
         [

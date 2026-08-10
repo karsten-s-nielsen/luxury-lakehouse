@@ -105,6 +105,12 @@ sources:
             description: >
               DFL GuestTeamId (CLU-format) for the match. Constant per match;
               parity with bronze.idsse_events.
+          - name: access_tier
+            description: >
+              Derived HF redistribution tier ('public'/'restricted'), classified from `visibility` by shared.access_tier.classify_access_tier (ADR-064). Fail-safe: any non-'public' value, including NULL, resolves to 'restricted'.
+          - name: _ingested_at
+            description: >
+              UTC timestamp when the row was written to bronze (audit col).
 
       - name: idsse_events
         description: >
@@ -567,3 +573,6 @@ sources:
             description: Confidence score of the alignment (0 to 1)
           - name: alignment_error_seconds
             description: Time difference between event timestamp and aligned frame
+          - name: _ingested_at
+            description: >
+              UTC timestamp when the row was written to bronze (audit col).

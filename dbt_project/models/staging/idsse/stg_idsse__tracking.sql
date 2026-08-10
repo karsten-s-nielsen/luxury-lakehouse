@@ -94,7 +94,14 @@ normalized as (
         competition_native_id                           as competition_native_id,
         season_native_id                                as season_native_id,
         home_team_id_native                             as home_team_id_native,
-        away_team_id_native                             as away_team_id_native
+        away_team_id_native                             as away_team_id_native,
+
+        -- Per-match HF redistribution tier (ADR-064), stamped on bronze at ingest. Surfaced
+        -- here so the bronze contract is complete and the signal is visible to downstream
+        -- models without re-reading bronze — the same gap that left it undocumented on
+        -- Gradient Sports until PR-2a.
+        access_tier                                     as access_tier,
+        _ingested_at                                    as _ingested_at
 
     from source
     where x is not null

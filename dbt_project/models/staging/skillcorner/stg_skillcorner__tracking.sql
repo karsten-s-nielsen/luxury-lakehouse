@@ -102,6 +102,13 @@ normalized as (
         ball_z,
         is_visible,
         ball_is_detected,
+
+        -- Per-match HF redistribution tier (ADR-064), stamped on bronze at ingest. SkillCorner
+        -- is the RESTRICTED provider (private Real Madrid matches alongside the public
+        -- A-League), so this column is the one that decides whether a match may reach a public
+        -- HF repo. It was undocumented until PR-2a — the same gap as Gradient Sports, in the
+        -- provider where it matters most.
+        access_tier,
         _ingested_at
 
     from joined

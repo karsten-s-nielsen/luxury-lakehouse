@@ -175,6 +175,14 @@ A `statsbomb` route alongside `skillcorner` and `gradientsports`. `MatchInfo.vis
 - **R-6b (Chesterton's Fence, surfaced by R-6a).** `:2400` passes no `visibility` for **gradientsports**, yet GS carries a real per-match `visibility` in bronze (`gradientsports_metadata.py:70-71`). So the GS SPADL leg discards a live signal and defaults every GS action to `restricted` — a latent over-restriction currently invisible because GS is excluded from HF publishing entirely (`test_gradientsports_hf_exclusion.py`). R-6a forces a decision at that call site; it must be a conscious one.
 
   **Recommendation: thread the real GS visibility**, closing a genuine gap in the same edit. The alternative — pass `None` with a comment stating why — is acceptable but must be written down. Silently keeping the status quo is not, because after R-6a the omission is no longer visible as an omission.
+
+  **Measured correction (2026-08-09, PR-2a).** The premise above is **half-true**, and the half that is false changes the work. `bronze.gradientsports_metadata` holds **64 rows, all `visibility=NULL`, all `access_tier=restricted`**. The *pipeline* carries the signal — `MatchInfo.visibility: str` is required-no-default and both `parse_metadata` call sites pass it — but the **stored rows predate the column**. So the GS leg does not "discard a live signal"; there is no live signal in bronze to discard yet. **Threading alone would thread NULL.**
+
+  The signal must be POPULATED first, and a re-ingest will not do it: `_GradientSportsGuard.check` is incremental (Phase A anti-joins against `bronze.gradientsports_events` and finds nothing missing; Phase B's `updatedSince` catches matches the **provider** re-processed, which a schema change on our side is not). The correct tool is `_backfill_artifacts` (`gradientsports.py:264`), which *"skips the guard entirely"* and re-fetches metadata + roster for matches already in bronze — reachable only via `--backfill-artifacts`, which **no Terraform task passes**.
+
+  This is the same shape as ADR-030's GS dedup, which also required a re-ingest to reach stored data. It is why R-6b ships as its own measured unit with a before/after tier count rather than inside the inert plumbing.
+
+  Corollary worth stating, because it inverts an obvious diagnosis: since `visibility` is a **required** pydantic field, a still-NULL result after a *successful* fetch is structurally impossible. "The feed supplies no visibility for GS" is therefore never the right conclusion — a still-NULL result means our backfill did not run.
 - **R-7.** A visibility-flip guard modelled on `gradientsports_metadata.py:76-92`. **Blocked on OQ-2** — see the caveat there.
 - **R-16.** The open StatsBomb ingestion path stamps `visibility='public'` at write time (Finding 5). Without this, R-6 threads `None` and the flip restricts the corpus.
 
