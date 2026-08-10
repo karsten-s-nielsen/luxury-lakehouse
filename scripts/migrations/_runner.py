@@ -29,6 +29,24 @@ SDK also auto-starts a STOPPED warehouse on the first
 ``execute_statement`` call, so the previous ``ensure_warehouse.py``
 prelude is no longer needed.
 
+``--profile`` (or ``DATABRICKS_CONFIG_PROFILE``) disambiguates when
+``~/.databrickscfg`` holds more than one profile matching the same
+host — e.g. a ``DEFAULT`` and an ``OAUTH`` entry both pointing at the
+workspace, which makes a bare ``WorkspaceClient()`` raise
+``ValueError: default auth: ... Use --profile to specify which
+profile to use``. That failure surfaced applying the PR-2a bronze
+migration on 2026-08-10: it fires while CONSTRUCTING the client, so
+nothing had executed, but the operator sees it only AFTER substituting
+the migration's cutoff and believing the apply is under way. The
+client is now built before any file parsing so the failure is the
+first thing that happens, with a message naming the fix.
+
+Note that the same bare-``WorkspaceClient()`` construction appears in
+~8 sibling operator scripts (``create_indexes``, ``deploy_wheel``,
+``create_synced_table``, …) which will hit the identical wall on a
+machine with ambiguous profiles; only this runner is fixed here, since
+migrating all of them is its own cycle.
+
 Usage:
     uv run python scripts/migrations/_runner.py \\
         scripts/migrations/2026-04-30-add-idsse-tracking-match-metadata.sql
@@ -105,9 +123,32 @@ def _exec(w: WorkspaceClient, warehouse_id: str, statement: str) -> list[list]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("migration", type=pathlib.Path)
+    parser.add_argument(
+        "--profile",
+        default=os.environ.get("DATABRICKS_CONFIG_PROFILE"),
+        help=(
+            "~/.databrickscfg profile to authenticate with. Required when more than one "
+            "profile matches the workspace host (e.g. DEFAULT and OAUTH), which otherwise "
+            "makes the SDK raise at client construction. Defaults to $DATABRICKS_CONFIG_PROFILE."
+        ),
+    )
     args = parser.parse_args()
 
-    w = WorkspaceClient()
+    # Build the client FIRST — before reading or parsing the migration — so an auth failure
+    # cannot be mistaken for a partial apply. Nothing has touched the warehouse at this point.
+    try:
+        w = WorkspaceClient(profile=args.profile) if args.profile else WorkspaceClient()
+    except ValueError as exc:
+        if "Use --profile" not in str(exc):
+            raise
+        msg = (
+            f"Databricks auth is ambiguous: {exc}\n"
+            "More than one ~/.databrickscfg profile matches this host. Re-run with "
+            "--profile <name> (e.g. --profile OAUTH) or export DATABRICKS_CONFIG_PROFILE. "
+            "NOTHING has been applied — this failed while constructing the client."
+        )
+        raise SystemExit(msg) from exc
+
     warehouse_id = os.environ["DATABRICKS_HTTP_PATH"].rstrip("/").split("/")[-1]
 
     def col_exists(table: str, col: str) -> bool:

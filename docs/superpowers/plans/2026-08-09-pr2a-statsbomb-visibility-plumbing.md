@@ -39,6 +39,15 @@ Recorded here because they were found by *doing* the work, and the same traps re
 
 **EX-2 — a tolerant guard converted a loud failure into a silent one.** The first draft wrapped the map build in `if "visibility" in all_matches_pdf.columns:`. That guard is what would have made EX-1 invisible: missing column → empty map → every row restricted, with no error. Removed; the projection now makes the column a hard precondition and `zip(..., strict=True)` keeps it that way. **A defensive guard around a signal you require is not defensive — it is a silent-degradation switch** (CLAUDE.md: fail loudly).
 
+**EX-4 — the migration's own OQ-1 instruction was impossible, and only executing it revealed that.** It directed the operator to run `WHERE visibility IS NULL OR visibility <> 'public'` **after the ALTERs and before the UPDATEs**, expecting `0`. At that instant the column exists and every one of the 3,464 rows is NULL, so it returns **3,464** — the check was scheduled at the one moment it cannot pass. It conflated two distinct obligations:
+
+- **Precondition (OQ-1)** — "no commercially-licensed rows exist". Pre-migration there is *no `visibility` column*, so this can never be a column query. It is a **provenance** question, answered by the competition inventory: every row must belong to a StatsBomb free/open release. Verified 2026-08-10: 3,464 rows / 21 competitions, all open-data, no club-subscription competition.
+- **Postcondition** — the same count run *after* the UPDATEs, proving the stamp reached every row. Verified: **0** on both columns, 3,464 rows `visibility='public'`.
+
+**Three reviews and a final review passed over this**, because every one of them read the migration and none executed it. That is the `dbt-live-ci` shim failure mode in miniature: an artifact whose correctness is only observable at run time is covered by no amount of reading.
+
+**EX-5 — `_runner.py` failed at client construction, and the failure looked like a partial apply.** `~/.databrickscfg` holds both a `DEFAULT` and an `OAUTH` profile matching the workspace host, so a bare `WorkspaceClient()` raises `ValueError: … Use --profile`. Nothing had executed — but the operator sees it only *after* substituting `<CUTOFF>`, at the moment they believe the apply is under way. The runner now takes `--profile` (defaulting to `DATABRICKS_CONFIG_PROFILE`), **builds the client before reading the migration file**, and on that specific error exits with a message stating plainly that nothing was applied. Note the same bare construction exists in ~8 sibling operator scripts; fixing those is its own cycle.
+
 **EX-3 — `N802` forbids emphasis-by-capitals in test names.** Every `test_..._REAL_...` / `..._BEFORE_...` name in this plan violated the enforced ruff naming rule. Names are lowercase in the shipped code; the emphasis lives in the docstrings.
 
 **Two tests were added beyond the plan**, both guarding decisions the plan makes but did not gate: `test_stamp_access_tier_has_no_visibility_default` (R-6a at the *definition* — re-adding a default would leave every call-site assertion passing) and `test_statsbomb_is_not_a_confirmed_public_override` (D4 — the override that would defeat the PR-2b fail-safe).
@@ -155,14 +164,13 @@ uv run pytest src/tests/ -q          # never -p no:benchmark
 -- verified, and makes a later re-run a no-op instead of a fail-open.
 --
 -- OPERATOR: replace <CUTOFF> with the UTC timestamp at which you verified OQ-1 — that this
--- table holds zero commercially-licensed rows — using THIS statement:
+-- table holds zero commercially-licensed rows.
 --
---   SELECT count(*) FROM soccer_analytics.bronze.statsbomb_matches
---    WHERE visibility IS NULL OR visibility <> 'public';   -- expect 0 (pre-migration: all NULL,
---                                                          -- so run it AFTER the ALTERs and
---                                                          -- BEFORE the UPDATEs)
---
--- Record the count and the timestamp in the PR description (OQ-1 evidence).
+-- [CORRECTED 2026-08-10 — see EX-4 below. This block originally specified ONE check, run
+--  "after the ALTERs and before the UPDATEs, expect 0", which is impossible: at that moment
+--  the column exists and every row is NULL, so it returns the full row count. The shipped
+--  migration now separates the PROVENANCE precondition from the post-UPDATE postcondition.
+--  Read the migration file, not this excerpt, for the authoritative wording.]
 --
 -- The predicate is `IS NULL OR <> 'public'`, NOT `= 'private'` (review A2). classify_access_tier
 -- fail-safes on ANY non-'public' value — NULL, 'private', or an unrecognised string — so a
