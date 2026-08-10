@@ -581,4 +581,13 @@ sources:
               bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
           - name: _ingested_at
             description: UTC timestamp when the row was written to bronze (audit col).
-
+          - name: visibility
+            description: >
+              string — RAW per-match redistribution signal (ADR-064). The open StatsBomb feed is
+              public by licence, so ingestion stamps 'public' explicitly (R-16); a prospective
+              commercial 360 subscription would stamp 'private' at its own ingest site.
+          - name: access_tier
+            description: >
+              string — derived HF redistribution tier ('public'/'restricted'), classified from
+              visibility by shared.access_tier.classify_access_tier (ADR-064). Fail-safe: any
+              non-'public' visibility, including NULL, resolves to 'restricted'.

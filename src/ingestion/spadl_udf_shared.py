@@ -89,16 +89,22 @@ def stamp_access_tier(
     actions: pd.DataFrame,
     *,
     source: str,
-    visibility: str | None = None,
+    visibility: str | None,
 ) -> pd.DataFrame:
     """Stamp the per-match HF redistribution ``access_tier`` (spec 2026-06-29).
 
     DIRECT stamp from the match's ingestion-time signals — never a dim_matches join
-    (unmatched→NULL→fail-safe-restricted silently drops public data, spec D3/M1). The converter
-    already knows ``source`` (provider) + the per-match ``visibility``; the pure classifier resolves
-    the tier. ``visibility=None`` (the four no-feed providers + GS) yields the provider default:
-    public for statsbomb/wyscout/idsse/metrica/skillcorner, restricted for gradientsports. The
-    value is constant per match, so a scalar assignment broadcasts across the action rows.
+    (unmatched→NULL→fail-safe-restricted silently drops public data, spec D3/M1). The value is
+    constant per match, so a scalar assignment broadcasts across the action rows.
+
+    ``visibility`` is REQUIRED with NO DEFAULT (R-6a). It previously defaulted to ``None``,
+    making "this converter forgot to thread the signal" indistinguishable from "this provider
+    has no signal" — Finding 2's second site. Pass ``None`` EXPLICITLY where there is no feed.
+
+    ``visibility=None`` yields the provider default: **public for statsbomb / wyscout / idsse /
+    metrica**, **restricted for skillcorner and gradientsports**. (The previous docstring listed
+    skillcorner as public — false since the P1 allowlist flip. The enumeration is kept, minus
+    that error, because it is what made the error visible; review C1.)
     """
     from shared.access_tier import classify_access_tier
 

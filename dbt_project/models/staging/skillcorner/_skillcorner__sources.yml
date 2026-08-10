@@ -57,6 +57,9 @@ sources:
             description: Frame rate in fps (always 10 for SkillCorner)
           - name: _ingested_at
             description: UTC timestamp when the row was ingested
+          - name: access_tier
+            description: >
+              Derived HF redistribution tier ('public'/'restricted'), classified from `visibility` by shared.access_tier.classify_access_tier (ADR-064). Fail-safe: any non-'public' value, including NULL, resolves to 'restricted'.
 
       - name: skillcorner_events
         description: >
@@ -165,3 +168,9 @@ sources:
             description: SkillCorner team-player mapping identifier
           - name: _ingested_at
             description: UTC timestamp when the row was ingested
+          - name: visibility
+            description: >
+              RAW per-match redistribution signal (ADR-064), stamped on bronze at ingest. Drives the public/restricted split that decides whether a match may reach a public HF repo.
+          - name: access_tier
+            description: >
+              Derived HF redistribution tier ('public'/'restricted'), classified from `visibility` by shared.access_tier.classify_access_tier (ADR-064). Fail-safe: any non-'public' value, including NULL, resolves to 'restricted'.

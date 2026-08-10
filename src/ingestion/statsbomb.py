@@ -37,6 +37,7 @@ from ingestion.utils import (
     validate_dataframe,
     write_delta_table,
 )
+from shared.access_tier import classify_access_tier
 from workflows import workflow
 from workflows.exceptions import WorkflowSkippedError
 
@@ -332,6 +333,33 @@ def _fetch_match_details(
     return events_pdf, lineups_raw, frames_pdf, extra_map
 
 
+def stamp_open_match_visibility(df: pd.DataFrame) -> pd.DataFrame:
+    """Stamp the OPEN StatsBomb path's per-match redistribution signals (R-16).
+
+    The open (free) StatsBomb feed has no per-match visibility field — every match in it is
+    public by licence. This makes that an EXPLICIT per-row value rather than an implicit
+    consequence of ``statsbomb`` sitting in ``PUBLIC_BY_LICENSE_PROVIDERS``.
+
+    PR-2b removes statsbomb from that allowlist so commercial 360 data fails safe to
+    restricted. At that moment a row carrying ``visibility=None`` ALSO becomes restricted —
+    silently withholding the entire open corpus (spec Finding 5). An explicit ``'public'``
+    survives, because ``classify_access_tier`` returns PUBLIC on ``visibility == 'public'``
+    BEFORE it consults the allowlist.
+
+    Called immediately BEFORE ``finalize_bronze_df``: that helper adds any ``expected_cols``
+    missing from the frame as explicitly-typed all-NA columns, so a future path that forgets
+    this stamp yields a typed NULL rather than a silent NullType drop — and after PR-2b a
+    NULL fails safe to restricted.
+
+    The COMMERCIAL path (PR-4) stamps ``'private'`` at its own site and does not reuse this:
+    "open feed => public" is a property of THIS path only.
+    """
+    df = df.copy()
+    df["visibility"] = "public"
+    df["access_tier"] = classify_access_tier(provider="statsbomb", visibility="public").value
+    return df
+
+
 def ingest_matches_and_details(
     spark: SparkSession,
     catalog: str,
@@ -400,6 +428,7 @@ def ingest_matches_and_details(
             matches_pdf["season_id"] = season_id
 
         matches_pdf = serialize_json_columns(matches_pdf)
+        matches_pdf = stamp_open_match_visibility(matches_pdf)
         matches_pdf = finalize_bronze_df(
             matches_pdf,
             expected_cols=_STATSBOMB_MATCHES_EXPECTED_COLS,

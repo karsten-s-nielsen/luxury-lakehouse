@@ -156,6 +156,14 @@
       {
         "name": "_ingested_at",
         "type": "timestamp"
+      },
+      {
+        "name": "visibility",
+        "type": "string"
+      },
+      {
+        "name": "access_tier",
+        "type": "string"
       }
     ],
     "statsbomb_events": [

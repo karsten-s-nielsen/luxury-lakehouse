@@ -51,11 +51,16 @@ statsbomb_matches as (
         m.away_team_name,
         cast(htm.team_id as string)    as home_team_id_native,
         cast(atm.team_id as string)    as away_team_id_native,
-        -- Per-match HF redistribution tier (spec 2026-06-29 §6.4). StatsBomb has
-        -- no per-match `visibility` feed → no signal → provider-default PUBLIC
-        -- (classify_access_tier('statsbomb', None) == 'public').
-        cast(null as string)           as visibility,
-        'public'                       as access_tier
+        -- Per-match HF redistribution tier (spec 2026-06-29 §6.4). R-5: StatsBomb now carries a
+        -- REAL per-match visibility (PR-2a) — the open path stamps 'public' at ingest and the
+        -- commercial path (PR-4) will stamp 'private'. Previously hardcoded NULL/'public', which
+        -- had no way to express a restricted match.
+        --
+        -- DIRECT columns, no max(): this leg is row-per-match (the left joins to
+        -- sb_event_team_ids do not fan out) and has no `group by`, unlike the SkillCorner leg
+        -- whose roster rows do. Do not copy that aggregation here.
+        m.visibility                   as visibility,
+        m.access_tier                  as access_tier
     from {{ ref('stg_statsbomb__matches') }} m
     left join sb_event_team_ids htm
         on m.match_id = htm.match_id and m.home_team_name = htm.team_name

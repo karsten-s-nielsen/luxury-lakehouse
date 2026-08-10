@@ -150,6 +150,12 @@ models:
         description: Bronze passthrough — home_team_id_native from idsse_tracking (see _idsse__sources.yml). Per-match metadata, same value every row.
       - name: away_team_id_native
         description: Bronze passthrough — away_team_id_native from idsse_tracking (see _idsse__sources.yml). Per-match metadata, same value every row.
+      - name: access_tier
+        description: >
+          Per-match HF redistribution tier ('public'/'restricted'), ADR-064. Bronze passthrough — stamped at ingest by the classifier; any non-'public' value, including NULL, fail-safes to 'restricted'.
+      - name: _ingested_at
+        description: >
+          Bronze passthrough — UTC audit timestamp from ingestion.
 
 # PR 7 hotfix #3: stg_idsse__home_away_teams DELETED — subsumed by
 # int_tracking__match_side_team_bridge (see dbt_project/models/intermediate/).

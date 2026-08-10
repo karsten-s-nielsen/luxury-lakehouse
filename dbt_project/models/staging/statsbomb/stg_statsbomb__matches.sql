@@ -50,6 +50,13 @@ cleaned as (
         -- Data provenance (already a top-level column)
         data_version,
 
+        -- Per-match HF redistribution signals (ADR-064; PR-2a R-16 + R-5). Read DIRECTLY by
+        -- dim_matches, so these are not generic passthrough: `visibility` is the raw provider
+        -- signal (the open feed stamps 'public' at ingest) and `access_tier` is the tier
+        -- derived from it by shared.access_tier.classify_access_tier.
+        visibility,
+        access_tier,
+
         -- Bronze pass-through cols (PR 2 — Kimball migration, ADR-011).
         -- Surface remaining bronze cols with their bronze names so downstream
         -- models and analysts can reach them without re-reading bronze. The

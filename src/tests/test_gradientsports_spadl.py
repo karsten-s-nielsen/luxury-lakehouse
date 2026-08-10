@@ -531,6 +531,15 @@ class TestExtraTimeIntegration:
             udf_fn(pdf)
 
 
+# Columns the GS UDF reads from its group frame that are NOT bronze EVENTS columns and so do
+# NOT arrive via `_gs_needed_bronze_columns()`. `visibility` lives in
+# bronze.gradientsports_metadata and is left-joined onto the events AFTER the backtick
+# projection (PR-2a R-6b). Adding it to the needed set instead would be wrong: that set is
+# projected off the events table, whose `if c in _bronze_field_names` filter would silently
+# drop it, leaving the real dependency undocumented and unguarded.
+_JOINED_NON_BRONZE_COLS = {"visibility"}
+
+
 class TestDotNotationColumnProjection:
     """Validate the _gs_needed_bronze_columns() set covers all columns the UDF reads.
 
@@ -610,12 +619,19 @@ class TestDotNotationColumnProjection:
         assert metadata <= needed, f"Metadata columns missing: {metadata - needed}"
 
     def test_needed_cols_cover_fixture_columns(self) -> None:
-        """Every column in the synthetic bronze fixture is in the needed set."""
+        """Every column in the synthetic bronze fixture is in the needed set.
+
+        Except the columns that do not come from the events projection at all — see
+        ``_JOINED_NON_BRONZE_COLS``. Those must be excluded rather than added to the needed
+        set: ``_gs_needed_bronze_columns()`` is backtick-projected off the EVENTS table, and a
+        name that table does not have would either fail the ``.select()`` or be silently
+        filtered by its ``if c in _bronze_field_names`` guard — hiding the real dependency.
+        """
         from ingestion.spadl_conversion import _gs_needed_bronze_columns
 
         fixture_cols = set(_make_gs_bronze_df(n=1).columns)
         needed = _gs_needed_bronze_columns()
-        missing = fixture_cols - needed
+        missing = fixture_cols - needed - _JOINED_NON_BRONZE_COLS
         assert not missing, f"Fixture columns not in needed set: {sorted(missing)}"
 
     def test_udf_succeeds_with_only_needed_cols(self) -> None:
@@ -633,9 +649,14 @@ class TestDotNotationColumnProjection:
 
         needed = _gs_needed_bronze_columns()
 
-        # Build full fixture, then restrict to only needed columns
+        # Build full fixture, then restrict to only the columns the real path supplies:
+        # the events projection (`needed`) PLUS the columns the metadata join adds after it
+        # (`_JOINED_NON_BRONZE_COLS`). Projecting `needed` alone would not reproduce the
+        # group frame the UDF actually receives, so this test would fail for a reason that
+        # has nothing to do with the projection it is written to guard (PR-2a R-6b).
         full_pdf = _make_gs_bronze_df(n=5)
-        projected_cols = sorted(needed & set(full_pdf.columns))
+        supplied = needed | _JOINED_NON_BRONZE_COLS
+        projected_cols = sorted(supplied & set(full_pdf.columns))
         projected_pdf = full_pdf[projected_cols]
 
         # Apply the same dot→safe rename that Spark does before applyInPandas.
