@@ -41,6 +41,8 @@ import sys
 
 import requests
 
+from ingestion.databricks_auth import workspace_client
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(message)s",
@@ -101,9 +103,8 @@ def _get_headers() -> dict[str, str]:
     call. The previous version read ``DATABRICKS_TOKEN`` directly, which required the
     workflow to materialise a bearer into ``$GITHUB_OUTPUT`` (ADR-071 amendment).
     """
-    from databricks.sdk import WorkspaceClient
 
-    value = (WorkspaceClient().config.authenticate() or {}).get("Authorization", "")
+    value = (workspace_client().config.authenticate() or {}).get("Authorization", "")
     if not value.startswith("Bearer "):
         logger.error(
             "Databricks SDK returned no Bearer authorization header (got %r). Set "

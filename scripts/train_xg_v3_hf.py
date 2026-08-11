@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.93-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.94-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -109,6 +109,7 @@ from ingestion.artifact_deploy import (
     set_and_verify_mlflow_champion,
     upload_weights_to_uc_volume,
 )
+from ingestion.databricks_auth import workspace_client
 from ingestion.hf_jobs_cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
 from ingestion.hf_publish import get_hf_card_path, restricted_repo_id, upload_hf_readme
 from shared.constants import mlflow_model_uri
@@ -1303,10 +1304,9 @@ def main() -> None:
     logger.info("Uploaded model card: %s", readme_result["commit_url"])
 
     # 11. UC Volume (ADR-012 second delivery leg) + sidecar hash.
-    from databricks.sdk import WorkspaceClient
 
     volume_result = upload_weights_to_uc_volume(
-        WorkspaceClient(),
+        workspace_client(),
         catalog=CATALOG,
         schema=SCHEMA,
         model_name=MODEL_NAME,

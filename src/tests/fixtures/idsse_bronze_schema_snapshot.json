@@ -1,0 +1,1152 @@
+{
+  "schema_version": "idsse_bronze_2026_08",
+  "snapshot_source": "DESCRIBE TABLE soccer_analytics.bronze.* for idsse on 2026-08-10. Table list = union of catalog-qualified soccer_analytics.information_schema.tables (cross-checked against SHOW TABLES, asserted equal) and the tables documented in _idsse__sources.yml (elastic_sync_results does not match the idsse% pattern). Refresh when ingestion adds cols. Excludes ['idsse_events_pre_close_out_backup', 'idsse_events_pre_ll2_backfill'] \u2014 classified NON-CONTRACT in scripts/_bronze_table_inventory.py (LL2 Path B migration backups), not silently dropped.",
+  "tables": {
+    "elastic_sync_results": [
+      {
+        "name": "match_id",
+        "type": "string"
+      },
+      {
+        "name": "event_id",
+        "type": "string"
+      },
+      {
+        "name": "frame_id",
+        "type": "int"
+      },
+      {
+        "name": "alignment_confidence",
+        "type": "double"
+      },
+      {
+        "name": "alignment_error_seconds",
+        "type": "double"
+      },
+      {
+        "name": "_ingested_at",
+        "type": "timestamp"
+      }
+    ],
+    "idsse_events": [
+      {
+        "name": "match_id",
+        "type": "string"
+      },
+      {
+        "name": "event_id",
+        "type": "string"
+      },
+      {
+        "name": "event_type",
+        "type": "string"
+      },
+      {
+        "name": "timestamp_seconds",
+        "type": "double"
+      },
+      {
+        "name": "period",
+        "type": "bigint"
+      },
+      {
+        "name": "player_id",
+        "type": "string"
+      },
+      {
+        "name": "team",
+        "type": "string"
+      },
+      {
+        "name": "x",
+        "type": "double"
+      },
+      {
+        "name": "y",
+        "type": "double"
+      },
+      {
+        "name": "_ingested_at",
+        "type": "timestamp"
+      },
+      {
+        "name": "match_id_raw",
+        "type": "string"
+      },
+      {
+        "name": "event_time",
+        "type": "string"
+      },
+      {
+        "name": "start_frame",
+        "type": "double"
+      },
+      {
+        "name": "end_frame",
+        "type": "double"
+      },
+      {
+        "name": "calculated_frame",
+        "type": "double"
+      },
+      {
+        "name": "calculated_timestamp",
+        "type": "string"
+      },
+      {
+        "name": "x_source_position",
+        "type": "double"
+      },
+      {
+        "name": "y_source_position",
+        "type": "double"
+      },
+      {
+        "name": "x_position_from_tracking",
+        "type": "double"
+      },
+      {
+        "name": "y_position_from_tracking",
+        "type": "double"
+      },
+      {
+        "name": "kickoff_team_left",
+        "type": "string"
+      },
+      {
+        "name": "kickoff_team_right",
+        "type": "string"
+      },
+      {
+        "name": "kickoff_game_section",
+        "type": "string"
+      },
+      {
+        "name": "play_semi_field",
+        "type": "string"
+      },
+      {
+        "name": "play_player",
+        "type": "string"
+      },
+      {
+        "name": "play_team",
+        "type": "string"
+      },
+      {
+        "name": "play_from_open_play",
+        "type": "string"
+      },
+      {
+        "name": "play_penalty_box",
+        "type": "string"
+      },
+      {
+        "name": "play_flat_cross",
+        "type": "string"
+      },
+      {
+        "name": "play_height",
+        "type": "string"
+      },
+      {
+        "name": "play_distance",
+        "type": "string"
+      },
+      {
+        "name": "play_play_origin",
+        "type": "string"
+      },
+      {
+        "name": "play_play_angle",
+        "type": "string"
+      },
+      {
+        "name": "play_recipient",
+        "type": "string"
+      },
+      {
+        "name": "play_ball_possession_phase",
+        "type": "string"
+      },
+      {
+        "name": "play_evaluation",
+        "type": "string"
+      },
+      {
+        "name": "pass_free_kick_layup",
+        "type": "string"
+      },
+      {
+        "name": "pass_direction",
+        "type": "string"
+      },
+      {
+        "name": "throwin_team",
+        "type": "string"
+      },
+      {
+        "name": "throwin_side",
+        "type": "string"
+      },
+      {
+        "name": "throwin_decision_timestamp",
+        "type": "string"
+      },
+      {
+        "name": "tackle_winner_team",
+        "type": "string"
+      },
+      {
+        "name": "tackle_winner",
+        "type": "string"
+      },
+      {
+        "name": "tackle_winner_role",
+        "type": "string"
+      },
+      {
+        "name": "tackle_possession_change",
+        "type": "string"
+      },
+      {
+        "name": "tackle_goal_keeper_involved",
+        "type": "string"
+      },
+      {
+        "name": "tackle_loser",
+        "type": "string"
+      },
+      {
+        "name": "tackle_loser_role",
+        "type": "string"
+      },
+      {
+        "name": "tackle_winner_result",
+        "type": "string"
+      },
+      {
+        "name": "tackle_loser_team",
+        "type": "string"
+      },
+      {
+        "name": "tackle_type",
+        "type": "string"
+      },
+      {
+        "name": "otherball_player",
+        "type": "string"
+      },
+      {
+        "name": "otherball_team",
+        "type": "string"
+      },
+      {
+        "name": "otherball_ball_possession_phase",
+        "type": "string"
+      },
+      {
+        "name": "otherball_defensive_clearance",
+        "type": "string"
+      },
+      {
+        "name": "play_goal_keeper_action",
+        "type": "string"
+      },
+      {
+        "name": "tackle_dribble_evaluation",
+        "type": "string"
+      },
+      {
+        "name": "tackle_dribbling_side",
+        "type": "string"
+      },
+      {
+        "name": "tackle_ball_possession_phase",
+        "type": "string"
+      },
+      {
+        "name": "tackle_dribbling_type",
+        "type": "string"
+      },
+      {
+        "name": "play_rotation",
+        "type": "string"
+      },
+      {
+        "name": "cross_side",
+        "type": "string"
+      },
+      {
+        "name": "shot_team",
+        "type": "string"
+      },
+      {
+        "name": "shot_pressure",
+        "type": "string"
+      },
+      {
+        "name": "shot_goal_distance_goalkeeper",
+        "type": "string"
+      },
+      {
+        "name": "shot_shot_origin",
+        "type": "string"
+      },
+      {
+        "name": "shot_assist_type_shot_at_goal",
+        "type": "string"
+      },
+      {
+        "name": "shot_assist_shot_at_goal",
+        "type": "string"
+      },
+      {
+        "name": "shot_angle_to_goal",
+        "type": "string"
+      },
+      {
+        "name": "shot_player_speed",
+        "type": "string"
+      },
+      {
+        "name": "shot_taker_ball_control",
+        "type": "string"
+      },
+      {
+        "name": "shot_counter_attack",
+        "type": "string"
+      },
+      {
+        "name": "shot_player",
+        "type": "string"
+      },
+      {
+        "name": "shot_chance_evaluation",
+        "type": "string"
+      },
+      {
+        "name": "shot_setup_origin",
+        "type": "string"
+      },
+      {
+        "name": "shot_type_of_shot",
+        "type": "string"
+      },
+      {
+        "name": "shot_taker_setup",
+        "type": "string"
+      },
+      {
+        "name": "shot_after_free_kick",
+        "type": "string"
+      },
+      {
+        "name": "shot_distance_to_goal",
+        "type": "string"
+      },
+      {
+        "name": "shot_inside_box",
+        "type": "string"
+      },
+      {
+        "name": "shot_significance_evaluation",
+        "type": "string"
+      },
+      {
+        "name": "shot_build_up",
+        "type": "string"
+      },
+      {
+        "name": "shot_assist_action",
+        "type": "string"
+      },
+      {
+        "name": "shot_x_g",
+        "type": "string"
+      },
+      {
+        "name": "shot_ball_possession_phase",
+        "type": "string"
+      },
+      {
+        "name": "shot_amount_of_defenders",
+        "type": "string"
+      },
+      {
+        "name": "shot_shot_condition",
+        "type": "string"
+      },
+      {
+        "name": "shot_outcome_placing",
+        "type": "string"
+      },
+      {
+        "name": "shot_outcome_pitch_marking",
+        "type": "string"
+      },
+      {
+        "name": "shot_outcome_type",
+        "type": "string"
+      },
+      {
+        "name": "goalkick_team",
+        "type": "string"
+      },
+      {
+        "name": "goalkick_decision_timestamp",
+        "type": "string"
+      },
+      {
+        "name": "foul_team_fouler",
+        "type": "string"
+      },
+      {
+        "name": "foul_fouler",
+        "type": "string"
+      },
+      {
+        "name": "foul_fouled",
+        "type": "string"
+      },
+      {
+        "name": "foul_team_fouled",
+        "type": "string"
+      },
+      {
+        "name": "foul_foul_type",
+        "type": "string"
+      },
+      {
+        "name": "freekick_team",
+        "type": "string"
+      },
+      {
+        "name": "freekick_decision_timestamp",
+        "type": "string"
+      },
+      {
+        "name": "freekick_execution_mode",
+        "type": "string"
+      },
+      {
+        "name": "pass_one_two",
+        "type": "string"
+      },
+      {
+        "name": "shot_extended_type_of_shot",
+        "type": "string"
+      },
+      {
+        "name": "shot_outcome_current_result",
+        "type": "string"
+      },
+      {
+        "name": "shot_outcome_goal_zone",
+        "type": "string"
+      },
+      {
+        "name": "shot_outcome_ref_decision_evaluation",
+        "type": "string"
+      },
+      {
+        "name": "shot_outcome_assist",
+        "type": "string"
+      },
+      {
+        "name": "shot_outcome_assist_type",
+        "type": "string"
+      },
+      {
+        "name": "shot_outcome_solo",
+        "type": "string"
+      },
+      {
+        "name": "shot_outcome_save_evaluation",
+        "type": "string"
+      },
+      {
+        "name": "shot_outcome_goal_keeper",
+        "type": "string"
+      },
+      {
+        "name": "shot_outcome_save_type",
+        "type": "string"
+      },
+      {
+        "name": "shot_outcome_save_result",
+        "type": "string"
+      },
+      {
+        "name": "corner_placing",
+        "type": "string"
+      },
+      {
+        "name": "corner_team",
+        "type": "string"
+      },
+      {
+        "name": "corner_side",
+        "type": "string"
+      },
+      {
+        "name": "corner_decision_timestamp",
+        "type": "string"
+      },
+      {
+        "name": "corner_rotation",
+        "type": "string"
+      },
+      {
+        "name": "corner_post_marking",
+        "type": "string"
+      },
+      {
+        "name": "corner_target_area",
+        "type": "string"
+      },
+      {
+        "name": "tackle_winner_action",
+        "type": "string"
+      },
+      {
+        "name": "shot_outcome_player",
+        "type": "string"
+      },
+      {
+        "name": "shot_outcome_goal_prevented",
+        "type": "string"
+      },
+      {
+        "name": "shot_shot_contribution",
+        "type": "string"
+      },
+      {
+        "name": "shot_outcome_location",
+        "type": "string"
+      },
+      {
+        "name": "caution_player",
+        "type": "string"
+      },
+      {
+        "name": "caution_team",
+        "type": "string"
+      },
+      {
+        "name": "caution_reason",
+        "type": "string"
+      },
+      {
+        "name": "caution_card_rating",
+        "type": "string"
+      },
+      {
+        "name": "caution_other_reason",
+        "type": "string"
+      },
+      {
+        "name": "caution_card_color",
+        "type": "string"
+      },
+      {
+        "name": "offside_player",
+        "type": "string"
+      },
+      {
+        "name": "offside_team",
+        "type": "string"
+      },
+      {
+        "name": "delete_reason",
+        "type": "string"
+      },
+      {
+        "name": "var_team_challenged",
+        "type": "string"
+      },
+      {
+        "name": "var_proofed_event",
+        "type": "string"
+      },
+      {
+        "name": "var_ref_decision",
+        "type": "string"
+      },
+      {
+        "name": "var_linesman2",
+        "type": "string"
+      },
+      {
+        "name": "var_linesman1",
+        "type": "string"
+      },
+      {
+        "name": "var_referee",
+        "type": "string"
+      },
+      {
+        "name": "var_video_assistant",
+        "type": "string"
+      },
+      {
+        "name": "var_timestamp_start_action",
+        "type": "string"
+      },
+      {
+        "name": "var_ref_decision_evaluation",
+        "type": "string"
+      },
+      {
+        "name": "var_timestamp_end_action",
+        "type": "string"
+      },
+      {
+        "name": "var_final_decision",
+        "type": "string"
+      },
+      {
+        "name": "var_refereein_rra",
+        "type": "string"
+      },
+      {
+        "name": "var_opponent_team",
+        "type": "string"
+      },
+      {
+        "name": "whistle_game_section",
+        "type": "string"
+      },
+      {
+        "name": "whistle_final_result",
+        "type": "string"
+      },
+      {
+        "name": "whistle_breaking_off",
+        "type": "string"
+      },
+      {
+        "name": "shot_sitter_contribution",
+        "type": "string"
+      },
+      {
+        "name": "sub_player_in",
+        "type": "string"
+      },
+      {
+        "name": "sub_team",
+        "type": "string"
+      },
+      {
+        "name": "sub_player_out",
+        "type": "string"
+      },
+      {
+        "name": "sub_playing_position",
+        "type": "string"
+      },
+      {
+        "name": "other_action_player",
+        "type": "string"
+      },
+      {
+        "name": "other_action_team",
+        "type": "string"
+      },
+      {
+        "name": "other_action_player_becomes_goalkeeper",
+        "type": "string"
+      },
+      {
+        "name": "other_action_change_of_captain",
+        "type": "string"
+      },
+      {
+        "name": "other_action_change_contingent_exhausted",
+        "type": "string"
+      },
+      {
+        "name": "shot_outcome_blocked_by_own_team",
+        "type": "string"
+      },
+      {
+        "name": "penalty_team",
+        "type": "string"
+      },
+      {
+        "name": "penalty_causing_player",
+        "type": "string"
+      },
+      {
+        "name": "penalty_goalkeeper_behaviour",
+        "type": "string"
+      },
+      {
+        "name": "penalty_decision_timestamp",
+        "type": "string"
+      },
+      {
+        "name": "penalty_prospective_taker",
+        "type": "string"
+      },
+      {
+        "name": "penalty_ref_decision_evaluation",
+        "type": "string"
+      },
+      {
+        "name": "penalty_retaken_penalty",
+        "type": "string"
+      },
+      {
+        "name": "penalty_players_in_box",
+        "type": "string"
+      },
+      {
+        "name": "penalty_goalkeeper_movement",
+        "type": "string"
+      },
+      {
+        "name": "shot_penalty_direction",
+        "type": "string"
+      },
+      {
+        "name": "shot_penalty_execution",
+        "type": "string"
+      },
+      {
+        "name": "foul_committing_player_action",
+        "type": "string"
+      },
+      {
+        "name": "not_sent_off_player",
+        "type": "string"
+      },
+      {
+        "name": "not_sent_off_team",
+        "type": "string"
+      },
+      {
+        "name": "not_sent_off_reason",
+        "type": "string"
+      },
+      {
+        "name": "not_sent_off_ref_decision_evaluation",
+        "type": "string"
+      },
+      {
+        "name": "not_sent_off_type",
+        "type": "string"
+      },
+      {
+        "name": "chance_player",
+        "type": "string"
+      },
+      {
+        "name": "chance_team",
+        "type": "string"
+      },
+      {
+        "name": "chance_sitter",
+        "type": "string"
+      },
+      {
+        "name": "chance_chance_assist",
+        "type": "string"
+      },
+      {
+        "name": "chance_prevention_goalkeeper",
+        "type": "string"
+      },
+      {
+        "name": "chance_taker_setup",
+        "type": "string"
+      },
+      {
+        "name": "chance_chance_assist_type",
+        "type": "string"
+      },
+      {
+        "name": "chance_setup_origin",
+        "type": "string"
+      },
+      {
+        "name": "chance_counter_attack",
+        "type": "string"
+      },
+      {
+        "name": "chance_situation",
+        "type": "string"
+      },
+      {
+        "name": "chance_assist_action",
+        "type": "string"
+      },
+      {
+        "name": "penalty_not_team",
+        "type": "string"
+      },
+      {
+        "name": "penalty_not_causing_player",
+        "type": "string"
+      },
+      {
+        "name": "penalty_not_player_to_be_awarded",
+        "type": "string"
+      },
+      {
+        "name": "penalty_not_reason",
+        "type": "string"
+      },
+      {
+        "name": "penalty_not_ref_decision_evaluation",
+        "type": "string"
+      },
+      {
+        "name": "goaldis_player",
+        "type": "string"
+      },
+      {
+        "name": "goaldis_team",
+        "type": "string"
+      },
+      {
+        "name": "goaldis_reason",
+        "type": "string"
+      },
+      {
+        "name": "goaldis_ref_decision_evaluation",
+        "type": "string"
+      },
+      {
+        "name": "run_player",
+        "type": "string"
+      },
+      {
+        "name": "run_team",
+        "type": "string"
+      },
+      {
+        "name": "spectacular_player",
+        "type": "string"
+      },
+      {
+        "name": "spectacular_team",
+        "type": "string"
+      },
+      {
+        "name": "spectacular_type",
+        "type": "string"
+      },
+      {
+        "name": "possloss_player",
+        "type": "string"
+      },
+      {
+        "name": "possloss_team",
+        "type": "string"
+      },
+      {
+        "name": "possloss_type_of_possession_loss",
+        "type": "string"
+      },
+      {
+        "name": "possloss_possession_loss_origin",
+        "type": "string"
+      },
+      {
+        "name": "sitter_prev_player",
+        "type": "string"
+      },
+      {
+        "name": "sitter_prev_team",
+        "type": "string"
+      },
+      {
+        "name": "sitter_prev_reason",
+        "type": "string"
+      },
+      {
+        "name": "sitter_prev_ref_decision_evaluation",
+        "type": "string"
+      },
+      {
+        "name": "deflection_player",
+        "type": "string"
+      },
+      {
+        "name": "deflection_team",
+        "type": "string"
+      },
+      {
+        "name": "deflection_type",
+        "type": "string"
+      },
+      {
+        "name": "claim_player",
+        "type": "string"
+      },
+      {
+        "name": "claim_team",
+        "type": "string"
+      },
+      {
+        "name": "claim_ball_possession_phase",
+        "type": "string"
+      },
+      {
+        "name": "claim_type",
+        "type": "string"
+      },
+      {
+        "name": "penalty_fouled_player",
+        "type": "string"
+      },
+      {
+        "name": "fault_execution_team",
+        "type": "string"
+      },
+      {
+        "name": "shot_outcome_error",
+        "type": "string"
+      },
+      {
+        "name": "shot_outcome_deflection_keeper",
+        "type": "string"
+      },
+      {
+        "name": "nutmeg_team",
+        "type": "string"
+      },
+      {
+        "name": "cross_goal_keeper",
+        "type": "string"
+      },
+      {
+        "name": "shot_direct_free_kick_intention",
+        "type": "string"
+      },
+      {
+        "name": "caution_official_card_color",
+        "type": "string"
+      },
+      {
+        "name": "shot_outcome_deflection_player",
+        "type": "string"
+      },
+      {
+        "name": "shot_shot_assist_fouled_player",
+        "type": "string"
+      },
+      {
+        "name": "shot_outcome_assist_contribution",
+        "type": "string"
+      },
+      {
+        "name": "caution_official_team",
+        "type": "string"
+      },
+      {
+        "name": "nutmeg_affected_player",
+        "type": "string"
+      },
+      {
+        "name": "fairplay_team",
+        "type": "string"
+      },
+      {
+        "name": "fairplay_ball_possession_phase",
+        "type": "string"
+      },
+      {
+        "name": "fault_execution_player",
+        "type": "string"
+      },
+      {
+        "name": "cross_goal_keeper_interference",
+        "type": "string"
+      },
+      {
+        "name": "caution_ref_decision_evaluation",
+        "type": "string"
+      },
+      {
+        "name": "shot_outcome_assist_fouled_player",
+        "type": "string"
+      },
+      {
+        "name": "nutmeg_affected_team",
+        "type": "string"
+      },
+      {
+        "name": "fault_execution_ball_possession_phase",
+        "type": "string"
+      },
+      {
+        "name": "caution_official_person_sent_off",
+        "type": "string"
+      },
+      {
+        "name": "nutmeg_player",
+        "type": "string"
+      },
+      {
+        "name": "fairplay_player",
+        "type": "string"
+      },
+      {
+        "name": "shot_rotation",
+        "type": "string"
+      },
+      {
+        "name": "competition_native_id",
+        "type": "string"
+      },
+      {
+        "name": "season_native_id",
+        "type": "string"
+      },
+      {
+        "name": "home_team_id_native",
+        "type": "string"
+      },
+      {
+        "name": "away_team_id_native",
+        "type": "string"
+      },
+      {
+        "name": "team_id_native",
+        "type": "string"
+      }
+    ],
+    "idsse_tracking": [
+      {
+        "name": "period",
+        "type": "bigint"
+      },
+      {
+        "name": "frame",
+        "type": "bigint"
+      },
+      {
+        "name": "timestamp",
+        "type": "double"
+      },
+      {
+        "name": "player_id",
+        "type": "string"
+      },
+      {
+        "name": "team",
+        "type": "string"
+      },
+      {
+        "name": "x",
+        "type": "double"
+      },
+      {
+        "name": "y",
+        "type": "double"
+      },
+      {
+        "name": "ball_x",
+        "type": "double"
+      },
+      {
+        "name": "ball_y",
+        "type": "double"
+      },
+      {
+        "name": "match_id",
+        "type": "string"
+      },
+      {
+        "name": "frame_rate",
+        "type": "bigint"
+      },
+      {
+        "name": "_ingested_at",
+        "type": "timestamp"
+      },
+      {
+        "name": "is_goalkeeper",
+        "type": "boolean"
+      },
+      {
+        "name": "team_id",
+        "type": "string"
+      },
+      {
+        "name": "t",
+        "type": "string"
+      },
+      {
+        "name": "s",
+        "type": "double"
+      },
+      {
+        "name": "a",
+        "type": "double"
+      },
+      {
+        "name": "d",
+        "type": "double"
+      },
+      {
+        "name": "m",
+        "type": "boolean"
+      },
+      {
+        "name": "ball_z",
+        "type": "double"
+      },
+      {
+        "name": "ball_s",
+        "type": "double"
+      },
+      {
+        "name": "ball_a",
+        "type": "double"
+      },
+      {
+        "name": "ball_d",
+        "type": "double"
+      },
+      {
+        "name": "ball_m",
+        "type": "boolean"
+      },
+      {
+        "name": "ball_t",
+        "type": "string"
+      },
+      {
+        "name": "ball_possession",
+        "type": "string"
+      },
+      {
+        "name": "ball_status",
+        "type": "string"
+      },
+      {
+        "name": "competition_native_id",
+        "type": "string"
+      },
+      {
+        "name": "season_native_id",
+        "type": "string"
+      },
+      {
+        "name": "home_team_id_native",
+        "type": "string"
+      },
+      {
+        "name": "away_team_id_native",
+        "type": "string"
+      },
+      {
+        "name": "access_tier",
+        "type": "string"
+      }
+    ]
+  }
+}

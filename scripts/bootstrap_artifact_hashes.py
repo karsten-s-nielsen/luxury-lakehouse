@@ -25,6 +25,7 @@ import logging
 import sys
 from typing import TYPE_CHECKING
 
+from ingestion.databricks_auth import workspace_client
 from shared.constants import IDENTIFIER_RE
 
 if TYPE_CHECKING:
@@ -191,10 +192,9 @@ def main(argv: list[str] | None = None) -> int:
         if not IDENTIFIER_RE.match(value):
             parser.error(f"Invalid {field} name '{value}': must match {IDENTIFIER_RE.pattern}")
 
-    from databricks.sdk import WorkspaceClient
     from mlflow.tracking import MlflowClient
 
-    workspace_client = WorkspaceClient()
+    ws_client = workspace_client()
     mlflow_client = MlflowClient()
 
     total_changes = 0
@@ -212,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("Phase 2: UC Volume sidecars")
     for relative_path in _VOLUME_ARTIFACTS:
         total_changes += bootstrap_volume_artifact(
-            workspace_client,
+            ws_client,
             args.catalog,
             args.schema,
             relative_path,

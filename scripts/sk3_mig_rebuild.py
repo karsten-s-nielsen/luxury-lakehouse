@@ -40,6 +40,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ingestion.databricks_auth import workspace_client
 from shared.constants import DEFAULT_CATALOG
 
 logger = logging.getLogger(__name__)
@@ -333,9 +334,7 @@ def main() -> int:
             print(f"Step {n}: {name}")
         return 0
 
-    from databricks.sdk import WorkspaceClient  # type: ignore[import-not-found]
-
-    client = WorkspaceClient()
+    client = workspace_client()
 
     for n, name, fn in _STEPS:
         if n < args.start_at:

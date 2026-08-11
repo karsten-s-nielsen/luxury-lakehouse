@@ -705,6 +705,111 @@ models:
       # ShotAtGoal outcome disambiguator (synthetic)
       - name: shot_outcome_type
         description: Bronze passthrough — shot_outcome_type from idsse_events (see _idsse__sources.yml).
+      - name: shot_outcome_assist
+        description: >
+          Bronze passthrough — DFL ShotAtGoal outcome detail (assist); no mart reads it yet.
+      - name: shot_outcome_assist_contribution
+        description: >
+          Bronze passthrough — DFL ShotAtGoal outcome detail (assist_contribution); no mart reads it yet.
+      - name: shot_outcome_assist_fouled_player
+        description: >
+          Bronze passthrough — DFL ShotAtGoal outcome detail (assist_fouled_player); no mart reads it yet.
+      - name: shot_outcome_assist_type
+        description: >
+          Bronze passthrough — DFL ShotAtGoal outcome detail (assist_type); no mart reads it yet.
+      - name: shot_outcome_blocked_by_own_team
+        description: >
+          Bronze passthrough — DFL ShotAtGoal outcome detail (blocked_by_own_team); no mart reads it yet.
+      - name: shot_outcome_current_result
+        description: >
+          Bronze passthrough — DFL ShotAtGoal outcome detail (current_result); no mart reads it yet.
+      - name: shot_outcome_deflection_keeper
+        description: >
+          Bronze passthrough — DFL ShotAtGoal outcome detail (deflection_keeper); no mart reads it yet.
+      - name: shot_outcome_deflection_player
+        description: >
+          Bronze passthrough — DFL ShotAtGoal outcome detail (deflection_player); no mart reads it yet.
+      - name: shot_outcome_error
+        description: >
+          Bronze passthrough — DFL ShotAtGoal outcome detail (error); no mart reads it yet.
+      - name: shot_outcome_goal_keeper
+        description: >
+          Bronze passthrough — DFL ShotAtGoal outcome detail (goal_keeper); no mart reads it yet.
+      - name: shot_outcome_goal_prevented
+        description: >
+          Bronze passthrough — DFL ShotAtGoal outcome detail (goal_prevented); no mart reads it yet.
+      - name: shot_outcome_goal_zone
+        description: >
+          Bronze passthrough — DFL ShotAtGoal outcome detail (goal_zone); no mart reads it yet.
+      - name: shot_outcome_location
+        description: >
+          Bronze passthrough — DFL ShotAtGoal outcome detail (location); no mart reads it yet.
+      - name: shot_outcome_pitch_marking
+        description: >
+          Bronze passthrough — DFL ShotAtGoal outcome detail (pitch_marking); no mart reads it yet.
+      - name: shot_outcome_placing
+        description: >
+          Bronze passthrough — DFL ShotAtGoal outcome detail (placing); no mart reads it yet.
+      - name: shot_outcome_player
+        description: >
+          Bronze passthrough — DFL ShotAtGoal outcome detail (player); no mart reads it yet.
+      - name: shot_outcome_ref_decision_evaluation
+        description: >
+          Bronze passthrough — DFL ShotAtGoal outcome detail (ref_decision_evaluation); no mart reads it yet.
+      - name: shot_outcome_save_evaluation
+        description: >
+          Bronze passthrough — DFL ShotAtGoal outcome detail (save_evaluation); no mart reads it yet.
+      - name: shot_outcome_save_result
+        description: >
+          Bronze passthrough — DFL ShotAtGoal outcome detail (save_result); no mart reads it yet.
+      - name: shot_outcome_save_type
+        description: >
+          Bronze passthrough — DFL ShotAtGoal outcome detail (save_type); no mart reads it yet.
+      - name: shot_outcome_solo
+        description: >
+          Bronze passthrough — DFL ShotAtGoal outcome detail (solo); no mart reads it yet.
+      - name: shot_direct_free_kick_intention
+        description: >
+          Bronze passthrough — DFL shot execution detail (direct_free_kick_intention); no mart reads it yet.
+      - name: shot_penalty_direction
+        description: >
+          Bronze passthrough — DFL shot execution detail (penalty_direction); no mart reads it yet.
+      - name: shot_penalty_execution
+        description: >
+          Bronze passthrough — DFL shot execution detail (penalty_execution); no mart reads it yet.
+      - name: shot_rotation
+        description: >
+          Bronze passthrough — DFL shot execution detail (rotation); no mart reads it yet.
+      - name: shot_shot_assist_fouled_player
+        description: >
+          Bronze passthrough — DFL shot execution detail (shot_assist_fouled_player); no mart reads it yet.
+      - name: fault_execution_ball_possession_phase
+        description: >
+          Bronze passthrough — DFL FaultExecution detail (ball_possession_phase); no mart reads it yet.
+      - name: fault_execution_player
+        description: >
+          Bronze passthrough — DFL FaultExecution detail (player); no mart reads it yet.
+      - name: fault_execution_team
+        description: >
+          Bronze passthrough — DFL FaultExecution detail (team); no mart reads it yet.
+      - name: home_team_id_native
+        description: >
+          Bronze passthrough — raw DFL CLU home-team id (ADR-016 native identifier).
+      - name: away_team_id_native
+        description: >
+          Bronze passthrough — raw DFL CLU away-team id (ADR-016 native identifier).
+      - name: team_id_native
+        description: >
+          Bronze passthrough — raw DFL CLU id of the acting team (ADR-016 native identifier).
+      - name: competition_native_id
+        description: >
+          Bronze passthrough — raw DFL competition id (ADR-016 native identifier).
+      - name: season_native_id
+        description: >
+          Bronze passthrough — raw DFL season id (ADR-016 native identifier).
+      - name: _ingested_at
+        description: >
+          Bronze passthrough — UTC audit timestamp from ingestion.
 
   - name: stg_idsse__elastic_sync
     config:

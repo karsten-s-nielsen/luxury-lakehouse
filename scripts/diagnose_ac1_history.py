@@ -25,6 +25,8 @@ import sys
 
 from databricks.sdk import WorkspaceClient
 
+from ingestion.databricks_auth import workspace_client
+
 TARGET_TASKS = ("compute_action_context",)
 _FINGERPRINT_RE = re.compile(r"AC1_FINGERPRINT.*$", re.MULTILINE)
 
@@ -67,7 +69,7 @@ def main() -> int:
     parser.add_argument("--job-id", type=int, default=302697362345215, help="Job ID")
     args = parser.parse_args()
 
-    w = WorkspaceClient()
+    w = workspace_client()
 
     print(f"Scanning up to {args.runs} completed runs of job {args.job_id} for AC-1 tasks...\n")
 

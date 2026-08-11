@@ -25,6 +25,8 @@ import logging
 import sys
 import time
 
+from ingestion.databricks_auth import workspace_client
+
 logger = logging.getLogger("psxg_oneshot")
 
 # The ingestion SP — same identity the daily compute tasks run as, so executor
@@ -68,10 +70,9 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
     args = _build_arg_parser().parse_args()
 
-    from databricks.sdk import WorkspaceClient
     from databricks.sdk.service import compute, jobs
 
-    w = WorkspaceClient()
+    w = workspace_client()
     wheel_path = args.wheel_path or _wheel_volume_path(args.catalog)
     run_as = None if args.run_as_user else jobs.JobRunAs(service_principal_name=_INGESTION_SP_APPLICATION_ID)
     identity = "submitter" if args.run_as_user else f"ingestion-SP({_INGESTION_SP_APPLICATION_ID})"

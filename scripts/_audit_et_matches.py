@@ -16,8 +16,9 @@ import sys
 import time
 
 import pandas as pd
-from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.sql import Disposition, Format
+
+from ingestion.databricks_auth import workspace_client
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ _FRAME_COL = {"idsse": "frame", "metrica": "frame", "gradientsports": "frame_num
 
 def _exec(sql: str, warehouse_id: str) -> pd.DataFrame:
     """Execute a Databricks SQL statement and return result as a pandas DataFrame."""
-    w = WorkspaceClient()
+    w = workspace_client()
     resp = w.statement_execution.execute_statement(
         statement=sql,
         warehouse_id=warehouse_id,

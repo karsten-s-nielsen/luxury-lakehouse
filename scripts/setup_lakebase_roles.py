@@ -39,6 +39,8 @@ import argparse
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from ingestion.databricks_auth import workspace_client
+
 # PR-Cycle-B (2026-05-01): databricks-sdk is in the [sdk] optional extra.
 # Lazy-import keeps this module importable without the extra installed.
 if TYPE_CHECKING:
@@ -247,7 +249,7 @@ def main() -> None:
     parser.add_argument("--cleanup", action="store_true", help="Delete orphaned NO_LOGIN roles")
     args = parser.parse_args()
 
-    ws = WorkspaceClient()
+    ws = workspace_client()
 
     if args.verify:
         verify_roles(ws)

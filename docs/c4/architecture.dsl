@@ -29,6 +29,9 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             bumpWheel = container "bump_wheel.py" "Syncs wheel version to all static consumers (25+ files)" "Python"
             dbtBuildAndRefresh = container "dbt_build_and_refresh.py" "Chains dbt build with synced table refresh" "Python, subprocess"
             syncTfEnvPins = container "sync_tf_env_pins.py" "Mirrors uv.lock library pins into the terraform env blocks (ADR-046); shares one pure policy core with the parity sentinel (fixer=checker)" "Python"
+            syncBronzeSources = container "sync_bronze_sources_yml.py" "Appends undocumented bronze columns to dbt sources.yml from live DESCRIBE snapshots. Same pure-core fixer=checker shape as sync_tf_env_pins; --check is the CI gate. Insert-only — never rewrites a description." "Python"
+            checkCveBlockers = container "check_cve_blockers.py" "Re-proves each pip-audit ignore by ATTEMPTING its floor: BLOCKED / COLLATERAL / MOVED / UNKNOWN. A transient uv constraint probe, restored in a finally (ADR-075)." "Python, uv"
+            auditResolutions = container "audit_resolutions.py" "Audits every uv.lock resolution, not the one env CI installs — conflicting extras mean 3 of 4 have no installable env. Logs every local-version proxy (ADR-075)." "Python, pip-audit"
         }
 
         pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "47 workflow-card-registered workflows. Centralized hooks, lifecycle tracking, three-tier cost tracking." {
@@ -92,6 +95,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             semgrepCi = container "Semgrep SAST" "OWASP-aligned static analysis on every push" ".github/workflows/"
             lakebaseGrantsWorkflow = container "Lakebase Maintenance" "Self-healing SELECT grants (ADR-005) + checkpoint-broken synced-table recreate (heal before grants/indexes; concurrency-guarded — ADR-041)" ".github/workflows/"
             dataQualityCi = container "Data Quality CI" "Bronze schema parity, Kimball contracts, xref invariants, ADR-013 compliance" ".github/workflows/"
+            cveReviewCi = container "CVE Review" "Weekly: re-proves every ignore's blocker, and audits all four uv.lock resolutions. Not per-PR — Dependabot alerts at merge; this is the enforcement half (ADR-075)." ".github/workflows/"
         }
 
         # Relationships - users
@@ -100,6 +104,9 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         developer -> deployWheel "Pushes wheel to UC Volume" "CLI"
         developer -> bumpWheel "Syncs version after bump" "CLI"
         developer -> syncTfEnvPins "Syncs TF env pins after uv lock" "CLI"
+        developer -> syncBronzeSources "Documents new bronze columns after a schema snapshot refresh" "CLI"
+        developer -> checkCveBlockers "Re-tests an ignore's blocker before editing it" "CLI"
+        developer -> auditResolutions "Audits every resolution after a lock change" "CLI"
         developer -> dbtBuildAndRefresh "Rebuilds gold + Lakebase" "CLI"
         developer -> adminApi "Cache clear (incident response)" "HTTPS"
         operator -> orchestratorScript "Triggers retrain cycles" "CLI"
@@ -291,6 +298,28 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             include openRouter
             include hfIdentity
             include githubActions
+            autoLayout
+        }
+
+        # dbtProject's two containers were likewise invisible. `Containers_DataStores` does
+        # `include fctWorkflowCosts`, which is NOT enough — verified against the exported puml,
+        # neither `fct_workflow_costs` nor `Gold Models` appeared in any view. Found by
+        # test_c4_view_coverage.py on its first run, which is the whole point of writing the
+        # check as a test rather than as a note telling the next person to look.
+        container dbtProject "Containers_DbtProject" {
+            include *
+            autoLayout
+        }
+
+        # deployPipeline had no container view, so its 8 operator tools were modelled but
+        # rendered in no diagram — visible only in the DSL panel. Found 2026-08-11 while
+        # verifying that two newly-added containers actually appeared; six pre-existing ones
+        # (manage_space, deploy_wheel, bump_wheel, dbt_build_and_refresh, sync_tf_env_pins,
+        # sync_bronze_sources_yml) had been invisible the whole time. The skill's coverage lint
+        # only catches containers with unrendered COMPONENTS, not systems with unrendered
+        # CONTAINERS, so nothing flagged it.
+        container deployPipeline "Containers_DeployPipeline" {
+            include *
             autoLayout
         }
 

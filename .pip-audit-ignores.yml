@@ -1,5 +1,9 @@
 # pip-audit ignore list — the SINGLE source of truth (SEC5, 2026-08-08).
 #
+# Governing decision: ADR-075 (docs/superpowers/adrs/) — exceptions carry an expiry, and where
+# a revisit condition can be evaluated by EXECUTION it must be. `scripts/check_cve_blockers.py`
+# re-proves every entry below; `scripts/audit_resolutions.py` audits every uv.lock resolution.
+#
 # WHY THIS FILE EXISTS
 # --------------------
 # These 16 advisories were inline `--ignore-vuln` flags DUPLICATED across two steps of
@@ -31,62 +35,218 @@
 #   PYSEC ids while several entries here are CVE aliases. All six below were confirmed
 #   to still suppress a live finding THROUGH their aliases; do not "tidy" an id without
 #   re-running the audit.
+#
+# RE-AUDITED 2026-08-11 — every blocker re-tested by EXECUTION, not by inspection:
+#   `scripts/check_cve_blockers.py` attempts each floor for real and reports BLOCKED
+#   (unsatisfiable) / COLLATERAL (resolves only by degrading the graph) / MOVED (take the
+#   fix) / UNKNOWN. `.github/workflows/cve-blocker-review.yml` re-runs it weekly, so a
+#   blocker that moves is discovered by the repo rather than by whoever next looks.
+#   Result: 4 BLOCKED, 2 COLLATERAL, 0 MOVED — every ignore below is still justified.
+#
+#   THREE of the six `blocked_by` records were WRONG and are corrected here. They were
+#   re-derived from uv.lock's dependency edges plus each holder's PyPI metadata at the
+#   version we actually lock:
+#     - python-dotenv blamed `taipy`, which does not declare it; the holder is taipy-gui.
+#     - pyarrow blamed "databricks-connect/pyspark", NEITHER of which is in uv.lock at
+#       all — so its review_trigger watched an upstream that could never unblock it. The
+#       real holder is taipy-core.
+#     - deepdiff recorded "<8"; the measured cap is "<=7.0.1", so 7.0.2 was blocked too.
+#   This is why the blocker check has to EXECUTE. Hand-written constraint prose ages into
+#   fiction, and nothing was watching it: pyarrow's entry pointed at the wrong package for
+#   three days short of a year of alert lifetime.
+#
+#   SCOPE OF THIS FILE: it suppresses what `pip-audit` reports in the CI-synced environment
+#   (7 findings across 5 packages on 2026-08-11 — exactly the six entries below). That is
+#   NOT the same set as GitHub's Dependabot alerts, which read uv.lock across every extra
+#   fork: 14 were open on 2026-08-11, and the 8 not listed here name packages pip-audit
+#   never sees, because `uv run pip-audit` audits an environment without the taipy-app
+#   extra (and skips torch, whose +cu128 local version is not on PyPI). Do not add an entry
+#   for an advisory pip-audit does not report — the flag would be inert and its "still
+#   suppresses a live finding" property false from the day it was written.
 
 ignores:
   - id: CVE-2026-28684
     package: python-dotenv (1.2.1 in the base resolution; the taipy-app extra caps it at 1.0.1)
     fix_in: "1.2.2"
-    blocked_by: "taipy==4.1.1 requires python-dotenv>=1.0.0,<=1.0.1"
+    blocked_by: "taipy-gui==4.1.1 requires python-dotenv>=1.0.0,<=1.0.1"
     justification: >-
-      VERIFIED 2026-08-08 by attempting the floor: `uv add "python-dotenv>=1.2.2"` fails as
-      unsatisfiable against the taipy-app extra. The cap is real. The previously recorded
-      version (1.0.1) was stale — the BASE resolution carries 1.2.1 because the dev venv does
-      not install the taipy-app extra, which is why an audit reports 1.2.1 while the extra
-      would pull 1.0.1.
-    review_trigger: "a Taipy release relaxing the python-dotenv <=1.0.1 cap"
+      RE-VERIFIED 2026-08-11 by scripts/check_cve_blockers.py: BLOCKED (uv reports no
+      solution). The holder was RE-DERIVED from the lock's dependency edges and CORRECTED —
+      the previous text named `taipy==4.1.1`, but taipy 4.1.1 does not declare python-dotenv
+      at all; the cap belongs to taipy-gui. The recorded version stands: the BASE resolution
+      carries 1.2.1 because the dev venv does not install the taipy-app extra, which is why
+      an audit reports 1.2.1 while the extra would pull 1.0.1.
+    review_trigger: "a taipy-gui release relaxing the python-dotenv <=1.0.1 cap"
 
   - id: PYSEC-2026-113
-    package: pyarrow 19.0.1
+    package: pyarrow (19.0.1 in the base resolution; 18.1.0 in the taipy-app fork)
     fix_in: "23.0.1"
-    blocked_by: "databricks-connect/pyspark compatibility pin"
+    blocked_by: "taipy-core==4.1.1 requires pyarrow>=16.0.0,<19.0"
     justification: >-
       All Parquet files are self-authored via the bronze writers; no untrusted Parquet is
-      read.
-    review_trigger: "databricks-connect supporting pyarrow 23+"
+      read. RE-VERIFIED 2026-08-11 by scripts/check_cve_blockers.py: BLOCKED. The holder was
+      WRONG and is corrected — the previous text blamed a "databricks-connect/pyspark
+      compatibility pin", and NEITHER package is in uv.lock at all, so the old review_trigger
+      watched an upstream that could never have unblocked this. The real cap is taipy-core's.
+    review_trigger: "a taipy-core release relaxing the pyarrow <19.0 cap"
 
   - id: CVE-2025-58367
     package: deepdiff 7.0.1
     fix_in: "8.6.2"
-    blocked_by: "taipy-common caps deepdiff <8"
+    blocked_by: "taipy-common==4.1.1 requires deepdiff>=6.7.0,<=7.0.1"
     justification: >-
       Cannot be floored without dropping Taipy 4.1.1. deepdiff only diffs Taipy-internal
-      config/state, never untrusted input.
-    review_trigger: "Taipy bumping deepdiff past the <8 cap"
+      config/state, never untrusted input. RE-VERIFIED 2026-08-11 by
+      scripts/check_cve_blockers.py: BLOCKED. The bound is tightened from the previously
+      recorded "<8" to the measured "<=7.0.1" — 7.0.2 is blocked too, which the looser text
+      hid. (dbt-common allows deepdiff<9.0, so it is not the binding constraint.)
+    review_trigger: "a taipy-common release relaxing the deepdiff <=7.0.1 cap"
 
   - id: CVE-2026-33155
     package: deepdiff 7.0.1
     fix_in: "8.6.2"
-    blocked_by: "taipy-common caps deepdiff <8"
+    blocked_by: "taipy-common==4.1.1 requires deepdiff>=6.7.0,<=7.0.1"
     justification: >-
       Same advisory pair as CVE-2025-58367; listed by CVE alias because the PYSEC alias may
-      or may not appear depending on the advisory-DB snapshot.
-    review_trigger: "Taipy bumping deepdiff past the <8 cap"
+      or may not appear depending on the advisory-DB snapshot. RE-VERIFIED 2026-08-11:
+      BLOCKED.
+    review_trigger: "a taipy-common release relaxing the deepdiff <=7.0.1 cap"
 
   - id: PYSEC-2026-3447
     package: setuptools 81.0.0
     fix_in: "83.0.0"
-    blocked_by: "torch 2.11.0 — flooring setuptools>=83 forces torch down to 2.10.0"
+    blocked_by: "torch==2.11.0+cu128 requires setuptools<82, and the pytorch-cu128 index publishes no torch above 2.11.0"
     justification: >-
       A package-BUILD-path vulnerability. The lakehouse wheel builds via hatchling, so
-      setuptools never builds untrusted packages at runtime.
-    review_trigger: "torch 2.11+ accepting setuptools 83"
+      setuptools never builds untrusted packages at runtime. RE-MEASURED 2026-08-11 by
+      scripts/check_cve_blockers.py: the floor RESOLVES, but only as COLLATERAL — it
+      backtracks torch 2.11.0+cu128 -> 2.10.0+cu128 (which does not depend on setuptools at
+      all, so the constraint is satisfied by setuptools LEAVING the lock rather than being
+      upgraded), taking nvidia-cudnn-cu12 and nvidia-nccl-cu12 down and dropping
+      cuda-toolkit. The cap is `<82`, so 82 is blocked too — the previous "flooring >=83"
+      framing hid that. torch 2.13.0 on PyPI declares only `setuptools>=77.0.3` (no upper
+      cap), but download.pytorch.org/whl/cu128 tops out at 2.11.0 — so the blocker is the
+      cu128 index, NOT torch upstream, which is what the old review_trigger watched.
+    review_trigger: "a cu128 build of torch above 2.11.0 appearing on download.pytorch.org/whl/cu128"
 
   - id: PYSEC-2026-3552
-    package: cryptography
+    package: cryptography 49.0.0
     fix_in: "50.0.0"
-    blocked_by: "mlflow caps cryptography (3.13.0 -> <49, 3.15.1 -> <50)"
+    blocked_by: "mlflow==3.15.1 requires cryptography>=43.0.0,<50 (3.15.1 is also the latest release)"
     justification: >-
-      Forcing cryptography>=50 finds no satisfying mlflow 3.x and backtracks to mlflow
-      3.2.0 — the last release with no cryptography constraint — dragging cachetools and
-      gunicorn down with it. Verified empirically 2026-08-07.
+      RE-MEASURED 2026-08-11 by scripts/check_cve_blockers.py: the floor RESOLVES, but only
+      as COLLATERAL — 12 other packages move. mlflow 3.15.1 -> 3.2.0 (the last release with
+      no cryptography constraint), gunicorn 25.3.0 -> 23.0.0, cachetools 7.1.6 -> 6.2.6,
+      packaging 26.0 -> 25.0, and huey / opentelemetry-proto / prettytable / skops / wcwidth
+      dropped. Critically it also takes flask-cors 6.0.2 -> 5.0.1, which RE-OPENS three other
+      open advisories (CVE-2024-6839 / -6866 / -6844, all patched in 6.0.0) — so applying
+      this floor would trade one high-severity finding for three medium ones.
     review_trigger: "an mlflow release allowing cryptography>=50"
+
+  # ---------------------------------------------------------------------------------------
+  # ADDED 2026-08-11 with `scripts/audit_resolutions.py`: these EIGHT are reported only when
+  # the taipy-app resolution is audited, which CI never did until now. They were open
+  # Dependabot alerts with nowhere in-repo to record them. SEVEN of the eight trace to one
+  # blocker — Taipy 4.1.1 pins its own dependency tree — and the eighth to our cu128 index.
+  # Every `blocked_by` below is uv's own words from an executed floor attempt, not prose.
+  # ---------------------------------------------------------------------------------------
+
+  - id: PYSEC-2026-1383
+    package: flask-cors 5.0.1 (taipy-app resolution; the base resolution carries 6.0.2)
+    fix_in: "6.0.0"
+    blocked_by: "taipy-gui>=4.1.0 requires flask-cors>=5.0.0,<5.1"
+    justification: >-
+      CVE-2024-6866 — improper handling of case sensitivity in CORS matching. VERIFIED
+      2026-08-11 by attempting the floor: uv reports no solution. The Taipy app defines NO
+      CORS policy of its own (no `cors` reference anywhere under `hf_taipy_app/`), so the
+      configuration in play is Taipy's default; the Space serves a read-only dashboard and
+      holds no browser-side credentials (Lakebase auth is server-side).
+    review_trigger: "a taipy-gui release relaxing the flask-cors <5.1 cap"
+
+  - id: PYSEC-2026-1384
+    package: flask-cors 5.0.1 (taipy-app resolution; the base resolution carries 6.0.2)
+    fix_in: "6.0.0"
+    blocked_by: "taipy-gui>=4.1.0 requires flask-cors>=5.0.0,<5.1"
+    justification: >-
+      CVE-2024-6839 — improper regex path matching. Same cap, same posture as
+      PYSEC-2026-1383; listed separately because pip-audit matches by exact id.
+    review_trigger: "a taipy-gui release relaxing the flask-cors <5.1 cap"
+
+  - id: PYSEC-2026-1385
+    package: flask-cors 5.0.1 (taipy-app resolution; the base resolution carries 6.0.2)
+    fix_in: "6.0.0"
+    blocked_by: "taipy-gui>=4.1.0 requires flask-cors>=5.0.0,<5.1"
+    justification: >-
+      CVE-2024-6844 — inconsistent CORS matching. Same cap, same posture as PYSEC-2026-1383.
+      NOTE: flooring cryptography>=50 would DOWNGRADE the base resolution's flask-cors
+      6.0.2 -> 5.0.1 and re-open this advisory there too; see PYSEC-2026-3552.
+    review_trigger: "a taipy-gui release relaxing the flask-cors <5.1 cap"
+
+  - id: PYSEC-2026-89
+    package: markdown 3.6
+    fix_in: "3.8.1"
+    blocked_by: "taipy-gui>=4.1.0 requires markdown>=3.4.4,<=3.6"
+    justification: >-
+      CVE-2025-69534 — malformed HTML-like sequences raise an unhandled AssertionError in
+      html.parser, crashing any application that parses ATTACKER-CONTROLLED Markdown.
+      VERIFIED 2026-08-11: no solution. Exposure is limited because Taipy page sources are
+      in-repo Python strings under `hf_taipy_app/src/pages/`, not user input.
+    review_trigger: "a taipy-gui release relaxing the markdown <=3.6 cap"
+
+  - id: PYSEC-2026-1605
+    package: marshmallow 3.21.2
+    fix_in: "3.26.2"
+    blocked_by: "taipy-rest>=4.1.0 requires marshmallow>=3.20.1,<=3.21.2"
+    justification: >-
+      CVE-2025-68480 — DoS in `Schema.load(data, many=True)`. VERIFIED 2026-08-11: no
+      solution; taipy==4.1.1 depends on taipy-rest>=4.1, so the cap cannot be lifted without
+      dropping Taipy. marshmallow arrives ONLY through taipy-rest, which the app never
+      imports or serves (no `taipy.rest` / `taipy_rest` reference under `hf_taipy_app/` or
+      `src/`), so the vulnerable entry point is not exposed.
+    review_trigger: "a taipy-rest release relaxing the marshmallow <=3.21.2 cap"
+
+  - id: PYSEC-2026-160
+    package: twisted 24.7.0
+    fix_in: "26.4.0"
+    blocked_by: "taipy-gui>=4.1.0 requires twisted>=24.7.0,<24.8.0"
+    justification: >-
+      CVE-2026-42304 — DoS by resource exhaustion during DNS name decompression in
+      `twisted.names`. VERIFIED 2026-08-11: no solution. The lakehouse runs no DNS server;
+      twisted is present as taipy-gui's transport dependency, and `twisted.names` is not on
+      any path we serve. pip-audit reports both 26.4.0 and the 26.4.0rc2 pre-release as
+      fixes; only the stable one is recorded here.
+    review_trigger: "a taipy-gui release relaxing the twisted <24.8.0 cap"
+
+  - id: PYSEC-2026-3081
+    package: taipy 4.1.1
+    fix_in: "NONE"
+    blocked_by: "no patched release exists — 4.1.1 is the latest Taipy release"
+    justification: >-
+      CVE-2026-48544 — path traversal in `ElementLibrary.get_resource()`
+      (`taipy/gui/extension/library.py`), unauthenticated, CVSS AV:N/AC:L/PR:N/UI:N/C:H.
+      Upstream fixed it in commit 129fd40 and has NOT released it; taipy-gui 4.1.2 (the
+      newest release, one above our pin) was inspected directly on 2026-08-11 and still
+      contains the flawed `str(file).startswith(str(base))` check, so no version bump
+      remediates this. INVESTIGATED, not assumed: the bypass needs a sibling directory whose
+      name EXTENDS a registered library's module directory. The only built-in subclass is
+      `_GuiCore` (`taipy/gui_core`), which has no prefix-sharing sibling; our own
+      `LlExtLibrary` (`hf_taipy_app/src/extensions/ll_ext`, registered at `main.py:189`,
+      does not override `get_resource`) likewise has none. The vulnerable code runs on every
+      resource fetch but the escape currently has no target, and reads are bounded to a
+      prefix-sharing subtree because the path is `.resolve()`d before comparison.
+    review_trigger: >-
+      a Taipy release containing commit 129fd40, OR any new directory added beside an
+      element library's module directory whose name extends it (e.g. `ll_ext_v2` beside
+      `ll_ext`) — that alone would make this exploitable
+
+  - id: PYSEC-2025-194
+    package: torch 2.11.0+cu128 (audited as 2.11.0 — see the local-version proxy in scripts/audit_resolutions.py)
+    fix_in: "2.13.0"
+    blocked_by: "the pytorch-cu128 index publishes no torch above 2.11.0"
+    justification: >-
+      CVE-2025-3000 — memory corruption in `torch.jit.script`, CVSS AV:L (local attacker,
+      requires local privileges). VERIFIED 2026-08-11: flooring torch>=2.13.0 has no
+      solution because `[[tool.uv.index]] pytorch-cu128` is explicit for torch and tops out
+      at 2.11.0 (2.13.0 exists on PyPI but has no cu128 build). `torch.jit` is not
+      referenced anywhere in this repository, so the vulnerable entry point is never called.
+    review_trigger: "a cu128 build of torch >=2.13.0 appearing on download.pytorch.org/whl/cu128"

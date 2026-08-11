@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.93-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.94-py3-none-any.whl",
 #     "databricks-sdk>=0.20",
 #     "gensim>=4.3",
 #     "huggingface-hub>=1.5.0",
@@ -67,6 +67,7 @@ from analytics.football2vec import (
     train_model,
 )
 from ingestion.artifact_deploy import require_mlflow_env, set_and_verify_mlflow_champion
+from ingestion.databricks_auth import workspace_client
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 
 # Validated HF Jobs flavor — single source of truth, asserted against
@@ -299,9 +300,9 @@ def main() -> None:
             )
 
             # ADR-012 second leg: UC Volume.
-            workspace_client = WorkspaceClient()
+            ws_client = workspace_client()
             upload_gensim_to_uc_volume(
-                workspace_client,
+                ws_client,
                 catalog=UC_CATALOG,
                 schema=UC_SCHEMA,
                 model_name=UC_MODEL_NAME,

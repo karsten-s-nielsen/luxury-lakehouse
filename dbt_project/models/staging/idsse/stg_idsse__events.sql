@@ -340,7 +340,54 @@ normalized as (
         -- by the IDSSE parser from the mutually-exclusive outcome nested
         -- tags: SuccessfulShot / SavedShot / ShotWide / ShotWoodWork /
         -- BlockedShot / OtherShot).
-        shot_outcome_type
+        shot_outcome_type,
+        -- ShotAtGoal outcome detail (nested under the outcome tags disambiguated by
+        -- shot_outcome_type above). Bronze passthrough — surfaced so the contract is
+        -- complete; no mart reads these yet.
+        shot_outcome_assist,
+        shot_outcome_assist_contribution,
+        shot_outcome_assist_fouled_player,
+        shot_outcome_assist_type,
+        shot_outcome_blocked_by_own_team,
+        shot_outcome_current_result,
+        shot_outcome_deflection_keeper,
+        shot_outcome_deflection_player,
+        shot_outcome_error,
+        shot_outcome_goal_keeper,
+        shot_outcome_goal_prevented,
+        shot_outcome_goal_zone,
+        shot_outcome_location,
+        shot_outcome_pitch_marking,
+        shot_outcome_placing,
+        shot_outcome_player,
+        shot_outcome_ref_decision_evaluation,
+        shot_outcome_save_evaluation,
+        shot_outcome_save_result,
+        shot_outcome_save_type,
+        shot_outcome_solo,
+
+        -- Shot execution / set-piece detail (nested under ShotAtGoal).
+        shot_direct_free_kick_intention,
+        shot_penalty_direction,
+        shot_penalty_execution,
+        shot_rotation,
+        shot_shot_assist_fouled_player,
+
+        -- FaultExecution (nested under the foul event).
+        fault_execution_ball_possession_phase,
+        fault_execution_player,
+        fault_execution_team,
+
+        -- Native provider identifiers (DFL CLU/competition/season strings). The Kimball
+        -- surrogates are resolved downstream; these carry the raw ids per ADR-016.
+        home_team_id_native,
+        away_team_id_native,
+        team_id_native,
+        competition_native_id,
+        season_native_id,
+
+        -- Audit column.
+        _ingested_at
 
     from source
     where x is not null

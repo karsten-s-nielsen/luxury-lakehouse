@@ -43,6 +43,8 @@ import joblib
 import pandas as pd
 from optuna.integration import MLflowCallback
 
+from ingestion.databricks_auth import workspace_client
+
 # PR-Cycle-B (2026-05-01): databricks-sdk + databricks-sql-connector are in
 # the [sdk] optional extra. Lazy-import keeps this module importable
 # without those extras installed.
@@ -157,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
     from analytics.ext_v2.transition import GridSpec
 
     # Resolve warehouse host + http_path via the SDK (uses CLI profile auth).
-    client = WorkspaceClient()
+    client = workspace_client()
     warehouse = client.warehouses.get(WAREHOUSE_ID)
     if warehouse.odbc_params is None or warehouse.odbc_params.hostname is None:
         msg = f"Warehouse {WAREHOUSE_ID} has no odbc_params"

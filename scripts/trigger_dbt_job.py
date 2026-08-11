@@ -29,6 +29,8 @@ from typing import TYPE_CHECKING, Any
 
 import requests
 
+from ingestion.databricks_auth import workspace_client
+
 if TYPE_CHECKING:
     from databricks.sdk import WorkspaceClient
 
@@ -59,9 +61,8 @@ def _workspace_client() -> WorkspaceClient:
     env vars, then ~/.databrickscfg, then OIDC. In GH Actions the OIDC path
     is the intended one (DATABRICKS_CLIENT_ID + workload identity federation).
     """
-    from databricks.sdk import WorkspaceClient
 
-    return WorkspaceClient()
+    return workspace_client()
 
 
 def build_runs_submit_payload(
@@ -151,9 +152,7 @@ def _submit_auth_header(token: str | None) -> str:
     if token:
         return f"Bearer {token}"
 
-    from databricks.sdk import WorkspaceClient
-
-    value = (WorkspaceClient().config.authenticate() or {}).get("Authorization", "")
+    value = (workspace_client().config.authenticate() or {}).get("Authorization", "")
     if not value.startswith("Bearer "):
         msg = (
             "Databricks SDK returned no Bearer authorization header for runs/submit "
@@ -215,7 +214,7 @@ def poll_run(
     # Prefer ambient env (OIDC federation auto-refresh); fall back to
     # explicit (host, token) for manual invocations.
     if os.environ.get("DATABRICKS_AUTH_TYPE") == "github-oidc":
-        ws = WorkspaceClient()
+        ws = workspace_client()
     else:
         ws_host = host.rstrip("/").removeprefix("https://").removeprefix("http://")
         ws = WorkspaceClient(host=f"https://{ws_host}", token=token)

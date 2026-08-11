@@ -96,6 +96,8 @@ from extract_action_context_fixture import (
     _resolve_meta,
 )
 
+from ingestion.databricks_auth import workspace_client
+
 if TYPE_CHECKING:
     from analytics.action_context.work_unit import MatchMeta, WorkUnit
     from ingestion.exec_visibility import PhaseHeartbeat
@@ -143,7 +145,6 @@ def _pull_tracking_bulk(
     """
     import pyarrow as pa
     import requests
-    from databricks.sdk import WorkspaceClient
     from databricks.sdk.service.sql import Disposition, Format
 
     cols = ", ".join(_TRACKING_SELECT_COLS[provider])
@@ -154,7 +155,7 @@ def _pull_tracking_bulk(
         sql += f" AND period = {int(period)}"
     sql += f" ORDER BY {frame_col}"
 
-    w = WorkspaceClient()
+    w = workspace_client()
     result = w.statement_execution.execute_statement(
         warehouse_id=warehouse_id,
         statement=sql,

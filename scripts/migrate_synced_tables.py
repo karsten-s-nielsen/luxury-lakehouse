@@ -41,6 +41,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.sql import StatementState
 
+from ingestion.databricks_auth import workspace_client
 from ingestion.refresh_synced_tables import (
     DEFAULT_CATALOG,
     DEFAULT_SCHEMA,
@@ -300,7 +301,7 @@ def main() -> None:
     parser.add_argument("--schema", default=DEFAULT_SCHEMA, help=f"Default schema (default: {DEFAULT_SCHEMA})")
     args = parser.parse_args()
 
-    ws = WorkspaceClient()
+    ws = workspace_client()
     phases = {
         0: ("Smoke test", phase_0_smoke_test),
         1: ("Delete all", phase_1_delete_all),

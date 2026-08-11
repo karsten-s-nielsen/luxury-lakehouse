@@ -74,6 +74,7 @@ from typing import TYPE_CHECKING, Any
 
 import requests
 
+from ingestion.databricks_auth import workspace_client
 from ingestion.refresh_synced_tables import (
     DEFAULT_CATALOG,
     DEFAULT_SCHEMA,
@@ -781,7 +782,7 @@ def main(argv: list[str] | None = None) -> int:
     selected = _select_tables(args)
     _log("tables_selected", count=len(selected), tables=list(selected.keys()))
 
-    ws = WorkspaceClient()
+    ws = workspace_client()
     host, headers = _get_host_and_headers(ws)
 
     # ------------------------------------------------------------------
