@@ -20,6 +20,8 @@ from typing import TYPE_CHECKING, Any
 
 import requests
 
+from ingestion.databricks_auth import workspace_client
+
 if TYPE_CHECKING:
     from databricks.sdk import WorkspaceClient
 
@@ -54,9 +56,8 @@ def _workspace_client() -> WorkspaceClient:
     vars, then ~/.databrickscfg, then OIDC. Imported lazily so unit tests can
     patch this function without requiring the databricks-sdk to be installed.
     """
-    from databricks.sdk import WorkspaceClient
 
-    return WorkspaceClient()
+    return workspace_client()
 
 
 def fetch_run_results(volume_path: str) -> dict[str, Any]:

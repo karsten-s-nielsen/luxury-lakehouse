@@ -15,6 +15,8 @@ import argparse
 import re
 import sys
 
+from ingestion.databricks_auth import workspace_client
+
 IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 CATALOG = "soccer_analytics"
 SCHEMA = "dev_gold"
@@ -30,8 +32,6 @@ def main() -> int:
         print(f"ERROR: Invalid table name '{table_name}': must match {IDENTIFIER_RE.pattern}")
         return 1
 
-    from databricks.sdk import WorkspaceClient
-
     from ingestion.refresh_synced_tables import SYNCED_TABLES, wait_until_online
     from ingestion.synced_table_lifecycle import SdkWriterAdapter
 
@@ -41,7 +41,7 @@ def main() -> int:
         print(f"ERROR: '{table_name}' not in SYNCED_TABLES. Known: {known}")
         return 1
 
-    ws = WorkspaceClient()
+    ws = workspace_client()
     full_name = f"{CATALOG}.{SCHEMA}.{table_name}"
     print(f"[1/2] Creating synced table: {full_name}")
     SdkWriterAdapter(ws).create_synced_table(cfg, CATALOG, SCHEMA)

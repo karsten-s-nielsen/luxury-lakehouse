@@ -1,0 +1,1416 @@
+{
+  "schema_version": "skillcorner_bronze_2026_08",
+  "snapshot_source": "DESCRIBE TABLE soccer_analytics.bronze.* for skillcorner on 2026-08-10. Table list = union of catalog-qualified soccer_analytics.information_schema.tables (cross-checked against SHOW TABLES, asserted equal) and the tables documented in _skillcorner__sources.yml (elastic_sync_results does not match the idsse% pattern). Refresh when ingestion adds cols.",
+  "tables": {
+    "skillcorner_events": [
+      {
+        "name": "event_id",
+        "type": "string"
+      },
+      {
+        "name": "index",
+        "type": "bigint"
+      },
+      {
+        "name": "match_id",
+        "type": "string"
+      },
+      {
+        "name": "frame_start",
+        "type": "bigint"
+      },
+      {
+        "name": "frame_end",
+        "type": "bigint"
+      },
+      {
+        "name": "frame_physical_start",
+        "type": "double"
+      },
+      {
+        "name": "time_start",
+        "type": "string"
+      },
+      {
+        "name": "time_end",
+        "type": "string"
+      },
+      {
+        "name": "minute_start",
+        "type": "bigint"
+      },
+      {
+        "name": "second_start",
+        "type": "bigint"
+      },
+      {
+        "name": "duration",
+        "type": "double"
+      },
+      {
+        "name": "period",
+        "type": "bigint"
+      },
+      {
+        "name": "attacking_side_id",
+        "type": "bigint"
+      },
+      {
+        "name": "attacking_side",
+        "type": "string"
+      },
+      {
+        "name": "event_type_id",
+        "type": "bigint"
+      },
+      {
+        "name": "event_type",
+        "type": "string"
+      },
+      {
+        "name": "event_subtype_id",
+        "type": "double"
+      },
+      {
+        "name": "event_subtype",
+        "type": "string"
+      },
+      {
+        "name": "player_id",
+        "type": "bigint"
+      },
+      {
+        "name": "player_name",
+        "type": "string"
+      },
+      {
+        "name": "player_position_id",
+        "type": "bigint"
+      },
+      {
+        "name": "player_position",
+        "type": "string"
+      },
+      {
+        "name": "player_in_possession_id",
+        "type": "double"
+      },
+      {
+        "name": "player_in_possession_name",
+        "type": "string"
+      },
+      {
+        "name": "player_in_possession_position_id",
+        "type": "double"
+      },
+      {
+        "name": "player_in_possession_position",
+        "type": "string"
+      },
+      {
+        "name": "team_id",
+        "type": "bigint"
+      },
+      {
+        "name": "team_shortname",
+        "type": "string"
+      },
+      {
+        "name": "x_start",
+        "type": "double"
+      },
+      {
+        "name": "y_start",
+        "type": "double"
+      },
+      {
+        "name": "channel_id_start",
+        "type": "bigint"
+      },
+      {
+        "name": "channel_start",
+        "type": "string"
+      },
+      {
+        "name": "third_id_start",
+        "type": "bigint"
+      },
+      {
+        "name": "third_start",
+        "type": "string"
+      },
+      {
+        "name": "penalty_area_start",
+        "type": "boolean"
+      },
+      {
+        "name": "x_end",
+        "type": "double"
+      },
+      {
+        "name": "y_end",
+        "type": "double"
+      },
+      {
+        "name": "channel_id_end",
+        "type": "bigint"
+      },
+      {
+        "name": "channel_end",
+        "type": "string"
+      },
+      {
+        "name": "third_id_end",
+        "type": "bigint"
+      },
+      {
+        "name": "third_end",
+        "type": "string"
+      },
+      {
+        "name": "penalty_area_end",
+        "type": "boolean"
+      },
+      {
+        "name": "associated_player_possession_event_id",
+        "type": "string"
+      },
+      {
+        "name": "associated_player_possession_frame_start",
+        "type": "double"
+      },
+      {
+        "name": "associated_player_possession_frame_end",
+        "type": "double"
+      },
+      {
+        "name": "associated_player_possession_end_type_id",
+        "type": "double"
+      },
+      {
+        "name": "associated_player_possession_end_type",
+        "type": "string"
+      },
+      {
+        "name": "associated_off_ball_run_event_id",
+        "type": "string"
+      },
+      {
+        "name": "associated_off_ball_run_subtype_id",
+        "type": "double"
+      },
+      {
+        "name": "associated_off_ball_run_subtype",
+        "type": "string"
+      },
+      {
+        "name": "game_state_id",
+        "type": "bigint"
+      },
+      {
+        "name": "game_state",
+        "type": "string"
+      },
+      {
+        "name": "team_score",
+        "type": "bigint"
+      },
+      {
+        "name": "opponent_team_score",
+        "type": "bigint"
+      },
+      {
+        "name": "phase_index",
+        "type": "bigint"
+      },
+      {
+        "name": "player_possession_phase_index",
+        "type": "double"
+      },
+      {
+        "name": "first_player_possession_in_team_possession",
+        "type": "boolean"
+      },
+      {
+        "name": "last_player_possession_in_team_possession",
+        "type": "boolean"
+      },
+      {
+        "name": "lead_to_different_phase",
+        "type": "boolean"
+      },
+      {
+        "name": "issued_from_different_phase",
+        "type": "boolean"
+      },
+      {
+        "name": "n_player_possessions_in_phase",
+        "type": "double"
+      },
+      {
+        "name": "team_possession_loss_in_phase",
+        "type": "boolean"
+      },
+      {
+        "name": "team_in_possession_phase_type_id",
+        "type": "bigint"
+      },
+      {
+        "name": "team_in_possession_phase_type",
+        "type": "string"
+      },
+      {
+        "name": "team_out_of_possession_phase_type_id",
+        "type": "bigint"
+      },
+      {
+        "name": "team_out_of_possession_phase_type",
+        "type": "string"
+      },
+      {
+        "name": "current_team_in_possession_next_phase_type_id",
+        "type": "double"
+      },
+      {
+        "name": "current_team_in_possession_next_phase_type",
+        "type": "string"
+      },
+      {
+        "name": "current_team_out_of_possession_next_phase_type_id",
+        "type": "double"
+      },
+      {
+        "name": "current_team_out_of_possession_next_phase_type",
+        "type": "string"
+      },
+      {
+        "name": "current_team_in_possession_previous_phase_type_id",
+        "type": "double"
+      },
+      {
+        "name": "current_team_in_possession_previous_phase_type",
+        "type": "string"
+      },
+      {
+        "name": "current_team_out_of_possession_previous_phase_type_id",
+        "type": "double"
+      },
+      {
+        "name": "current_team_out_of_possession_previous_phase_type",
+        "type": "string"
+      },
+      {
+        "name": "game_interruption_before_id",
+        "type": "double"
+      },
+      {
+        "name": "game_interruption_before",
+        "type": "string"
+      },
+      {
+        "name": "game_interruption_after_id",
+        "type": "double"
+      },
+      {
+        "name": "game_interruption_after",
+        "type": "string"
+      },
+      {
+        "name": "lead_to_shot",
+        "type": "boolean"
+      },
+      {
+        "name": "lead_to_goal",
+        "type": "boolean"
+      },
+      {
+        "name": "distance_covered",
+        "type": "double"
+      },
+      {
+        "name": "trajectory_angle",
+        "type": "double"
+      },
+      {
+        "name": "trajectory_direction_id",
+        "type": "double"
+      },
+      {
+        "name": "trajectory_direction",
+        "type": "string"
+      },
+      {
+        "name": "in_to_out",
+        "type": "boolean"
+      },
+      {
+        "name": "out_to_in",
+        "type": "boolean"
+      },
+      {
+        "name": "speed_avg",
+        "type": "double"
+      },
+      {
+        "name": "speed_avg_band_id",
+        "type": "double"
+      },
+      {
+        "name": "speed_avg_band",
+        "type": "string"
+      },
+      {
+        "name": "separation_start",
+        "type": "double"
+      },
+      {
+        "name": "separation_end",
+        "type": "double"
+      },
+      {
+        "name": "separation_gain",
+        "type": "double"
+      },
+      {
+        "name": "last_defensive_line_x_start",
+        "type": "double"
+      },
+      {
+        "name": "last_defensive_line_x_end",
+        "type": "double"
+      },
+      {
+        "name": "delta_to_last_defensive_line_start",
+        "type": "double"
+      },
+      {
+        "name": "delta_to_last_defensive_line_end",
+        "type": "double"
+      },
+      {
+        "name": "delta_to_last_defensive_line_gain",
+        "type": "double"
+      },
+      {
+        "name": "last_defensive_line_height_start",
+        "type": "double"
+      },
+      {
+        "name": "last_defensive_line_height_end",
+        "type": "double"
+      },
+      {
+        "name": "last_defensive_line_height_gain",
+        "type": "double"
+      },
+      {
+        "name": "inside_defensive_shape_start",
+        "type": "boolean"
+      },
+      {
+        "name": "inside_defensive_shape_end",
+        "type": "boolean"
+      },
+      {
+        "name": "start_type_id",
+        "type": "double"
+      },
+      {
+        "name": "start_type",
+        "type": "string"
+      },
+      {
+        "name": "end_type_id",
+        "type": "double"
+      },
+      {
+        "name": "end_type",
+        "type": "string"
+      },
+      {
+        "name": "consecutive_on_ball_engagements",
+        "type": "boolean"
+      },
+      {
+        "name": "one_touch",
+        "type": "boolean"
+      },
+      {
+        "name": "quick_pass",
+        "type": "boolean"
+      },
+      {
+        "name": "carry",
+        "type": "boolean"
+      },
+      {
+        "name": "forward_momentum",
+        "type": "boolean"
+      },
+      {
+        "name": "is_header",
+        "type": "boolean"
+      },
+      {
+        "name": "hand_pass",
+        "type": "boolean"
+      },
+      {
+        "name": "initiate_give_and_go",
+        "type": "boolean"
+      },
+      {
+        "name": "pass_angle_received",
+        "type": "double"
+      },
+      {
+        "name": "pass_direction_received_id",
+        "type": "double"
+      },
+      {
+        "name": "pass_direction_received",
+        "type": "string"
+      },
+      {
+        "name": "pass_distance_received",
+        "type": "double"
+      },
+      {
+        "name": "pass_range_received_id",
+        "type": "double"
+      },
+      {
+        "name": "pass_range_received",
+        "type": "string"
+      },
+      {
+        "name": "pass_outcome_id",
+        "type": "double"
+      },
+      {
+        "name": "pass_outcome",
+        "type": "string"
+      },
+      {
+        "name": "targeted_passing_option_event_id",
+        "type": "string"
+      },
+      {
+        "name": "high_pass",
+        "type": "boolean"
+      },
+      {
+        "name": "player_targeted_id",
+        "type": "double"
+      },
+      {
+        "name": "player_targeted_name",
+        "type": "string"
+      },
+      {
+        "name": "player_targeted_position_id",
+        "type": "double"
+      },
+      {
+        "name": "player_targeted_position",
+        "type": "string"
+      },
+      {
+        "name": "player_targeted_x_pass",
+        "type": "double"
+      },
+      {
+        "name": "player_targeted_y_pass",
+        "type": "double"
+      },
+      {
+        "name": "player_targeted_channel_pass_id",
+        "type": "double"
+      },
+      {
+        "name": "player_targeted_channel_pass",
+        "type": "string"
+      },
+      {
+        "name": "player_targeted_third_pass_id",
+        "type": "double"
+      },
+      {
+        "name": "player_targeted_third_pass",
+        "type": "string"
+      },
+      {
+        "name": "player_targeted_penalty_area_pass",
+        "type": "boolean"
+      },
+      {
+        "name": "player_targeted_x_reception",
+        "type": "double"
+      },
+      {
+        "name": "player_targeted_y_reception",
+        "type": "double"
+      },
+      {
+        "name": "player_targeted_channel_reception_id",
+        "type": "double"
+      },
+      {
+        "name": "player_targeted_channel_reception",
+        "type": "string"
+      },
+      {
+        "name": "player_targeted_third_reception_id",
+        "type": "double"
+      },
+      {
+        "name": "player_targeted_third_reception",
+        "type": "string"
+      },
+      {
+        "name": "player_targeted_penalty_area_reception",
+        "type": "boolean"
+      },
+      {
+        "name": "player_targeted_distance_to_goal_start",
+        "type": "double"
+      },
+      {
+        "name": "player_targeted_distance_to_goal_end",
+        "type": "double"
+      },
+      {
+        "name": "player_targeted_angle_to_goal_start",
+        "type": "double"
+      },
+      {
+        "name": "player_targeted_angle_to_goal_end",
+        "type": "double"
+      },
+      {
+        "name": "player_targeted_average_speed",
+        "type": "double"
+      },
+      {
+        "name": "player_targeted_speed_avg_band_id",
+        "type": "double"
+      },
+      {
+        "name": "player_targeted_speed_avg_band",
+        "type": "string"
+      },
+      {
+        "name": "speed_difference",
+        "type": "double"
+      },
+      {
+        "name": "player_targeted_xpass_completion",
+        "type": "double"
+      },
+      {
+        "name": "player_targeted_difficult_pass_target",
+        "type": "boolean"
+      },
+      {
+        "name": "player_targeted_xthreat",
+        "type": "double"
+      },
+      {
+        "name": "player_targeted_dangerous",
+        "type": "boolean"
+      },
+      {
+        "name": "n_passing_options",
+        "type": "double"
+      },
+      {
+        "name": "n_off_ball_runs",
+        "type": "double"
+      },
+      {
+        "name": "n_passing_options_line_break",
+        "type": "double"
+      },
+      {
+        "name": "n_passing_options_first_line_break",
+        "type": "double"
+      },
+      {
+        "name": "n_passing_options_second_last_line_break",
+        "type": "double"
+      },
+      {
+        "name": "n_passing_options_last_line_break",
+        "type": "double"
+      },
+      {
+        "name": "n_passing_options_ahead",
+        "type": "double"
+      },
+      {
+        "name": "n_passing_options_dangerous_difficult",
+        "type": "double"
+      },
+      {
+        "name": "n_passing_options_dangerous_not_difficult",
+        "type": "double"
+      },
+      {
+        "name": "n_passing_options_not_dangerous_not_difficult",
+        "type": "double"
+      },
+      {
+        "name": "n_passing_options_not_dangerous_difficult",
+        "type": "double"
+      },
+      {
+        "name": "n_passing_options_at_start",
+        "type": "double"
+      },
+      {
+        "name": "n_passing_options_at_end",
+        "type": "double"
+      },
+      {
+        "name": "n_passing_options_ahead_at_start",
+        "type": "double"
+      },
+      {
+        "name": "n_passing_options_ahead_at_end",
+        "type": "double"
+      },
+      {
+        "name": "n_teammates_ahead_end",
+        "type": "double"
+      },
+      {
+        "name": "n_teammates_ahead_start",
+        "type": "double"
+      },
+      {
+        "name": "n_player_targeted_opponents_ahead_start",
+        "type": "double"
+      },
+      {
+        "name": "n_player_targeted_opponents_ahead_end",
+        "type": "double"
+      },
+      {
+        "name": "n_player_targeted_teammates_ahead_start",
+        "type": "double"
+      },
+      {
+        "name": "n_player_targeted_teammates_ahead_end",
+        "type": "double"
+      },
+      {
+        "name": "n_player_targeted_teammates_within_5m_start",
+        "type": "double"
+      },
+      {
+        "name": "n_player_targeted_teammates_within_5m_end",
+        "type": "double"
+      },
+      {
+        "name": "n_player_targeted_opponents_within_5m_start",
+        "type": "double"
+      },
+      {
+        "name": "n_player_targeted_opponents_within_5m_end",
+        "type": "double"
+      },
+      {
+        "name": "organised_defense",
+        "type": "boolean"
+      },
+      {
+        "name": "defensive_structure",
+        "type": "double"
+      },
+      {
+        "name": "n_defensive_lines",
+        "type": "double"
+      },
+      {
+        "name": "first_line_break",
+        "type": "boolean"
+      },
+      {
+        "name": "first_line_break_type_id",
+        "type": "double"
+      },
+      {
+        "name": "first_line_break_type",
+        "type": "string"
+      },
+      {
+        "name": "second_last_line_break",
+        "type": "boolean"
+      },
+      {
+        "name": "second_last_line_break_type_id",
+        "type": "double"
+      },
+      {
+        "name": "second_last_line_break_type",
+        "type": "string"
+      },
+      {
+        "name": "last_line_break",
+        "type": "boolean"
+      },
+      {
+        "name": "last_line_break_type_id",
+        "type": "double"
+      },
+      {
+        "name": "last_line_break_type",
+        "type": "string"
+      },
+      {
+        "name": "furthest_line_break_id",
+        "type": "double"
+      },
+      {
+        "name": "furthest_line_break",
+        "type": "string"
+      },
+      {
+        "name": "furthest_line_break_type_id",
+        "type": "double"
+      },
+      {
+        "name": "furthest_line_break_type",
+        "type": "string"
+      },
+      {
+        "name": "interplayer_distance",
+        "type": "double"
+      },
+      {
+        "name": "interplayer_distance_range_id",
+        "type": "double"
+      },
+      {
+        "name": "interplayer_distance_range",
+        "type": "string"
+      },
+      {
+        "name": "interplayer_distance_start",
+        "type": "double"
+      },
+      {
+        "name": "interplayer_distance_end",
+        "type": "double"
+      },
+      {
+        "name": "interplayer_distance_min",
+        "type": "double"
+      },
+      {
+        "name": "interplayer_distance_start_physical",
+        "type": "double"
+      },
+      {
+        "name": "close_at_player_possession_start",
+        "type": "boolean"
+      },
+      {
+        "name": "interplayer_angle",
+        "type": "double"
+      },
+      {
+        "name": "interplayer_direction_id",
+        "type": "double"
+      },
+      {
+        "name": "interplayer_direction",
+        "type": "string"
+      },
+      {
+        "name": "angle_of_engagement",
+        "type": "double"
+      },
+      {
+        "name": "goal_side_start",
+        "type": "boolean"
+      },
+      {
+        "name": "goal_side_end",
+        "type": "boolean"
+      },
+      {
+        "name": "pass_distance",
+        "type": "double"
+      },
+      {
+        "name": "pass_range_id",
+        "type": "double"
+      },
+      {
+        "name": "pass_range",
+        "type": "string"
+      },
+      {
+        "name": "pass_angle",
+        "type": "double"
+      },
+      {
+        "name": "pass_direction_id",
+        "type": "double"
+      },
+      {
+        "name": "pass_direction",
+        "type": "string"
+      },
+      {
+        "name": "pass_ahead",
+        "type": "boolean"
+      },
+      {
+        "name": "n_opponents_ahead_player_in_possession_pass_moment",
+        "type": "double"
+      },
+      {
+        "name": "n_opponents_ahead_pass_reception",
+        "type": "double"
+      },
+      {
+        "name": "n_opponents_bypassed",
+        "type": "double"
+      },
+      {
+        "name": "location_to_player_in_possession_id_start",
+        "type": "double"
+      },
+      {
+        "name": "location_to_player_in_possession_start",
+        "type": "string"
+      },
+      {
+        "name": "location_to_player_in_possession_id_end",
+        "type": "double"
+      },
+      {
+        "name": "location_to_player_in_possession_end",
+        "type": "string"
+      },
+      {
+        "name": "distance_to_player_in_possession_start",
+        "type": "double"
+      },
+      {
+        "name": "distance_to_player_in_possession_end",
+        "type": "double"
+      },
+      {
+        "name": "player_in_possession_x_start",
+        "type": "double"
+      },
+      {
+        "name": "player_in_possession_y_start",
+        "type": "double"
+      },
+      {
+        "name": "player_in_possession_channel_id_start",
+        "type": "double"
+      },
+      {
+        "name": "player_in_possession_channel_start",
+        "type": "string"
+      },
+      {
+        "name": "player_in_possession_third_id_start",
+        "type": "double"
+      },
+      {
+        "name": "player_in_possession_third_start",
+        "type": "string"
+      },
+      {
+        "name": "player_in_possession_penalty_area_start",
+        "type": "boolean"
+      },
+      {
+        "name": "player_in_possession_x_end",
+        "type": "double"
+      },
+      {
+        "name": "player_in_possession_y_end",
+        "type": "double"
+      },
+      {
+        "name": "player_in_possession_channel_id_end",
+        "type": "double"
+      },
+      {
+        "name": "player_in_possession_channel_end",
+        "type": "string"
+      },
+      {
+        "name": "player_in_possession_third_id_end",
+        "type": "double"
+      },
+      {
+        "name": "player_in_possession_third_end",
+        "type": "string"
+      },
+      {
+        "name": "player_in_possession_penalty_area_end",
+        "type": "boolean"
+      },
+      {
+        "name": "targeted",
+        "type": "boolean"
+      },
+      {
+        "name": "received",
+        "type": "boolean"
+      },
+      {
+        "name": "received_in_space",
+        "type": "boolean"
+      },
+      {
+        "name": "dangerous",
+        "type": "boolean"
+      },
+      {
+        "name": "difficult_pass_target",
+        "type": "boolean"
+      },
+      {
+        "name": "xthreat",
+        "type": "double"
+      },
+      {
+        "name": "xpass_completion",
+        "type": "double"
+      },
+      {
+        "name": "passing_option_score",
+        "type": "double"
+      },
+      {
+        "name": "predicted_passing_option",
+        "type": "boolean"
+      },
+      {
+        "name": "peak_passing_option_frame",
+        "type": "double"
+      },
+      {
+        "name": "passing_option_at_player_possession_start",
+        "type": "boolean"
+      },
+      {
+        "name": "n_simultaneous_runs",
+        "type": "double"
+      },
+      {
+        "name": "give_and_go",
+        "type": "boolean"
+      },
+      {
+        "name": "intended_run_behind",
+        "type": "boolean"
+      },
+      {
+        "name": "push_defensive_line",
+        "type": "boolean"
+      },
+      {
+        "name": "break_defensive_line",
+        "type": "boolean"
+      },
+      {
+        "name": "passing_option_at_start",
+        "type": "boolean"
+      },
+      {
+        "name": "n_simultaneous_passing_options",
+        "type": "double"
+      },
+      {
+        "name": "passing_option_at_pass_moment",
+        "type": "boolean"
+      },
+      {
+        "name": "n_opponents_ahead_end",
+        "type": "double"
+      },
+      {
+        "name": "n_opponents_ahead_start",
+        "type": "double"
+      },
+      {
+        "name": "n_opponents_overtaken",
+        "type": "double"
+      },
+      {
+        "name": "pressing_chain",
+        "type": "boolean"
+      },
+      {
+        "name": "pressing_chain_length",
+        "type": "double"
+      },
+      {
+        "name": "pressing_chain_end_type_id",
+        "type": "double"
+      },
+      {
+        "name": "pressing_chain_end_type",
+        "type": "string"
+      },
+      {
+        "name": "pressing_chain_index",
+        "type": "double"
+      },
+      {
+        "name": "index_in_pressing_chain",
+        "type": "double"
+      },
+      {
+        "name": "simultaneous_defensive_engagement_same_target",
+        "type": "boolean"
+      },
+      {
+        "name": "simultaneous_defensive_engagement_same_target_rank",
+        "type": "double"
+      },
+      {
+        "name": "affected_line_breaking_passing_option_id",
+        "type": "string"
+      },
+      {
+        "name": "affected_line_break_id",
+        "type": "double"
+      },
+      {
+        "name": "affected_line_break",
+        "type": "string"
+      },
+      {
+        "name": "affected_line_breaking_passing_option_attempted",
+        "type": "boolean"
+      },
+      {
+        "name": "affected_line_breaking_passing_option_xthreat",
+        "type": "double"
+      },
+      {
+        "name": "affected_line_breaking_passing_option_dangerous",
+        "type": "boolean"
+      },
+      {
+        "name": "affected_line_breaking_passing_option_run_subtype_id",
+        "type": "double"
+      },
+      {
+        "name": "affected_line_breaking_passing_option_run_subtype",
+        "type": "string"
+      },
+      {
+        "name": "possession_danger",
+        "type": "boolean"
+      },
+      {
+        "name": "beaten_by_possession",
+        "type": "boolean"
+      },
+      {
+        "name": "beaten_by_movement",
+        "type": "boolean"
+      },
+      {
+        "name": "stop_possession_danger",
+        "type": "boolean"
+      },
+      {
+        "name": "reduce_possession_danger",
+        "type": "boolean"
+      },
+      {
+        "name": "force_backward",
+        "type": "boolean"
+      },
+      {
+        "name": "xloss_player_possession_start",
+        "type": "double"
+      },
+      {
+        "name": "xloss_player_possession_end",
+        "type": "double"
+      },
+      {
+        "name": "xloss_player_possession_max",
+        "type": "double"
+      },
+      {
+        "name": "xshot_player_possession_start",
+        "type": "double"
+      },
+      {
+        "name": "xshot_player_possession_end",
+        "type": "double"
+      },
+      {
+        "name": "xshot_player_possession_max",
+        "type": "double"
+      },
+      {
+        "name": "is_player_possession_start_matched",
+        "type": "boolean"
+      },
+      {
+        "name": "is_player_possession_end_matched",
+        "type": "boolean"
+      },
+      {
+        "name": "is_previous_pass_matched",
+        "type": "boolean"
+      },
+      {
+        "name": "is_pass_reception_matched",
+        "type": "boolean"
+      },
+      {
+        "name": "fully_extrapolated",
+        "type": "boolean"
+      },
+      {
+        "name": "_ingested_at",
+        "type": "timestamp"
+      }
+    ],
+    "skillcorner_matches": [
+      {
+        "name": "match_id",
+        "type": "string"
+      },
+      {
+        "name": "player_id",
+        "type": "bigint"
+      },
+      {
+        "name": "team_id",
+        "type": "bigint"
+      },
+      {
+        "name": "player_name",
+        "type": "string"
+      },
+      {
+        "name": "first_name",
+        "type": "string"
+      },
+      {
+        "name": "last_name",
+        "type": "string"
+      },
+      {
+        "name": "jersey_number",
+        "type": "bigint"
+      },
+      {
+        "name": "position_name",
+        "type": "string"
+      },
+      {
+        "name": "position_acronym",
+        "type": "string"
+      },
+      {
+        "name": "team_name",
+        "type": "string"
+      },
+      {
+        "name": "team_short_name",
+        "type": "string"
+      },
+      {
+        "name": "home_team_id",
+        "type": "bigint"
+      },
+      {
+        "name": "away_team_id",
+        "type": "bigint"
+      },
+      {
+        "name": "competition_id",
+        "type": "bigint"
+      },
+      {
+        "name": "competition_name",
+        "type": "string"
+      },
+      {
+        "name": "season_id",
+        "type": "bigint"
+      },
+      {
+        "name": "season_name",
+        "type": "string"
+      },
+      {
+        "name": "match_date",
+        "type": "string"
+      },
+      {
+        "name": "stadium_name",
+        "type": "string"
+      },
+      {
+        "name": "pitch_length",
+        "type": "bigint"
+      },
+      {
+        "name": "pitch_width",
+        "type": "bigint"
+      },
+      {
+        "name": "period_boundaries",
+        "type": "string"
+      },
+      {
+        "name": "start_time",
+        "type": "string"
+      },
+      {
+        "name": "end_time",
+        "type": "string"
+      },
+      {
+        "name": "minutes_played",
+        "type": "double"
+      },
+      {
+        "name": "start_frame",
+        "type": "bigint"
+      },
+      {
+        "name": "end_frame",
+        "type": "bigint"
+      },
+      {
+        "name": "minutes_tip",
+        "type": "double"
+      },
+      {
+        "name": "minutes_otip",
+        "type": "double"
+      },
+      {
+        "name": "yellow_card",
+        "type": "bigint"
+      },
+      {
+        "name": "red_card",
+        "type": "bigint"
+      },
+      {
+        "name": "injured",
+        "type": "boolean"
+      },
+      {
+        "name": "goal",
+        "type": "bigint"
+      },
+      {
+        "name": "own_goal",
+        "type": "bigint"
+      },
+      {
+        "name": "trackable_object",
+        "type": "bigint"
+      },
+      {
+        "name": "birthday",
+        "type": "string"
+      },
+      {
+        "name": "gender",
+        "type": "string"
+      },
+      {
+        "name": "team_player_id",
+        "type": "bigint"
+      },
+      {
+        "name": "_ingested_at",
+        "type": "timestamp"
+      },
+      {
+        "name": "visibility",
+        "type": "string"
+      },
+      {
+        "name": "access_tier",
+        "type": "string"
+      }
+    ],
+    "skillcorner_tracking": [
+      {
+        "name": "match_id",
+        "type": "string"
+      },
+      {
+        "name": "period",
+        "type": "bigint"
+      },
+      {
+        "name": "frame",
+        "type": "bigint"
+      },
+      {
+        "name": "timestamp",
+        "type": "double"
+      },
+      {
+        "name": "player_id",
+        "type": "bigint"
+      },
+      {
+        "name": "x",
+        "type": "double"
+      },
+      {
+        "name": "y",
+        "type": "double"
+      },
+      {
+        "name": "is_visible",
+        "type": "boolean"
+      },
+      {
+        "name": "ball_x",
+        "type": "double"
+      },
+      {
+        "name": "ball_y",
+        "type": "double"
+      },
+      {
+        "name": "ball_z",
+        "type": "double"
+      },
+      {
+        "name": "ball_is_detected",
+        "type": "boolean"
+      },
+      {
+        "name": "frame_rate",
+        "type": "bigint"
+      },
+      {
+        "name": "_ingested_at",
+        "type": "timestamp"
+      },
+      {
+        "name": "access_tier",
+        "type": "string"
+      }
+    ]
+  }
+}

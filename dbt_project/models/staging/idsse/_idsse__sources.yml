@@ -555,6 +555,111 @@ sources:
               Disambiguator for ShotAtGoal's six mutually-exclusive outcome
               tags — 'successful', 'saved', 'wide', 'woodwork', 'blocked',
               'other'. NULL when event_type != 'ShotAtGoal'.
+          - name: _ingested_at
+            description: >
+              timestamp — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_outcome_placing
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_outcome_pitch_marking
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_outcome_current_result
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_outcome_goal_zone
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_outcome_ref_decision_evaluation
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_outcome_assist
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_outcome_assist_type
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_outcome_solo
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_outcome_save_evaluation
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_outcome_goal_keeper
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_outcome_save_type
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_outcome_save_result
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_outcome_player
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_outcome_goal_prevented
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_outcome_location
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_outcome_blocked_by_own_team
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_penalty_direction
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_penalty_execution
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: fault_execution_team
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_outcome_error
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_outcome_deflection_keeper
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_direct_free_kick_intention
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_outcome_deflection_player
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_shot_assist_fouled_player
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_outcome_assist_contribution
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: fault_execution_player
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_outcome_assist_fouled_player
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: fault_execution_ball_possession_phase
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: shot_rotation
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: competition_native_id
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: season_native_id
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: home_team_id_native
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: away_team_id_native
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: team_id_native
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
 
       - name: elastic_sync_results
         description: >

@@ -41,6 +41,8 @@ import logging
 import sys
 import time
 
+from ingestion.databricks_auth import workspace_client
+
 logger = logging.getLogger("ac1_oneshot")
 
 # Mirror terraform/modules/workflows/main.tf "analytics" environment spec exactly
@@ -190,12 +192,11 @@ def main() -> int:
     )
     args = p.parse_args()
 
-    from databricks.sdk import WorkspaceClient
     from databricks.sdk.service import compute, jobs
 
     provider, match_id, period = _parse_match_arg(args.match_ids)
     wheel_path = args.wheel_path or _wheel_volume_path(args.catalog)
-    w = WorkspaceClient()
+    w = workspace_client()
 
     # Run AS the ingestion SP by default so executor FUSE writes to the
     # bronze._staging rendezvous dir succeed (markers are the hang signal). The

@@ -56,6 +56,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
+from ingestion.databricks_auth import workspace_client  # noqa: E402
 from ingestion.sk3_mig_b_telemetry import classify_cycle_item  # noqa: E402
 
 _COST_CAP_USD = 80.0
@@ -225,9 +226,8 @@ def _emit_status(
 
 def _execute_sql(state: CycleState, sql: str) -> list[list]:
     """Run SQL via WorkspaceClient.statement_execution; return data_array."""
-    from databricks.sdk import WorkspaceClient
 
-    w = WorkspaceClient()
+    w = workspace_client()
     result = w.statement_execution.execute_statement(
         statement=sql,
         warehouse_id=state.warehouse_id,
@@ -808,9 +808,8 @@ def _trigger_mega_job_task(state: CycleState, cycle_item: str) -> int:
     Per reference_mega_job_orchestrator_design: lakehouse uses ONE mega-job
     ('soccer-analytics-ingestion-dev'); standalone-job dispatch fails.
     """
-    from databricks.sdk import WorkspaceClient
 
-    w = WorkspaceClient()
+    w = workspace_client()
     jobs = list(w.jobs.list(name="soccer-analytics-ingestion-dev"))
     if not jobs or jobs[0].job_id is None:
         raise RuntimeError("Mega-job 'soccer-analytics-ingestion-dev' not found")
@@ -1246,7 +1245,7 @@ def _step_4_xg1_retire_runtime(state: CycleState) -> None:
         "python",
         "-c",
         f"from databricks.sdk import WorkspaceClient; "
-        f"WorkspaceClient().files.delete_directory("
+        f"workspace_client().files.delete_directory("
         f"'/Volumes/{state.catalog}/dev_gold/model_weights/xg_model', recursive=True)",
     ]
     subprocess.run(cmd, check=False)
@@ -1317,9 +1316,7 @@ def _step_6_final_sweep(state: CycleState) -> None:
     if state.dry_run:
         _emit_status(state, step="6", phase="running", msg="[dry-run] skip mega-job trigger")
     else:
-        from databricks.sdk import WorkspaceClient
-
-        w = WorkspaceClient()
+        w = workspace_client()
         jobs = list(w.jobs.list(name="soccer-analytics-ingestion-dev"))
         if not jobs or jobs[0].job_id is None:
             raise RuntimeError("Mega-job 'soccer-analytics-ingestion-dev' not found")

@@ -22,6 +22,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from ingestion.databricks_auth import workspace_client
+
 logger = logging.getLogger(__name__)
 
 FIXTURE_DIR = Path("src/tests/fixtures/tracking_context")
@@ -127,10 +129,9 @@ FIXTURES: list[tuple[str, str, str]] = [
 
 def _execute_query_to_df(sql: str, warehouse_id: str) -> pd.DataFrame:
     """Execute SQL via Databricks SDK and return as DataFrame."""
-    from databricks.sdk import WorkspaceClient
     from databricks.sdk.service.sql import Disposition, Format
 
-    w = WorkspaceClient()
+    w = workspace_client()
 
     logger.info("Executing: %s", sql.strip()[:100])
     result = w.statement_execution.execute_statement(

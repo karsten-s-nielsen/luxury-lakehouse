@@ -82,6 +82,870 @@ sources:
             description: Match half (1 or 2)
           - name: _ingested_at
             description: UTC timestamp when the row was ingested
+          - name: index
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: frame_start
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: frame_end
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: frame_physical_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: time_start
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: time_end
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: minute_start
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: second_start
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: duration
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: attacking_side_id
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: attacking_side
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: event_type_id
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: event_subtype_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: event_subtype
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_name
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_position_id
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_position
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_in_possession_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_in_possession_name
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_in_possession_position_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_in_possession_position
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: team_shortname
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: x_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: y_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: channel_id_start
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: channel_start
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: third_id_start
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: third_start
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: penalty_area_start
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: x_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: y_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: channel_id_end
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: channel_end
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: third_id_end
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: third_end
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: penalty_area_end
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: associated_player_possession_event_id
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: associated_player_possession_frame_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: associated_player_possession_frame_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: associated_player_possession_end_type_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: associated_player_possession_end_type
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: associated_off_ball_run_event_id
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: associated_off_ball_run_subtype_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: associated_off_ball_run_subtype
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: game_state_id
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: game_state
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: team_score
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: opponent_team_score
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: phase_index
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_possession_phase_index
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: first_player_possession_in_team_possession
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: last_player_possession_in_team_possession
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: lead_to_different_phase
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: issued_from_different_phase
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_player_possessions_in_phase
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: team_possession_loss_in_phase
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: team_in_possession_phase_type_id
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: team_in_possession_phase_type
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: team_out_of_possession_phase_type_id
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: team_out_of_possession_phase_type
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: current_team_in_possession_next_phase_type_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: current_team_in_possession_next_phase_type
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: current_team_out_of_possession_next_phase_type_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: current_team_out_of_possession_next_phase_type
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: current_team_in_possession_previous_phase_type_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: current_team_in_possession_previous_phase_type
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: current_team_out_of_possession_previous_phase_type_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: current_team_out_of_possession_previous_phase_type
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: game_interruption_before_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: game_interruption_before
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: game_interruption_after_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: game_interruption_after
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: lead_to_shot
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: lead_to_goal
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: distance_covered
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: trajectory_angle
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: trajectory_direction_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: trajectory_direction
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: in_to_out
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: out_to_in
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: speed_avg
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: speed_avg_band_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: speed_avg_band
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: separation_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: separation_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: separation_gain
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: last_defensive_line_x_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: last_defensive_line_x_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: delta_to_last_defensive_line_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: delta_to_last_defensive_line_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: delta_to_last_defensive_line_gain
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: last_defensive_line_height_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: last_defensive_line_height_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: last_defensive_line_height_gain
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: inside_defensive_shape_start
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: inside_defensive_shape_end
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: start_type_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: start_type
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: end_type_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: end_type
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: consecutive_on_ball_engagements
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: one_touch
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: quick_pass
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: carry
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: forward_momentum
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: is_header
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: hand_pass
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: initiate_give_and_go
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: pass_angle_received
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: pass_direction_received_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: pass_direction_received
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: pass_distance_received
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: pass_range_received_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: pass_range_received
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: pass_outcome_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: pass_outcome
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: targeted_passing_option_event_id
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: high_pass
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_name
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_position_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_position
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_x_pass
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_y_pass
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_channel_pass_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_channel_pass
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_third_pass_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_third_pass
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_penalty_area_pass
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_x_reception
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_y_reception
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_channel_reception_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_channel_reception
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_third_reception_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_third_reception
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_penalty_area_reception
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_distance_to_goal_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_distance_to_goal_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_angle_to_goal_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_angle_to_goal_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_average_speed
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_speed_avg_band_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_speed_avg_band
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: speed_difference
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_xpass_completion
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_difficult_pass_target
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_xthreat
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_targeted_dangerous
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_passing_options
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_off_ball_runs
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_passing_options_line_break
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_passing_options_first_line_break
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_passing_options_second_last_line_break
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_passing_options_last_line_break
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_passing_options_ahead
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_passing_options_dangerous_difficult
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_passing_options_dangerous_not_difficult
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_passing_options_not_dangerous_not_difficult
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_passing_options_not_dangerous_difficult
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_passing_options_at_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_passing_options_at_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_passing_options_ahead_at_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_passing_options_ahead_at_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_teammates_ahead_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_teammates_ahead_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_player_targeted_opponents_ahead_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_player_targeted_opponents_ahead_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_player_targeted_teammates_ahead_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_player_targeted_teammates_ahead_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_player_targeted_teammates_within_5m_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_player_targeted_teammates_within_5m_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_player_targeted_opponents_within_5m_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_player_targeted_opponents_within_5m_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: organised_defense
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: defensive_structure
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_defensive_lines
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: first_line_break
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: first_line_break_type_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: first_line_break_type
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: second_last_line_break
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: second_last_line_break_type_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: second_last_line_break_type
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: last_line_break
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: last_line_break_type_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: last_line_break_type
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: furthest_line_break_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: furthest_line_break
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: furthest_line_break_type_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: furthest_line_break_type
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: interplayer_distance
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: interplayer_distance_range_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: interplayer_distance_range
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: interplayer_distance_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: interplayer_distance_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: interplayer_distance_min
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: interplayer_distance_start_physical
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: close_at_player_possession_start
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: interplayer_angle
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: interplayer_direction_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: interplayer_direction
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: angle_of_engagement
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: goal_side_start
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: goal_side_end
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: pass_distance
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: pass_range_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: pass_range
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: pass_angle
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: pass_direction_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: pass_direction
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: pass_ahead
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_opponents_ahead_player_in_possession_pass_moment
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_opponents_ahead_pass_reception
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_opponents_bypassed
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: location_to_player_in_possession_id_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: location_to_player_in_possession_start
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: location_to_player_in_possession_id_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: location_to_player_in_possession_end
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: distance_to_player_in_possession_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: distance_to_player_in_possession_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_in_possession_x_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_in_possession_y_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_in_possession_channel_id_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_in_possession_channel_start
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_in_possession_third_id_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_in_possession_third_start
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_in_possession_penalty_area_start
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_in_possession_x_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_in_possession_y_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_in_possession_channel_id_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_in_possession_channel_end
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_in_possession_third_id_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_in_possession_third_end
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: player_in_possession_penalty_area_end
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: targeted
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: received
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: received_in_space
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: dangerous
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: difficult_pass_target
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: xthreat
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: xpass_completion
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: passing_option_score
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: predicted_passing_option
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: peak_passing_option_frame
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: passing_option_at_player_possession_start
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_simultaneous_runs
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: give_and_go
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: intended_run_behind
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: push_defensive_line
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: break_defensive_line
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: passing_option_at_start
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_simultaneous_passing_options
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: passing_option_at_pass_moment
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_opponents_ahead_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_opponents_ahead_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: n_opponents_overtaken
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: pressing_chain
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: pressing_chain_length
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: pressing_chain_end_type_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: pressing_chain_end_type
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: pressing_chain_index
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: index_in_pressing_chain
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: simultaneous_defensive_engagement_same_target
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: simultaneous_defensive_engagement_same_target_rank
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: affected_line_breaking_passing_option_id
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: affected_line_break_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: affected_line_break
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: affected_line_breaking_passing_option_attempted
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: affected_line_breaking_passing_option_xthreat
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: affected_line_breaking_passing_option_dangerous
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: affected_line_breaking_passing_option_run_subtype_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: affected_line_breaking_passing_option_run_subtype
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: possession_danger
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: beaten_by_possession
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: beaten_by_movement
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: stop_possession_danger
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: reduce_possession_danger
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: force_backward
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: xloss_player_possession_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: xloss_player_possession_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: xloss_player_possession_max
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: xshot_player_possession_start
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: xshot_player_possession_end
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: xshot_player_possession_max
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: is_player_possession_start_matched
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: is_player_possession_end_matched
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: is_previous_pass_matched
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: is_pass_reception_matched
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
+          - name: fully_extrapolated
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
 
       - name: skillcorner_matches
         description: >

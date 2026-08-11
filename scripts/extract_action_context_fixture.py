@@ -48,6 +48,7 @@ import pandas as pd
 # through (L11 batch-alignment; ADR-047 amendment 2). analytics.action_context.batching
 # is stdlib-only, so importing it here does NOT pull pyspark.
 from analytics.action_context.batching import resolve_frame_batch_size
+from ingestion.databricks_auth import workspace_client
 
 logger = logging.getLogger(__name__)
 
@@ -94,10 +95,9 @@ _FRAME_COL: dict[str, str] = {p: ("frame_num" if p == "gradientsports" else "fra
 
 def _execute_query_to_df(sql: str, warehouse_id: str) -> pd.DataFrame:
     """Execute read-only SQL via the Databricks SDK; return a typed DataFrame."""
-    from databricks.sdk import WorkspaceClient
     from databricks.sdk.service.sql import Disposition, Format
 
-    w = WorkspaceClient()
+    w = workspace_client()
     result = w.statement_execution.execute_statement(
         warehouse_id=warehouse_id,
         statement=sql.strip(),

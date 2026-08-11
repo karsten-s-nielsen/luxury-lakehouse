@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 import psycopg2
 import requests
 
+from ingestion.databricks_auth import workspace_client
 from shared.constants import IDENTIFIER_RE
 
 # PR-Cycle-B (2026-05-01): databricks-sdk is in the [sdk] optional extra.
@@ -81,7 +82,7 @@ def main() -> None:
 
     full_name = f"{CATALOG}.{SCHEMA}.{table_name}"
 
-    ws = WorkspaceClient()
+    ws = workspace_client()
 
     # The two-step delete (SDK delete + PG ghost drop) is the canonical lifecycle; the
     # implementations now live in the shared thin adapters (single source of truth).

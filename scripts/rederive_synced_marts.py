@@ -30,6 +30,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ingestion.databricks_auth import workspace_client
 from ingestion.rederive_planner import PlanStep, plan_rederive
 from shared.constants import IDENTIFIER_RE
 
@@ -100,13 +101,12 @@ def _warehouse_id() -> str:
 
 
 def _match_ids_for_provider(provider: str) -> list[int]:
-    from databricks.sdk import WorkspaceClient
     from databricks.sdk.service.sql import StatementParameterListItem, StatementState
 
     if not IDENTIFIER_RE.match(provider):
         print(f"ERROR: invalid --provider {provider!r}", file=sys.stderr)
         raise SystemExit(2)
-    ws = WorkspaceClient()
+    ws = workspace_client()
     warehouse_id = _warehouse_id()
     stmt = (
         # Only trusted module constants (_CATALOG/_BRONZE_SCHEMA) are interpolated; the
@@ -131,9 +131,8 @@ def _assert_daily_job_idle(force: bool) -> None:
     """Refuse to run while the daily ingestion job is active (real job state, not the clock — T4)."""
     if force:
         return
-    from databricks.sdk import WorkspaceClient
 
-    ws = WorkspaceClient()
+    ws = workspace_client()
     active = list(ws.jobs.list_runs(job_id=_DAILY_JOB_ID, active_only=True))
     if active:
         ids = ", ".join(str(r.run_id) for r in active)

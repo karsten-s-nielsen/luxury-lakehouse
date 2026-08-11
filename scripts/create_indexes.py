@@ -32,6 +32,8 @@ import uuid
 import psycopg2
 import requests
 
+from ingestion.databricks_auth import workspace_client
+
 DATABRICKS_HOST = os.environ["DATABRICKS_HOST"]  # Required — fail fast if missing
 # LAKEBASE_HOST is auto-discovered via _get_lakebase_dns() when not set.
 # Kept as an escape hatch for local development behind network proxies
@@ -374,9 +376,7 @@ def _get_pg_credential() -> tuple[str, str]:
     CLI with OAUTH profile if WorkspaceClient is unavailable.
     """
     try:
-        from databricks.sdk import WorkspaceClient
-
-        ws = WorkspaceClient()
+        ws = workspace_client()
         host = (ws.config.host or "").rstrip("/")
         auth_headers: dict[str, str] = ws.config.authenticate()  # type: ignore[assignment]
     except Exception:
@@ -586,9 +586,7 @@ def _get_lakebase_dns() -> str:
         return LAKEBASE_HOST_OVERRIDE
 
     try:
-        from databricks.sdk import WorkspaceClient
-
-        ws = WorkspaceClient()
+        ws = workspace_client()
         host = (ws.config.host or "").rstrip("/")
         auth_headers: dict[str, str] = ws.config.authenticate()  # type: ignore[assignment]
     except Exception:

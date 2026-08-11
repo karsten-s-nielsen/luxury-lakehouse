@@ -18,6 +18,8 @@ import sys
 
 from databricks.sdk import WorkspaceClient
 
+from ingestion.databricks_auth import workspace_client
+
 _INTERESTING_KEYS = ("action_context", "preflight")
 _LOG_TAIL_CHARS = 4000
 
@@ -116,7 +118,7 @@ def main() -> int:
     if len(sys.argv) < 2:
         print("Usage: diagnose_ac1_run.py RUN_ID [RUN_ID ...]")
         return 2
-    w = WorkspaceClient()
+    w = workspace_client()
     for raw in sys.argv[1:]:
         _process_run(w, int(raw))
     return 0

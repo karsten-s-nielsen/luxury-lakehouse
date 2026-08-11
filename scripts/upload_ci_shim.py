@@ -32,6 +32,8 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ingestion.databricks_auth import workspace_client
+
 # PR-Cycle-B (2026-05-01): databricks-sdk is in the [sdk] optional extra.
 # Lazy-import keeps this module importable without the extra installed.
 if TYPE_CHECKING:
@@ -58,7 +60,7 @@ def main() -> int:
         logger.error("Local shim missing at %s", _LOCAL_SHIM)
         return 1
 
-    ws = WorkspaceClient()
+    ws = workspace_client()
     ws.workspace.mkdirs(_SHIM_WORKSPACE_DIR)
     logger.info("Uploading %s to %s", _LOCAL_SHIM, _SHIM_WORKSPACE_PATH)
     content = _LOCAL_SHIM.read_bytes()

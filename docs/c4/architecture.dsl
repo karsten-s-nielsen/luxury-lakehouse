@@ -29,6 +29,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             bumpWheel = container "bump_wheel.py" "Syncs wheel version to all static consumers (25+ files)" "Python"
             dbtBuildAndRefresh = container "dbt_build_and_refresh.py" "Chains dbt build with synced table refresh" "Python, subprocess"
             syncTfEnvPins = container "sync_tf_env_pins.py" "Mirrors uv.lock library pins into the terraform env blocks (ADR-046); shares one pure policy core with the parity sentinel (fixer=checker)" "Python"
+            syncBronzeSources = container "sync_bronze_sources_yml.py" "Appends undocumented bronze columns to dbt sources.yml from live DESCRIBE snapshots. Same pure-core fixer=checker shape as sync_tf_env_pins; --check is the CI gate. Insert-only — never rewrites a description." "Python"
         }
 
         pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "47 workflow-card-registered workflows. Centralized hooks, lifecycle tracking, three-tier cost tracking." {
@@ -100,6 +101,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         developer -> deployWheel "Pushes wheel to UC Volume" "CLI"
         developer -> bumpWheel "Syncs version after bump" "CLI"
         developer -> syncTfEnvPins "Syncs TF env pins after uv lock" "CLI"
+        developer -> syncBronzeSources "Documents new bronze columns after a schema snapshot refresh" "CLI"
         developer -> dbtBuildAndRefresh "Rebuilds gold + Lakebase" "CLI"
         developer -> adminApi "Cache clear (incident response)" "HTTPS"
         operator -> orchestratorScript "Triggers retrain cycles" "CLI"

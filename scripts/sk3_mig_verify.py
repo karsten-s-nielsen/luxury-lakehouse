@@ -39,6 +39,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+from ingestion.databricks_auth import workspace_client  # noqa: E402
 from shared.constants import DEFAULT_CATALOG  # noqa: E402
 
 _CATALOG: str = os.environ.get("DATABRICKS_CATALOG", DEFAULT_CATALOG)
@@ -271,9 +272,7 @@ def main() -> int:
     if args.pre_counts:
         pre_counts_per_table = json.loads(Path(args.pre_counts).read_text(encoding="utf-8"))
 
-    from databricks.sdk import WorkspaceClient  # type: ignore[import-not-found]
-
-    client = WorkspaceClient()
+    client = workspace_client()
     results: list[tuple[str, bool, str]] = []
 
     if args.pre_flight or args.full:

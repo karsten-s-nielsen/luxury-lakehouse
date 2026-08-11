@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 
 from huggingface_hub import get_token, hf_hub_download
 
+from ingestion.databricks_auth import workspace_client
 from shared.constants import IDENTIFIER_RE
 from shared.wheel import WHEEL_FILENAME, WHEEL_REPO
 
@@ -134,7 +135,7 @@ def main() -> None:
         return
 
     # Upload to UC Volume.
-    client = WorkspaceClient()
+    client = workspace_client()
     _upload_wheel(local_path, volume_path, client)
 
     # Post-upload verification.

@@ -204,22 +204,57 @@ def workspace_client(**kwargs: Any) -> WorkspaceClient:
     Under GitHub OIDC this installs :class:`CachedGitHubOidcStrategy`; otherwise it returns
     a stock client so local dev (PAT or an OAuth CLI profile) is untouched.
 
-    Adopted by the three CI-reachable construction sites -- ``heal_synced_tables``,
-    ``run_lakebase_grants`` and ``grant_synced_table_permissions``. NOT
-    ``refresh_synced_tables``: that one runs as a Databricks task under ambient runtime auth,
-    where this strategy is inert, and its module-level ``WorkspaceClient`` is a test seam.
-    Everything else stays on a bare ``WorkspaceClient()``,
-    which is already correct: it re-mints per request, just without the cache.
+    **This is now the single construction site for every operator script and CI-reachable
+    script** (2026-08-10). It previously covered only ``heal_synced_tables``,
+    ``run_lakebase_grants`` and ``grant_synced_table_permissions``, with everything else on a
+    bare ``WorkspaceClient()`` — "already correct" in the sense that it re-mints per request,
+    but wrong in a way that only showed up under an ambiguous ``~/.databrickscfg``. See
+    :func:`_reraise_ambiguous_profile`.
+
+    NOT ``refresh_synced_tables``: that runs as a Databricks task under ambient runtime auth,
+    where the OIDC strategy is inert and its module-level ``WorkspaceClient`` is a test seam.
     """
     from databricks.sdk import WorkspaceClient
 
     using_oidc = os.environ.get("DATABRICKS_AUTH_TYPE") == "github-oidc" and all(
         _is_set(var) for var in _GITHUB_OIDC_VARS
     )
-    if using_oidc:
-        # Structural, not nominal: subclassing CredentialsStrategy would require importing
-        # databricks-sdk at module scope, and this module must stay importable without the
-        # [sdk] extra — 11 test files call has_databricks_auth() at collection time.
-        strategy = cast("CredentialsStrategy", CachedGitHubOidcStrategy())
-        return WorkspaceClient(credentials_strategy=strategy, **kwargs)
-    return WorkspaceClient(**kwargs)
+    try:
+        if using_oidc:
+            # Structural, not nominal: subclassing CredentialsStrategy would require importing
+            # databricks-sdk at module scope, and this module must stay importable without the
+            # [sdk] extra — 11 test files call has_databricks_auth() at collection time.
+            strategy = cast("CredentialsStrategy", CachedGitHubOidcStrategy())
+            return WorkspaceClient(credentials_strategy=strategy, **kwargs)
+        return WorkspaceClient(**kwargs)
+    except ValueError as exc:  # pragma: no cover - needs an ambiguous ~/.databrickscfg
+        _reraise_ambiguous_profile(exc)
+        raise
+
+
+def _reraise_ambiguous_profile(exc: ValueError) -> None:
+    """Turn the SDK's ambiguous-profile error into one that says what to do.
+
+    When ``~/.databrickscfg`` holds more than one profile matching the workspace host (e.g. a
+    ``DEFAULT`` and an ``OAUTH`` entry), the SDK raises at CLIENT CONSTRUCTION with
+    ``... Use --profile to specify which profile to use`` — advice that names a flag most of
+    these scripts do not have.
+
+    Applying the PR-2a bronze migration hit this: it fired *after* the operator had substituted
+    the migration's cutoff and believed the apply was under way, so a pure auth failure read as a
+    partial write. The message below states plainly that nothing ran, and names the env var the
+    SDK already honours (``Config.profile`` is
+    ``ConfigAttribute(env="DATABRICKS_CONFIG_PROFILE")``) so no script needs its own flag.
+
+    Anything that is not the ambiguity error propagates untouched.
+    """
+    if "Use --profile" not in str(exc):
+        return
+    msg = (
+        f"Databricks auth is ambiguous: {exc}\n"
+        "More than one ~/.databrickscfg profile matches this host. Re-run with "
+        "DATABRICKS_CONFIG_PROFILE=<name> (e.g. OAUTH) — the SDK reads it natively, so no "
+        "per-script flag is required.\n"
+        "NOTHING HAS RUN: this failed while constructing the client, before any work."
+    )
+    raise SystemExit(msg) from exc
