@@ -113,11 +113,34 @@ installed. Recorded here because both looked correct until run.
   `ingestion` coupling is wider. Legal (`.importlinter` covers only the four wheel packages) and
   already precedented, but it means those scripts need the wheel installed.
 
+  **This consequence was written down and then not acted on, and it broke `main` on
+  2026-08-11.** `terraform-apply.yml` runs `scripts/patch_job_retries.py` with a bare `python`
+  and `pip install databricks-sdk requests` — no wheel — so the rewritten import raised
+  `ModuleNotFoundError: No module named 'ingestion'`. Terraform Apply itself succeeded; the
+  ADR-025 post-apply retry patch did not run. Worse, that script's docstring **already carried
+  the reason** ("terraform-apply.yml runs this with a bare `python` … without the project wheel
+  on sys.path") and the sweep edited the code three lines below it while leaving the paragraph
+  standing. A fence with its sign still attached.
+
+  Two corrections follow. **(1) A shared helper must live where every consumer can reach it, or
+  the consumers that cannot must be an explicit, reasoned set.** `scripts/` holds two classes:
+  application/ops scripts that legitimately carry the project environment, and CI plumbing that
+  runs in a deliberately minimal one. The second class stays on a bare client — handing it the
+  whole project graph (uv setup + dbt-packages materialisation + `uv sync`, ~4 steps on every
+  Terraform Apply) to obtain one constructor inverts the cost. **(2) The gate that pushed the
+  bad edit was half-observed**: `test_workspace_client_construction.py` asserted CI scripts
+  *import* the helper and never that their runtime could *resolve* it. `test_ci_script_environment.py`
+  closes the other half, structurally and with no allowlist — a script that does not import a
+  wheel package is simply not subject to it.
+
 ### Neutral
 
-- Two documented exemptions remain and are pinned as a set with reasons:
+- **Three** documented exemptions are pinned as a set with reasons:
   `scripts/ci/run_dbt_in_databricks.py` (ambient Databricks runtime auth, where no profile is
-  resolved) and `scripts/migrations/_runner.py` (its own `--profile` and try/except).
+  resolved), `scripts/migrations/_runner.py` (its own `--profile` and try/except), and — added
+  2026-08-11 — `scripts/patch_job_retries.py` (runs in a wheel-free CI step under
+  `DATABRICKS_AUTH_TYPE=github-oidc`, where no `~/.databrickscfg` exists and the profile
+  ambiguity cannot arise).
 - The 180-day window is a judgement, not a derived value. Chosen so the change ships green
   rather than landing the suite red on a decision only an operator can take.
 
