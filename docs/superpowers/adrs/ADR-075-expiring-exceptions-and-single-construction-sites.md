@@ -1,7 +1,7 @@
 # ADR-075: Exceptions carry an expiry, and a cross-cutting concern gets one construction site
 
 **Status:** Accepted
-**Date:** 2026-08-10
+**Date:** 2026-08-10 (amended 2026-08-11 — a revisit condition that only a human can evaluate is still unobserved)
 **Deciders:** Karsten Nielsen
 **Generalises:** the `review_trigger` field introduced for `.pip-audit-ignores.yml` in [ADR-074](ADR-074-hf-sync-process-isolation-and-memory-observability.md)
 **Related:** [ADR-046](ADR-046-serverless-env-exact-pins.md) (pure-core fixer≡checker), [ADR-071](ADR-071-ci-databricks-oidc-auth.md) (CI Databricks auth)
@@ -121,12 +121,68 @@ installed. Recorded here because both looked correct until run.
 - The 180-day window is a judgement, not a derived value. Chosen so the change ships green
   rather than landing the suite red on a decision only an operator can take.
 
+## Amendment (2026-08-11) — a revisit condition that only a human can evaluate is still unobserved
+
+The decision above requires every exception to record the condition under which it stops being
+one. Applying it to `.pip-audit-ignores.yml` the next day showed that the requirement is not
+sufficient: **all six entries already had a `review_trigger`, and three of them named the wrong
+upstream.**
+
+- `python-dotenv` blamed `taipy`, which does not declare python-dotenv at all — the cap is
+  taipy-gui's.
+- `deepdiff` recorded `<8`; the measured cap is `<=7.0.1`, so 7.0.2 was blocked too.
+- `pyarrow` blamed a *"databricks-connect/pyspark compatibility pin"*. **Neither package is in
+  `uv.lock`.** Its `review_trigger` — "databricks-connect supporting pyarrow 23+" — watched an
+  upstream that could never have unblocked it. The real holder is taipy-core (`pyarrow<19.0`).
+
+Each of those was true, or plausible, when written. Prose does not stay true, and a
+`review_trigger` phrased against the wrong package is *worse* than none: it looks discharged.
+
+**So: where a revisit condition can be evaluated by execution, it must be.**
+`scripts/check_cve_blockers.py` attempts each entry's floor for real and
+`.github/workflows/cve-blocker-review.yml` re-runs it weekly. Three further rules, each of which
+was a bug first:
+
+1. **Assert the claim, not the mechanism.** The gate was designed to assert *"flooring D is
+   unsatisfiable"* — and its first run disproved that on 2 of 6 entries. `setuptools>=83` and
+   `cryptography>=50` both *resolve*, buying it with collateral downgrades their own
+   justifications had described in prose. The uniform, decision-relevant claim is **"taking this
+   fix is not free"**: outcomes are `BLOCKED` / `COLLATERAL` / `MOVED` / `UNKNOWN`, and the first
+   two pass. Shipped as designed, the gate would have filed two false alarms on day one.
+2. **Unverifiable is not verified-good.** A resolve can fail because the runner was offline. Only
+   uv's own "no solution" wording counts as `BLOCKED`; every other failure is `UNKNOWN` and fails
+   the job exactly as loudly as `MOVED`. Folding the two together would let an offline runner
+   certify every blocker as intact — the inverse of ADR-068's fail-open rule, in the direction
+   where fail-open is wrong.
+3. **A constraint can be satisfied by the target leaving the graph.** `setuptools>=83` resolves
+   because torch backtracks to 2.10.0, which does not depend on setuptools at all. A pre-flight
+   presence check cannot see this: the package is there when the probe starts and gone when it
+   ends. Verify post-resolve.
+
+**Scope boundary (a convention with downstream consumers).** `.pip-audit-ignores.yml` suppresses
+what **pip-audit reports in the CI-synced environment** — not what Dependabot reports from
+`uv.lock`. On 2026-08-11 those sets were 7 findings vs 14 alerts, because `uv run pip-audit`
+audits an environment without the `taipy-app` extra and skips torch's `+cu128` build entirely.
+An entry for an advisory pip-audit does not report is an inert flag whose "still suppresses a
+live finding" property is false the day it is written. Do not add one.
+
+That boundary has a consequence worth stating plainly rather than burying: **the CI audit does
+not cover what production runs.** The Taipy Space deploys *with* the `taipy-app` extra, so eight
+open advisories — including one high-severity issue in Taipy itself with no patched release —
+reach production unaudited. Recorded here as a known gap, not fixed by this ADR.
+
+**Also learned, and generalisable:** `uv.lock` pins 9 of 298 packages **twice**, because the
+declared extra `conflicts` fork the resolution. Two of them are entries in this very file. Any
+tool reading versions out of `uv.lock` with a `{name: version}` map watches one fork blind.
+
 ## Related
 
 - **Specs:** `docs/superpowers/specs/2026-08-10-bronze-coverage-completion-and-cve-floors-design.md`
 - **Plans:** `docs/superpowers/plans/2026-08-10-bronze-coverage-completion-and-cve-floors.md`
 - **Enforced by:** `src/tests/test_bronze_table_inventory.py`,
-  `src/tests/test_workspace_client_construction.py`, `src/tests/test_pip_audit_ignores.py`
+  `src/tests/test_workspace_client_construction.py`, `src/tests/test_pip_audit_ignores.py`,
+  `src/tests/test_check_cve_blockers.py`, and — weekly, outside the test suite —
+  `.github/workflows/cve-blocker-review.yml` running `scripts/check_cve_blockers.py`
 - **ADRs:** generalises ADR-074's `review_trigger`; shares the pure-core fixer≡checker shape with
   ADR-046; complements ADR-071 on the CI auth path.
 

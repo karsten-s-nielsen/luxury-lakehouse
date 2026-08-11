@@ -22,11 +22,26 @@ from pathlib import Path
 import pytest
 import yaml
 
+from scripts.check_cve_blockers import NO_FIX, is_checkable
 from scripts.pip_audit_ignores import REQUIRED_FIELDS, IgnoreListError, flags, load_ignores
 
 _REPO = Path(__file__).resolve().parents[2]
 _CI = _REPO / ".github" / "workflows" / "python-ci.yml"
 _IGNORES = _REPO / ".pip-audit-ignores.yml"
+
+#: Entries whose claim ("flooring this is unsatisfiable") the scheduled gate re-tests weekly.
+_EXPECTED_CHECKABLE_IDS = {
+    "CVE-2026-28684",  # python-dotenv — taipy caps <=1.0.1
+    "PYSEC-2026-113",  # pyarrow — databricks-connect compatibility
+    "CVE-2025-58367",  # deepdiff — taipy-common caps <8
+    "CVE-2026-33155",  # deepdiff — same pair, listed by CVE alias
+    "PYSEC-2026-3447",  # setuptools — torch caps it
+    "PYSEC-2026-3552",  # cryptography — mlflow caps it
+}
+
+#: Entries with NO patched release upstream. The probe cannot test these; each must name the
+#: awaited release in its review_trigger. Keep this set as small as the evidence allows.
+_EXPECTED_UNFIXABLE_IDS: set[str] = set()
 
 
 def test_ignore_list_parses_and_is_complete() -> None:
@@ -74,6 +89,47 @@ def test_every_ignore_has_an_actionable_review_trigger() -> None:
         trigger = str(entry["review_trigger"]).strip()
         assert trigger.lower() not in useless, f"{entry['id']}: review_trigger {trigger!r} is not actionable"
         assert len(trigger) > 15, f"{entry['id']}: review_trigger {trigger!r} is too vague to act on"
+
+
+def test_every_ignore_is_either_checkable_or_declared_unfixable() -> None:
+    """The scheduled blocker gate must cover a known set — and a parametrised gate with zero
+    cases passes while asserting nothing.
+
+    Pinned as SETS, both directions, not counts: a count permits swapping one entry out and
+    another in, net unchanged, silently. Same shape as `_ALLOWED_BARE` in
+    test_workspace_client_construction.py.
+
+    The NO_FIX side is the one worth guarding. It is the only way to hold an ignore that the
+    scheduled probe never tests, so adding one must be a visible, reviewed change rather than
+    a quiet opt-out — the same reasoning that put an expiry on the bronze non-contract set
+    (ADR-075).
+    """
+    entries = load_ignores()
+    checkable = {str(e["id"]) for e in entries if is_checkable(e)}
+    unfixable = {str(e["id"]) for e in entries if str(e["fix_in"]).strip() == NO_FIX}
+
+    assert checkable == _EXPECTED_CHECKABLE_IDS, (
+        f"drift: only-file={sorted(checkable - _EXPECTED_CHECKABLE_IDS)} "
+        f"only-expected={sorted(_EXPECTED_CHECKABLE_IDS - checkable)}"
+    )
+    assert unfixable == _EXPECTED_UNFIXABLE_IDS, (
+        f"drift: only-file={sorted(unfixable - _EXPECTED_UNFIXABLE_IDS)} "
+        f"only-expected={sorted(_EXPECTED_UNFIXABLE_IDS - unfixable)}"
+    )
+    assert checkable, "no entry is checkable — the scheduled blocker gate would cover nothing"
+    assert checkable | unfixable == {str(e["id"]) for e in entries}, (
+        "an entry is neither checkable nor declared unfixable — partition, not filter"
+    )
+
+
+def test_the_unfixable_sentinel_is_spelled_exactly() -> None:
+    """A near-miss (`none`, `None`, `n/a`) silently becomes a checkable entry with a garbage
+    floor, which the probe then reports as UNKNOWN once a week forever."""
+    for entry in load_ignores():
+        fix = str(entry["fix_in"]).strip()
+        assert fix == NO_FIX or fix.lower() not in {"none", "n/a", "unknown", "-", "tbd"}, (
+            f"{entry['id']}: fix_in {fix!r} looks like the no-fix sentinel but is not {NO_FIX!r}"
+        )
 
 
 def test_flags_render_one_pair_per_entry() -> None:
