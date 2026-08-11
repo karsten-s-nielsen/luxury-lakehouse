@@ -50,6 +50,14 @@ _ALLOWED_BARE: dict[str, str] = {
         "Carries its own --profile flag and try/except around construction (PR-2a), which is "
         "where this error class was first diagnosed. The bare call is the documented else-branch."
     ),
+    "scripts/patch_job_retries.py": (
+        "terraform-apply.yml runs this with a bare `python` and a pip-installed databricks-sdk, "
+        "WITHOUT the project wheel on sys.path — so importing the helper is a "
+        "ModuleNotFoundError, which is exactly how it broke main on 2026-08-11. It runs only "
+        "under DATABRICKS_AUTH_TYPE=github-oidc, where no ~/.databrickscfg exists and the "
+        "profile ambiguity workspace_client() explains cannot arise. The script's own docstring "
+        "carried this reason all along; the ADR-075 sweep edited past it."
+    ),
 }
 
 

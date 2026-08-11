@@ -41,8 +41,6 @@ import sys
 
 import requests
 
-from ingestion.databricks_auth import workspace_client
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(message)s",
@@ -102,9 +100,20 @@ def _get_headers() -> dict[str, str]:
     static ``DATABRICKS_TOKEN`` locally and for ``github-oidc`` in CI, where it mints per
     call. The previous version read ``DATABRICKS_TOKEN`` directly, which required the
     workflow to materialise a bearer into ``$GITHUB_OUTPUT`` (ADR-071 amendment).
-    """
 
-    value = (workspace_client().config.authenticate() or {}).get("Authorization", "")
+    RESTORED 2026-08-11 after the ADR-075 auth consolidation broke it. That sweep rewrote this
+    to ``ingestion.databricks_auth.workspace_client()`` and left the paragraph above — which
+    states exactly why it must not — standing three lines up, so Terraform Apply died on
+    ``ModuleNotFoundError: No module named 'ingestion'`` (the apply itself succeeded; the
+    ADR-025 retry patch did not run). The bare client is correct HERE and only here: this runs
+    solely under ``DATABRICKS_AUTH_TYPE=github-oidc``, where there is no ``~/.databrickscfg``
+    and the profile ambiguity ``workspace_client()`` exists to explain cannot arise. Recorded
+    in ``_ALLOWED_BARE`` (test_workspace_client_construction.py) and enforced from the other
+    side by test_ci_script_environment.py.
+    """
+    from databricks.sdk import WorkspaceClient
+
+    value = (WorkspaceClient().config.authenticate() or {}).get("Authorization", "")
     if not value.startswith("Bearer "):
         logger.error(
             "Databricks SDK returned no Bearer authorization header (got %r). Set "
