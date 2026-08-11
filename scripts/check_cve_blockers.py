@@ -1,5 +1,7 @@
 """Prove what each pip-audit ignore actually CLAIMS: that taking the fix is not free.
 
+Rationale: the ADR-075 amendment (2026-08-11).
+
 Every entry in ``.pip-audit-ignores.yml`` carries ``fix_in`` (a fix exists) and ``blocked_by``
 (why we cannot take it). Read literally, ``blocked_by`` names a cap held by another package —
 but that is the *mechanism*, and mechanisms and claims diverge (see below; measurement forced

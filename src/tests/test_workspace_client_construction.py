@@ -1,5 +1,7 @@
 """Every ``scripts/`` Databricks client comes from the one shared constructor.
 
+Enforces ADR-075: a cross-cutting concern gets ONE construction site.
+
 ``ingestion.databricks_auth.workspace_client()`` installs ``CachedGitHubOidcStrategy`` under
 GitHub OIDC, returns a stock client otherwise, and — since 2026-08-10 — converts the SDK's
 ambiguous-profile ``ValueError`` into a message that says what to do and that **nothing ran**.

@@ -29,19 +29,32 @@ _REPO = Path(__file__).resolve().parents[2]
 _CI = _REPO / ".github" / "workflows" / "python-ci.yml"
 _IGNORES = _REPO / ".pip-audit-ignores.yml"
 
-#: Entries whose claim ("flooring this is unsatisfiable") the scheduled gate re-tests weekly.
+#: Entries whose claim ("taking this fix is not free") the scheduled gate re-tests weekly.
 _EXPECTED_CHECKABLE_IDS = {
-    "CVE-2026-28684",  # python-dotenv — taipy caps <=1.0.1
-    "PYSEC-2026-113",  # pyarrow — databricks-connect compatibility
-    "CVE-2025-58367",  # deepdiff — taipy-common caps <8
+    # Reported by the BASE resolution — what `uv run pip-audit` has always audited.
+    "CVE-2026-28684",  # python-dotenv — taipy-gui caps <=1.0.1
+    "PYSEC-2026-113",  # pyarrow — taipy-core caps <19.0
+    "CVE-2025-58367",  # deepdiff — taipy-common caps <=7.0.1
     "CVE-2026-33155",  # deepdiff — same pair, listed by CVE alias
-    "PYSEC-2026-3447",  # setuptools — torch caps it
-    "PYSEC-2026-3552",  # cryptography — mlflow caps it
+    "PYSEC-2026-3447",  # setuptools — torch caps <82; cu128 index tops out at torch 2.11.0
+    "PYSEC-2026-3552",  # cryptography — mlflow caps <50
+    # Reported ONLY by the taipy-app resolution (scripts/audit_resolutions.py, 2026-08-11).
+    "PYSEC-2026-1383",  # flask-cors — taipy-gui caps <5.1
+    "PYSEC-2026-1384",  # flask-cors — same cap
+    "PYSEC-2026-1385",  # flask-cors — same cap
+    "PYSEC-2026-89",  # markdown — taipy-gui caps <=3.6
+    "PYSEC-2026-1605",  # marshmallow — taipy-rest caps <=3.21.2
+    "PYSEC-2026-160",  # twisted — taipy-gui caps <24.8.0
+    "PYSEC-2025-194",  # torch — the cu128 index publishes nothing above 2.11.0
 }
 
 #: Entries with NO patched release upstream. The probe cannot test these; each must name the
 #: awaited release in its review_trigger. Keep this set as small as the evidence allows.
-_EXPECTED_UNFIXABLE_IDS: set[str] = set()
+#:
+#: PYSEC-2026-3081 is the ONLY one, and it is here because upstream fixed it in commit 129fd40
+#: and never cut a release — verified by reading `get_resource` out of taipy-gui 4.1.2, one
+#: version ABOVE our pin, which still carries the flawed check. A version bump cannot retire it.
+_EXPECTED_UNFIXABLE_IDS: set[str] = {"PYSEC-2026-3081"}
 
 
 def test_ignore_list_parses_and_is_complete() -> None:

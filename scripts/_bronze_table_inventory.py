@@ -1,5 +1,7 @@
 """Which bronze tables are part of the documented contract, and which are not.
 
+Rationale: ADR-075 (expiring exceptions, and a partition rather than a filter).
+
 Pure core — no I/O beyond reading repo files, no SDK. Imported by the bronze-coverage tests
 and by ``sync_bronze_sources_yml.py``, so classifier and generator cannot disagree (the same
 fixer-equals-checker property ``scripts/_tf_env_pins.py`` gives the Terraform env pins).

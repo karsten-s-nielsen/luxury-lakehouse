@@ -1,5 +1,7 @@
 """Every bronze table is classified: documented contract, or excluded with a reason.
 
+Enforces ADR-075: an exception records the condition under which it stops being one.
+
 Sibling of ``test_access_tier_backfill.py::test_every_access_tier_table_is_classified_exactly_once``
 and built for the same reason — *a NEW table must force a conscious decision and can never be
 silently dropped*.

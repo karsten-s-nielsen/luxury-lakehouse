@@ -1,5 +1,8 @@
 """The CVE-blocker probe: pure-core behaviour, and the four outcomes it must keep distinct.
 
+Enforces the ADR-075 amendment: a revisit condition that only a human can evaluate is still
+unobserved, so where it can be evaluated by EXECUTION, it must be.
+
 ``scripts/check_cve_blockers.py`` asserts what each pip-audit ignore CLAIMS — that taking the
 fix is not free — by attempting the floor and requiring the resolve to fail, or to succeed only
 by moving other packages.

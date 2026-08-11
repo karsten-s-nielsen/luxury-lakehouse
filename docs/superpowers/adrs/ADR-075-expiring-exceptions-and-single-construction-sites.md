@@ -159,17 +159,48 @@ was a bug first:
    presence check cannot see this: the package is there when the probe starts and gone when it
    ends. Verify post-resolve.
 
-**Scope boundary (a convention with downstream consumers).** `.pip-audit-ignores.yml` suppresses
-what **pip-audit reports in the CI-synced environment** — not what Dependabot reports from
-`uv.lock`. On 2026-08-11 those sets were 7 findings vs 14 alerts, because `uv run pip-audit`
-audits an environment without the `taipy-app` extra and skips torch's `+cu128` build entirely.
-An entry for an advisory pip-audit does not report is an inert flag whose "still suppresses a
-live finding" property is false the day it is written. Do not add one.
+**Audit RESOLUTIONS, not the environment that happens to be installed.** The scope of
+`.pip-audit-ignores.yml` was originally "what pip-audit reports in the CI-synced environment",
+and that boundary turned out to be a bug rather than a definition. `uv run pip-audit` audits the
+base resolution plus the dev group. **Production is not that environment**: the Taipy Space
+deploys with the `taipy-app` extra, which measured 2026-08-11 carries **17 findings across 11
+packages** against base's 7 across 5 — eight advisories CI had never once looked at, matching
+one-for-one the eight Dependabot alerts that had no in-repo home.
 
-That boundary has a consequence worth stating plainly rather than burying: **the CI audit does
-not cover what production runs.** The Taipy Space deploys *with* the `taipy-app` extra, so eight
-open advisories — including one high-severity issue in Taipy itself with no patched release —
-reach production unaudited. Recorded here as a known gap, not fixed by this ADR.
+An installed-environment audit *cannot* cover this project, structurally: `taipy-app` / `dbt` /
+`sdk` are declared **conflicting** extras, so no single environment can hold them and for three
+of the four resolutions there is nothing to install. `scripts/audit_resolutions.py` exports each
+fork with `uv export --extra …` and audits it, driven weekly beside the blocker probe.
+
+Consequences worth stating rather than burying:
+
+- **The proxy is visible.** `pip-audit -r` dry-run-installs the file, so a PEP 440 local version
+  that exists on no index aborts the whole audit (`torch==2.11.0+cu128`). `--extra-index-url`
+  was measured and does **not** help — pip then resolves it but pip-audit still reports
+  *"Dependency not found on PyPI and could not be audited"*, leaving torch unaudited exactly as
+  before. The local segment is therefore stripped and `torch==2.11.0` audited as a proxy; the
+  substitution is logged on **every** run, because a security gate that silently substitutes its
+  input is the failure mode this repo keeps paying for. Without it torch is skipped entirely,
+  which is what CI did before and is strictly worse.
+- **Weekly, not per-PR.** Four resolutions cost ~15–20 min against a Python CI job that finishes
+  in ~8–10. Dependabot already reads `uv.lock` and alerts the moment a vulnerable pin merges —
+  it is how all eight were found. This job is the *enforcement* half (an alert must become a
+  justified entry or a fix), which is a weekly question.
+- **One blocker explains nearly all of it.** Seven of the eight trace to Taipy 4.1.1 pinning its
+  own tree (taipy-gui caps flask-cors, markdown and twisted; taipy-rest caps marshmallow); the
+  eighth is our own cu128 index capping torch.
+
+**A "no fix exists" entry still needs its exploitability investigated, not assumed.** Taipy's own
+`PYSEC-2026-3081` is an unauthenticated path traversal in `ElementLibrary.get_resource()` with no
+released fix — taipy-gui 4.1.2, one version above our pin, was read directly and still carries
+the flawed `str(file).startswith(str(base))`. Reachability was then established rather than
+guessed, in both directions: the app *does* register a custom `ElementLibrary` that does not
+override the method, but the documented escape needs a sibling directory whose name **extends** a
+library's module directory, and neither the only built-in subclass (`_GuiCore` at
+`taipy/gui_core`) nor ours (`.../extensions/ll_ext`) has one. The vulnerable code runs; the escape
+has no target. That conclusion is **layout-dependent**, so the entry's `review_trigger` names the
+sibling-directory condition alongside the upstream release — one new directory would silently
+make it exploitable.
 
 **Also learned, and generalisable:** `uv.lock` pins 9 of 298 packages **twice**, because the
 declared extra `conflicts` fork the resolution. Two of them are entries in this very file. Any
