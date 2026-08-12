@@ -428,6 +428,23 @@ constraint-dependencies = [
     # flask 3.1.3 / taipy-rest 4.1.0. It therefore does NOT fix production on its own; only the
     # next deploy does (Task 5b).
     "flask>=3.1.3",
+    # PYSEC-2026-3032 + PYSEC-2026-3033 (python-engineio < 4.13.2) and PYSEC-2026-3042
+    # (python-socketio < 5.16.2). These two floors exist BECAUSE of the flask floor above.
+    #
+    # Measured 2026-08-12 against the deployed Space: flask>=3.1.3 forces taipy-rest 4.1.0, and
+    # that older taipy-rest caps python-engineio at 4.13.1 and python-socketio at 5.16.1 — both
+    # vulnerable. An UNCONSTRAINED compile takes 4.13.4 / 5.16.4, which are fixed. So taking the
+    # flask fix alone would have *caused* three advisories to persist that a plain redeploy would
+    # have cleared: 9 of 12 fixed instead of 12.
+    #
+    # All three floors resolve together: 136 packages, taipy-rest still 4.1.0, nothing added, and
+    # only the typer chain (typer, shellingham, annotated-doc) drops — verified unimported by
+    # hf_taipy_app (the only matches were incidental byte sequences inside .pyc files).
+    #
+    # The D5 change manifest did NOT catch this: it measures movement RELATIVE TO PRODUCTION, so a
+    # package sitting still at a vulnerable version is invisible to it.
+    "python-engineio>=4.13.2",
+    "python-socketio>=5.16.2",
 ]
 
 # taipy requires sqlalchemy>=2.0; dbt-databricks requires sqlalchemy<2.0.
