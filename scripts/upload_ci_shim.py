@@ -32,7 +32,12 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ingestion.databricks_auth import workspace_client
+# NOTE: deliberately NOT `from ingestion.databricks_auth import workspace_client`.
+# dbt-live-ci.yml installs with `uv sync --no-install-project` (the editable build
+# force-includes dbt_project/dbt_packages, which `dbt deps` has not created yet) and then
+# runs this with `uv run --no-sync`, so no wheel package is importable here. Importing the
+# helper is a ModuleNotFoundError — which is exactly how it broke main on 2026-08-12.
+# Same resolution as patch_job_retries.py in #519, and recorded in _ALLOWED_BARE.
 
 # PR-Cycle-B (2026-05-01): databricks-sdk is in the [sdk] optional extra.
 # Lazy-import keeps this module importable without the extra installed.
@@ -60,7 +65,10 @@ def main() -> int:
         logger.error("Local shim missing at %s", _LOCAL_SHIM)
         return 1
 
-    ws = workspace_client()
+    # Bare client by necessity, not preference — see the import-site note above. Safe here:
+    # dbt-live-ci.yml sets DATABRICKS_AUTH_TYPE=github-oidc, where no ~/.databrickscfg exists,
+    # so the profile ambiguity workspace_client() disambiguates cannot arise.
+    ws = WorkspaceClient()
     ws.workspace.mkdirs(_SHIM_WORKSPACE_DIR)
     logger.info("Uploading %s to %s", _LOCAL_SHIM, _SHIM_WORKSPACE_PATH)
     content = _LOCAL_SHIM.read_bytes()

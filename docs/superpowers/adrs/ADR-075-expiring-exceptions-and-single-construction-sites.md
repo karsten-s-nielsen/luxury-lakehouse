@@ -133,14 +133,34 @@ installed. Recorded here because both looked correct until run.
   closes the other half, structurally and with no allowlist — a script that does not import a
   wheel package is simply not subject to it.
 
+  **Amended 2026-08-12 — that gate did NOT close the half it claimed, and the same sweep had
+  already broken two more scripts.** `_provides_project` treated `--no-project` as the only form
+  that withholds the environment, and passed `dbt-live-ci.yml` by *three* independent routes:
+  `uv run --no-sync` (declines to sync), `uv sync --no-install-project` counted as an install
+  (it is the flag that means the opposite), and a fallback matching the workflow's RAW TEXT —
+  so the line-36 comment *"the extra 10 minutes covers checkout, uv sync, tarball"* alone marked
+  the workflow as provisioned. Prose could silence the gate. The nightly died on
+  `upload_ci_shim.py` the first time it ran after #518, and the repaired guard immediately
+  surfaced `trigger_dbt_job.py` as a second offender that had never been reached only because
+  the shim step failed first. **`trigger_dbt_job.py`'s own `_build_auth_header` docstring said
+  "deliberately inlined rather than importing `ingestion.databricks_auth`" — the third fence
+  with its sign still attached that this sweep edited past.** The lesson generalises past this
+  gate: a predicate must enumerate the conditions that WITHHOLD a capability, not just the one
+  that named itself after doing so.
+
 ### Neutral
 
-- **Three** documented exemptions are pinned as a set with reasons:
+- **Five** documented exemptions are pinned as a set with reasons:
   `scripts/ci/run_dbt_in_databricks.py` (ambient Databricks runtime auth, where no profile is
-  resolved), `scripts/migrations/_runner.py` (its own `--profile` and try/except), and — added
+  resolved), `scripts/migrations/_runner.py` (its own `--profile` and try/except), — added
   2026-08-11 — `scripts/patch_job_retries.py` (runs in a wheel-free CI step under
   `DATABRICKS_AUTH_TYPE=github-oidc`, where no `~/.databrickscfg` exists and the profile
-  ambiguity cannot arise).
+  ambiguity cannot arise), and — added 2026-08-12 — `scripts/upload_ci_shim.py` and
+  `scripts/trigger_dbt_job.py`, both for the same reason in `dbt-live-ci.yml`
+  (`uv sync --no-install-project` then `uv run --no-sync`, also under `github-oidc`).
+  The count went 3 → 5 in a single day, which is itself the signal: **the wheel-free CI class is
+  larger than the sweep assumed**, and each member was discovered by breaking rather than by
+  enumeration.
 - The 180-day window is a judgement, not a derived value. Chosen so the change ships green
   rather than landing the suite red on a decision only an operator can take.
 
