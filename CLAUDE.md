@@ -88,11 +88,23 @@ Significant architectural decisions — ones future maintainers will reasonably 
 All code must pass these checks with zero violations:
 
 ```bash
-uv run ruff check src/ scripts/        # Lint (E, W, F, I, N, UP, B, S, RUF)
-uv run ruff format --check src/ scripts/ # Format check (CI enforced)
-uv run pyright src/            # Type check (basic mode)
-uv run pytest src/tests/ -v    # Unit tests
+uv run ruff check src/ scripts/                    # Lint (E, W, F, I, N, UP, B, S, BLE, RUF)
+uv run ruff format --check src/ scripts/           # Format check (CI enforced)
+uv run lint-imports                                # Layer isolation (see Separation of Concerns)
+uv run python scripts/bump_wheel.py --check        # Wheel version consistency across ~30 consumers
+uv run python scripts/pip_audit_ignores.py --check # .pip-audit-ignores.yml schema completeness
+uv run pytest src/tests/ -v                        # Unit tests
+
+# Type check. NOT `pyright src/` — that is NARROWER than CI and passes on code CI rejects.
+uv run pyright src/ hf_taipy_app/src/ scripts/_tf_env_pins.py scripts/sync_tf_env_pins.py
 ```
+
+All seven, not the first two. `lint-imports`, `bump_wheel --check` and `pip_audit_ignores --check`
+are enforced in CI (`python-ci.yml:95`, `:117`, `:181`) and were absent from this list until
+2026-08-11 — a local run passing the four documented checks could still fail the pipeline on the
+three that were not. The pyright target was wrong in the same way, and worse: `pyright src/` omits
+`hf_taipy_app/src/` and the two `sync_tf_env_pins` modules that `python-ci.yml:92` checks, so a
+type error in the Taipy app or the ADR-046 pin tooling was invisible locally by construction.
 
 - **Performance benchmarks**: Critical-path functions must have `pytest-benchmark` tests. Includes: batched pitch control, off-ball xT frame computation, DEFCON credit assignment, line-breaking detection, OBSO surface computation, position jitter augmentation, team shape computation, team shape frame (both teams), shape graph construction, shape graph position inference, Numba-accelerated pitch control, ScoutGPT/Football2Vec/360 `__getitem__` throughput, ScoutGPT/Football2Vec/360 forward pass. Regressions caught in CI.
 - **No DataFrame boolean mask filtering inside loops**: Never use `df[df["col"] == val]` inside a `for` loop over tracking or event data. This is O(n×m) — a hidden nested loop that causes pipeline timeouts on production-scale data (3M+ rows). Pre-build indexed lookups: `dict(iter(df.groupby("key")))`, `df.set_index("key")`, or use a merge/join. On tracking-scale data, this is always Critical severity, never Minor.

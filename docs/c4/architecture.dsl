@@ -31,7 +31,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             syncTfEnvPins = container "sync_tf_env_pins.py" "Mirrors uv.lock library pins into the terraform env blocks (ADR-046); shares one pure policy core with the parity sentinel (fixer=checker)" "Python"
             syncBronzeSources = container "sync_bronze_sources_yml.py" "Appends undocumented bronze columns to dbt sources.yml from live DESCRIBE snapshots. Same pure-core fixer=checker shape as sync_tf_env_pins; --check is the CI gate. Insert-only — never rewrites a description." "Python"
             checkCveBlockers = container "check_cve_blockers.py" "Re-proves each pip-audit ignore by ATTEMPTING its floor: BLOCKED / COLLATERAL / MOVED / UNKNOWN. A transient uv constraint probe, restored in a finally (ADR-075)." "Python, uv"
-            auditResolutions = container "audit_resolutions.py" "Audits every uv.lock resolution, not the one env CI installs — conflicting extras mean 3 of 4 have no installable env. Logs every local-version proxy (ADR-075)." "Python, pip-audit"
+            auditResolutions = container "audit_resolutions.py" "Audits every uv.lock resolution minus the dev group, classifying CLEAN / FINDINGS / UNKNOWN from pip-audit's JSON so a failed RUN is never reported as findings (ADR-075)." "Python, pip-audit"
         }
 
         pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "47 workflow-card-registered workflows. Centralized hooks, lifecycle tracking, three-tier cost tracking." {
