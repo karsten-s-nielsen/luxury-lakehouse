@@ -20,12 +20,16 @@ from __future__ import annotations
 import inspect
 import json
 import re
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from scripts.audit_resolutions import (
     RESOLUTIONS,
     Outcome,
     _export_cmd,
+    audit,
     bound_diagnostics,
     classify_audit,
     label,
@@ -36,8 +40,13 @@ _REPO = Path(__file__).resolve().parents[2]
 
 
 class TestStripLocalVersions:
-    """``pip-audit -r`` dry-run-installs the file, so a PEP 440 local version that exists on
-    no index aborts the ENTIRE audit — not just that package."""
+    """A PEP 440 local version exists on no index, so PyPI cannot audit it.
+
+    Under ``--disable-pip`` that costs the ONE package — ``Dependency not found on PyPI and
+    could not be audited: torch (2.11.0+cu128)``, which ``--strict`` still turns into a failed
+    run (measured 2026-08-12). Before ``--disable-pip`` it aborted the ENTIRE audit at the
+    dry-run install. The blast radius shrank; the need to strip did not.
+    """
 
     def test_the_real_torch_pin_is_rewritten(self) -> None:
         out, notes = strip_local_versions("torch==2.11.0+cu128\nnumpy==1.26.4\n")
@@ -244,6 +253,44 @@ class TestDevGroupExclusion:
         asserts an ABSENCE that the exclusion above depends on for its justification.
         """
         assert not [r for r in RESOLUTIONS if r and "dev" in r]
+
+
+class TestAuditNeverResolves:
+    """The gate audits a LOCKED file; it must never dry-run-install it to find out what is in it.
+
+    pip-audit 2.10.1 gates its venv-free path on ``--disable-pip``
+    (``_dependency_source/requirement.py:161``); ``--no-deps`` only AUTHORIZES that flag and does
+    not imply it. Without it pip-audit builds a throwaway venv and installs the whole resolution
+    into it — which is how `cve-blocker-review.yml` failed on EVERY target from the day it was
+    created: the venv's ``ensurepip --upgrade --default-pip`` exits 1 under the uv-managed CPython
+    on the runner, so all four resolutions classified UNKNOWN and the gate never once reached a
+    verdict. `audit()`'s own docstring already claimed this behaviour ("audits the pinned lines as
+    given ... re-resolving would both be slower and audit versions we do not ship"); the argv did
+    not implement it.
+
+    Measured 2026-08-12, `sdk` resolution: **36s -> 1s**. The audited set is unchanged — base
+    resolution yields 55 dependencies, 0 skipped, and the same PYSEC-2026-3552 on cryptography
+    49.0.0 either way. Environment markers are still evaluated on the venv-free path
+    (``requirement.py:319``), so the marker semantics `audit()` documents survive.
+    """
+
+    def test_the_audit_never_invokes_pips_resolver(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Asserted on the argv actually handed to the subprocess, not on the source text."""
+        captured: list[list[str]] = []
+
+        def _fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            captured.append(list(cmd))
+            return subprocess.CompletedProcess(
+                cmd, 0, '{"dependencies": [{"name": "x", "version": "1", "vulns": []}]}', ""
+            )
+
+        monkeypatch.setattr(subprocess, "run", _fake_run)
+        audit(Path("requirements.txt"))
+
+        assert captured, "audit() did not invoke a subprocess at all"
+        assert "--disable-pip" in captured[0], (
+            f"pip-audit will dry-run-install the resolution into a throwaway venv: argv={captured[0]}"
+        )
 
 
 class TestBoundDiagnostics:
