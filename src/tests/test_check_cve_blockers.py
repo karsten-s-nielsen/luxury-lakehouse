@@ -35,6 +35,7 @@ from scripts.check_cve_blockers import (
     MOVED,
     NO_FIX,
     UNKNOWN,
+    Outcome,
     ProbeError,
     Result,
     classify,
@@ -122,6 +123,50 @@ class TestOutcomeClassification:
         assert Result("a", "p", "f", COLLATERAL, "d").ok, "a fix with a real cost is still blocked"
         assert not Result("a", "p", "f", MOVED, "d").ok
         assert not Result("a", "p", "f", UNKNOWN, "d").ok, "UNKNOWN must fail, not shrug"
+
+
+class TestOutcomeIsAnEnum:
+    """The outcomes are an enum so a typo'd comparison is a type error, not a quiet False.
+
+    The two directions fail asymmetrically: a silently-False `ok` reports a justified ignore as
+    failing (noisy, safe), while a silently-False `== MOVED` stops the gate reporting that a
+    blocker has moved (quiet, and the whole point of the tool).
+
+    Separate from audit_resolutions.Outcome by design — same idiom, different domains.
+    """
+
+    def test_the_module_aliases_are_enum_members(self) -> None:
+        assert BLOCKED is Outcome.BLOCKED
+        assert COLLATERAL is Outcome.COLLATERAL
+        assert MOVED is Outcome.MOVED
+        assert UNKNOWN is Outcome.UNKNOWN
+
+    def test_outcome_log_column_is_unchanged(self) -> None:
+        """The weekly summary prints `f"{result.outcome:10s}"` and humans read that log.
+
+        A bare `Enum` would render `Outcome.MOVED`, and a `str`-mixin without the `__str__`
+        override disagrees between `str()` and an f-string on 3.10. Both are silent format
+        regressions in the only output anyone looks at, so pin the exact bytes.
+        """
+        assert f"{Outcome.MOVED:10s}" == "MOVED     "
+        assert f"{Outcome.COLLATERAL:10s}" == "COLLATERAL"
+        assert str(Outcome.BLOCKED) == "BLOCKED"
+        assert f"{Outcome.BLOCKED}" == str(Outcome.BLOCKED)
+
+    def test_outcomes_still_compare_equal_to_their_wire_strings(self) -> None:
+        """The `str` mixin keeps every pre-existing comparison and the `.pip-audit-ignores.yml`
+        prose working; dropping it would be a silent behaviour change, not a refactor."""
+        assert Outcome.BLOCKED == "BLOCKED"
+        assert classify(1, "x No solution found when resolving dependencies")[0] == "BLOCKED"
+
+    def test_the_two_gates_keep_separate_outcome_types(self) -> None:
+        """Merging them would couple two gates that fail independently, and the member sets
+        differ: CLEAN/FINDINGS/UNKNOWN vs BLOCKED/COLLATERAL/MOVED/UNKNOWN."""
+        from scripts.audit_resolutions import Outcome as AuditOutcome
+
+        assert Outcome is not AuditOutcome
+        assert {m.value for m in Outcome} == {"BLOCKED", "COLLATERAL", "MOVED", "UNKNOWN"}
+        assert {m.value for m in AuditOutcome} == {"CLEAN", "FINDINGS", "UNKNOWN"}
 
 
 class TestGraphChanges:

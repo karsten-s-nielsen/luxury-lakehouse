@@ -17,10 +17,20 @@ audit dishonest:
 
 from __future__ import annotations
 
+import inspect
+import json
 import re
 from pathlib import Path
 
-from scripts.audit_resolutions import RESOLUTIONS, label, strip_local_versions
+from scripts.audit_resolutions import (
+    RESOLUTIONS,
+    Outcome,
+    _export_cmd,
+    bound_diagnostics,
+    classify_audit,
+    label,
+    strip_local_versions,
+)
 
 _REPO = Path(__file__).resolve().parents[2]
 
@@ -72,13 +82,27 @@ class TestResolutionCoverage:
 
         Derived from pyproject's declared conflicts rather than hard-coded, so adding a fourth
         conflicting extra fails here instead of silently going unaudited.
+
+        Compared against the RAW extras, not against ``label()``. ``export_resolution`` builds
+        ``--extra <extra>``, so the extra string is what actually reaches uv; ``label()`` is
+        display-only (``extra or "base"``). Asserting against labels passes only because
+        ``label()`` is identity for every non-None value, so renaming one for readability would
+        fail this test over a change that broke nothing.
+
+        This is the ONLY coverage assertion of its kind. A second copy belongs in no other class:
+        `TestDevGroupExclusion` asserts the export FLAG, which is a different property, and two
+        copies that disagree on their comparison basis leave a reader unable to tell which one is
+        authoritative on the day either fails.
         """
         pyproject = (_REPO / "pyproject.toml").read_text(encoding="utf-8")
         conflicts = re.search(r"conflicts = \[(.*?)\n\]", pyproject, re.DOTALL)
         assert conflicts is not None, "pyproject no longer declares [tool.uv] conflicts"
         declared = set(re.findall(r'extra = "([^"]+)"', conflicts.group(1)))
-        audited = {label(r) for r in RESOLUTIONS}
-        assert declared <= audited, f"conflicting extras never audited: {sorted(declared - audited)}"
+        # A regex that matches an empty block would make every assertion below vacuously true —
+        # the way this test would quietly stop testing anything at all.
+        assert declared, "the conflicts block parsed but yielded no extras — the regex is stale"
+        unaudited = sorted(declared - set(RESOLUTIONS))
+        assert not unaudited, f"conflicting extras never audited: {unaudited}"
 
     def test_the_base_resolution_is_included(self) -> None:
         """Base is what the installed-environment audit already covers; keeping it here means
@@ -89,3 +113,156 @@ class TestResolutionCoverage:
     def test_resolution_labels_are_unique(self) -> None:
         labels = [label(r) for r in RESOLUTIONS]
         assert len(labels) == len(set(labels)), labels
+
+
+_CLEAN_REPORT = '{"dependencies": [{"name": "flask", "version": "3.1.3", "vulns": []}], "fixes": []}'
+_VULNERABLE_REPORT = (
+    '{"dependencies": [{"name": "flask", "version": "3.1.1", "vulns": [{"id": "PYSEC-2026-2151"}]}], "fixes": []}'
+)
+
+
+class TestAuditClassification:
+    """A failure to RUN must never be reported as vulnerabilities FOUND.
+
+    On 2026-08-11 a FileNotFoundError in the project build made the job print
+    `FAIL: unignored findings in 4 resolution(s): base, taipy-app, dbt, sdk` — four fabricated
+    CVE regressions. This is the same BLOCKED/UNKNOWN rule check_cve_blockers.py already applies.
+    """
+
+    def test_clean_audit_is_clean(self) -> None:
+        assert classify_audit(0, _CLEAN_REPORT).outcome is Outcome.CLEAN
+
+    def test_findings_are_findings(self) -> None:
+        assert classify_audit(1, _VULNERABLE_REPORT).outcome is Outcome.FINDINGS
+
+    def test_output_that_is_not_json_is_unknown(self) -> None:
+        """The audit did not run. Reporting this as FINDINGS cries wolf; as CLEAN it certifies
+        a claim nothing tested."""
+        result = classify_audit(1, "FileNotFoundError: Forced include not found: ...")
+        assert result.outcome is Outcome.UNKNOWN
+        assert "did not produce a JSON report" in result.detail
+
+    def test_zero_exit_with_unparseable_output_is_also_unknown(self) -> None:
+        """Exit code alone decides nothing — the report is the evidence."""
+        assert classify_audit(0, "").outcome is Outcome.UNKNOWN
+
+    def test_no_findings_but_nonzero_exit_is_unknown(self) -> None:
+        """Self-contradictory: the shape a partial --strict collection failure takes. Reading it
+        as CLEAN certifies a set pip-audit is saying it could not fully assess."""
+        assert classify_audit(1, _CLEAN_REPORT).outcome is Outcome.UNKNOWN
+
+    def test_a_truncated_package_list_says_so(self) -> None:
+        """Same rule as the diagnostic bound: truncate if you must, never silently. The count is
+        always exact; only the sample of names is capped."""
+        deps = [{"name": f"pkg{i}", "version": "1.0", "vulns": [{"id": "X"}]} for i in range(9)]
+        result = classify_audit(1, json.dumps({"dependencies": deps, "fixes": []}))
+        assert result.detail.startswith("9 package(s) with unignored advisories:")
+        assert "and 4 more" in result.detail
+
+    def test_outcomes_format_and_compare_consistently(self) -> None:
+        """A ``str``-mixin enum on 3.10 gives `Outcome.CLEAN` from str() and `CLEAN` from an
+        f-string unless __str__ is overridden. The summary prints these into a fixed-width
+        column, so the two must agree."""
+        assert str(Outcome.CLEAN) == "CLEAN"
+        assert f"{Outcome.UNKNOWN:9s}" == "UNKNOWN  "
+        assert Outcome.FINDINGS == "FINDINGS"
+
+
+class TestDiagnosticsAreRetained:
+    """The evidence must survive the subprocess boundary.
+
+    Dropping stderr in `audit()` is irreversible; declining to print it is a policy the caller
+    can change. An UNKNOWN reading "pip-audit did not produce a JSON report (exit 1)" with the
+    traceback discarded tells the reader to fix the runner while withholding the only evidence
+    for doing so.
+    """
+
+    def test_stderr_never_changes_the_verdict(self) -> None:
+        """Diagnostics are evidence for humans, NEVER input to the verdict.
+
+        Matching prose would make a security gate depend on an upstream tool's wording, which is
+        not an API (spec D2). The one stderr signal that must count — a dependency that could not
+        be collected — already reaches us structurally, as a non-zero exit under --strict.
+        """
+        noise = "ERROR: everything is on fire\nNo solution found when resolving dependencies"
+        for code, out in ((0, _CLEAN_REPORT), (1, _VULNERABLE_REPORT), (1, "not json"), (1, _CLEAN_REPORT)):
+            assert classify_audit(code, out, "").outcome is classify_audit(code, out, noise).outcome
+
+    def test_stderr_is_carried_on_an_unknown(self) -> None:
+        result = classify_audit(1, "boom", "Traceback (most recent call last):\n  FileNotFoundError")
+        assert "FileNotFoundError" in result.diagnostics
+
+    def test_unparseable_stdout_is_evidence_too(self) -> None:
+        """When stdout is not a report it is the other half of what the tool said. Keeping only
+        stderr would discard it."""
+        result = classify_audit(1, "Forced include not found: dbt_packages", "")
+        assert "Forced include not found" in result.diagnostics
+        assert "not a JSON report" in result.diagnostics
+
+    def test_a_parseable_report_is_not_dumped_into_diagnostics(self) -> None:
+        """On a parseable run stdout IS the report; adding it here would bury the diagnostics."""
+        result = classify_audit(0, _CLEAN_REPORT, "some progress output")
+        assert "dependencies" not in result.diagnostics
+        assert "some progress output" in result.diagnostics
+
+
+class TestDevGroupExclusion:
+    """Dev tooling is python-ci.yml's surface, not this job's.
+
+    Measured 2026-08-11: `uv export --extra taipy-app` yields 237 packages, with
+    --no-default-groups 141. The 96-package delta is the dev group. Auditing it here made torch
+    and setuptools advisories read as production exposure when the Space contains neither.
+
+    No coverage assertion lives in this class — `TestResolutionCoverage` owns that property, and
+    a second copy of it was merged away rather than added (see that test's docstring).
+    """
+
+    def test_every_export_excludes_default_groups(self) -> None:
+        for extra in RESOLUTIONS:
+            assert "--no-default-groups" in _export_cmd(extra), f"{label(extra)} would include dev"
+
+    def test_the_flag_is_unconditional(self) -> None:
+        """Anti-drift, asserted on BEHAVIOUR and SIGNATURE — never by scraping the source.
+
+        The flag must not depend on the argument (so exhaustive inputs, including an invented
+        extra), and no second parameter may exist for it to depend on (so a future
+        `_export_cmd(extra, include_dev=False)` cannot reopen the defect while the loop above
+        still passes).
+        """
+        for extra in (None, "taipy-app", "dbt", "sdk", "not-a-real-extra"):
+            assert "--no-default-groups" in _export_cmd(extra), f"omitted for {extra!r}"
+        params = inspect.signature(_export_cmd).parameters
+        assert list(params) == ["extra"], f"unexpected parameters: {list(params)}"
+
+    def test_no_dev_target_is_defined(self) -> None:
+        """B3, the other half of this decision: python-ci.yml audits the installed env on EVERY
+        PR — 216 packages with markers evaluated for linux — and all four forks' dev-side
+        packages are inside it, 0 uncovered, measured 2026-08-11. A dev target here would add no
+        coverage and would give one advisory two owners.
+
+        Lives here rather than in TestResolutionCoverage because it is not a coverage claim: it
+        asserts an ABSENCE that the exclusion above depends on for its justification.
+        """
+        assert not [r for r in RESOLUTIONS if r and "dev" in r]
+
+
+class TestBoundDiagnostics:
+    def test_short_output_is_untouched(self) -> None:
+        assert bound_diagnostics("a\nb\nc") == "a\nb\nc"
+
+    def test_both_ends_survive_and_the_elision_is_announced(self) -> None:
+        """A resolver error leads with its summary; a traceback ends with the exception type.
+        Keeping one end would lose the answer for one of the two failures this gate sees.
+
+        The count is stated because a size bound is itself something that can hide the answer —
+        a silent truncation would be a quieter version of the bug retention fixes.
+        """
+        text = "\n".join(f"line{i}" for i in range(100))
+        out = bound_diagnostics(text, head=3, tail=2)
+        assert out.startswith("line0\nline1\nline2\n")
+        assert out.endswith("line98\nline99")
+        assert "... 95 line(s) omitted ..." in out
+
+    def test_the_boundary_case_keeps_everything(self) -> None:
+        text = "\n".join(f"line{i}" for i in range(5))
+        assert bound_diagnostics(text, head=3, tail=2) == text

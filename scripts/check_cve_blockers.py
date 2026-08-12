@@ -78,6 +78,7 @@ import dataclasses
 import re
 import subprocess
 import sys
+from enum import Enum
 from pathlib import Path
 
 from scripts.pip_audit_ignores import IgnoreListError, load_ignores
@@ -89,14 +90,47 @@ _LOCK = _REPO / "uv.lock"
 #: Resolution can fork across the declared extra conflicts, so it is not fast.
 DEFAULT_TIMEOUT_S = 900
 
-BLOCKED = "BLOCKED"
-COLLATERAL = "COLLATERAL"
-MOVED = "MOVED"
-UNKNOWN = "UNKNOWN"
+
+class Outcome(str, Enum):
+    """What a floor attempt proved. See FOUR OUTCOMES above for what each one means.
+
+    An enum, not four bare strings, because the comparisons here fail in an asymmetric way. A
+    silently-False ``Result.ok`` reports a justified ignore as failing — noisy but safe. A
+    silently-False ``== MOVED`` stops the gate telling you a blocker has moved, which is the
+    entire purpose of the tool. With bare strings a typo'd comparison is quietly False; here it
+    is a type error.
+
+    ``str`` mixin because Python 3.10 has no ``StrEnum`` and the summary line formats these into
+    a fixed-width column; ``__str__`` is overridden so ``str(x)`` and ``f"{x}"`` agree — without
+    it, 3.10 returns ``Outcome.MOVED`` from the first and ``MOVED`` from the second. The log
+    output is byte-identical to the pre-enum form, asserted by
+    ``test_outcome_log_column_is_unchanged``.
+
+    Deliberately a SEPARATE type from ``audit_resolutions.Outcome``, which is CLEAN / FINDINGS /
+    UNKNOWN. Same idiom, different domains: "did this resolution audit clean" and "did this floor
+    resolve" are distinct questions, and the two gates fail independently.
+    """
+
+    BLOCKED = "BLOCKED"
+    COLLATERAL = "COLLATERAL"
+    MOVED = "MOVED"
+    UNKNOWN = "UNKNOWN"
+
+    def __str__(self) -> str:
+        return self.value
+
+
+#: Module-level aliases. The enum is the type; these keep the ~20 existing reference sites and
+#: the test suite reading as they did, rather than churning every one of them in a commit whose
+#: point is that behaviour does NOT change.
+BLOCKED = Outcome.BLOCKED
+COLLATERAL = Outcome.COLLATERAL
+MOVED = Outcome.MOVED
+UNKNOWN = Outcome.UNKNOWN
 
 #: The two outcomes that mean "the ignore is still justified". Kept as a set rather than an
 #: ``in (...)`` inline so the pass condition has exactly one definition.
-_PASSING = frozenset({BLOCKED, COLLATERAL})
+_PASSING = frozenset({Outcome.BLOCKED, Outcome.COLLATERAL})
 
 #: ``fix_in`` sentinel for "no patched release exists" — the one case where an ignore cannot be
 #: retired by taking a version. All six schema fields stay REQUIRED and non-blank (a blank
@@ -165,7 +199,7 @@ class Result:
     advisory: str
     package: str
     floor: str
-    outcome: str
+    outcome: Outcome
     detail: str
     collateral: tuple[str, ...] = ()
     explanation: tuple[str, ...] = ()
@@ -280,7 +314,7 @@ def classify(
     *,
     collateral: list[str] | None = None,
     target_vanished: bool = False,
-) -> tuple[str, str]:
+) -> tuple[Outcome, str]:
     """Map a ``uv lock`` result and its graph diff onto an outcome and a detail line.
 
     A clean exit alone does not mean the blocker moved — see the module docstring. ``MOVED``

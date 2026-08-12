@@ -229,10 +229,54 @@ make it exploitable.
 declared extra `conflicts` fork the resolution. Two of them are entries in this very file. Any
 tool reading versions out of `uv.lock` with a `{name: version}` map watches one fork blind.
 
+## Amendment (2026-08-11, second) — a rule stated for one gate is not a rule the codebase has
+
+Amendment 1's rule 2, *"unverifiable is not verified-good"*, was written about
+`check_cve_blockers.py`. Its sibling `scripts/audit_resolutions.py` shipped in the **same cycle**
+without it: `main()` mapped any non-zero exit to "unignored findings". The first execution on a
+GitHub runner therefore printed
+
+```
+FileNotFoundError: Forced include not found: .../dbt_project/dbt_packages
+FAIL: unignored findings in 4 resolution(s): base, taipy-app, dbt, sdk
+```
+
+— **four fabricated CVE regressions from one missing directory.** The ADR had the rule; one of the
+two implementations did not. Writing a principle down next to the gate that motivated it does not
+propagate it to the gate written beside it.
+
+Five rules now bind every gate in this family, and each is enforced by a test rather than by this
+document:
+
+1. **The verdict comes from the tool's structured report** — never from the exit code alone, and
+   never from matching prose. An upstream tool's wording is not an API. Where a signal genuinely
+   must count, route it structurally: `--strict` turns "this dependency could not be collected"
+   into a non-zero exit, so the gate never has to read English to find it.
+2. **UNKNOWN is a distinct, loud outcome.** It fails the job, and it is reported as an
+   infrastructure failure rather than as findings. Collapsing it into either neighbour is a lie in
+   one direction or the other.
+3. **The evidence travels with the verdict.** `audit_resolutions` discarded pip-audit's stderr at
+   the subprocess boundary, so an UNKNOWN read *"pip-audit did not produce a JSON report (exit 1)"*
+   and nothing else — telling the reader to fix the runner while withholding the only evidence for
+   doing so. Dropping output at the boundary is irreversible; declining to print it is a policy the
+   caller can revisit. Carry it, print it on any non-clean verdict.
+4. **Outcomes are enums, not bare strings.** The failure directions are asymmetric: in
+   `check_cve_blockers`, a silently-False `Result.ok` reports a justified ignore as failing (noisy,
+   safe), while a silently-False `== MOVED` stops the gate reporting that a blocker has moved —
+   quiet, and the entire purpose of the tool. The two gates keep **separate** `Outcome` types: same
+   idiom, different member sets, and they fail independently.
+5. **Where output is elided, say how much.** Both the diagnostic bound and the named-package list
+   state what they dropped. A silent truncation is a quieter version of rule 3's bug.
+
+This is the same shape as the finding that produced this ADR in the first place — a claim that was
+true where it was written and untrue one file over — applied to the ADR's own rules.
+
 ## Related
 
-- **Specs:** `docs/superpowers/specs/2026-08-10-bronze-coverage-completion-and-cve-floors-design.md`
-- **Plans:** `docs/superpowers/plans/2026-08-10-bronze-coverage-completion-and-cve-floors.md`
+- **Specs:** `docs/superpowers/specs/2026-08-10-bronze-coverage-completion-and-cve-floors-design.md`,
+  `docs/superpowers/specs/2026-08-11-audit-convergence-and-dependabot-design.md` (amendment 2)
+- **Plans:** `docs/superpowers/plans/2026-08-10-bronze-coverage-completion-and-cve-floors.md`,
+  `docs/superpowers/plans/2026-08-11-audit-production-surface-and-dependabot.md` (amendment 2)
 - **Enforced by:** `src/tests/test_bronze_table_inventory.py`,
   `src/tests/test_workspace_client_construction.py`, `src/tests/test_pip_audit_ignores.py`,
   `src/tests/test_check_cve_blockers.py`, and — weekly, outside the test suite —
