@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts._tf_env_pins import (
     CI_DBT_SUBMIT_SCRIPT,
     CI_DBT_UVX_WORKFLOWS,
+    PRECOMMIT_CONFIG,
     Drift,
     iter_dep_block_spans,
     normalize,
@@ -32,6 +33,7 @@ from scripts._tf_env_pins import (
     parse_sdk_extra_pin,
     resolve_desired_version,
     rewrite_ci_dbt_text,
+    rewrite_precommit_ruff_rev,
 )
 
 _REPO = Path(__file__).resolve().parents[1]
@@ -103,8 +105,18 @@ def main() -> int:
             changes.extend(drifts)
             ci_edits.append((path, rewritten))
 
+    # The pre-commit ruff hook rides the same lockstep. Nothing else manages it — Dependabot
+    # covers uv / github-actions / terraform only — so it drifted from uv.lock unnoticed until
+    # `uv run ruff` and the commit hook disagreed about the same nine lines (2026-08-12).
+    precommit_path = repo / PRECOMMIT_CONFIG
+    precommit_text = precommit_path.read_text(encoding="utf-8")
+    precommit_new, precommit_drifts = rewrite_precommit_ruff_rev(precommit_text, lock)
+    if precommit_drifts:
+        changes.extend(precommit_drifts)
+        ci_edits.append((precommit_path, precommit_new))
+
     if not changes:
-        print("All TF env pins and CI dbt pins already in sync with uv.lock.")
+        print("All TF env pins, CI dbt pins and the pre-commit ruff pin are in sync with uv.lock.")
         return 0
     for c in changes:
         print(f"  [{c.env_key}] {c.pkg}: {c.current} -> {c.desired}")

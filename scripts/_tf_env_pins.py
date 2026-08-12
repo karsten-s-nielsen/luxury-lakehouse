@@ -210,8 +210,53 @@ CI_DBT_UVX_WORKFLOWS = (
 )
 CI_DBT_SUBMIT_SCRIPT = "scripts/trigger_dbt_job.py"
 
+#: The pre-commit ruff hook pins its OWN ruff, independently of uv.lock. Dependabot manages
+#: `uv`, `github-actions` and `terraform` — not `pre-commit` — so nothing bumps this rev, and
+#: nothing noticed when it drifted. Measured 2026-08-12 during the ruff 0.15.22 -> 0.16.1 bump:
+#: `uv run ruff check` passed while the commit hook rejected the SAME nine lines under BLE001,
+#: because the two ruffs disagreed about which handlers are blind. Two linters, two verdicts,
+#: on one working tree.
+#:
+#: Same lockstep as the dbt pins above, same fixer≡checker shape: the rewrite lives here and
+#: src/tests/test_precommit_ruff_pin_parity.py asserts the result, so they cannot diverge.
+PRECOMMIT_CONFIG = ".pre-commit-config.yaml"
+
+#: `rev: vX.Y.Z` inside the ruff-pre-commit repo block ONLY. Anchored on the repo URL so a
+#: different hook's rev (terraform, detect-secrets) is never rewritten to ruff's version.
+_PRECOMMIT_RUFF_REV_RE = re.compile(
+    r"(repo:\s*https://github\.com/astral-sh/ruff-pre-commit\s*\n(?:[^\n]*\n)*?\s*rev:\s*)v?([\w.]+)"
+)
+
 _UVX_ANY_RE = re.compile(r'(uvx --from ")dbt-core[^"]*(")')
 _SUBMIT_DEP_ANY_RE = re.compile(r'"(dbt-core|dbt-databricks)[^"]*"')
+
+
+def rewrite_precommit_ruff_rev(text: str, lock: dict[str, set[str]]) -> tuple[str, list[Drift]]:
+    """Pin the ruff-pre-commit hook to uv.lock's ruff. Pure: returns (new_text, drifts).
+
+    The hook's rev carries a leading ``v`` (``v0.16.1``); uv.lock does not (``0.16.1``). The
+    normalisation is one-directional and lives here rather than in the caller, so the checker
+    compares the same rendered string the fixer writes.
+    """
+    versions = lock.get("ruff", set())
+    if len(versions) != 1:
+        raise PinForkError(f"ruff has {len(versions)} versions in uv.lock: {sorted(versions)}")
+    want = next(iter(versions))
+
+    drifts: list[Drift] = []
+
+    def _sub(m: re.Match[str]) -> str:
+        found = m.group(2)
+        if found != want:
+            drifts.append(Drift(env_key="pre-commit", pkg="ruff", current=f"v{found}", desired=f"v{want}"))
+        return f"{m.group(1)}v{want}"
+
+    new_text, n = _PRECOMMIT_RUFF_REV_RE.subn(_sub, text)
+    if n == 0:
+        # Never silently no-op: a missing site means the regex has gone stale against the
+        # config's shape, which would leave the pin unguarded while reporting "in sync".
+        raise PinResolutionError(f"{PRECOMMIT_CONFIG}: no ruff-pre-commit `rev:` found — the pin site moved")
+    return new_text, drifts
 
 
 def rewrite_ci_dbt_text(path: str, text: str, lock: dict[str, set[str]]) -> tuple[str, list[Drift]]:
