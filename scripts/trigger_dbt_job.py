@@ -29,7 +29,11 @@ from typing import TYPE_CHECKING, Any
 
 import requests
 
-from ingestion.databricks_auth import workspace_client
+# NOTE: deliberately NOT `from ingestion.databricks_auth import workspace_client`.
+# dbt-live-ci.yml installs with `uv sync --no-install-project` and runs this with
+# `uv run --no-sync`, so no wheel package is importable here — importing the helper is a
+# ModuleNotFoundError. This script never reached that failure only because the step before it
+# (upload_ci_shim.py) died on the identical import first. Recorded in _ALLOWED_BARE.
 
 if TYPE_CHECKING:
     from databricks.sdk import WorkspaceClient
@@ -60,9 +64,16 @@ def _workspace_client() -> WorkspaceClient:
     Resolution order is the SDK default: DATABRICKS_HOST + DATABRICKS_TOKEN
     env vars, then ~/.databrickscfg, then OIDC. In GH Actions the OIDC path
     is the intended one (DATABRICKS_CLIENT_ID + workload identity federation).
-    """
 
-    return workspace_client()
+    The ONE construction site in this module (ADR-075), so the bare-client exemption is
+    stated once rather than at each call. Safe here: dbt-live-ci.yml sets
+    DATABRICKS_AUTH_TYPE=github-oidc, where no ~/.databrickscfg exists and the profile
+    ambiguity ``workspace_client()`` disambiguates cannot arise. Imported lazily so the
+    module stays importable without the ``sdk`` extra, as its tests rely on.
+    """
+    from databricks.sdk import WorkspaceClient
+
+    return WorkspaceClient()
 
 
 def build_runs_submit_payload(
@@ -152,7 +163,7 @@ def _submit_auth_header(token: str | None) -> str:
     if token:
         return f"Bearer {token}"
 
-    value = (workspace_client().config.authenticate() or {}).get("Authorization", "")
+    value = (_workspace_client().config.authenticate() or {}).get("Authorization", "")
     if not value.startswith("Bearer "):
         msg = (
             "Databricks SDK returned no Bearer authorization header for runs/submit "
@@ -214,7 +225,7 @@ def poll_run(
     # Prefer ambient env (OIDC federation auto-refresh); fall back to
     # explicit (host, token) for manual invocations.
     if os.environ.get("DATABRICKS_AUTH_TYPE") == "github-oidc":
-        ws = workspace_client()
+        ws = _workspace_client()
     else:
         ws_host = host.rstrip("/").removeprefix("https://").removeprefix("http://")
         ws = WorkspaceClient(host=f"https://{ws_host}", token=token)

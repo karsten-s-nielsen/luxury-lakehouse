@@ -53,6 +53,11 @@ _WHEEL_PACKAGES = ("ingestion", "analytics", "shared", "workflows", "evolve")
 #: `scripts/foo.py` or `scripts/sub/foo.py` as it appears in a workflow `run:` block.
 _SCRIPT_REF_RE = re.compile(r"scripts/[\w/]+\.py")
 
+#: A trailing shell comment inside a `run:` block. Anchored on start-of-line or whitespace
+#: before the `#` so a URL fragment is NOT truncated — this repo pins wheels with
+#: `...whl#sha256=…`, and a bare `#` split would mangle them.
+_SHELL_COMMENT_RE = re.compile(r"(?:^|\s)#.*$")
+
 
 def _imports_wheel_package(path: Path) -> set[str]:
     """Wheel packages this script imports, by AST.
@@ -78,27 +83,50 @@ def _imports_wheel_package(path: Path) -> set[str]:
     return found
 
 
-def _provides_project(step_run: str, workflow_text: str) -> bool:
+def _provides_project(step_run: str, run_commands: list[str]) -> bool:
     """Does this step execute with the project environment available?
 
-    ``uv run`` materialises it — EXCEPT with ``--no-project``, which deliberately does not (the
-    weekly CVE workflow relies on that, and its scripts import only `scripts.*`). A workflow
-    containing ``uv sync`` has installed it for every later step.
+    ``uv run`` materialises it, EXCEPT in two forms that withhold it:
+
+    * ``--no-project`` deliberately does not build it (the weekly CVE workflow relies on that,
+      and its scripts import only `scripts.*`).
+    * ``--no-sync`` declines to sync one. It runs against whatever the environment already
+      holds, so it provides the project only if some OTHER step actually installed it.
+
+    Otherwise fall back to whether any step installs it. Two rules that each began as a bug:
+
+    * ``uv sync --no-install-project`` is **not** an install — that flag is precisely "skip the
+      editable install of this project". ``dbt-live-ci.yml:69`` uses it because the editable
+      build force-includes ``dbt_project/dbt_packages``, which ``dbt deps`` does not create
+      until a later step.
+    * The fallback reads other steps' ``run:`` **commands**, never the workflow's raw text. A
+      comment is prose: ``dbt-live-ci.yml:36`` mentions ``uv sync`` while describing a timeout
+      budget, and on raw text that alone marked the workflow as having installed the project.
+
+    Any one of these three rated the 2026-08-12 `upload_ci_shim.py` breakage green.
     """
     for line in step_run.splitlines():
-        if "uv run" in line and "--no-project" not in line:
+        if "uv run" in line and "--no-project" not in line and "--no-sync" not in line:
             return True
-    return "uv sync" in workflow_text
+    return any(
+        "uv sync" in stripped and "--no-install-project" not in stripped
+        for command in run_commands
+        for line in command.splitlines()
+        for stripped in (_SHELL_COMMENT_RE.sub("", line),)
+    )
 
 
 def _offenders() -> list[str]:
     """(workflow, script, packages) for every step that cannot import what it imports."""
     out: list[str] = []
     for workflow in sorted(_WORKFLOWS.glob("*.y*ml")):
-        text = workflow.read_text(encoding="utf-8")
-        parsed = yaml.safe_load(text) or {}
+        parsed = yaml.safe_load(workflow.read_text(encoding="utf-8")) or {}
         for job in (parsed.get("jobs") or {}).values():
-            for step in job.get("steps") or []:
+            steps = job.get("steps") or []
+            # The job's OWN run: commands — not the file's text. A `uv sync` inside a comment
+            # is documentation, and reading it as an install is what hid dbt-live-ci.yml.
+            commands = [s["run"] for s in steps if s.get("run")]
+            for step in steps:
                 run = step.get("run")
                 if not run:
                     continue
@@ -107,7 +135,7 @@ def _offenders() -> list[str]:
                     if not script.is_file():
                         continue
                     packages = _imports_wheel_package(script)
-                    if packages and not _provides_project(run, text):
+                    if packages and not _provides_project(run, commands):
                         out.append(f"{workflow.name} -> {ref} imports {sorted(packages)}")
     return sorted(set(out))
 
@@ -141,6 +169,48 @@ def test_no_project_is_not_treated_as_providing_the_project() -> None:
     Reading it as "uv is present, therefore fine" would silently re-open exactly this hole for
     the weekly CVE workflow, which uses that form on purpose.
     """
-    assert not _provides_project("uv run --no-project --with pyyaml python scripts/x.py", "")
-    assert _provides_project("uv run python scripts/x.py", "")
-    assert _provides_project("python scripts/x.py", "steps:\n  - run: uv sync --frozen\n")
+    assert not _provides_project("uv run --no-project --with pyyaml python scripts/x.py", [])
+    assert _provides_project("uv run python scripts/x.py", [])
+    assert _provides_project("python scripts/x.py", ["uv sync --frozen"])
+
+
+class TestTheGuardCanActuallyFail:
+    """The three ways this gate passed the very step it was written to catch.
+
+    Shipped in #519 after `patch_job_retries.py` broke Terraform Apply. On 2026-08-12 the
+    daily `dbt-live-ci.yml` died with `ModuleNotFoundError: No module named 'ingestion'` on
+    `scripts/upload_ci_shim.py` — the identical defect, in a workflow this gate was already
+    scanning, which it rated green. `--no-project` was treated as the only form that withholds
+    the environment; it is not the only one.
+    """
+
+    def test_no_sync_does_not_provide_the_project(self) -> None:
+        """`uv run --no-sync` runs against whatever exists and syncs nothing.
+
+        This is the literal failing step: `uv run --no-sync python scripts/upload_ci_shim.py`.
+        """
+        assert not _provides_project("uv run --no-sync python scripts/upload_ci_shim.py", [])
+
+    def test_sync_that_skips_the_project_is_not_an_install(self) -> None:
+        """`--no-install-project` is the flag that means "do not install this project".
+
+        `dbt-live-ci.yml:69` uses it deliberately: the editable build force-includes
+        `dbt_project/dbt_packages`, which `dbt deps` does not create until a later step. Counting
+        it as an install credits the workflow with a wheel that is provably absent.
+        """
+        assert not _provides_project(
+            "uv run --no-sync python scripts/x.py",
+            ["uv sync --frozen --extra dbt --no-install-project"],
+        )
+
+    def test_a_comment_mentioning_uv_sync_is_not_an_install(self) -> None:
+        """The deepest of the three: the fallback matched the workflow's RAW TEXT.
+
+        `dbt-live-ci.yml:36` is prose about a timeout budget — "the extra 10 minutes covers
+        checkout, uv sync, tarball" — and it alone satisfied the old fallback. Documentation
+        could silence the gate. The fallback now reads `run:` COMMANDS, so a comment cannot.
+        """
+        assert not _provides_project(
+            "uv run --no-sync python scripts/x.py",
+            ["# budget (120 * 15s); the extra 10 minutes covers checkout, uv sync, tarball"],
+        )

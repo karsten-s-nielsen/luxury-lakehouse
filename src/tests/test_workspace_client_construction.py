@@ -58,6 +58,21 @@ _ALLOWED_BARE: dict[str, str] = {
         "profile ambiguity workspace_client() explains cannot arise. The script's own docstring "
         "carried this reason all along; the ADR-075 sweep edited past it."
     ),
+    "scripts/upload_ci_shim.py": (
+        "dbt-live-ci.yml installs with `uv sync --no-install-project` — the editable build "
+        "force-includes dbt_project/dbt_packages, which `dbt deps` does not create until a "
+        "later step — then runs this with `uv run --no-sync`. No wheel package is importable, "
+        "so importing the helper is a ModuleNotFoundError; it broke the nightly on 2026-08-12. "
+        "Runs only under DATABRICKS_AUTH_TYPE=github-oidc, so no profile is resolved."
+    ),
+    "scripts/trigger_dbt_job.py": (
+        "Same workflow, same `--no-install-project` + `--no-sync` constraint as "
+        "upload_ci_shim.py above. This one never surfaced only because the shim step runs "
+        "first and died on the identical import. Its own `_build_auth_header` docstring already "
+        "said 'deliberately inlined rather than importing ingestion.databricks_auth' — the "
+        "third docstring the ADR-075 sweep edited past. Single construction site: "
+        "`_workspace_client()`."
+    ),
 }
 
 
