@@ -514,7 +514,7 @@ def _try_load_champion_xg_v3(log: logging.Logger, catalog: str, gold_schema: str
         )
         log.info("Loaded xg_model_v3 @Champion from MLflow (%d bytes, run=%s)", len(weights_bytes), alias_info.run_id)
         return weights_bytes
-    except Exception:  # noqa: BLE001 — MLflow registry raises many unrelated types on missing Champion
+    except Exception:  # MLflow registry raises many unrelated types on missing Champion
         log.info("xg_model_v3 @Champion not found in MLflow registry", exc_info=True)
         return None
 

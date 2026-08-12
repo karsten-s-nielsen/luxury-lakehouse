@@ -154,7 +154,7 @@ def resolve_pining_token() -> str:
         encoded = resp.value or ""
         if encoded:
             return base64.b64decode(encoded).decode()
-    except Exception:  # noqa: BLE001 — multi-source fallback (env var preferred, secrets is optional)
+    except Exception:  # multi-source fallback (env var preferred, secrets is optional)
         logger.debug("Databricks secrets unavailable — trying env var only", exc_info=True)
 
     msg = (

@@ -117,7 +117,7 @@ def _discover_stranded(reader: SdkReaderAdapter, catalog: str, schema: str, name
         fqn = f"{catalog}.{schema}.{name}"
         try:
             pid = reader.get_pipeline_id(fqn)
-        except Exception:  # noqa: BLE001 -- missing/unreadable table is not a strand; skip + log
+        except Exception:  # missing/unreadable table is not a strand; skip + log
             logger.warning("heal scan: could not resolve pipeline for %s -- skipping", name, exc_info=True)
             continue
         if is_checkpoint_mismatch_failure(reader, pid):
