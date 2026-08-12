@@ -65,16 +65,22 @@ always stated. A silent truncation is a quieter version of the same bug.
 
 THE LOCAL-VERSION PROXY (an approximation, deliberately visible)
 ---------------------------------------------------------------
-``pip-audit -r`` dry-run-installs the requirements into a throwaway env, so a PEP 440 local
-version that exists on no index aborts the entire audit:
+A PEP 440 local version cannot be audited: PyPI carries no such release. Under ``--disable-pip``
+(see `audit`) pip-audit says so per-package, and ``--strict`` turns that into a failed run —
+measured 2026-08-12:
 
-    ERROR: Could not find a version that satisfies the requirement torch==2.11.0+cu128
+    ERROR: torch: Dependency not found on PyPI and could not be audited: torch (2.11.0+cu128)
+
+Before ``--disable-pip`` the same pin aborted the ENTIRE audit at the dry-run install
+(``Could not find a version that satisfies the requirement torch==2.11.0+cu128``). The blast
+radius shrank from the run to the one package; the need to strip did not go away.
 
 Our torch comes from the ``pytorch-cu128`` index. Two options were measured:
 
 * ``--extra-index-url https://download.pytorch.org/whl/cu128`` — pip then RESOLVES it, but
   pip-audit still reports ``Dependency not found on PyPI and could not be audited``, so torch
-  stays unaudited (16 findings / 10 packages). It fixes the abort, not the blind spot.
+  stays unaudited (16 findings / 10 packages). It fixes the abort, not the blind spot. **Moot
+  since ``--disable-pip``: no index is consulted for resolution because pip is never invoked.**
 * Strip the local segment, auditing ``torch==2.11.0`` as a proxy — 17 / 11, and torch's
   advisory (PYSEC-2025-194) is found.
 
@@ -361,6 +367,14 @@ def audit(requirements_path: Path) -> AuditResult:
     ``--no-deps`` audits the pinned lines as given. The file is a complete locked resolution,
     so re-resolving would both be slower and audit versions we do not ship.
 
+    ``--disable-pip`` is what actually DELIVERS that. pip-audit 2.10.1 gates its venv-free path
+    on this flag alone (``_dependency_source/requirement.py:161``); ``--no-deps`` merely makes
+    the flag legal to pass. Without it pip-audit builds a throwaway venv and installs the whole
+    resolution into it to discover versions this file already pins — and the venv's
+    ``ensurepip`` bootstrap exits 1 under the uv-managed CPython on the runner, which is why
+    every target of `cve-blocker-review.yml` classified UNKNOWN from the day it was created.
+    Measured 2026-08-12 on `sdk`: 36s -> 1s, same dependency set, same findings, 0 skipped.
+
     ``--strict`` so a dependency that could not be collected fails instead of passing as clean.
     ``pip-audit`` is PINNED — an unpinned security tool changes behaviour under the gate silently.
     """
@@ -374,6 +388,7 @@ def audit(requirements_path: Path) -> AuditResult:
         "-r",
         str(requirements_path),
         "--no-deps",
+        "--disable-pip",
         "--strict",
         "-f",
         "json",

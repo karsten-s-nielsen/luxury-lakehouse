@@ -371,6 +371,17 @@ def audit(requirements_path: Path) -> AuditResult:
     return classify_audit(result.returncode, result.stdout, result.stderr)
 ```
 
+> **AMENDED 2026-08-12 — the argv above is INCOMPLETE as shipped; do not re-implement it verbatim.**
+> `--no-deps` does not stop pip-audit resolving. pip-audit 2.10.1 gates its venv-free path on
+> `--disable-pip` alone (`_dependency_source/requirement.py:161`) and `--no-deps` only makes that
+> flag *legal to pass*, so this argv built a throwaway venv and installed each locked resolution to
+> rediscover versions the file already pinned. On the runner that venv's `ensurepip` exits 1 —
+> every target of `cve-blocker-review.yml` classified UNKNOWN from the day it was created, and the
+> job was never once green. The shipped `cmd` therefore carries **`"--disable-pip"`** between
+> `"--no-deps"` and `"--strict"`. Measured: `sdk` 36s → 1s; all four resolutions 10s locally and
+> **8.1s on CI**, where the job then went green for the first time (run `31592589093`: 54/140/115/61
+> packages CLEAN). Same dependency set, same findings, 0 skipped. See ADR-075's amended Consequences.
+
 **Pass `result.stderr`.** Dropping it here is irreversible and is what left the original
 `FileNotFoundError` invisible behind a one-line UNKNOWN.
 

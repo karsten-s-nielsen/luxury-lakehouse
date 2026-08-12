@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [ARCHITECTURE.md](ARCHITECTURE.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
-**Last updated**: 2026-08-11 (audit-gate repair + dev-group exclusion; wheel 0.5.94, PR #520).
+**Last updated**: 2026-08-12 (CVE gate stops dry-run-installing what it pins — `--disable-pip`; wheel 0.5.94, no bump).
 
 **Open**: whether to re-derive StatsBomb SPADL for provenance (7.15M rows, measured unnecessary). Optional defence-in-depth, not urgent given the layout finding: vendoring Taipy's one-line containment fix (`129fd40`) rather than waiting on their release.
 

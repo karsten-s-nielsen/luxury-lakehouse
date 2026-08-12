@@ -197,18 +197,39 @@ fork with `uv export --extra …` and audits it, driven weekly beside the blocke
 
 Consequences worth stating rather than burying:
 
-- **The proxy is visible.** `pip-audit -r` dry-run-installs the file, so a PEP 440 local version
-  that exists on no index aborts the whole audit (`torch==2.11.0+cu128`). `--extra-index-url`
-  was measured and does **not** help — pip then resolves it but pip-audit still reports
-  *"Dependency not found on PyPI and could not be audited"*, leaving torch unaudited exactly as
-  before. The local segment is therefore stripped and `torch==2.11.0` audited as a proxy; the
-  substitution is logged on **every** run, because a security gate that silently substitutes its
-  input is the failure mode this repo keeps paying for. Without it torch is skipped entirely,
-  which is what CI did before and is strictly worse.
+- **The proxy is visible.** A PEP 440 local version exists on no index, so PyPI cannot audit it
+  (`torch==2.11.0+cu128`). `--extra-index-url` was measured and does **not** help — pip then
+  resolves it but pip-audit still reports *"Dependency not found on PyPI and could not be
+  audited"*, leaving torch unaudited exactly as before. The local segment is therefore stripped
+  and `torch==2.11.0` audited as a proxy; the substitution is logged on **every** run, because a
+  security gate that silently substitutes its input is the failure mode this repo keeps paying
+  for. Without it torch is skipped entirely, which is what CI did before and is strictly worse.
+
+  **Amended 2026-08-12 (`--disable-pip`).** This bullet originally read *"`pip-audit -r`
+  dry-run-installs the file, so a … local version … aborts the whole audit"*. That install was
+  never wanted — `audit()` passed `--no-deps` but not `--disable-pip`, and pip-audit 2.10.1 gates
+  its venv-free path on the latter alone (`_dependency_source/requirement.py:161`), so it built a
+  throwaway venv and installed each locked resolution to rediscover versions the file already
+  pinned. On the runner that venv's `ensurepip` exits 1, which is why every target of
+  `cve-blocker-review.yml` classified UNKNOWN from the day the workflow was created. With the flag
+  the install is gone; a local version now costs **the one package** (`--strict` still fails the
+  run) instead of the whole audit. The strip stays — the blast radius shrank, the need did not.
 - **Weekly, not per-PR.** Four resolutions cost ~15–20 min against a Python CI job that finishes
   in ~8–10. Dependabot already reads `uv.lock` and alerts the moment a vulnerable pin merges —
   it is how all eight were found. This job is the *enforcement* half (an alert must become a
   justified entry or a fix), which is a weekly question.
+
+  **Amended 2026-08-12: the COST half of this rationale no longer holds.** The ~15–20 min was
+  almost entirely the dry-run install corrected in the bullet above; with `--disable-pip` all four
+  resolutions complete in **10 s** locally on a warm uv cache and **8.1 s on the CI runner**
+  (run `31592589093`, `11:37:04.296` → `11:37:12.407`, cold runner with linux markers — measured,
+  not projected. The first draft of this bullet guessed CI would be *slower* than local because it
+  pays a pip-audit download and PyPI queries; it is marginally faster, so the guess is recorded as
+  wrong rather than quietly dropped). The *second* half stands unchanged and was always the
+  stronger argument:
+  "has upstream moved?" is a question about events outside this repo, so its answer cannot change
+  between two commits of ours. **This is recorded, not re-decided** — moving the job per-PR is a
+  scope decision for the operator, and nothing here should be read as having taken it.
 - **One blocker explains nearly all of it.** Seven of the eight trace to Taipy 4.1.1 pinning its
   own tree (taipy-gui caps flask-cors, markdown and twisted; taipy-rest caps marshmallow); the
   eighth is our own cu128 index capping torch.
