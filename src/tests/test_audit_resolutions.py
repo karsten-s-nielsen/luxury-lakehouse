@@ -27,12 +27,15 @@ import pytest
 
 from scripts.audit_resolutions import (
     RESOLUTIONS,
+    SPACE_REPOS,
     Outcome,
     _export_cmd,
     audit,
     bound_diagnostics,
     classify_audit,
+    known_targets,
     label,
+    main,
     strip_local_versions,
 )
 
@@ -291,6 +294,50 @@ class TestAuditNeverResolves:
         assert "--disable-pip" in captured[0], (
             f"pip-audit will dry-run-install the resolution into a throwaway venv: argv={captured[0]}"
         )
+
+
+class TestDeployedSpaceTarget:
+    """Audit what is DEPLOYED, not a fresh resolve.
+
+    `hf_taipy_app/requirements.txt` is generated at deploy time by `uv pip compile`, which always
+    takes the newest satisfying release — so two deploys of the SAME commit can ship different
+    versions. Re-compiling at audit time would certify a pin set that may never have existed in
+    production. `manage_space.py` uploads the folder via `upload_folder` and `requirements.txt` is
+    not in IGNORE_PATTERNS, so the real pin set is one download away.
+
+    Nothing else observes this surface: no dependabot ecosystem covers `hf_taipy_app/`, its
+    requirements file is gitignored *specifically* to hide it from dependabot-pip, and `uv.lock`
+    is a different resolution.
+    """
+
+    def test_both_spaces_are_targeted(self) -> None:
+        ids = dict(SPACE_REPOS)
+        assert ids["space-production"] == "luxury-lakehouse/soccer-analytics-app"
+        assert ids["space-staging"] == "luxury-lakehouse/staging"
+
+    def test_space_ids_match_manage_space(self) -> None:
+        """The repo ids live in manage_space.py. Hard-coding a second copy that drifts is how an
+        audit silently starts watching a Space that no longer exists."""
+        src = (_REPO / "scripts" / "manage_space.py").read_text(encoding="utf-8")
+        for _, repo_id in SPACE_REPOS:
+            assert repo_id in src, f"{repo_id} not found in manage_space.py"
+
+    def test_only_accepts_a_space_name(self) -> None:
+        """`--only space-production` must be a legal target, not an `unknown target` exit.
+
+        The Spaces are not in RESOLUTIONS, so the pre-existing filter rejected them.
+        """
+        assert "space-production" in known_targets()
+        assert "space-staging" in known_targets()
+        for extra in RESOLUTIONS:
+            assert label(extra) in known_targets()
+
+    def test_an_unknown_only_is_still_rejected(self) -> None:
+        """A typo'd --only must ERROR, never audit an empty set and exit 0.
+
+        A gate that passes by auditing nothing is worse than one that fails loudly.
+        """
+        assert main(["--only", "not-a-target"]) == 1
 
 
 class TestBoundDiagnostics:

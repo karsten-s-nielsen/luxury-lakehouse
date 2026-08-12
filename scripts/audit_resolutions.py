@@ -130,6 +130,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import traceback
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -141,6 +142,15 @@ _REPO = Path(__file__).resolve().parents[1]
 #: ``None`` is the base resolution (no extra). Order is deliberate: the production surface
 #: first, so its output is at the top of a failing log.
 RESOLUTIONS: tuple[str | None, ...] = (None, "taipy-app", "dbt", "sdk")
+
+#: The deployed Spaces, audited as their own targets. Ids are duplicated from
+#: ``manage_space.py`` and asserted equal by test rather than imported: this script runs under
+#: ``uv run --no-project``, so the wheel — and anything importing it — is off sys.path on a clean
+#: runner. An audit pointed at a stale Space id passes forever while watching nothing.
+SPACE_REPOS: tuple[tuple[str, str], ...] = (
+    ("space-production", "luxury-lakehouse/soccer-analytics-app"),
+    ("space-staging", "luxury-lakehouse/staging"),
+)
 
 #: A pinned requirement carrying a PEP 440 local version (``name==1.2.3+local``). Anchored per
 #: line; the trailing group stops at whitespace or a marker so ``; python_version < "3.11"``
@@ -405,6 +415,38 @@ def audit(requirements_path: Path) -> AuditResult:
     return classify_audit(result.returncode, result.stdout, result.stderr)
 
 
+def fetch_space_requirements(repo_id: str) -> str:
+    """Download the ``requirements.txt`` a Space is actually running.
+
+    No token. Both Spaces are public, and ``huggingface_hub`` picks up a cached CLI login on its
+    own if one exists.
+
+    Deliberately NOT ``ingestion.utils.resolve_hf_token()``: it is declared ``-> str`` and returns
+    the EMPTY STRING when nothing is found, which reaches ``hf_hub_download`` as ``token=""`` and
+    builds a bare ``Bearer`` header — the ``httpx.LocalProtocolError`` footgun CLAUDE.md's
+    Orchestration Discipline documents. Passing nothing lets the library decide. It also cannot be
+    imported here: this script runs under ``uv run --no-project``, so the wheel is not on
+    ``sys.path`` on a clean runner.
+
+    Imported inside the function so the module stays importable without ``huggingface_hub`` —
+    every OTHER target must still audit when only this dependency is missing.
+    """
+    from huggingface_hub import hf_hub_download
+
+    path = hf_hub_download(repo_id=repo_id, repo_type="space", filename="requirements.txt")
+    return Path(path).read_text(encoding="utf-8")
+
+
+def known_targets() -> list[str]:
+    """Every legal ``--only`` value: the lock resolutions plus the deployed Spaces.
+
+    Kept as one function so the argparse help text and the validity check cannot disagree — a
+    name accepted by one and rejected by the other is how ``--only`` starts silently auditing
+    nothing.
+    """
+    return [label(r) for r in RESOLUTIONS] + [n for n, _ in SPACE_REPOS]
+
+
 def audit_resolution(extra: str | None, *, tmp_dir: Path) -> tuple[AuditResult, list[str]]:
     """Export, de-localise and audit one resolution."""
     exported = export_resolution(extra)
@@ -429,15 +471,18 @@ def report_diagnostics(name: str, result: AuditResult) -> None:
 def main(argv: list[str] | None = None) -> int:
     """Audit each resolution; non-zero if any reports a finding the ignore list does not cover."""
     parser = argparse.ArgumentParser(description="Audit every uv.lock resolution, not just the installed env")
-    parser.add_argument("--only", help=f"audit a single resolution ({', '.join(label(r) for r in RESOLUTIONS)})")
+    known = known_targets()
+    parser.add_argument("--only", help=f"audit a single target ({', '.join(known)})")
     args = parser.parse_args(argv)
 
-    targets = RESOLUTIONS
-    if args.only:
-        targets = tuple(r for r in RESOLUTIONS if label(r) == args.only)
-        if not targets:
-            print(f"ERROR: unknown resolution {args.only!r}", file=sys.stderr)
-            return 1
+    # Rejected BEFORE any filtering. A bare in-loop `continue` would turn a typo'd --only into
+    # "audited nothing, exited 0" — a gate that passes by auditing an empty set.
+    if args.only and args.only not in known:
+        print(f"ERROR: unknown target {args.only!r}", file=sys.stderr)
+        return 1
+
+    targets = tuple(r for r in RESOLUTIONS if not args.only or label(r) == args.only)
+    spaces = tuple((n, r) for n, r in SPACE_REPOS if not args.only or n == args.only)
 
     failures: list[tuple[str, AuditResult]] = []
     with tempfile.TemporaryDirectory() as tmp:
@@ -452,10 +497,37 @@ def main(argv: list[str] | None = None) -> int:
                 report_diagnostics(name, result)
                 failures.append((name, result))
 
+        for name, repo_id in spaces:
+            print(f"\n=== auditing deployed artifact: {name} ({repo_id}) ===", file=sys.stderr)
+            try:
+                text = fetch_space_requirements(repo_id)
+            except Exception as exc:  # noqa: BLE001 — a fetch failure proves nothing either way
+                # The traceback IS the evidence: "no module named huggingface_hub" and "the Space
+                # was deleted" are the same one-line UNKNOWN without it.
+                failed = AuditResult(
+                    Outcome.UNKNOWN,
+                    f"could not fetch requirements.txt: {exc}",
+                    traceback.format_exc(),
+                )
+                print(f"  {failed.outcome}: {failed.detail}", file=sys.stderr)
+                report_diagnostics(name, failed)
+                failures.append((name, failed))
+                continue
+            rewritten, subs = strip_local_versions(text)
+            path = Path(tmp) / f"requirements-{name}.txt"
+            path.write_text(rewritten, encoding="utf-8")
+            for note in subs:
+                print(f"  local-version proxy: {note}", file=sys.stderr)
+            result = audit(path)
+            print(f"  {result.outcome}: {result.detail}", file=sys.stderr)
+            if result.outcome is not Outcome.CLEAN:
+                report_diagnostics(name, result)
+                failures.append((name, result))
+
     print(file=sys.stderr)
     if failures:
         outcomes = {result.outcome for _, result in failures}
-        print(f"FAIL: {len(failures)} resolution(s) not clean:", file=sys.stderr)
+        print(f"FAIL: {len(failures)} target(s) not clean:", file=sys.stderr)
         for name, result in failures:
             print(f"  {result.outcome:8s} {name}: {result.detail}", file=sys.stderr)
         if Outcome.FINDINGS in outcomes:
@@ -472,7 +544,13 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
         return 1
-    print(f"OK: {len(targets)} resolution(s) clean against the shared ignore list.", file=sys.stderr)
+    # Counts BOTH kinds. Reporting only len(targets) would say "4 clean" after auditing six,
+    # which is the same class of under-report the UNKNOWN outcome exists to prevent.
+    print(
+        f"OK: {len(targets) + len(spaces)} target(s) clean against the shared ignore list "
+        f"({len(targets)} lock resolution(s), {len(spaces)} deployed Space(s)).",
+        file=sys.stderr,
+    )
     return 0
 
 

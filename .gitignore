@@ -134,8 +134,10 @@ luxury_lakehouse_http_cache.sqlite
 # The Space's build uses the deploy-time generated file; local devs can
 # regenerate with: uv pip compile pyproject.toml --extra taipy-app
 # --python-version 3.10 --python-platform linux -o hf_taipy_app/requirements.txt
+# (Historic: the `pip` ecosystem was replaced by `uv` in #450, so this no longer generates PRs.
+#  The file stays generated because a committed copy would be a second pin set to keep in step
+#  with uv.lock, with no CI check regenerating and diffing it — see ADR-076 alternative B.)
 hf_taipy_app/requirements.txt
 
 # GK-redesign prototype data snapshots — raw provider-derived rows (GS license; ADR-049 logic)
 docs/ui-cycles/gk-redesign/data/
-
