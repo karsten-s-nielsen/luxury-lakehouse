@@ -24,14 +24,14 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         }
 
         deployPipeline = softwareSystem "Deploy Pipeline" "Scripts for Taipy app and wheel deployment" {
-            deployScript = container "manage_space.py" "Full Space lifecycle: create, deploy, status, rebuild, teardown" "Python, huggingface_hub"
+            deployScript = container "manage_space.py" "Full Space lifecycle: create, deploy, status, rebuild, teardown. Production refuses to ship without --no-compile --expect-sha256, so the validated artifact IS the shipped one (ADR-076)." "Python, huggingface_hub"
             deployWheel = container "deploy_wheel.py" "Downloads wheel from HF Hub, uploads to UC Volume" "Python, databricks-sdk"
             bumpWheel = container "bump_wheel.py" "Syncs wheel version to all static consumers (25+ files)" "Python"
             dbtBuildAndRefresh = container "dbt_build_and_refresh.py" "Chains dbt build with synced table refresh" "Python, subprocess"
             syncTfEnvPins = container "sync_tf_env_pins.py" "Mirrors uv.lock library pins into the terraform env blocks (ADR-046); shares one pure policy core with the parity sentinel (fixer=checker)" "Python"
             syncBronzeSources = container "sync_bronze_sources_yml.py" "Appends undocumented bronze columns to dbt sources.yml from live DESCRIBE snapshots. Same pure-core fixer=checker shape as sync_tf_env_pins; --check is the CI gate. Insert-only — never rewrites a description." "Python"
-            checkCveBlockers = container "check_cve_blockers.py" "Re-proves each pip-audit ignore by ATTEMPTING its floor: BLOCKED / COLLATERAL / MOVED / UNKNOWN. A transient uv constraint probe, restored in a finally (ADR-075)." "Python, uv"
-            auditResolutions = container "audit_resolutions.py" "Audits every uv.lock resolution minus the dev group, classifying CLEAN / FINDINGS / UNKNOWN from pip-audit's JSON so a failed RUN is never reported as findings (ADR-075)." "Python, pip-audit"
+            checkCveBlockers = container "check_cve_blockers.py" "Re-proves each pip-audit ignore by ATTEMPTING its floor: BLOCKED / COLLATERAL / MOVED / UNKNOWN. scope: picks the lock or production prober; it never exempts an entry." "Python, uv"
+            auditResolutions = container "audit_resolutions.py" "Audits every uv.lock resolution minus the dev group, PLUS the DEPLOYED Spaces' requirements.txt. CLEAN / FINDINGS / UNKNOWN from pip-audit's JSON, never from its exit code." "Python, pip-audit"
         }
 
         pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "47 workflow-card-registered workflows. Centralized hooks, lifecycle tracking, three-tier cost tracking." {
@@ -231,6 +231,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
 
         # Relationships - deploy
         deployScript -> hfSpaces "upload_folder()" "HTTPS"
+        auditResolutions -> hfSpaces "Downloads the deployed requirements.txt — audits what production RUNS, not a fresh resolve" "HTTPS"
         bumpWheel -> sharedLibrary "Imports version helpers" ""
         deployWheel -> sharedLibrary "Imports WHEEL_FILENAME" ""
         deployWheel -> hfHub "Downloads wheel" "HTTPS"

@@ -965,6 +965,24 @@ and everything at deploy time.
 **A non-empty `uv.lock` diff here means the constraint did something unintended — stop and
 investigate rather than committing it.**
 
+> **AMENDED 2026-08-12 — the stop-condition above is too broad and WILL fire benignly.** `uv lock`
+> records the constraint list in the lock's `[manifest]` section, so adding one always produces a
+> diff:
+>
+> ```diff
+> -constraints = [{ name = "pyasn1", specifier = ">=0.6.4" }]
+> +constraints = [
+> +    { name = "flask", specifier = ">=3.1.3" },
+> +    { name = "pyasn1", specifier = ">=0.6.4" },
+> +]
+> ```
+>
+> The property that actually matters is **no package resolution moved**. Check that instead:
+> `git diff uv.lock | grep -E "^[+-](version|name|source|sdist|wheels) "` must be EMPTY. Verified
+> 2026-08-12: empty, and the lock still reads flask 3.1.3 / taipy-rest 4.1.0 / apispec 6.6.1 — so
+> the constraint changed nothing in the lock, exactly as this task predicts. `git diff --quiet
+> uv.lock` is the wrong test for the claim being made.
+
 - [ ] **Step 4: Confirm the target is STILL RED — the constraint alone does not fix production**
 
 ```bash

@@ -17,6 +17,12 @@
 # from rotting: an ignore with no stated condition for removal is an ignore nobody can
 # ever retire, which is how the alert count reached 18.
 #
+#   scope: (optional, default `lock`) — which resolution holds this entry's blocker. `production`
+#   probes `uv pip compile --extra taipy-app` instead of `uv lock`. It selects a prober; it never
+#   exempts an entry from being probed. An entry whose cap exists only in the production
+#   resolution would otherwise be probed against a lock that does not have the cap — reporting
+#   MOVED ("take the fix") every week for a fix production cannot take.
+#
 # Enforced by src/tests/test_pip_audit_ignores.py:
 #   - schema completeness (all six fields, non-empty)
 #   - no duplicate ids

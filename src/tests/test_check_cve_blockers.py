@@ -39,6 +39,7 @@ from scripts.check_cve_blockers import (
     ProbeError,
     Result,
     classify,
+    entry_scope,
     format_failure,
     graph_changes,
     inject_constraint,
@@ -47,6 +48,7 @@ from scripts.check_cve_blockers import (
     locked_packages,
     normalize,
     package_name,
+    probe_production,
     resolver_explanation,
 )
 
@@ -396,3 +398,67 @@ class TestFailureMessage:
         assert "NO VERDICT" in msg
         assert "NOW RESOLVES" not in msg
         assert "ACTION" not in msg
+
+
+class TestScopeDispatch:
+    """``scope:`` selects WHICH resolution to probe. It never exempts an entry from probing.
+
+    The lock probe splices a floor into ``constraint-dependencies`` and runs ``uv lock``. An entry
+    whose cap exists only in the production resolution would be probed against a lock that does not
+    have the cap — returning MOVED ("take the fix") every week for a fix production cannot take, and
+    flipping to BLOCKED after any lock change. Exempting it instead would reintroduce exactly the
+    silently-ageing hand-verification ADR-075 closed.
+    """
+
+    def test_scope_defaults_to_lock(self) -> None:
+        assert entry_scope({"id": "X"}) == "lock"
+
+    def test_production_scope_is_recognised(self) -> None:
+        assert entry_scope({"id": "X", "scope": "production"}) == "production"
+
+    def test_unknown_scope_raises_rather_than_defaulting(self) -> None:
+        """Silently treating a typo'd scope as ``lock`` probes the wrong resolution and reports a
+        confident wrong answer."""
+        with pytest.raises(ProbeError, match="unknown scope"):
+            entry_scope({"id": "X", "scope": "prod"})
+
+    def test_production_scope_entries_are_still_checkable(self) -> None:
+        """The whole point: no entry escapes probing because of its scope."""
+        entry = {"id": "X", "package": "flask", "fix_in": "3.1.3", "scope": "production"}
+        assert is_checkable(entry)
+
+
+class TestProductionProbeOutcomes:
+    """An unsatisfiable production floor must read BLOCKED, never UNKNOWN.
+
+    BLOCKED is the verdict the whole mechanism exists to produce. Collapsing it into UNKNOWN makes
+    a genuine upstream cap indistinguishable from an offline runner — the confusion class this
+    tooling exists to fix, reintroduced inside the prober built to fix it.
+    """
+
+    def test_unsatisfiable_floor_is_blocked_not_unknown(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        no_solution = (
+            "  x No solution found when resolving dependencies:\n"
+            "  |-> Because taipy-gui>=4.1.1 depends on flask>=3.1.0,<3.2 and flask>=99.0, "
+            "we can conclude that taipy-gui>=4.1.1 cannot be used."
+        )
+
+        def fake_compile(constraint: object, timeout_s: int) -> tuple[int, str, dict[str, tuple[str, ...]]]:
+            if constraint is None:
+                return 0, "", {"flask": ("3.1.1",)}
+            return 1, no_solution, {}
+
+        monkeypatch.setattr("scripts.check_cve_blockers._compile_production", fake_compile)
+        result = probe_production({"id": "X", "package": "flask", "fix_in": "99.0"})
+        assert result.outcome == BLOCKED
+
+    def test_baseline_compile_failure_is_unknown(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """If the UNCONSTRAINED compile fails, the probe is broken — that says nothing about the
+        floor, and must not be reported as though it did."""
+
+        def fake_compile(constraint: object, timeout_s: int) -> tuple[int, str, dict[str, tuple[str, ...]]]:
+            return 2, "error: network unreachable", {}
+
+        monkeypatch.setattr("scripts.check_cve_blockers._compile_production", fake_compile)
+        result = probe_production({"id": "X", "package": "flask", "fix_in": "3.1.3"})
+        assert result.outcome == UNKNOWN

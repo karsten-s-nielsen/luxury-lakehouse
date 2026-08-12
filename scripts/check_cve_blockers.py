@@ -78,6 +78,7 @@ import dataclasses
 import re
 import subprocess
 import sys
+import tempfile
 from enum import Enum
 from pathlib import Path
 
@@ -89,6 +90,17 @@ _LOCK = _REPO / "uv.lock"
 
 #: Resolution can fork across the declared extra conflicts, so it is not fast.
 DEFAULT_TIMEOUT_S = 900
+
+#: Which resolution holds an entry's blocker. ``scope:`` selects a PROBER; it never exempts an
+#: entry from being probed — an exempt entry is a hand-verified claim that ages silently, which
+#: is the ADR-075 failure mode this tooling exists to close.
+LOCK_SCOPE = "lock"
+PRODUCTION_SCOPE = "production"
+_SCOPES = frozenset({LOCK_SCOPE, PRODUCTION_SCOPE})
+
+#: A pinned line in `uv pip compile` output. Module level per project convention — never compile
+#: a pattern inside a function body.
+_PIN_RE = re.compile(r"^([A-Za-z0-9._-]+)==([^\s;]+)")
 
 
 class Outcome(str, Enum):
@@ -370,11 +382,97 @@ def restore_probe_files() -> None:
         raise ProbeError(f"failed to restore {_PYPROJECT.name}/{_LOCK.name}: {result.stderr.strip()}")
 
 
+def entry_scope(entry: dict[str, str]) -> str:
+    """Which resolution holds this entry's blocker. Defaults to the lock.
+
+    Never a way to skip probing — it chooses the prober. An unknown value raises rather than
+    defaulting, because probing the wrong resolution yields a confident wrong verdict.
+    """
+    scope = str(entry.get("scope", LOCK_SCOPE)).strip() or LOCK_SCOPE
+    if scope not in _SCOPES:
+        msg = f"{entry.get('id')}: unknown scope {scope!r}; expected one of {sorted(_SCOPES)}"
+        raise ProbeError(msg)
+    return scope
+
+
+def _compile_production(constraint: Path | None, timeout_s: int) -> tuple[int, str, dict[str, tuple[str, ...]]]:
+    """Compile the production resolution. Returns (returncode, combined output, versions).
+
+    The versions dict uses the same ``{name: (version, ...)}`` shape ``lock_versions`` produces, so
+    ``graph_changes`` works against it unchanged. Tuple-valued because the LOCK can fork a package
+    across conflicting extras; a compile never can, but keeping one shape keeps one comparator.
+    """
+    cmd = [
+        "uv",
+        "pip",
+        "compile",
+        "pyproject.toml",
+        "--extra",
+        "taipy-app",
+        "--python-version",
+        "3.10",
+        "--python-platform",
+        "linux",
+    ]
+    if constraint is not None:
+        cmd += ["-c", str(constraint)]
+    result = subprocess.run(  # noqa: S603 — fixed argv plus a generated temp path, no shell
+        cmd,
+        cwd=_REPO,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=timeout_s,
+    )
+    versions: dict[str, tuple[str, ...]] = {}
+    for line in result.stdout.splitlines():
+        match = _PIN_RE.match(line)
+        if match:
+            versions[normalize(match.group(1))] = (match.group(2),)
+    return result.returncode, result.stdout + result.stderr, versions
+
+
+def probe_production(entry: dict[str, str], *, timeout_s: int = DEFAULT_TIMEOUT_S) -> Result:
+    """Attempt the floor against the PRODUCTION resolution.
+
+    Simpler than the lock probe: ``uv pip compile -c`` takes a constraints file, so nothing in the
+    repo is mutated — no pyproject splicing, no finally-block restore, no residue check.
+
+    Note this compiles FRESH, whereas the audit target in ``audit_resolutions.py`` fetches the
+    DEPLOYED requirements.txt. That asymmetry is deliberate and must not be "fixed": the probe asks
+    whether the NEXT deploy could take the fix; the audit asks what the CURRENT deploy is exposed
+    to. Different questions about different artifacts.
+
+    The real ``returncode`` and ``output`` reach ``classify``. Hard-coding 0/"" would make BLOCKED
+    unreachable, so an unsatisfiable production floor would come back UNKNOWN — indistinguishable
+    from an offline runner, which is the confusion class this prober exists to prevent.
+    """
+    package = package_name(entry)
+    floor = f"{package}>={entry['fix_in']}"
+    with tempfile.TemporaryDirectory() as tmp:
+        constraint = Path(tmp) / "c.txt"
+        constraint.write_text(f"{floor}\n", encoding="utf-8")
+        base_code, base_out, base = _compile_production(None, timeout_s)
+        code, output, after = _compile_production(constraint, timeout_s)
+    if base_code != 0:
+        # The UNCONSTRAINED compile failing is a broken probe, not a blocked floor.
+        return Result(str(entry["id"]), package, floor, UNKNOWN, f"baseline compile failed: {base_out[:200]}")
+    changes, vanished = graph_changes(base, after, package) if code == 0 else ([], False)
+    outcome, detail = classify(code, output, collateral=changes, target_vanished=vanished)
+    return Result(str(entry["id"]), package, floor, outcome, detail, tuple(changes))
+
+
 def check_entry(entry: dict[str, str], *, timeout_s: int = DEFAULT_TIMEOUT_S) -> Result:
     """Attempt one floor and report whether it still fails to resolve.
 
     One package per resolve, deliberately: a batch failure does not say which floor caused it.
+
+    Dispatches on ``scope:`` first — an entry whose cap lives only in the production resolution
+    cannot be proven by splicing into the lock.
     """
+    if entry_scope(entry) == PRODUCTION_SCOPE:
+        return probe_production(entry, timeout_s=timeout_s)
+
     advisory = str(entry["id"])
     package = package_name(entry)
     floor = f"{package}>={entry['fix_in']}"
