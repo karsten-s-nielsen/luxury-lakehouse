@@ -834,7 +834,7 @@ def resolve_hf_token() -> str:
             token = base64.b64decode(encoded).decode()
             _hf_logger.info("HF token resolved from Databricks secret scope 'hf'")
             return token
-    except Exception:  # noqa: BLE001 — intentional multi-source fallback; next source is attempted below
+    except Exception:  # intentional multi-source fallback; next source is attempted below
         _hf_logger.debug("Databricks secrets unavailable — trying cached CLI login", exc_info=True)
 
     # 3. Cached CLI login
@@ -845,7 +845,7 @@ def resolve_hf_token() -> str:
         if token:
             _hf_logger.info("HF token resolved from cached CLI login")
             return token
-    except Exception:  # noqa: BLE001 — intentional multi-source fallback; final source is logged below
+    except Exception:  # intentional multi-source fallback; final source is logged below
         _hf_logger.debug("huggingface_hub get_token unavailable", exc_info=True)
 
     _hf_logger.warning("No HF token found from any source")
@@ -1169,7 +1169,7 @@ def _load_mlflow_artifact_hash(
         run_id = alias_info.run_id
         run = client.get_run(run_id)
         return run.data.tags.get("artifact_sha256")
-    except Exception:  # noqa: BLE001 — MLflow raises many exception types; typed None return is the documented contract
+    except Exception:  # MLflow raises many exception types; typed None return is the documented contract
         logging.getLogger(__name__).warning(
             "MLflow artifact-hash lookup failed for %s@%s — treating as 'no hash'. "
             "If this persists across runs it may indicate an MLflow outage or an "

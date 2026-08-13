@@ -349,7 +349,14 @@ exclude = [
 
 [tool.pytest.ini_options]
 testpaths = ["src/tests", "hf_taipy_app/src"]
-addopts = "--tb=short -q"
+# BENCH-1 (2026-08-12): the 8 budget gates in test_benchmarks.py assert on
+# benchmark.stats["min"], and until now nothing pinned the sample that minimum is drawn
+# from -- all 8 ran on pytest-benchmark defaults, with warmup OFF. An unwarmed first round
+# pays import, JIT and cache-fill costs that belong to no budget, and a sample size that
+# varies per run makes the minimum vary with it. Pinned here so the statistic is stable:
+#   --benchmark-min-rounds  enough rounds that the fastest is a real floor, not one lucky call
+#   --benchmark-warmup      discard the cold rounds instead of letting them set the record
+addopts = "--tb=short -q --benchmark-min-rounds=20 --benchmark-warmup=on --benchmark-warmup-iterations=5"
 pythonpath = ["."]
 
 [tool.hatch.build.targets.wheel]
@@ -472,7 +479,7 @@ torch = { index = "pytorch-cu128" }
 
 [dependency-groups]
 dev = [
-    "ruff>=0.3.0",
+    "ruff>=0.16.1",
     "pyright>=1.1.350",
     "pytest>=8.0.0",
     "pytest-cov>=4.1.0",
@@ -483,7 +490,7 @@ dev = [
     # Transitive dep (pip-audit -> pip-api -> pip). Floored to >=26.1.2 to resolve
     # PYSEC-2026-196 (pip < 26.1.2 vulnerability). Durable pin per the idna/pyjwt
     # precedent rather than a pip-audit --ignore-vuln entry.
-    "pip>=26.1.2",
+    "pip>=26.2",
     "import-linter>=2.0",
     "numba>=0.66.0",
     "matplotlib>=3.10.9",

@@ -196,7 +196,7 @@ def check_hf_dataset_freshness(
     try:
         info = HfApi().repo_info(hf_repo, repo_type=repo_type)
         current_sha = info.sha
-    except Exception:  # noqa: BLE001 — fail open on any HF Hub error (network, auth, 404)
+    except Exception:  # fail open on any HF Hub error (network, auth, 404)
         _logger.warning(
             "Could not reach HF Hub for %s — failing open (count=1)",
             hf_repo,

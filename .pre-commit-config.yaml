@@ -1,7 +1,11 @@
 repos:
   # Python linting and formatting
+  # Must track the `ruff` pin in uv.lock. Dependabot manages `uv`, `github-actions` and
+  # `terraform` only, so THIS rev is unmanaged and will drift unless bumped by hand. When the
+  # two disagree, `uv run ruff` and the commit hook give different verdicts on the same file —
+  # measured 2026-08-12, where 0.16.1 accepted 9 handlers that 0.15.22 rejected under BLE001.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.22
+    rev: v0.16.1
     hooks:
       - id: ruff
         args: [--fix]

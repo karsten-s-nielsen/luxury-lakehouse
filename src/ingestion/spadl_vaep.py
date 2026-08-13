@@ -479,7 +479,7 @@ def _try_load_champion_vaep(
 
         logger.info("Loaded VAEP @Champion models from MLflow")
         return model_scores, model_concedes
-    except Exception:  # noqa: BLE001 — MLflow registry raises many unrelated exception types on missing Champion
+    except Exception:  # MLflow registry raises many unrelated exception types on missing Champion
         logger.info("VAEP @Champion not found in MLflow registry -- will train from scratch", exc_info=True)
         return None
 
