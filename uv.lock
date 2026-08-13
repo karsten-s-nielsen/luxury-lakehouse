@@ -1983,7 +1983,7 @@ requires-dist = [
     { name = "msgpack", specifier = ">=1.2.1" },
     { name = "numpy", marker = "extra == 'analytics'", specifier = ">=1.26.0" },
     { name = "numpy", marker = "extra == 'taipy-app'", specifier = "==1.26.4" },
-    { name = "openevolve", marker = "extra == 'evolve'", specifier = ">=0.2.0" },
+    { name = "openevolve", marker = "extra == 'evolve'", specifier = ">=0.3.2" },
     { name = "optuna", marker = "extra == 'analytics'", specifier = ">=4.0" },
     { name = "optuna-integration", extras = ["mlflow"], marker = "extra == 'mlflow'", specifier = ">=4.0" },
     { name = "pandas", marker = "extra == 'analytics'", specifier = ">=2.1.0" },
@@ -2635,7 +2635,7 @@ wheels = [
 
 [[package]]
 name = "openevolve"
-version = "0.2.27"
+version = "0.3.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dacite" },
@@ -2645,9 +2645,9 @@ dependencies = [
     { name = "pyyaml" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/62/07/bb97a0fa001dc9eae80a3c23e8c50df679173489a12a27f006a31361dafc/openevolve-0.2.27.tar.gz", hash = "sha256:efe3bccfdcfeb0b01c6438ece43332eacf0fc6a844a4f5d7f9cbb9edaa2e47e0", size = 183150, upload-time = "2026-03-18T12:26:07.954Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3c/29/2186f38b76f5edac9094c3c1df67fc2a0d71e405afab9a4875dc37b3b56c/openevolve-0.3.2.tar.gz", hash = "sha256:cd41800ab54734d02a895892615a7f4b9240a6f307c82fc1df7335e89b546599", size = 197049, upload-time = "2026-07-18T13:16:40.27Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a5/07/5a6ae5a79449e57f79c096c2de79007fc5a4b1e0cf49fa19291d2b9e8cea/openevolve-0.2.27-py3-none-any.whl", hash = "sha256:0bc678ce456eb4dac9f22ffe9b062498599fb7e6596d85a14da7277550d29b9c", size = 115911, upload-time = "2026-03-18T12:26:06.625Z" },
+    { url = "https://files.pythonhosted.org/packages/d8/ab/c08b84f9f2f676a0a6000c785a315205b9e2da640c9964d703d02990e8af/openevolve-0.3.2-py3-none-any.whl", hash = "sha256:df998b0731d9c1a80883b4aae452cc43405a3e9c61b46d676d06235b4db49366", size = 119381, upload-time = "2026-07-18T13:16:38.886Z" },
 ]
 
 [[package]]
