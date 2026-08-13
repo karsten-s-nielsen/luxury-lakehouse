@@ -132,7 +132,7 @@ mlflow = [
     # ExT v2 Phase 1 harness wires Optuna's MLflowCallback for per-trial
     # logging. Optuna 4.x removed integrations from core into a separate
     # package; the [mlflow] extra here pulls the mlflow-flavoured callback.
-    "optuna-integration[mlflow]>=4.0",
+    "optuna-integration[mlflow]>=4.9.0",
 ]
 training = ["torch>=2.0", "pyarrow>=14.0", "datasets>=3.0", "safetensors>=0.4.0"]
 evolve = ["openevolve>=0.3.2"]
