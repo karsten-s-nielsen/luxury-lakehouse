@@ -256,3 +256,29 @@ ignores:
       at 2.11.0 (2.13.0 exists on PyPI but has no cu128 build). `torch.jit` is not
       referenced anywhere in this repository, so the vulnerable entry point is never called.
     review_trigger: "a cu128 build of torch >=2.13.0 appearing on download.pytorch.org/whl/cu128"
+
+  # ---------------------------------------------------------------------------------------
+  # ADDED 2026-08-21: a newly-disclosed advisory (not present when the list was last audited
+  # 2026-08-11). sqlparse's four PYSEC-2026-369x advisories are RESOLVED, not ignored —
+  # pyproject floors sqlparse>=0.6.0 (a clean forward move, patch-bumping dbt-core). datasets
+  # is BLOCKED and recorded here per the ADR-075 discipline (floor if resolvable, else ignore).
+  # ---------------------------------------------------------------------------------------
+
+  - id: PYSEC-2026-3716
+    package: datasets 4.0.0 (training extra; reported in the base resolution pip-audit audits)
+    fix_in: "5.0.1"
+    blocked_by: "datasets==5.0.1 requires pyarrow>=21.0.0, but taipy-core==4.1.1 (via the taipy-app extra) requires pyarrow>=16.0.0,<19.0 — uv lock reports no solution"
+    justification: >-
+      CVE-2026-66007 — path traversal in datasets' folder-based dataset builders: an
+      unvalidated `file_name` metadata field is joined to the dataset directory, so a crafted
+      `file_name` with directory-traversal sequences can read arbitrary local files, embedded
+      into output when `save_to_disk` / `push_to_hub` is called (fixed in 5.0.1). VERIFIED
+      2026-08-21 by attempting the floor: BLOCKED — `uv lock` with `datasets>=5.0.1` has no
+      solution because datasets 5.0.1 needs pyarrow>=21.0.0 while taipy-core 4.1.1 caps
+      pyarrow<19.0, making the [training] and [taipy-app] extras unsatisfiable together. Not
+      exploitable in our usage: the training scripts build datasets from our own gold Delta
+      data and load only first-party HF repos (the `luxury-lakehouse` org) plus public
+      open-data — the `file_name` metadata is authored by us, never attacker-controlled.
+    review_trigger: >-
+      a taipy-core release relaxing the pyarrow <19.0 cap (which would let datasets>=5.0.1
+      resolve), OR a datasets fix release that no longer requires pyarrow>=21.0.0

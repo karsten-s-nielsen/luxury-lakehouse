@@ -57,7 +57,7 @@ jobs:
           DATABRICKS_HOST: https://example.databricks.com
           DATABRICKS_HTTP_PATH: /sql/1.0/warehouses/dummywarehouseid0
           DATABRICKS_TOKEN: dummy
-        run: uvx --from "dbt-core==1.11.12" dbt deps --project-dir dbt_project --profiles-dir dbt_project
+        run: uvx --from "dbt-core==1.11.14" dbt deps --project-dir dbt_project --profiles-dir dbt_project
 
       - name: Install dependencies
         run: uv sync --frozen --extra analytics

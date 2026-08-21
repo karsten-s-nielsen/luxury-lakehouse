@@ -55,6 +55,9 @@ dependencies = [
     # Transitive dep (matplotlib / taipy). Floored to >=12.3.0 to resolve the PYSEC-2026-2253,
     # -2254, -2255, -2256, -2257 batch (pillow < 12.3.0) in one bump. No parent caps pillow.
     "pillow>=12.3.0",
+    # Transitive dep (dbt-core). Floored to >=0.6.0 to resolve PYSEC-2026-3696 / -3697 / -3698 /
+    # -3699 (sqlparse < 0.6.0 parsing vulnerabilities), all fixed in 0.6.0.
+    "sqlparse>=0.6.0",
     # Workflow framework (card parsing + validation)
     "pydantic>=2.0",
     "PyYAML>=6.0",
