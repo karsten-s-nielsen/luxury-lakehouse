@@ -46,6 +46,7 @@ _EXPECTED_CHECKABLE_IDS = {
     "PYSEC-2026-1605",  # marshmallow — taipy-rest caps <=3.21.2
     "PYSEC-2026-160",  # twisted — taipy-gui caps <24.8.0
     "PYSEC-2025-194",  # torch — the cu128 index publishes nothing above 2.11.0
+    "PYSEC-2026-3716",  # datasets — taipy-core caps pyarrow <19.0; datasets 5.0.1 needs >=21.0.0
 }
 
 #: Entries with NO patched release upstream. The probe cannot test these; each must name the
