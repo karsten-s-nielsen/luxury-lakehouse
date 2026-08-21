@@ -41,3 +41,8 @@ dbt_build_input_marts,wf-dbt-build-input-marts
 dbt_build_intermediate_marts,wf-dbt-build-intermediate-marts
 dbt_build_output_marts,wf-dbt-build-output-marts
 publish_spadl_vaep,wf-publish-spadl-vaep
+bravery_writer,wf-bravery
+defensive_credit_writer,wf-defensive-credit
+gkdv_writer,wf-gkdv
+off_ball_runs_writer,wf-off-ball-xt
+xt_gk_v2_writer,wf-xt-gk-v2-writer

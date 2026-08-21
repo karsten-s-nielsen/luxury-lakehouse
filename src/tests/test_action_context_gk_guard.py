@@ -16,20 +16,15 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _MART_SQL = _REPO_ROOT / "dbt_project" / "models" / "marts" / "fct_action_context.sql"
 _SINGULAR_TEST = _REPO_ROOT / "dbt_project" / "tests" / "assert_xt_gk_contamination_bounded.sql"
 
-# The full xt_gk value family that MUST be excluded (NULLed) on a contaminated match — the
-# scored value + presets + raw components + completion. Provenance/coord columns are retained.
+# The xt_gk_v2 value family that MUST be excluded (NULLed) on a contaminated match — the composite +
+# its 4 signed terms + completion (spec §7.4: v2 replaces the retired v1 metric; the guard was re-keyed
+# from xt_gk onto xt_gk_v2). gk_geometry_source + the resolved-coordinate columns are retained for audit.
 _XT_GK_VALUE_COLUMNS = (
-    "xt_gk",
-    "xt_gk_possession",
-    "xt_gk_counter",
-    "xt_gk_direct",
-    "xt_gk_high_press",
-    "xt_gk_low_block",
-    "xt_gk_base",
-    "xt_gk_pev",
-    "xt_gk_rav",
-    "xt_gk_dzv",
-    "xt_gk_pressure",
+    "xt_gk_v2_position",
+    "xt_gk_v2_pev",
+    "xt_gk_v2_retention_loss",
+    "xt_gk_v2_dzv",
+    "xt_gk_v2",
     "gk_completion",
 )
 

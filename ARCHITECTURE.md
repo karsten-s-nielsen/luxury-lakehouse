@@ -903,23 +903,30 @@ Consolidated list of academic citations referenced across UI pages and analytics
 |---|---|---|
 | Anzer & Bauer (2022) | "A Goal Scoring Probability Model for Shots Based on Synchronized Positional and Event Data in Football and Floorball." *Machine Learning 111(6)*. DOI: 10.1007/s10994-021-06011-5 | Heat Map page |
 | Bekkers & Dabadghao (2025) | "Flow Motifs in Soccer: How Teams Play." *arXiv:2506.23843* | Team Shape page |
+| Bischofberger & Baca (2026) | "Dangerous accessible space: a unified model of space and value in team sports." *Journal of Big Data 13:76* (package: `accessible-space`) | GKDV accessible-space arm (`gkdv_delta_das_*`) in `fct_gk_shot_stopping_pooled`, `wf-gkdv` (silly-kicks TF-19/TF-28) |
+| Bischofberger, Bauer & Baca (2026) | "Blame is easier than praise." *arXiv:2606.19931* | Defensive-credit xT(origin) turnover sizing (`defensive_credit_*`) in `fct_action_defensive` / `fct_defensive_credit_attributions`, `wf-defensive-credit` (silly-kicks TF-51; published, validated precedent — rules engine itself is silly-kicks-native) |
 | Bourbousson, Sève & McGarry (2010) | "Space-time coordination dynamics in basketball." *Journal of Sports Sciences 28(3)* | Team Shape page |
 | Butcher et al. (2025) | "An Expected Goals On Target (xGOT) Model." *MDPI* (DOI: 10.1515/jqas-2024-0091) | Goalkeeper Analytics, `wf-goalkeeper`, `wf-import-psxg`, `wf-export-shots` |
 | Cao, Y. et al. (2025) | "Framing Causal Questions in Sports Analytics: A Case Study of Crossing in Soccer." *arXiv:2505.11841* | xCrossAttempt (`xcross_attempt`) in `fct_action_context`, `wf-action-context` (silly-kicks TF-17; state-anchored, inspired-by) |
 | Danesi, P. (2025) | "Football2Vec: Transformer-Based Player Embeddings." | Player Similarity, `src/analytics/football2vec_transformer.py`, `wf-football2vec-v2` |
 | Decroos, Bransen, Van Haaren & Davis (2019) | "Actions Speak Louder than Goals: Valuing Player Actions in Soccer." *KDD* | Action Values, Player Radar, Match Summary (Big Story VAEP ranking), `wf-vaep` |
 | Donnelly (2024) | "Systematic Approach to Performance Analysis." (course materials) | Conversion Funnel page |
+| Esposito et al. (2026) | "Off-ball movement analysis in elite football." *International Journal of Sports Science & Coaching*. DOI: 10.1177/17479541261427153 | Off-ball run valuation (target-vs-disruptive framing) in `fct_off_ball_runs`, `wf-off-ball-xt` (silly-kicks TF-35; framing only — no estimator or numeric taken) |
 | Eyestone (course materials) | "xT-GK: Expected Threat for Goalkeepers." (course materials) | Goalkeeper Analytics (Distribution Value — signed xT-GK per distribution), `wf-goalkeeper` |
 | Frencken, Lemmink, Delleman & Visscher (2011) | "Oscillations of centroid position and surface area of soccer teams in small-sided games." *Journal of Sports Sciences 29(14)* | Team Shape page |
 | Ganin et al. (2016) | "Domain-Adversarial Training of Neural Networks." *JMLR 17* | Player Similarity (gradient reversal for adversarial debiasing) |
+| Goes, Kempe, Meerhoff & Lemmink (2019) | "Not Every Pass Can Be an Assist: A Data-Driven Model to Measure Pass Effectiveness in Professional Soccer Matches." *Big Data 7(1)*. DOI: 10.1089/big.2018.0067 | Packing (`packing_net`) in `fct_action_context`, `wf-packing` (silly-kicks TF-49; peer-reviewed outplayed-defender formalization; commercial origin IMPECT / Reinartz & Hegeler) |
 | Karakus, O. & Arkadas, H. (2026) | "Structural Pass Analysis in Football: Learning Pass Archetypes and Tactical Impact from Spatio-Temporal Tracking Data." *arXiv:2603.28916* | Structural pass (`structural_lbs`/`structural_sgm`/`structural_sdi`) in `fct_action_context`, `wf-action-context` |
 | Kim, H.S. et al. (2025) — ELASTIC | "ELASTIC: Event-Tracking Data Synchronization in Soccer Without Annotated Event Locations." *ECML-PKDD MLSA* (arXiv:2508.09238) | Pass Timing page, `wf-elastic-sync` |
 | Kim, H.S. et al. (2025) — DEFCON | "Better Prevent than Tackle: Valuing Defense in Soccer Based on Graph Neural Networks." *arXiv:2512.10355* | Defensive Valuation page, `wf-defcon`, `src/analytics/defcon_lite.py` |
 | Lamberts (2025) | Goalkeeper Distribution Value Model. DOI: 10.1007/978-3-031-31772-9_19 | Goalkeeper Analytics |
+| Le, Yue, Carr & Lucey (2017) | "Data-Driven Ghosting Using Deep Imitation Learning." *MIT Sloan Sports Analytics Conference* | GKDV ghost-substitution counterfactual (`gkdv_*`) in `fct_gk_shot_stopping_pooled`, `wf-gkdv` (silly-kicks TF-18/TF-19) |
 | Lee, Jo, Hong, Bauer & Ko (2026) | "Valuing La Pausa" (PAUSA). *MIT Sloan Sports Analytics Conference 2026* | Pass Timing page, `wf-obso-pausa` |
 | Pena & Touchette (2012) | "A network theory analysis of football strategies." *arXiv:1206.6904* | Pass Network page |
 | Pipping-Gamón, Feng & Sabin (2026) | "Beyond Expected Goals: A Probabilistic Framework for Shot Occurrences in Soccer." *arXiv:2512.00203* | xShotOccurrence (xS) in `fct_action_context`, `wf-action-context` |
+| Power, Ruiz, Wei & Lucey (2017) | "Not all passes are created equal: Objectively measuring the risk and reward of passes in soccer from tracking data." *KDD '17* | Off-ball run detection (`_off_ball_runs`) in `fct_off_ball_runs`, `wf-off-ball-xt`, and OBSO receiver-zone risk/reward (silly-kicks TF-4/TF-35; inspired-by) |
 | Robberechts & Davis (2020) | "How Data Availability Affects the Ability to Learn Good xG Models." | Match Summary, Shot Map, `wf-xg-v2` (replaced Rathke per D56 Option A, 2026-04-13; v1 retired SK3-MIG-B 2026-05-03 per ADR-023) |
+| Shaw & Sudarshan (2020) | "A Framework for Tactical Analysis and Individual Offensive Production Assessment in Soccer Using Markov Models." | GKDV threat-suppression arm (`gkdv_delta_threat_*`) in `fct_gk_shot_stopping_pooled`, `wf-gkdv` (silly-kicks TF-19; source of the `lambda_gk = 3 * lambda_outfield` constant) |
 | Shazeer, N. (2020) | "GLU Variants Improve Transformer." *arXiv:2002.05202* | `src/analytics/scoutgpt_decoder.py` (swiglu branch), `wf-scoutgpt` |
 | Singh, Karun (2018) | "Introducing Expected Threat (xT)." (blog: karun.in/blog/expected-threat.html) | Movement & Pressing, `wf-xt-grids`, `wf-off-ball-xt` |
 | Sotudeh, H. (2026) | "Identification of Team Tactical Formations and Player Positions in Association Football." *PhD thesis, ETH Zurich (DISS. ETH NO. 31732)*. Published: *npj Complexity*, DOI: 10.1038/s44260-025-00047-x | Tactical Positions, `src/analytics/shape_graph_construction.py`, `wf-shape-graphs` |
@@ -928,6 +935,7 @@ Consolidated list of academic citations referenced across UI pages and analytics
 | Suzuki et al. (2019) | "Team Tactics Estimation in Soccer Videos Based on a Deep Extreme Learning Machine and Characterized by Distance Matrices." DOI: 10.1515/jqas-2019-0060 | Pass Map page |
 | Tancik, M. et al. (2020) | "Fourier Features Let Networks Learn High Frequency Functions in Low Dimensional Domains." *arXiv:2006.10739* | `src/analytics/scoutgpt_decoder.py` (fourier_cross_attention branch), `wf-scoutgpt` |
 | Trainor & Chassy (2021) | "Psychological and Physiological Impact of Soccer's Transition Periods." *Frontiers in Psychology 11*. DOI: 10.3389/fpsyg.2020.531688 | Match Summary page |
+| Vidal-Codina, Evans, El Fakir & Billingham (2022) | "Automatic Event Detection in Football Using Tracking Data." *Sports Engineering 25:18* | Ball-carrier inference for off-ball run detection in `fct_off_ball_runs`, `wf-off-ball-xt` (silly-kicks TF-4; possession-hysteresis inspired-by) |
 
 **Notes on the D56 audit (2026-04-13):**
 

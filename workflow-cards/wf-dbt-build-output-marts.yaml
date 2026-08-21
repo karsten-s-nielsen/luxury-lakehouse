@@ -166,6 +166,20 @@ outputs:
     - id: "{catalog}.dev_gold.fct_xg_predictions_v2"
       destination: delta-table
       dbt_model: fct_xg_predictions_v2
+    # silly-kicks 4.87.0 full-adoption Rev-6 marts (output_mart tag). Placed in the
+    # OUTPUT stage per each mart's own SQL config tag + lineage: fct_action_defensive
+    # ref()s fct_shot_xg (itself output_mart); fct_off_ball_runs / fct_defensive_credit_attributions
+    # ref() fct_action_values (intermediate) + new-bronze staging and sit at the same
+    # dependency depth as fct_action_context (output_mart).
+    - id: "{catalog}.dev_gold.fct_action_defensive"
+      destination: delta-table
+      dbt_model: fct_action_defensive
+    - id: "{catalog}.dev_gold.fct_defensive_credit_attributions"
+      destination: delta-table
+      dbt_model: fct_defensive_credit_attributions
+    - id: "{catalog}.dev_gold.fct_off_ball_runs"
+      destination: delta-table
+      dbt_model: fct_off_ball_runs
 
 execution:
   ingestion:

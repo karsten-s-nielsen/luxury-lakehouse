@@ -84,3 +84,7 @@ exemptions:
   - file: src/ingestion/action_context.py
     function: _run_profile_on_driver
     reason: "`profile_action_context` observability path only (never the daily for_each job). `trk_sdf` is pre-filtered to ONE match_id upstream (per-provider branch in `_process_tracking_match`), so this pulls a single match's tracking (~150–300 MB; skillcorner ~1.3M rows, IDSSE ~1.5M rows) to the 16 GB driver for single-process cProfile. Bounded by one-match grain."
+
+  - file: src/ingestion/tracking_marts_driver.py
+    function: _read_unit
+    reason: "`trk` is pre-filtered to ONE (match_id, period) upstream (per-provider `.filter(match_id==... & period==...)` in this function), so it pulls a single (match, period) half's tracking (~150 MB; IDSSE ~1.5M rows / period) to the 16 GB driver. Same one-unit-grain bound + driver posture as action_context.py::_run_profile_on_driver — the Rev-6 grain marts' off-ball-run / defensive-credit functions are whole-unit computations that cannot be frame-batched (they link every action to its nearest frame across the unit). The sibling `actions_pdf` toPandas in this function is AST-bounded (`.filter(...)` in-chain)."

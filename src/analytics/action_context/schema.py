@@ -14,10 +14,16 @@ import numpy as np
 if TYPE_CHECKING:
     import pandas as pd
 
-# 152 columns total (151 output + _ingested_at). The authoritative source is this list itself;
+# 165 columns total (164 output + _ingested_at). The authoritative source is this list itself;
 # ACTION_CONTEXT_DDL must declare the SAME columns in the SAME order — enforced by
 # test_action_context_schema_parity.py (do not hand-maintain a category breakdown here; it drifted
 # to a stale total before and the parity test is the real guard).
+# (spec §7.4 / ADR xtgk-v2: the 16 v1 xt_gk METRIC columns — xt_gk, the 5 philosophy presets,
+#  base/pev/rav/dzv/pressure, and the 5 origin/dest/completion provenance columns — are RETIRED from
+#  the drain; xt_gk_v2 replaces them as a MART-JOIN column set fed by ingestion.xt_gk_v2_writer, NOT a
+#  drain column. The 4 xt_gk_origin_x/_y + xt_gk_dest_x/_y RESOLVED-coordinate columns are KEPT — they
+#  are the v2 writer's geometry bridge (silly-kicks xtgk.apply_resolved_gk_geometry reads them by
+#  default). gk_completion is KEPT — a distinct add_gk_completion call, unaffected by v2.)
 # (ADR-056: game_state + GK action-sequence flags removed — actions-level, served
 #  by fct_action_values; defending_gk_player_id_native kept for the key resolution.)
 # (F1 2026-07-11: is_gk_distribution added — GK-distribution domain marker, silly-kicks 4.43.0.)
@@ -159,10 +165,9 @@ RESULT_COLUMNS: list[str] = [
     "shape_graph_density_defending",
     "shape_graph_n_edges_defending",
     "shape_graph_mean_stability_defending",
-    # Ghost-GK (3) — spread renamed to density_spread (silly-kicks 4.14.0; served value = boosted mean)
+    # Ghost-GK (2) — silly-kicks 4.87.0 retired ghost_gk_density_spread (ghost_gk_xfns 9→6-col)
     "ghost_gk_x",
     "ghost_gk_y",
-    "ghost_gk_density_spread",
     # Structural pass (TF-45; Karakus & Arkadas 2026, arXiv:2603.28916) (3)
     "structural_lbs",
     "structural_sgm",
@@ -193,32 +198,18 @@ RESULT_COLUMNS: list[str] = [
     "shot_fit_rmse",
     "shot_fit_end_reason",
     "shot_z_profile",
-    # xT-GK (Eyestone; silly-kicks 4.21.0/4.22.0, ADR-024 upstream) — GK-distribution
-    # valuation. Composite stored per philosophy preset (default = `xt_gk`; the deck's named
-    # presets as suffixed columns — δ/η enter the rav/temporal terms, so other presets are
-    # NOT client-side derivable from the stored components). Components + provenance stored
-    # once from the default-params run. (16)
-    "xt_gk",
-    "xt_gk_possession",
-    "xt_gk_counter",
-    "xt_gk_direct",
-    "xt_gk_high_press",
-    "xt_gk_low_block",
-    "xt_gk_base",
-    "xt_gk_pev",
-    "xt_gk_rav",
-    "xt_gk_dzv",
-    "xt_gk_pressure",
-    "xt_gk_origin_source",
-    "xt_gk_dest_source",
-    "xt_gk_origin_confidence",
-    "xt_gk_completion_variant",
-    "xt_gk_completion_source",
-    # Resolved-coordinate audit (silly-kicks 4.36.0 `_COORD_COLS`) — the EXACT origin/destination the
-    # grid lookups used, including the imputed ~67% of goal-kick origins. LTR SPADL meters
-    # (x∈[0,105], y∈[0,68]); NaN off-scope. Audit-only: deliberately NOT VAEP features (upstream keeps
-    # them out of `_OUTPUT_COLS`), carried for per-row external auditability + end-to-end orientation
-    # verification of every `xt_gk`. Additive — no existing `xt_gk_*` value changes (4.36.0 CHANGELOG). (4)
+    # xT-GK v1 METRIC columns RETIRED (spec §7.4 / ADR xtgk-v2 replaces v1): xt_gk, the 5 philosophy
+    # presets (possession/counter/direct/high_press/low_block — NO v2 successor, a known capability
+    # regression), base/pev/rav/dzv/pressure, and origin_source/dest_source/origin_confidence/
+    # completion_variant/completion_source. xt_gk_v2 replaces them as a MART-JOIN column set
+    # (ingestion.xt_gk_v2_writer → bronze.xt_gk_v2_predictions → stg_xt_gk_v2 → fct_action_context LEFT
+    # JOIN), NOT a drain column. See the header note.
+    #
+    # Resolved-coordinate columns (silly-kicks 4.36.0 `_COORD_COLS`) — KEPT as the v2 writer's geometry
+    # bridge: silly-kicks `xtgk.apply_resolved_gk_geometry` reads exactly these column names by default
+    # to override the GK-distribution start/end coords with gold's resolved keeper geometry (the writer
+    # has no tracking frames of its own). The drain still produces them via `resolve_gk_geometry`.
+    # LTR SPADL meters (x∈[0,105], y∈[0,68]); NaN off-scope. (4)
     "xt_gk_origin_x",
     "xt_gk_origin_y",
     "xt_gk_dest_x",
@@ -234,8 +225,49 @@ RESULT_COLUMNS: list[str] = [
     "is_gk_distribution",
     # Pitch-control provenance for the persisted pitch-control-derived metrics (1)
     "pitch_control_method",
-    # Ghost-GK backend provenance — the resolved kde_backend per row (scopes to ghost_gk_* only) (1)
-    "ghost_gk_method",
+    # === silly-kicks 4.87.0 DRAIN-NATIVE columns (spec §7.1 / §7.3) — 23 total ===
+    # Real-xT OBSO provenance (4.52; xt= on obso/pausa/space): "xt"/"synthetic"/"injected", NA off-domain (1)
+    "obso_epv_source",
+    # Off-ball run values (TF-35, 4.52; add_off_ball_run_values) (5)
+    "run_value_target",
+    "run_value_disruptive_sum",
+    "run_value_enabled_pass",
+    "n_disruptive_runs",
+    "n_valued_disruptive_runs",
+    # Press commitment (TF-51, 4.61; add_press_commitment) (3)
+    "press_commitment",
+    "press_commitment_closing_speed",
+    "press_commitment_source",
+    # Packing (TF-49, 4.50; add_packing) — receiver player id is a native-id passthrough (STRING) (5)
+    "packing_made",
+    "packing_goal_threat",
+    "packing_net",
+    "packing_receiver_player_id",
+    "packing_secured",
+    # Provenance free-ride (add_das / add_ghost_gk already called) (2)
+    "das_source",
+    "ghost_gk_source",
+    # Cover-shadow single-defender id free-ride (add_cover_shadows(detailed=True) already called) (1)
+    "max_single_defender_player_id",
+    # team_shape gap columns free-ride (add_team_shape emits 20; we carried 14, now carry 20) (6)
+    "team_shape_defensive_line_height_attacking",
+    "team_shape_defensive_line_height_defending",
+    "team_shape_inter_line_gap_1_attacking",
+    "team_shape_inter_line_gap_1_defending",
+    "team_shape_inter_line_gap_2_attacking",
+    "team_shape_inter_line_gap_2_defending",
+    # Visibility coverage (silly-kicks 4.87.0; spec §7.1/§7.5) — SB360-only, empty until SB360 AC is
+    # enabled (ADR-058) but shipped in the schema/contract now. add_visible_area_coverage emits the 2
+    # base cols (observed pitch fraction + provenance); add_action_context(visible_area=) emits the 6
+    # *_observed_* companions (fraction DOUBLE + source STRING per count feature). (8)
+    "visible_area_fraction",
+    "visible_area_source",
+    "nearest_defender_distance_observed_fraction",
+    "nearest_defender_distance_observed_source",
+    "receiver_zone_density_observed_fraction",
+    "receiver_zone_density_observed_source",
+    "defenders_in_triangle_to_goal_observed_fraction",
+    "defenders_in_triangle_to_goal_observed_source",
     # Audit (1)
     "_ingested_at",
 ]
@@ -294,7 +326,7 @@ ACTION_CONTEXT_DDL = (
     "shape_graph_mean_stability_attacking DOUBLE, "
     "shape_graph_density_defending DOUBLE, shape_graph_n_edges_defending BIGINT, "
     "shape_graph_mean_stability_defending DOUBLE, "
-    "ghost_gk_x DOUBLE, ghost_gk_y DOUBLE, ghost_gk_density_spread DOUBLE, "
+    "ghost_gk_x DOUBLE, ghost_gk_y DOUBLE, "
     "structural_lbs BIGINT, structural_sgm DOUBLE, structural_sdi DOUBLE, "
     "actor_reachable_area_m2 DOUBLE, off_ball_xt_team DOUBLE, off_ball_xt_opponent DOUBLE, "
     "off_ball_xt_diff DOUBLE, reachable_area_team DOUBLE, reachable_area_opponent DOUBLE, "
@@ -305,16 +337,30 @@ ACTION_CONTEXT_DDL = (
     "shot_crossing_source STRING, shot_crossing_confidence DOUBLE, "
     "shot_fit_n_frames DOUBLE, shot_fit_rmse DOUBLE, shot_fit_end_reason STRING, "
     "shot_z_profile STRING, "
-    "xt_gk DOUBLE, xt_gk_possession DOUBLE, xt_gk_counter DOUBLE, xt_gk_direct DOUBLE, "
-    "xt_gk_high_press DOUBLE, xt_gk_low_block DOUBLE, "
-    "xt_gk_base DOUBLE, xt_gk_pev DOUBLE, xt_gk_rav DOUBLE, xt_gk_dzv DOUBLE, "
-    "xt_gk_pressure DOUBLE, "
-    "xt_gk_origin_source STRING, xt_gk_dest_source STRING, xt_gk_origin_confidence DOUBLE, "
-    "xt_gk_completion_variant STRING, xt_gk_completion_source STRING, "
+    # xT-GK v1 metric columns RETIRED (spec §7.4 — xt_gk_v2 replaces them as a mart-join). The 4
+    # resolved-coordinate columns below are KEPT as the v2 writer's geometry bridge.
     "xt_gk_origin_x DOUBLE, xt_gk_origin_y DOUBLE, xt_gk_dest_x DOUBLE, xt_gk_dest_y DOUBLE, "
     "gk_completion DOUBLE, "
     "is_gk_distribution BOOLEAN, "
-    "pitch_control_method STRING, ghost_gk_method STRING, "
+    "pitch_control_method STRING, "
+    # silly-kicks 4.87.0 DRAIN-NATIVE columns (spec §7.1) — MUST stay in exact name+order
+    # parity with RESULT_COLUMNS (test_action_context_schema_parity).
+    "obso_epv_source STRING, "
+    "run_value_target DOUBLE, run_value_disruptive_sum DOUBLE, run_value_enabled_pass DOUBLE, "
+    "n_disruptive_runs BIGINT, n_valued_disruptive_runs BIGINT, "
+    "press_commitment DOUBLE, press_commitment_closing_speed DOUBLE, press_commitment_source STRING, "
+    "packing_made BIGINT, packing_goal_threat BIGINT, packing_net DOUBLE, "
+    "packing_receiver_player_id STRING, packing_secured BOOLEAN, "
+    "das_source STRING, ghost_gk_source STRING, max_single_defender_player_id STRING, "
+    "team_shape_defensive_line_height_attacking DOUBLE, team_shape_defensive_line_height_defending DOUBLE, "
+    "team_shape_inter_line_gap_1_attacking DOUBLE, team_shape_inter_line_gap_1_defending DOUBLE, "
+    "team_shape_inter_line_gap_2_attacking DOUBLE, team_shape_inter_line_gap_2_defending DOUBLE, "
+    # Visibility coverage (silly-kicks 4.87.0; spec §7.1/§7.5) — SB360-only. 2 base + 6 *_observed_*
+    # companions. Must stay in exact name+order parity with RESULT_COLUMNS (test_action_context_schema_parity).
+    "visible_area_fraction DOUBLE, visible_area_source STRING, "
+    "nearest_defender_distance_observed_fraction DOUBLE, nearest_defender_distance_observed_source STRING, "
+    "receiver_zone_density_observed_fraction DOUBLE, receiver_zone_density_observed_source STRING, "
+    "defenders_in_triangle_to_goal_observed_fraction DOUBLE, defenders_in_triangle_to_goal_observed_source STRING, "
     "_ingested_at TIMESTAMP"
 )
 

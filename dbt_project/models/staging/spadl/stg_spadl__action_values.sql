@@ -104,6 +104,11 @@ cleaned as (
         result_source,
         cast(bodypart_id as int)                        as bodypart_id,
         bodypart,
+        -- silly-kicks 4.56 / 4.86.0 SPADL block flags (BOOLEAN nullable), carried through from
+        -- bronze.vaep_action_values. shot_blocked = blocked shot; cross_blocked = blocked open-play
+        -- cross (StatsBomb flipped all-NA → real mask at 4.86.0). Feed defensive-credit (spec §7.2/§7.5).
+        cast(shot_blocked as boolean)                   as shot_blocked,
+        cast(cross_blocked as boolean)                  as cross_blocked,
 
         -- VAEP scores
         offensive_value,

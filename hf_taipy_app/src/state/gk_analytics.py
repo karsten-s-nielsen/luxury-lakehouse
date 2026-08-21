@@ -235,7 +235,7 @@ def _reset_distribution_tiles(state: Any) -> None:
 
 
 def _refresh_distribution(state: Any, comp_key: int, gk_key: int) -> None:
-    """ADR-060 2-axis profile: threat (% of distributions that add xT-GK) x style (forward
+    """ADR-060 2-axis profile: threat (% of distributions that add xT-GK v2) x style (forward
     progression), positioned in the competition cohort. Replaces the degenerate game-model ladder."""
     try:
         prof = fetch_distribution_profile(comp_key)
@@ -255,9 +255,14 @@ def _refresh_distribution(state: Any, comp_key: int, gk_key: int) -> None:
     r = mine.iloc[0]
     share = float(r["share_adds_threat"])
     prog = float(r["mean_progress_m"])
-    val = float(r["mean_xtgk"])
+    val = float(r["mean_xtgk"])  # xt_gk_v2 composite mean
     compl = float(r["mean_completion"])
     n = int(r["n_distributions"])
+    # xt_gk_v2 composite decomposes additively into 4 terms (spec §7.4 UX: composite + its 4 terms).
+    v2_position = _fmt(float(r["mean_v2_position"]), "{:+.3f}")
+    v2_pev = _fmt(float(r["mean_v2_pev"]), "{:+.3f}")
+    v2_retention = _fmt(float(r["mean_v2_retention_loss"]), "{:+.3f}")
+    v2_dzv = _fmt(float(r["mean_v2_dzv"]), "{:+.3f}")
 
     has_cohort = len(prof) >= _MIN_COHORT
     share_med = float(prof["share_adds_threat"].median()) if has_cohort else None
@@ -272,7 +277,11 @@ def _refresh_distribution(state: Any, comp_key: int, gk_key: int) -> None:
         f"{threat_pos} · median {share_med:.0%}" if share_med is not None else f"cohort too small (n={len(prof)})"
     )
     state.gka_value_val = f"{val:+.3f}"
-    state.gka_value_detail = "xT-GK per distribution (signed; the keeper norm is negative)"
+    # Composite + its 4 additive terms (UX §7.4): scale + direction captioned per the UI standard.
+    state.gka_value_detail = (
+        "xT-GK v2 / distribution (signed xG units, higher = better; keeper norm is negative) · "
+        f"position {v2_position}, pressure {v2_pev}, retention {v2_retention}, deep-zone {v2_dzv}"
+    )
     state.gka_style_val = f"{prog:.0f} m forward"
     state.gka_style_detail = f"{compl:.0%} completion · short-safe ↔ long-direct"
 
@@ -303,9 +312,9 @@ def _refresh_distribution(state: Any, comp_key: int, gk_key: int) -> None:
     )
     body = (
         f"He adds threat on <b>{share:.0%}</b> of his distributions{cohort_clause}, at {prog:.0f} m average "
-        f"forward progression and {compl:.0%} completion. {verdict.detail.capitalize()}. xT-GK is ~97% "
-        f"negative across keepers, so the headline is the SHARE of distributions that add threat — not the "
-        f"(negative) average value of {val:+.3f}. n={n} distributions."
+        f"forward progression and {compl:.0%} completion. {verdict.detail.capitalize()}. xT-GK v2 is signed "
+        f"and mostly negative across keepers, so the headline is the SHARE of distributions that add threat — "
+        f"not the (negative) average value of {val:+.3f}. n={n} distributions."
     )
     state.gka_dist_story = render_big_story_html(verdict, body=body)
 

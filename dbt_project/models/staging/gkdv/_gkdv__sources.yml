@@ -1,0 +1,31 @@
+version: 2
+
+sources:
+  - name: gkdv
+    description: >
+      Per-keeper-pooled GKDV (GK Deterrent Value) (spec §7.5, Task 17h). Written by the
+      ingestion.gkdv_writer ADR-013 writer: per tracking work unit it reconstructs the oriented frames
+      the AC drain builds, runs silly-kicks 4.87.0 build_ghost_frames + delta_das/delta_threat_suppression
+      over the SCORED, DEFENDING-keeper frames only (dropped/off-domain frames are excluded so their
+      byte-identical zero-delta never biases the aggregate toward the null — review-4 B1), then
+      aggregate_by_keeper partitioned by (competition, season). Feeds fct_gk_shot_stopping_pooled. The
+      table is CREATE-IF-NOT-EXISTS'd by scripts/migrations/2026-08-20-add-marts2-bravery-gkdv-bronze.sql
+      so the staging view resolves (empty) before the Part-B scoring run (Task 22b) populates it. Requires
+      the silly-kicks [das] extra (accessible-space). gkdv API is evolving upstream — pinned to 4.87.0.
+    database: soccer_analytics
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 168, period: hour}
+        error_after: {count: 336, period: hour}
+
+    tables:
+      - name: gkdv_keeper_pooled
+        description: >
+          One row per (data_source, native player_id, native competition_id, native season_id). Both arms
+          (delta_das / delta_threat_suppression) are in ATTACKER-VALUE units, so negative = deterrent.
+          gate_eligible encodes the registered clustering floors (>=20 nonzero observations AND >=2
+          distinct matches). player_id / competition_id / season_id are NATIVE (surrogates resolve in
+          stg_gkdv).

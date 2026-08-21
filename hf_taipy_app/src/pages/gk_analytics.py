@@ -53,16 +53,18 @@ page_config = PageConfig(
                     "Adds threat",
                     "gka_threat_val",
                     detail_var="gka_threat_detail",
-                    help_text="Share of his distributions that ADD threat (xT-GK above 0). The headline "
-                    "signal: xT-GK is ~97% negative across keepers, so the share that adds threat varies "
-                    "meaningfully while the average barely does.",
+                    help_text="Share of his distributions that ADD threat (xT-GK v2 above 0). The headline "
+                    "signal: xT-GK v2 is signed and mostly negative across keepers, so the share that adds "
+                    "threat varies meaningfully while the average barely does.",
                 ),
                 StatCard(
                     "Value / distribution",
                     "gka_value_val",
                     detail_var="gka_value_detail",
-                    help_text="Mean xT-GK per distribution (signed; the keeper norm is mildly negative). Shown "
-                    "for completeness — the % that adds threat is the better headline.",
+                    help_text="Mean xT-GK v2 composite per distribution (signed xG units, higher = better; the "
+                    "keeper norm is mildly negative). The detail line breaks out its 4 terms — position, "
+                    "pressure, retention, deep-zone. Shown for completeness — the % that adds threat is the "
+                    "better headline.",
                 ),
                 StatCard(
                     "Distribution style",

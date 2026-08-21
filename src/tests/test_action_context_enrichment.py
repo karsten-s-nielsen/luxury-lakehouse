@@ -55,13 +55,24 @@ def _make_actions(n: int = 5) -> pd.DataFrame:
 
 
 def _make_tracking(n_frames: int = 50) -> pd.DataFrame:
-    """Minimal tracking DataFrame."""
+    """Minimal tracking DataFrame.
+
+    Carries ``game_id``/``period_id``/``is_ball``/``is_goalkeeper`` because the enrich
+    chain resolves the per-work-unit direction map ONCE via
+    ``resolve_defended_goals(tracking_df)`` (silly-kicks 4.53+), which reads those columns
+    (``is_ball``/``is_goalkeeper`` to split ball vs GK vs outfield; ``game_id``/``period_id``/
+    ``team_id`` as the group key). Real tracking frames always carry them; the mock must too.
+    """
     return pd.DataFrame(
         {
+            "game_id": ["m1"] * n_frames,
             "frame_id": list(range(n_frames)),
+            "period_id": [1] * n_frames,
             "timestamp": [float(i * 0.04) for i in range(n_frames)],
             "player_id": ["p1"] * n_frames,
             "team_id": ["t1"] * n_frames,
+            "is_ball": [False] * n_frames,
+            "is_goalkeeper": [False] * n_frames,
             "x": [50.0] * n_frames,
             "y": [34.0] * n_frames,
         }
@@ -107,7 +118,7 @@ def test_sb360_zero_frames_yields_no_rows() -> None:
 
 
 def test_enrich_tracking_calls_all_steps_with_links() -> None:
-    """Tracking chain must call all 24 add_* steps and propagate links."""
+    """Tracking chain must call every add_* step and propagate links + the direction goal_map."""
     actions = _make_actions()
     tracking = _make_tracking()
     mock_links = _make_mock_links(actions)
@@ -156,6 +167,13 @@ def test_enrich_tracking_calls_all_steps_with_links() -> None:
         patch("silly_kicks.tracking.add_structural_pass", _PASSTHROUGH),
         patch("silly_kicks.tracking.features.add_player_influence", _PASSTHROUGH),
         patch("silly_kicks.tracking.add_xcross_attempt", _PASSTHROUGH),
+        # silly-kicks 4.52+ tracking-only steps added to the chain (TF-48 shot-goalmouth,
+        # TF-35 off-ball run-values, TF-51 press-commitment, TF-49 packing) — patched so the real
+        # geometry/model kernels don't run on the synthetic frames / MagicMock xt.
+        patch("silly_kicks.tracking.add_shot_goalmouth", _PASSTHROUGH),
+        patch("silly_kicks.tracking.add_off_ball_run_values", _PASSTHROUGH),
+        patch("silly_kicks.tracking.add_press_commitment", _PASSTHROUGH),
+        patch("silly_kicks.tracking.add_packing", _PASSTHROUGH),
         # xT-GK (silly-kicks 4.21.0+/4.22.0, ADR-048) Steps 25/25b/26 — patched so the real
         # valuation (which hard-requires a FITTED ExpectedThreat and loads the bundled
         # completion model) doesn't run against the MagicMock xt / synthetic frames. The preset
@@ -192,9 +210,11 @@ def test_enrich_tracking_calls_all_steps_with_links() -> None:
     assert mock_pc.call_count == 3
     assert isinstance(result, pd.DataFrame)
 
-    # Verify critical kwargs are propagated
+    # Verify critical kwargs are propagated. silly-kicks 4.53+ (Phase-1 direction re-key): the
+    # direction-aware aggregators take goal_map= (resolved once via resolve_defended_goals) instead
+    # of the retired home_team_id=; assert the resolved goal_map reaches add_defensive_line.
     _, def_kwargs = mock_def_line.call_args
-    assert def_kwargs.get("home_team_id") == "t1", "home_team_id not propagated to add_defensive_line"
+    assert def_kwargs.get("goal_map") is not None, "goal_map (direction) not propagated to add_defensive_line"
     assert def_kwargs.get("links") is not None, "links not propagated to add_defensive_line"
     _, ctx_kwargs = mock_action_ctx.call_args
     assert ctx_kwargs.get("links") is not None, "links not propagated to add_action_context"
@@ -215,12 +235,26 @@ def test_enrich_sb360_calls_snapshot_converter_and_positional_features() -> None
         }
     )
 
-    mock_frames = pd.DataFrame({"frame_id": [0], "is_ball": [False]})
+    # Synthetic converter output. Carries game_id/period_id/team_id/is_goalkeeper/x because the
+    # enrich chain resolves the direction map via resolve_defended_goals(frames) (silly-kicks
+    # 4.53+), which reads those columns. Real snapshot_to_tracking_frames output carries them.
+    mock_frames = pd.DataFrame(
+        {
+            "game_id": ["m1"],
+            "frame_id": [0],
+            "period_id": [1],
+            "team_id": ["t1"],
+            "is_ball": [False],
+            "is_goalkeeper": [False],
+            "x": [50.0],
+        }
+    )
     mock_links = _make_mock_links(actions.iloc[:2])
     mock_xt = MagicMock()
 
     mock_converter = MagicMock(return_value=(mock_frames, mock_links))
     mock_line_break = MagicMock(side_effect=_PASSTHROUGH)
+    mock_def_line = MagicMock(side_effect=_PASSTHROUGH)
     mock_team_shape = MagicMock(side_effect=_PASSTHROUGH)
     # ADR-058: sb360 now emits pitch_control_at_target__voronoi (and does NOT run ghost-GK).
     mock_pc = MagicMock(
@@ -235,7 +269,7 @@ def test_enrich_sb360_calls_snapshot_converter_and_positional_features() -> None
         patch("silly_kicks.spadl.utils.add_pre_shot_gk_context", _PASSTHROUGH),
         patch("silly_kicks.tracking.snapshot_to_tracking_frames", mock_converter),
         patch("silly_kicks.tracking.add_action_context", _PASSTHROUGH),
-        patch("silly_kicks.tracking.add_defensive_line", _PASSTHROUGH),
+        patch("silly_kicks.tracking.add_defensive_line", mock_def_line),
         patch("silly_kicks.tracking.add_line_break", mock_line_break),
         patch("silly_kicks.tracking.add_team_shape", mock_team_shape),
         # SB360 coverage steps (ADR-039/ADR-058) — patched so the real silly-kicks funcs don't run on
@@ -264,7 +298,11 @@ def test_enrich_sb360_calls_snapshot_converter_and_positional_features() -> None
     mock_converter.assert_called_once()
     _, lb_kwargs = mock_line_break.call_args
     assert lb_kwargs.get("method") == "ward", "method='ward' not propagated to add_line_break"
-    assert lb_kwargs.get("home_team_id") == "t1", "home_team_id not propagated to add_line_break"
+    # silly-kicks 4.53+ (Phase-1 direction re-key): add_line_break no longer takes home_team_id (it
+    # self-resolves on home-LTR frames, ADR-053); direction now reaches add_defensive_line as goal_map.
+    assert lb_kwargs.get("links") is not None, "links not propagated to add_line_break"
+    _, dl_kwargs = mock_def_line.call_args
+    assert dl_kwargs.get("goal_map") is not None, "goal_map (direction) not propagated to add_defensive_line"
     mock_team_shape.assert_called_once()
     # ADR-058 tiering: voronoi pitch control IS emitted; ghost-GK is NOT run on sb360.
     _, pc_kwargs = mock_pc.call_args

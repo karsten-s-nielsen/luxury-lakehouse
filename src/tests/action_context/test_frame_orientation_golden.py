@@ -46,7 +46,7 @@ _FIXTURES = [
 
 @pytest.mark.parametrize(("provider", "match_id", "period"), _FIXTURES, ids=[f[0] for f in _FIXTURES])
 def test_home_gk_defends_low_x(provider: str, match_id: str, period: int) -> None:
-    from silly_kicks.tracking._id_compat import ids_match
+    from silly_kicks.id_compat import ids_match
 
     wu = WorkUnit(provider=provider, match_id=match_id, period=period)
     frames = ParquetFrameSource(_ROOT).frames(wu).frames

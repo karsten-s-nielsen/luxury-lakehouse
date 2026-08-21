@@ -168,10 +168,9 @@ cleaned as (
         cast(shape_graph_density_defending as double) as shape_graph_density_defending,
         cast(shape_graph_n_edges_defending as bigint) as shape_graph_n_edges_defending,
         cast(shape_graph_mean_stability_defending as double) as shape_graph_mean_stability_defending,
-        -- Ghost GK (spread renamed to density_spread; silly-kicks 4.14.0)
+        -- Ghost GK (ghost_gk_density_spread retired at silly-kicks 4.87.0; ghost_gk_xfns 9->6)
         cast(ghost_gk_x as double) as ghost_gk_x,
         cast(ghost_gk_y as double) as ghost_gk_y,
-        cast(ghost_gk_density_spread as double) as ghost_gk_density_spread,
         -- Structural pass (TF-45)
         cast(structural_lbs as bigint) as structural_lbs,
         cast(structural_sgm as double) as structural_sgm,
@@ -200,23 +199,10 @@ cleaned as (
         cast(shot_fit_rmse as double) as shot_fit_rmse,
         cast(shot_fit_end_reason as string) as shot_fit_end_reason,
         cast(shot_z_profile as string) as shot_z_profile,
-        -- xT-GK (Eyestone; silly-kicks 4.21.0/4.22.0, ADR-048) + gk_completion
-        cast(xt_gk as double) as xt_gk,
-        cast(xt_gk_possession as double) as xt_gk_possession,
-        cast(xt_gk_counter as double) as xt_gk_counter,
-        cast(xt_gk_direct as double) as xt_gk_direct,
-        cast(xt_gk_high_press as double) as xt_gk_high_press,
-        cast(xt_gk_low_block as double) as xt_gk_low_block,
-        cast(xt_gk_base as double) as xt_gk_base,
-        cast(xt_gk_pev as double) as xt_gk_pev,
-        cast(xt_gk_rav as double) as xt_gk_rav,
-        cast(xt_gk_dzv as double) as xt_gk_dzv,
-        cast(xt_gk_pressure as double) as xt_gk_pressure,
-        cast(xt_gk_origin_source as string) as xt_gk_origin_source,
-        cast(xt_gk_dest_source as string) as xt_gk_dest_source,
-        cast(xt_gk_origin_confidence as double) as xt_gk_origin_confidence,
-        cast(xt_gk_completion_variant as string) as xt_gk_completion_variant,
-        cast(xt_gk_completion_source as string) as xt_gk_completion_source,
+        -- xT-GK v1 metric columns RETIRED (spec §7.4 — xt_gk_v2 replaces them as a mart-join fed by
+        -- ingestion.xt_gk_v2_writer → stg_xt_gk_v2 → a LEFT JOIN in fct_action_context). The 4
+        -- resolved-coordinate columns below are KEPT as the v2 writer's geometry bridge, and
+        -- gk_completion is KEPT (a distinct add_gk_completion call).
         -- xT-GK resolved-coordinate audit (silly-kicks 4.36.0; LTR SPADL m, NaN off-scope)
         cast(xt_gk_origin_x as double) as xt_gk_origin_x,
         cast(xt_gk_origin_y as double) as xt_gk_origin_y,
@@ -228,8 +214,50 @@ cleaned as (
         -- providers; goal-kicks-only on SB360 (frames=None). NULL on pre-F1 rows until recompute.
         cast(is_gk_distribution as boolean) as is_gk_distribution,
         cast(pitch_control_method as string) as pitch_control_method,
-        -- ghost-GK backend provenance (ADR-035 amendment)
-        cast(ghost_gk_method as string) as ghost_gk_method,
+        -- ghost_gk_method (ADR-035 backend-provenance) RETIRED at silly-kicks 4.87.0 — the KDE backend
+        -- is resolved upstream on the default predict_density path, so there is no per-row provenance to
+        -- carry. The physical bronze column is retained (migration does not DROP it) but no longer read.
+        -- === silly-kicks 4.87.0 DRAIN-NATIVE columns (spec §7.1) ===
+        -- Real-xT OBSO provenance (4.52): "xt"/"synthetic"/"injected", NA off-domain.
+        cast(obso_epv_source as string) as obso_epv_source,
+        -- Off-ball run values (TF-35, 4.52)
+        cast(run_value_target as double) as run_value_target,
+        cast(run_value_disruptive_sum as double) as run_value_disruptive_sum,
+        cast(run_value_enabled_pass as double) as run_value_enabled_pass,
+        cast(n_disruptive_runs as bigint) as n_disruptive_runs,
+        cast(n_valued_disruptive_runs as bigint) as n_valued_disruptive_runs,
+        -- Press commitment (TF-51, 4.61)
+        cast(press_commitment as double) as press_commitment,
+        cast(press_commitment_closing_speed as double) as press_commitment_closing_speed,
+        cast(press_commitment_source as string) as press_commitment_source,
+        -- Packing (TF-49, 4.50) — receiver id is a native-id passthrough (string)
+        cast(packing_made as bigint) as packing_made,
+        cast(packing_goal_threat as bigint) as packing_goal_threat,
+        cast(packing_net as double) as packing_net,
+        cast(packing_receiver_player_id as string) as packing_receiver_player_id,
+        cast(packing_secured as boolean) as packing_secured,
+        -- Provenance (add_das / add_ghost_gk) + cover-shadow single-defender id free-rides
+        cast(das_source as string) as das_source,
+        cast(ghost_gk_source as string) as ghost_gk_source,
+        cast(max_single_defender_player_id as string) as max_single_defender_player_id,
+        -- team_shape gap columns free-ride (add_team_shape now carries 20)
+        cast(team_shape_defensive_line_height_attacking as double) as team_shape_defensive_line_height_attacking,
+        cast(team_shape_defensive_line_height_defending as double) as team_shape_defensive_line_height_defending,
+        cast(team_shape_inter_line_gap_1_attacking as double) as team_shape_inter_line_gap_1_attacking,
+        cast(team_shape_inter_line_gap_1_defending as double) as team_shape_inter_line_gap_1_defending,
+        cast(team_shape_inter_line_gap_2_attacking as double) as team_shape_inter_line_gap_2_attacking,
+        cast(team_shape_inter_line_gap_2_defending as double) as team_shape_inter_line_gap_2_defending,
+        -- Visibility coverage (silly-kicks 4.87.0; spec §7.1/§7.5) — SB360-only, NULL elsewhere / until
+        -- SB360 AC is enabled (ADR-058). 2 base (observed pitch fraction + provenance) + 6 *_observed_*
+        -- companions (fraction DOUBLE + source STRING per count feature).
+        cast(visible_area_fraction as double) as visible_area_fraction,
+        cast(visible_area_source as string) as visible_area_source,
+        cast(nearest_defender_distance_observed_fraction as double) as nearest_defender_distance_observed_fraction,
+        cast(nearest_defender_distance_observed_source as string) as nearest_defender_distance_observed_source,
+        cast(receiver_zone_density_observed_fraction as double) as receiver_zone_density_observed_fraction,
+        cast(receiver_zone_density_observed_source as string) as receiver_zone_density_observed_source,
+        cast(defenders_in_triangle_to_goal_observed_fraction as double) as defenders_in_triangle_to_goal_observed_fraction,
+        cast(defenders_in_triangle_to_goal_observed_source as string) as defenders_in_triangle_to_goal_observed_source,
         -- Per-match HF redistribution tier (spec 2026-06-29 §6.4). Stamped per
         -- row at AC write time from the match's access_tier; rides through to
         -- fct_action_context for the publish-time split.

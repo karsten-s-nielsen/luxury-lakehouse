@@ -38,6 +38,17 @@ PER_PLAYER_EVALUATIVE_CARDS: frozenset[str] = frozenset(
         "wf-football2vec-v2",
         "wf-football2vec-360",
         "wf-scoutgpt",
+        # silly-kicks 4.87.0 full-adoption new evaluative families (Rev 6 / GOV-A).
+        # run-values folds into wf-off-ball-xt and obso_epv_source into wf-obso-pausa
+        # (both already members) — they are NOT separate cards. xt-gk-v2's methodology
+        # card is the member; its future writer/inference card (wf-xt-gk-v2-writer,
+        # governed_by: wf-xt-gk-v2) is created at scheduling time and is NOT a member.
+        "wf-packing",
+        "wf-press-commitment",
+        "wf-defensive-credit",
+        "wf-bravery",
+        "wf-gkdv",
+        "wf-xt-gk-v2",
     }
 )
 
@@ -58,6 +69,13 @@ WORKFLOW_TO_MODEL_CARD: dict[str, str] = {
     "wf-football2vec-v2": "football2vec-v2-model-card.md",
     "wf-football2vec-360": "football2vec-360-model-card.md",
     "wf-scoutgpt": "scoutgpt.md",
+    # silly-kicks 4.87.0 full-adoption new evaluative families (Rev 6 / GOV-A).
+    "wf-packing": "packing.md",
+    "wf-press-commitment": "press-commitment.md",
+    "wf-defensive-credit": "defensive-credit.md",
+    "wf-bravery": "bravery.md",
+    "wf-gkdv": "gkdv.md",
+    "wf-xt-gk-v2": "xt-gk-v2.md",
 }
 assert set(WORKFLOW_TO_MODEL_CARD.keys()) == set(PER_PLAYER_EVALUATIVE_CARDS), (
     "WORKFLOW_TO_MODEL_CARD keys must exactly match PER_PLAYER_EVALUATIVE_CARDS"

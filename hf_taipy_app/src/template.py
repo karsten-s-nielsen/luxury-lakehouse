@@ -36,14 +36,9 @@ Use **Glossary** for terms.
 
 GLOSSARY: dict[str, str] = {
     "xT-GK": (
-        "Expected Threat for Goalkeepers (Eyestone): values each GK distribution as base xT plus "
-        "pressure-escape, risk-adjusted, and defensive-zone components. Roughly -0.05 to +0.10 "
-        "per pass; higher = more attacking value created."
-    ),
-    "Game-Model Preset": (
-        "A named xT-GK parameter set (Possession, Counter, Direct, High Press, Low Block) that "
-        "re-values the same passes under a different team philosophy. All presets are "
-        "precomputed columns — switching is instant."
+        "Expected Threat for Goalkeepers (xT-GK v2): values each GK distribution as a composite of four "
+        "additive terms — position, pressure-effect, retention-loss, and deep-zone/turnover. Signed xG "
+        "units (the keeper norm is small and usually negative); higher = more attacking value created."
     ),
     "Ghost GK": (
         "A model of where a league-average goalkeeper would stand in the same situation, "

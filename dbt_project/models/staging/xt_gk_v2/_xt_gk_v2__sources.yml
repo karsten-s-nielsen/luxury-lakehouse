@@ -1,0 +1,46 @@
+version: 2
+
+sources:
+  - name: xt_gk_v2
+    description: >
+      xT-GK v2 predictions (spec §7.4 — v2 replaces the retired v1 xt_gk metric). Written by the
+      ingestion.xt_gk_v2_writer ADR-013 writer: the fitted MarkovPossessionValue + EmpiricalTurnoverValue
+      surfaces (from scripts/train_xt_gk_v2_hf.py, delivered via a UC Volume) score xt_gk_v2 per
+      GK-distribution action. LEFT-JOINed per action into fct_action_context (a mart-join, NOT a drain
+      column). The table is CREATE-IF-NOT-EXISTS'd by scripts/migrations/2026-08-20-add-xt-gk-v2.sql so
+      the staging view resolves (empty) before the Part-B scoring run populates it.
+    database: soccer_analytics
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 168, period: hour}
+        error_after: {count: 336, period: hour}
+
+    tables:
+      - name: xt_gk_v2_predictions
+        description: >
+          Per-action xT-GK v2 predictions for GK-distribution actions only (the writer pre-filters to
+          is_gk_distribution). Keyed (data_source, match_id, action_id) — the SPADL action universe.
+        columns:
+          - name: data_source
+            description: Provider (idsse / skillcorner / gradientsports / metrica).
+          - name: match_id
+            description: Native match identifier (provider-specific string).
+          - name: action_id
+            description: SPADL action index within match (degenerate dimension).
+          - name: xt_gk_v2_position
+            description: Position term ρ·ΔV_position (signed xG units).
+          - name: xt_gk_v2_pev
+            description: Pressure-effect value term ρ·ΔV_pressure (signed).
+          - name: xt_gk_v2_retention_loss
+            description: Retention-loss term −(1−ρ)·V(s) (signed, ≤0).
+          - name: xt_gk_v2_dzv
+            description: Deep-zone / turnover term −(1−ρ)·κ·V_opp (signed, ≤0).
+          - name: xt_gk_v2
+            description: Composite = position + pev + retention_loss + dzv (signed xG units).
+          - name: gk_geometry_source
+            description: Resolved-geometry provenance (off_domain / native / resolved_* / unresolved / unattested).
+          - name: _ingested_at
+            description: UTC timestamp of ingestion.

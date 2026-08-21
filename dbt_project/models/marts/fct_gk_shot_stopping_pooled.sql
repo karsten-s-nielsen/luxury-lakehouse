@@ -68,7 +68,15 @@ banded as (
         on p.competition_key = c.competition_key
         and p.season_id <=> c.season_id   -- NULL-safe: IDSSE season_id is NULL; plain = drops all IDSSE
 
-)
+),
+
+gkdv as (
+
+    select * from {{ ref('stg_gkdv') }}
+
+),
+
+final as (
 
 select
     {{ dbt_utils.generate_surrogate_key(['player_key', 'competition_key', 'season_id']) }} as gk_pooled_id,
@@ -95,3 +103,31 @@ select
     end                                                         as goals_prevented_pctile,
     current_timestamp()                                         as _loaded_at
 from banded
+
+)
+
+-- silly-kicks 4.87.0 GKDV (GK Deterrent Value; spec §7.5, Task 17h). Per-keeper counterfactual
+-- deterrent value pooled over (competition, season): how much the ACTUAL keeper's positioning
+-- changes the attacking team's accessible space (delta_das) and threat (delta_threat) vs a
+-- league-average ghost. Attacker-value units, so NEGATIVE = deterrent. gkdv API is EVOLVING
+-- UPSTREAM — pinned to the silly-kicks 4.87.0 surface. LEFT JOIN so a keeper with no gkdv row
+-- (no scored counterfactual frames in the tracking cohort) still ships with NULL gkdv_* columns.
+select
+    f.*,
+    g.gkdv_delta_das_mean,
+    g.gkdv_delta_das_median,
+    g.gkdv_delta_das_n,
+    g.gkdv_delta_das_n_nonzero,
+    g.gkdv_delta_das_n_games,
+    g.gkdv_delta_das_gate_eligible,
+    g.gkdv_delta_threat_mean,
+    g.gkdv_delta_threat_median,
+    g.gkdv_delta_threat_n,
+    g.gkdv_delta_threat_n_nonzero,
+    g.gkdv_delta_threat_n_games,
+    g.gkdv_delta_threat_gate_eligible
+from final f
+left join gkdv g
+    on  g.player_key = f.player_key
+   and g.competition_key = f.competition_key
+   and g.season_id <=> f.season_id

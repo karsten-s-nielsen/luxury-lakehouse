@@ -98,6 +98,9 @@ def _build_synthetic_spadl_group(n_rows: int = 2711, *, random_state: int = 42) 
             "end_coord_source": "native",
             "start_coord_confidence": np.ones(n_rows, dtype=float),
             "end_coord_confidence": np.ones(n_rows, dtype=float),
+            # silly-kicks 4.56/4.86.0 SPADL block flags (BOOLEAN nullable; carried through by the UDF).
+            "shot_blocked": rng.choice(np.array([True, False, None], dtype=object), n_rows),
+            "cross_blocked": rng.choice(np.array([True, False, None], dtype=object), n_rows),
         }
     )
 

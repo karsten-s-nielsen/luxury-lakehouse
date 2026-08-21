@@ -466,10 +466,13 @@ def derive_metrica_home_team_start_left(
 # {3, 4} but no ``home_team_start_left_extratime``. To stay correct under 4.0.0
 # the lakehouse must derive that flag per provider:
 #
-#   IDSSE / Sportec — AUTHORITATIVE: moved to the silly-kicks DFL parse port
-#     (``silly_kicks.providers.sportec.derive_idsse_home_team_start_left_extratime``)
-#     under delete-and-depend (ADR-031 T3 / Gate B). Production callers import
-#     it from the port; the lakehouse no longer owns the IDSSE ET deriver.
+#   IDSSE / Sportec — AUTHORITATIVE: the direction logic lives in the silly-kicks
+#     DFL parse port (``silly_kicks.providers.sportec.
+#     derive_idsse_home_team_start_left_extratime``) under delete-and-depend
+#     (ADR-031 T3 / Gate B). The lakehouse keeps a THIN defensive wrapper
+#     (``derive_idsse_home_team_start_left_extratime`` below) that preserves the
+#     historical "no period column at all -> no ET -> None" contract and delegates
+#     everything else to the port. See its docstring for the 4.87.0 rationale.
 #
 #   Metrica — EMPIRICAL: bronze has no per-period direction flag. Mirror the
 #     period-1 inference using period-3 SHOT positions.
@@ -477,6 +480,40 @@ def derive_metrica_home_team_start_left(
 # Returns ``None`` when the match has no ET periods — that's the correct value
 # to pass through; silly-kicks 4.0 accepts ``None`` if no ET data is present
 # and only raises when both signals are missing simultaneously.
+
+
+def derive_idsse_home_team_start_left_extratime(
+    events: pd.DataFrame,
+    home_team_id_native: str,
+) -> bool | None:
+    """Lakehouse defensive wrapper over the silly-kicks IDSSE ET-direction port.
+
+    silly-kicks 4.87.0 changed ``silly_kicks.providers.sportec.
+    derive_idsse_home_team_start_left_extratime``: it now RAISES ``RuntimeError``
+    (via ``_resolve_period_column``) when ``events`` carries NEITHER a ``period_id``
+    NOR a ``period`` column — the port treats a period-less frame as a caller bug
+    ("refusing to report a silent pass") rather than a no-ET match. Earlier port
+    versions returned ``None`` for that shape.
+
+    The lakehouse's historical contract is "events lacking a period column -> this
+    match has no ET -> ``None``". This wrapper preserves that contract: it
+    short-circuits to ``None`` when no period column is present, and otherwise
+    delegates to the port UNCHANGED. Every OTHER port raise (ET periods present but
+    no ET KickOff row; null ``kickoff_team_left``) is preserved — those paths run
+    only AFTER the period column resolves, so they are past the short-circuit.
+
+    Production always passes ``shape_events_to_native(...)`` output, which always
+    carries a ``period`` column, so on real IDSSE data this delegates every time and
+    behaviour is identical to calling the port directly. The short-circuit only fires
+    for a genuinely period-less frame (defensive; the historical no-ET signal).
+    """
+    from silly_kicks.providers.sportec import (
+        derive_idsse_home_team_start_left_extratime as _sk_derive_idsse_et,
+    )
+
+    if not ({"period_id", "period"} & set(events.columns)):
+        return None
+    return _sk_derive_idsse_et(events, home_team_id_native)
 
 
 def derive_metrica_home_team_start_left_extratime(
@@ -549,7 +586,8 @@ def derive_metrica_home_team_start_left_extratime(
 # ---------------------------------------------------------------------------
 
 # Bronze uses json_normalize dot-notation (e.g., "possessionEvents.passType").
-# silly-kicks expects 47 snake_case columns (EXPECTED_INPUT_COLUMNS).
+# silly-kicks expects 48 snake_case columns (EXPECTED_INPUT_COLUMNS) — 47 pre-4.89.0 plus
+# `start_time` (the raw absolute event clock), added as a required input by 4.89.0 (ADR-065).
 #
 # CRITICAL: The bronze schema was verified via DESCRIBE (264 columns).
 # Several columns live under gameEvents.*, NOT possessionEvents.*:
@@ -568,6 +606,16 @@ _GS_BRONZE_TO_SNAKE: dict[str, str] = {
     # Top-level scalars
     "gameId": "game_id",
     "possessionEventId": "possession_event_id",
+    # Absolute event clock (top-level scalars, double). silly-kicks 4.89.0 (ADR-065/PR-S159) made
+    # `start_time` a REQUIRED converter-input column: it is the chronological sort tiebreak AND the
+    # order-insensitive basis for imputing a null-`startGameClock` FOUL's `time_seconds` (measured
+    # 0/144,374 inversions vs the game clock on 64 real WC2022 matches). `event_time` is the optional
+    # fallback ordering key when a row's `start_time` is NaN. Both are raw GS scalars (double in
+    # bronze — verified in the DESCRIBE snapshot) passed through un-normalized: the converter uses
+    # them only as ordering keys, never as emitted time values (period-relative `time_seconds` is
+    # derived separately in Step 2b), so no offset subtraction applies here.
+    "startTime": "start_time",
+    "eventTime": "event_time",
     # possessionEvents.* -> snake_case (direct 1:1 renames)
     "possessionEvents.possessionEventType": "possession_event_type",
     "possessionEvents.passType": "pass_type",
@@ -683,7 +731,9 @@ def adapt_gradientsports_events(pdf: pd.DataFrame) -> pd.DataFrame:
         pdf: Raw bronze DataFrame from ``gradientsports_events``.
 
     Returns:
-        DataFrame with all 47 ``EXPECTED_INPUT_COLUMNS`` present.
+        DataFrame with all 48 ``EXPECTED_INPUT_COLUMNS`` present (47 pre-4.89.0 plus the
+        4.89.0-required ``start_time``). ``event_time`` (the optional NaN-``start_time``
+        fallback ordering key) also rides through from bronze ``eventTime``.
         Missing optional columns are NaN-filled.
     """
     from silly_kicks.spadl.gradientsports import EXPECTED_INPUT_COLUMNS

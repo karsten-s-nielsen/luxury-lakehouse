@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.5.94"
+version = "0.5.96"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -71,7 +71,7 @@ dependencies = [
 
 [project.optional-dependencies]
 spadl = [
-    "silly-kicks[das,ghost-gk,parse-dfl]>=4.43.0,<5",
+    "silly-kicks[das,ghost-gk,parse-dfl]>=4.89.0,<5",
 ]
 analytics = [
     "luxury-lakehouse[spadl]",
@@ -185,6 +185,17 @@ compute_expected_threat = "ingestion.expected_threat:main"
 compute_formations_efpi = "ingestion.formations_efpi:main_efpi"
 compute_formations_shape_graph = "ingestion.formations_shape_graph:main_shape_graph"
 compute_xg_shot_scores = "ingestion.xg_shot_scorer:main"
+# silly-kicks 4.87.0 full-adoption Rev-6 ADR-013 writers. Registered so the writers can be
+# invoked via any Databricks python_wheel_task path (Part-B recompute). Their scheduled
+# Terraform tasks are a pending operator decision (the writer scheduling fork) — an
+# entry point without an owning scheduled card / TF task is intentional here and is not
+# gated by any test (only scheduled/orchestrated cards require a pyproject entry, not the
+# reverse; and TF tasks require a card, not the reverse).
+off_ball_runs_writer = "ingestion.off_ball_runs_writer:main"
+defensive_credit_writer = "ingestion.defensive_credit_writer:main"
+bravery_writer = "ingestion.bravery_writer:main"
+gkdv_writer = "ingestion.gkdv_writer:main"
+xt_gk_v2_writer = "ingestion.xt_gk_v2_writer:main"
 compute_pitch_control = "ingestion.pitch_control_batch:main"
 compute_action_context = "ingestion.action_context:main"
 compute_action_context_drain_worker = "ingestion.action_context:main_drain_worker"

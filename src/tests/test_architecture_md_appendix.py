@@ -42,6 +42,18 @@ def test_architecture_md_has_appendix_d_academic_references() -> None:
         "Pipping-Gamón",  # xShotOccurrence (xS) in fct_action_context (ADR-039)
         "Karakus",  # structural pass (structural_lbs/sgm/sdi) in fct_action_context (ADR-042)
         "Cao",  # xCrossAttempt (xcross_attempt) in fct_action_context (ADR-042)
+        # silly-kicks 4.87.0 full-adoption new-methodology citations (ADR-077).
+        # Only genuinely-PUBLISHED methods are gated; press-commitment and bravery are
+        # silly-kicks-native ORIGINAL metrics with no published paper — no appendix entry.
+        "Goes",  # packing formalization: Goes, Kempe, Meerhoff & Lemmink (2019) — wf-packing
+        "Power",  # off-ball-run detection: Power, Ruiz, Wei & Lucey (2017) KDD '17 — wf-off-ball-xt
+        "Vidal-Codina",  # possession-hysteresis for run detection (2022) — wf-off-ball-xt
+        "Esposito",  # off-ball run valuation framing-only (2026) — wf-off-ball-xt
+        "Bischofberger",  # defensive-credit xT(origin) sizing + GKDV delta_das (2026)
+        "Baca",  # co-author on both Bischofberger 2026 papers (defensive-credit, gkdv)
+        "Le",  # GKDV ghost-substitution: Le, Yue, Carr & Lucey (2017) — short surname — wf-gkdv
+        "Shaw",  # GKDV threat-suppression: Shaw & Sudarshan (2020) — wf-gkdv
+        "Sudarshan",  # GKDV threat-suppression: Shaw & Sudarshan (2020) — wf-gkdv
     ]
     appendix_idx = text.find("D. Academic References")
     appendix = text[appendix_idx:]

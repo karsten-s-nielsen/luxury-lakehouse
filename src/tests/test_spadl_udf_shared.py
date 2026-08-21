@@ -82,6 +82,9 @@ _EXPECTED_COLUMNS = [
     "gk_pass_length_m",
     "gk_pass_length_class",
     "is_launch",
+    # silly-kicks 4.56/4.86.0 SPADL block flags (in SPADL_COLUMNS; every convert_to_actions emits them).
+    "shot_blocked",
+    "cross_blocked",
 ]
 
 

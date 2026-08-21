@@ -77,6 +77,16 @@ See [`workflow-cards/wf-obso-pausa.yaml`](https://github.com/karsten-s-nielsen/l
 - **Tactical profiling**: Team-level PAUSA distributions to compare passing tempo across opponents
 - **Research**: Reproducible OBSO + PAUSA implementation on open tracking and event data
 
+## obso_epv_source provenance column (silly-kicks 4.87.0)
+
+The action-context drain emits an **obso_epv_source** provenance column: a per-action label
+recording which EPV grid source fed the OBSO value on that row. It is a provenance
+annotation on the already-documented OBSO surface (not a new evaluative signal of its own),
+and its vocabulary is validated against the installed silly-kicks source by the
+action-context golden tests. It shares this method card and the
+[`wf-obso-pausa.yaml`](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/workflow-cards/wf-obso-pausa.yaml)
+governance home.
+
 ## EU AI Act — Intended Use and Non-Use
 
 This method is published for **research and reproducibility** purposes on public, open-licensed tracking and event data. It is **not intended for, not validated for, and not supplied to** any use that would fall within Annex III §4 (Employment, workers management and access to self-employment) of Regulation (EU) 2024/1689 — including recruitment or selection of natural persons, decisions affecting work-related contractual relationships, promotion, termination, task allocation based on individual traits, or the monitoring and evaluation of performance and behaviour of workers for employment decisions.

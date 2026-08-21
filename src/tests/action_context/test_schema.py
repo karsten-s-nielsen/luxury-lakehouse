@@ -119,10 +119,12 @@ def test_new_ac_fields_present_in_schema() -> None:
     assert "structural_lbs BIGINT" in ACTION_CONTEXT_DDL
 
 
-def test_ghost_gk_spread_renamed_to_density_spread() -> None:
-    assert "ghost_gk_density_spread" in RESULT_COLUMNS
+def test_ghost_gk_density_spread_retired() -> None:
+    # silly-kicks 4.87.0 retired ghost_gk_density_spread from the drain head schema
+    # (ghost_gk_xfns 9 -> 6 columns). Neither the old nor the renamed form may survive.
+    assert "ghost_gk_density_spread" not in RESULT_COLUMNS
     assert "ghost_gk_spread" not in RESULT_COLUMNS
-    assert "ghost_gk_density_spread DOUBLE" in ACTION_CONTEXT_DDL
+    assert "ghost_gk_density_spread DOUBLE" not in ACTION_CONTEXT_DDL
     assert "ghost_gk_spread DOUBLE" not in ACTION_CONTEXT_DDL
 
 

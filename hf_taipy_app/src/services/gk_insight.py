@@ -105,8 +105,9 @@ def distribution_quadrant(
     *, share_adds: float, progress_m: float, n: int, share_median: float | None, progress_median: float | None
 ) -> Verdict:
     """Threat-by-style quadrant read for the distribution profile (ADR-060 redesign). Threat = share of
-    distributions that add xT-GK (>0; the headline that actually varies — xT-GK is ~97% negative);
-    style = forward progression (long-direct vs short-safe). Descriptive cohort positioning, never a rank."""
+    distributions that add xT-GK v2 (>0; the headline that actually varies — xT-GK v2 is signed and
+    mostly negative); style = forward progression (long-direct vs short-safe). Descriptive cohort
+    positioning, never a rank."""
     if n < 20:
         return Verdict("Indicative only — small sample", "too few distributions to characterise")
     if share_median is None or progress_median is None:

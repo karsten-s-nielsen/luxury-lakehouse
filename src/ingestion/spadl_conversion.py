@@ -187,6 +187,10 @@ def _make_sb_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
                 "gk_pass_length_m",
                 "gk_pass_length_class",
                 "is_launch",
+                # silly-kicks 4.56 / 4.86.0 SPADL block flags — in canonical SPADL_COLUMNS, so every
+                # convert_to_actions emits them. BOOLEAN nullable. Must mirror _spadl_cols + _SPADL_SCHEMA.
+                "shot_blocked",
+                "cross_blocked",
             ]
         )
 
@@ -485,6 +489,9 @@ def _convert_statsbomb_from_bronze(
             StructField("gk_pass_length_m", DoubleType()),
             StructField("gk_pass_length_class", StringType()),
             StructField("is_launch", BooleanType()),
+            # silly-kicks 4.56 / 4.86.0 SPADL block flags. Must mirror _spadl_cols + _SPADL_SCHEMA.
+            StructField("shot_blocked", BooleanType()),
+            StructField("cross_blocked", BooleanType()),
         ]
     )
 
@@ -614,6 +621,10 @@ def _make_ws_spadl_udf(goalkeeper_ids: set[int] | None = None) -> Callable[[pd.D
                 "gk_pass_length_m",
                 "gk_pass_length_class",
                 "is_launch",
+                # silly-kicks 4.56 / 4.86.0 SPADL block flags — in canonical SPADL_COLUMNS, so every
+                # convert_to_actions emits them. BOOLEAN nullable. Must mirror _spadl_cols + _SPADL_SCHEMA.
+                "shot_blocked",
+                "cross_blocked",
             ]
         )
 
@@ -883,6 +894,9 @@ def _convert_wyscout_from_bronze(
             StructField("gk_pass_length_m", DoubleType()),
             StructField("gk_pass_length_class", StringType()),
             StructField("is_launch", BooleanType()),
+            # silly-kicks 4.56 / 4.86.0 SPADL block flags. Must mirror _spadl_cols + _SPADL_SCHEMA.
+            StructField("shot_blocked", BooleanType()),
+            StructField("cross_blocked", BooleanType()),
         ]
     )
 
@@ -1040,6 +1054,10 @@ def _make_idsse_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
                 "gk_pass_length_m",
                 "gk_pass_length_class",
                 "is_launch",
+                # silly-kicks 4.56 / 4.86.0 SPADL block flags — in canonical SPADL_COLUMNS, so every
+                # convert_to_actions emits them. BOOLEAN nullable. Must mirror _spadl_cols + _SPADL_SCHEMA.
+                "shot_blocked",
+                "cross_blocked",
             ]
         )
 
@@ -1067,10 +1085,11 @@ def _make_idsse_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
             # silly-kicks 4.0.0 (PR-S70): symmetric ET guard requires the ET-direction
             # flag too. Derive from the extraTimeFirstHalf KickOff event when ET periods
             # exist; otherwise None (silly-kicks 4.0 accepts None when no ET present).
-            from silly_kicks.providers.sportec import (
-                derive_idsse_home_team_start_left,
-                derive_idsse_home_team_start_left_extratime,
-            )
+            from silly_kicks.providers.sportec import derive_idsse_home_team_start_left
+
+            # ET deriver via the lakehouse defensive wrapper (preserves the "no period column ->
+            # None" contract that silly-kicks 4.87.0 changed to a RuntimeError). See spadl_adapter.
+            from ingestion.spadl_adapter import derive_idsse_home_team_start_left_extratime
 
             home_start_left = derive_idsse_home_team_start_left(adapted, home_team_id_native)
             home_start_left_et = derive_idsse_home_team_start_left_extratime(adapted, home_team_id_native)
@@ -1357,6 +1376,9 @@ def _convert_idsse_from_bronze(
             StructField("gk_pass_length_m", DoubleType()),
             StructField("gk_pass_length_class", StringType()),
             StructField("is_launch", BooleanType()),
+            # silly-kicks 4.56 / 4.86.0 SPADL block flags. Must mirror _spadl_cols + _SPADL_SCHEMA.
+            StructField("shot_blocked", BooleanType()),
+            StructField("cross_blocked", BooleanType()),
         ]
     )
 
@@ -1497,6 +1519,10 @@ def _make_metrica_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
                 "gk_pass_length_m",
                 "gk_pass_length_class",
                 "is_launch",
+                # silly-kicks 4.56 / 4.86.0 SPADL block flags — in canonical SPADL_COLUMNS, so every
+                # convert_to_actions emits them. BOOLEAN nullable. Must mirror _spadl_cols + _SPADL_SCHEMA.
+                "shot_blocked",
+                "cross_blocked",
             ]
         )
 
@@ -1787,6 +1813,9 @@ def _convert_metrica_from_bronze(
             StructField("gk_pass_length_m", DoubleType()),
             StructField("gk_pass_length_class", StringType()),
             StructField("is_launch", BooleanType()),
+            # silly-kicks 4.56 / 4.86.0 SPADL block flags. Must mirror _spadl_cols + _SPADL_SCHEMA.
+            StructField("shot_blocked", BooleanType()),
+            StructField("cross_blocked", BooleanType()),
         ]
     )
 
@@ -1925,6 +1954,10 @@ def _make_skillcorner_spadl_udf(*, match_metadata: dict[str, object]) -> Callabl
                 "gk_pass_length_m",
                 "gk_pass_length_class",
                 "is_launch",
+                # silly-kicks 4.56 / 4.86.0 SPADL block flags — in canonical SPADL_COLUMNS, so every
+                # convert_to_actions emits them. BOOLEAN nullable. Must mirror _spadl_cols + _SPADL_SCHEMA.
+                "shot_blocked",
+                "cross_blocked",
             ]
         )
 
@@ -2148,6 +2181,9 @@ def _convert_skillcorner_from_bronze(
             StructField("gk_pass_length_m", DoubleType()),
             StructField("gk_pass_length_class", StringType()),
             StructField("is_launch", BooleanType()),
+            # silly-kicks 4.56 / 4.86.0 SPADL block flags. Must mirror _spadl_cols + _SPADL_SCHEMA.
+            StructField("shot_blocked", BooleanType()),
+            StructField("cross_blocked", BooleanType()),
         ]
     )
 
@@ -2351,6 +2387,10 @@ def _make_gradientsports_spadl_udf(
                 "gk_pass_length_m",
                 "gk_pass_length_class",
                 "is_launch",
+                # silly-kicks 4.56 / 4.86.0 SPADL block flags — in canonical SPADL_COLUMNS, so every
+                # convert_to_actions emits them. BOOLEAN nullable. Must mirror _spadl_cols + _SPADL_SCHEMA.
+                "shot_blocked",
+                "cross_blocked",
             ]
         )
 
@@ -2713,6 +2753,9 @@ def _convert_gradientsports_from_bronze(
             StructField("gk_pass_length_m", DoubleType()),
             StructField("gk_pass_length_class", StringType()),
             StructField("is_launch", BooleanType()),
+            # silly-kicks 4.56 / 4.86.0 SPADL block flags. Must mirror _spadl_cols + _SPADL_SCHEMA.
+            StructField("shot_blocked", BooleanType()),
+            StructField("cross_blocked", BooleanType()),
         ]
     )
 
