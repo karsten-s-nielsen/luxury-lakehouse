@@ -1,0 +1,110 @@
+---
+name: GKDV — Goalkeeper Deterrent Value (ghost-frame counterfactual)
+id: wf-gkdv
+version: "1.0"
+status: development
+type: heuristic
+domain: goalkeeper-valuation
+owners:
+  - karsten
+tags:
+  - gkdv
+  - goalkeeper-valuation
+  - counterfactual
+  - tracking-data
+
+governance:
+  eu_ai_act: not-high-risk-under-current-posture
+  annex_iii_category: "4 (Employment) — conditional if deployed for employment decisions"
+  reference: AI_GOVERNANCE.md
+
+# Multi-component counterfactual attribution (silly-kicks NOTICE, GKDV physics arms,
+# TF-18/TF-19). Ghost-substitution engine + two physics arms; DEFCON-GNN (Kim et al. 2025)
+# is a comparator-only per NOTICE and is deliberately NOT cited.
+references:
+  - citation: "Le, H. M., Yue, Y., Carr, P., & Lucey, P. (2017). Data-Driven Ghosting Using Deep Imitation Learning. MIT Sloan Sports Analytics Conference."
+    role: methodology
+  - citation: "Bischofberger, J., & Baca, A. (2026). Dangerous accessible space: a unified model of space and value in team sports. Journal of Big Data, 13, 76 (package: accessible-space)."
+    role: methodology
+  - citation: "Spearman, W. (2018). Beyond Expected Goals. MIT Sloan Sports Analytics Conference."
+    role: methodology
+  - citation: "Shaw, L., & Sudarshan, M. (2020). A Framework for Tactical Analysis and Individual Offensive Production Assessment in Soccer Using Markov Models."
+    role: algorithm
+
+inputs:
+  datasets:
+    - id: "{catalog}.bronze.spadl_action_context"
+      source: delta-table
+      description: "Action-context tracking frames feeding the ghost-frame reconstruction"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.gkdv"
+      destination: delta-table
+      description: "Per-keeper pooled ghost-frame deltas written by gkdv_writer (ADR-013), native ids"
+    - id: "{catalog}.dev_gold.fct_gk_shot_stopping_pooled"
+      destination: delta-table
+      description: "Existing pooled GK mart extended with gkdv_delta_das_* / gkdv_delta_threat_* per (player, competition, season); dbt-built, contract-enforced (ADR-013)"
+
+execution:
+  # Deterministic-method card carrying its own scheduled compute phase (like wf-defcon /
+  # wf-obso-pausa). Heaviest grain-mart writer: per tracking work unit it builds the ghost
+  # counterfactual and scores per-frame delta_das (accessible-space) + threat suppression.
+  # Requires the [das] extra (accessible-space) -> environment: analytics.
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: gkdv_writer
+    module: ingestion.gkdv_writer
+    distribution: driver-bound
+    schedule: "daily 06:00 UTC"
+    timeout: "7200s"
+    environment: analytics
+
+depends_on:
+  - wf-metrica
+  - wf-idsse
+  - wf-skillcorner
+  - wf-pitch-control
+  # Reconstructs oriented inputs from the AC drain output (bronze.spadl_action_context).
+  - wf-action-context
+
+monitoring:
+  freshness_sla_hours: 168
+
+links:
+  source_code:
+    - "src/ingestion/gkdv_writer.py"
+---
+
+## Overview
+
+GKDV (Goalkeeper Deterrent Value) estimates a keeper's off-line deterrent effect by a
+counterfactual: for each scored-and-defending tracking frame it builds a "ghost" frame
+with the keeper removed, and measures the change in Dangerous-Attacks-Space
+(`delta_das`, accessible-space) and in fitted-xT threat (`delta_threat_suppression`) that
+the keeper's positioning suppresses. The per-frame deltas are pooled per keeper over
+`(competition, season)`.
+
+This is a **methodology / governance card** for the silly-kicks 4.87.0 gkdv family. The
+materialising ADR-013 writer (`src/ingestion/gkdv_writer.py`) requires the `[das]` extra,
+restricts to frames whose `provenance["drop_reason"].isna()` (a dropped frame is
+byte-identical across the actual/ghost legs, so differencing it would bias every aggregate
+toward the null), and lands the pooled result in bronze for dbt to join into the existing
+`fct_gk_shot_stopping_pooled` mart. It is scheduled into the daily job via the `inference`
+execution phase above (entry point `gkdv_writer`, `analytics` environment — which carries
+the `[das]` extra), running after the action-context drain.
+
+GKDV composes a ghost-substitution engine (Le, Yue, Carr & Lucey 2017) with two physics
+arms — accessible space (`delta_das`, Bischofberger & Baca 2026) and threat-suppression
+(`delta_threat_suppression`, Spearman 2018 + Shaw & Sudarshan 2020, the source of the
+`lambda_gk = 3 * lambda_outfield` constant). The ghost-frame construction and per-keeper
+pooling are silly-kicks-native and pinned to the 4.87.0 signatures (`build_ghost_frames` /
+`delta_das` / `delta_threat_suppression` / `aggregate_by_keeper`) as the surface is still
+evolving upstream. DEFCON-GNN (Kim et al. 2025) is a comparator only, not implemented here.
+
+## Governance
+
+GKDV is **per-player evaluative** (per-goalkeeper deterrent value). See
+[`AI_GOVERNANCE.md`](../AI_GOVERNANCE.md) §5/§6 for the full risk classification and the
+not-high-risk-under-current-posture determination.

@@ -27,8 +27,9 @@ def _contract_columns(model_name: str) -> set[str]:
 
 
 def test_distribution_profile_cols_subset_of_actions_contract():
-    # queries.gk_analytics.build_distribution_profile_sql (ADR-061: action-grain off fct_gk_tracking_actions).
-    needed = {"player_key", "match_key", "xt_gk", "gk_completion", "start_x", "end_x"}
+    # queries.gk_analytics.build_distribution_profile_sql (ADR-061: action-grain off fct_gk_tracking_actions;
+    # re-homed onto xt_gk_v2 at spec §7.4).
+    needed = {"player_key", "match_key", "xt_gk_v2", "gk_completion", "start_x", "end_x"}
     missing = needed - _contract_columns("fct_gk_tracking_actions")
     assert not missing, f"distribution query expects columns absent from the contract: {missing}"
 

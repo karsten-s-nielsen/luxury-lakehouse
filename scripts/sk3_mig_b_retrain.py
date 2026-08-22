@@ -12,6 +12,10 @@
 """SK3-MIG-B retrain orchestrator — drives 11 cycle items + 8 HF republishes
 + Lakebase synced refresh + index restoration + XG1-RETIRE runtime.
 
+RETIRED one-time migration orchestrator (SK3-MIG-B, 2026-05) — EXCLUDED from the
+silly-kicks version lockstep; its internal PEP 723 floor/wheel pins and gates are stale
+by design and are deliberately NOT advanced on silly-kicks bumps.
+
 Spec: docs/superpowers/specs/2026-05-03-sk3-mig-b-retrain-and-republish-design.md
 PEP 723 single-file. Idempotent. --start-at <step|item> resumable. --dry-run skips
 HF Jobs invocations + runs steps 5-11 against existing Champions.

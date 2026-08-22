@@ -22,6 +22,7 @@ Returns ``(frames, report)``; the AC dispatch consumes only ``frames``.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -29,6 +30,8 @@ import pandas as pd
 
 if TYPE_CHECKING:
     from silly_kicks.tracking.schema import TrackingConversionReport
+
+logger = logging.getLogger(__name__)
 
 # AC result-frame schema = the silly-kicks KLOPPY tracking columns + the lakehouse-derived
 # velocity columns. Pinned + asserted so an upstream silly-kicks schema change fails loudly here
@@ -149,7 +152,9 @@ def convert_skillcorner_bronze_to_frames(
         Post-``skillcorner_matches``-join bronze in the silly-kicks SkillCorner
         ``EXPECTED_INPUT_COLUMNS`` shape (``ball_x/ball_y/ball_z``, center-origin ``x``/``y``,
         ``team_id``, ``is_goalkeeper``, ``is_visible``, ``match_id``, ``frame``, ``period``,
-        ``timestamp``, ``frame_rate``).
+        ``timestamp``, ``frame_rate``, and — since silly-kicks 4.87.0 — the per-match
+        ``pitch_length``/``pitch_width`` (metres) that scale centre-origin metres to SPADL 105x68).
+        Absent pitch dims trigger a logged ``assume_standard_pitch`` fallback (see body).
     game_id : Any
         Degenerate match id the AC path keys frames on (``int(actions["game_id"])``). Overrides
         the builder's ``game_id`` (which it sets to the bronze ``match_id``) for old-builder parity.
@@ -168,12 +173,39 @@ def convert_skillcorner_bronze_to_frames(
     """
     from silly_kicks.tracking.skillcorner import convert_to_frames
 
+    # silly-kicks 4.87.0: the SkillCorner builder SCALES centre-origin metres -> SPADL 105x68 using
+    # the per-match pitch dimensions and now REQUIRES `pitch_length`/`pitch_width` columns on the
+    # bronze (a fixed +52.5/+34 offset lands the goal line ~1-2 m off on a non-105 m pitch — 4/10
+    # public SkillCorner matches are 104/106 m; the ADR-038 clamp/scale defect). We thread the REAL
+    # dims: production denormalises them onto the post-join bronze from
+    # `bronze.skillcorner_matches.pitch_length/width` (ingestion/action_context.py, alongside
+    # team_id/is_goalkeeper), and the fixtures carry them. Only when they are GENUINELY absent do we
+    # fall back to `assume_standard_pitch=True` — a LAST RESORT that reintroduces the goal-line error
+    # on non-standard pitches, so it is logged at ERROR (never a silent 105x68 default; CLAUDE.md
+    # telemetry rule). `.notna().any()` (not iloc[0]) is the has-dims signal: the join denormalises a
+    # single non-null value across every row, so an unmapped-roster edge cannot fake presence.
+    has_pitch_dims = (
+        "pitch_length" in bronze.columns
+        and "pitch_width" in bronze.columns
+        and bool(bronze["pitch_length"].notna().any())
+        and bool(bronze["pitch_width"].notna().any())
+    )
+    if not has_pitch_dims and not bronze.empty:
+        logger.error(
+            "convert_skillcorner_bronze_to_frames: bronze carries no pitch_length/pitch_width for "
+            "game %s — falling back to assume_standard_pitch=105x68. This reintroduces the ADR-038 "
+            "~1-2 m goal-line error on non-standard pitches; the real dims MUST be threaded from "
+            "bronze.skillcorner_matches. Investigate the upstream metadata join.",
+            game_id,
+        )
+
     # Flags omitted => geometric LTR orientation (skillcorner.py: home_team_start_left is None).
     frames, report = convert_to_frames(
         bronze,
         home_team_id=str(home_team_id),
         output_convention="ltr",
         preprocess=_preprocess_config() if derive_velocities else None,
+        assume_standard_pitch=not has_pitch_dims,
     )
     frames["game_id"] = game_id  # old-builder parity (builder sets game_id = bronze match_id)
     frames = _overwrite_time_seconds(frames, period_relative_time)

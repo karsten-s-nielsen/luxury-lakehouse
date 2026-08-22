@@ -1,0 +1,80 @@
+---
+name: Packing — Bypassed-Defender Valuation
+id: wf-packing
+version: "1.0"
+status: production
+type: heuristic
+domain: passing-valuation
+owners:
+  - karsten
+tags:
+  - packing
+  - passing-valuation
+  - action-context
+  - deterministic
+
+governance:
+  eu_ai_act: not-high-risk-under-current-posture
+  annex_iii_category: "4 (Employment) — conditional if deployed for employment decisions"
+  reference: AI_GOVERNANCE.md
+
+references:
+  - citation: "Goes, F. R., Kempe, M., Meerhoff, L. A., & Lemmink, K. A. P. M. (2019). Not Every Pass Can Be an Assist: A Data-Driven Model to Measure Pass Effectiveness in Professional Soccer Matches. Big Data, 7(1). doi:10.1089/big.2018.0067."
+    role: methodology
+  - citation: "Reinartz, S., & Hegeler, J. (c. 2015). Packing (Impect GmbH)."
+    role: inspiration
+
+inputs:
+  datasets:
+    - id: "{catalog}.bronze.spadl_actions"
+      source: delta-table
+      description: "Canonical SPADL actions (pass/carry geometry)"
+    - id: "{catalog}.bronze.spadl_action_context"
+      source: delta-table
+      description: "Action-context frames + team-shape context feeding the packing computation"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.spadl_action_context"
+      destination: delta-table
+      description: "packing_net (and companion packing columns) written per-action by the action-context drain; surfaced in dev_gold.fct_action_context via the AC staging view (ADR-013 drain-native column, not a separate writer)"
+
+depends_on:
+  - wf-action-context
+
+monitoring:
+  freshness_sla_hours: 168
+
+links:
+  source_code:
+    - "src/analytics/action_context/enrich.py"
+---
+
+## Overview
+
+Packing quantifies the number of opposing defenders a pass or carry takes out of the
+game ("bypasses") between the ball's origin and destination. It is a per-action
+attacking-progression metric that originated commercially as **Packing** at IMPECT GmbH
+(Reinartz & Hegeler, c. 2015) and was formalized academically by Goes, Kempe, Meerhoff &
+Lemmink (2019), whose peer-reviewed model measures pass effectiveness via the longitudinal
+outplayed-defender inequality this implementation realizes.
+
+This is a **methodology / governance card**. Packing is a deterministic column emitted
+by the silly-kicks action-context drain (governed operationally by
+[`wf-action-context`](wf-action-context.yaml)), not by a separate scheduled task — this
+card exists to carry the family's academic provenance and EU-AI-Act posture per the
+AI governance chain, in the same way `wf-obso-pausa`/`wf-defcon` govern their
+drain-adjacent families.
+
+## Algorithm
+
+For each on-ball action, the defenders positioned in the geometric region between the
+ball's start and end locations (relative to the defending goal) are counted; `packing_net`
+is the net count of defenders taken out of play. The computation is deterministic and
+frame-geometry-based — no trained weights.
+
+## Governance
+
+Packing is **per-player evaluative** (it credits the passer and, by extension, the
+receiver). See [`AI_GOVERNANCE.md`](../AI_GOVERNANCE.md) §5/§6 for the full risk
+classification and the not-high-risk-under-current-posture determination.

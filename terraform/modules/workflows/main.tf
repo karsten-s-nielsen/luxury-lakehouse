@@ -171,6 +171,32 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "statsbomb"
   }
 
+  # ── Task: Score bravery — defending-team block willingness (ADR-013) ────
+  # Reads bronze.spadl_actions (shot_blocked / cross_blocked SPADL enrichments),
+  # computes the per-(match, defending team) bravery aggregate via silly-kicks
+  # compute_bravery, and writes bronze.bravery. Event-only across ALL providers
+  # (no tracking frames), dispatched per match via applyInPandas. Depends only on
+  # the SPADL bronze producer (compute_spadl_vaep). Governance: wf-bravery.
+  task {
+    task_key        = "bravery_writer"
+    timeout_seconds = 1800
+    max_retries     = 0
+
+    depends_on {
+      task_key = "compute_spadl_vaep"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "bravery_writer"
+      parameters = [
+        "--catalog", var.catalog_name,
+      ]
+    }
+
+    environment_key = "analytics"
+  }
+
   # ── Task: Compute unified action context features (AC-1 fan-out) ────────
   # All silly-kicks enrichments for SPADL actions in a single pass per
   # match. Event-only providers get game_state + GK resolution (~5 cols);
@@ -854,6 +880,7 @@ resource "databricks_job" "data_ingestion" {
     # bronze read by an output_mart. (compute_spadl_vaep is in stage 2;
     # extract_tracking_metadata + backfills + resolve_players are in
     # stage 1.) Order: alphabetical.
+    depends_on { task_key = "bravery_writer" }
     depends_on { task_key = "compute_action_context" }
     depends_on { task_key = "compute_action_context_statsbomb" }
     depends_on { task_key = "compute_defcon_lite" }
@@ -871,10 +898,44 @@ resource "databricks_job" "data_ingestion" {
     # (ADR-066; enforced by test_workflow_dag_bronze_reads).
     depends_on { task_key = "compute_xg_shot_scores" }
     depends_on { task_key = "dbt_build_intermediate_marts" }
+    depends_on { task_key = "defensive_credit_writer" }
+    depends_on { task_key = "gkdv_writer" }
     # ADR-074/SEC7: was `hf_sync` — this is the only leg it needed (psxg_predictions).
     depends_on { task_key = "import_psxg_predictions" }
+    depends_on { task_key = "off_ball_runs_writer" }
+    depends_on { task_key = "xt_gk_v2_writer" }
 
     environment_key = "dbt"
+  }
+
+  # ── Task: Score defensive credit — per-action + long-form (ADR-013) ─────
+  # Reconstructs the oriented (actions, frames, xt) per tracking work unit
+  # (tracking_marts_driver, reading bronze.spadl_action_context from the AC drain),
+  # LEFT-JOINs per-shot xG from bronze.xg_shot_predictions, applies the silly-kicks
+  # TF-51 credit rules, and writes bronze.action_defensive_credit +
+  # bronze.defensive_credit_attributions. Depends on the AC drain AND the xG scorer.
+  # Governance: wf-defensive-credit.
+  task {
+    task_key        = "defensive_credit_writer"
+    timeout_seconds = 5400
+    max_retries     = 0
+
+    depends_on {
+      task_key = "compute_action_context"
+    }
+    depends_on {
+      task_key = "compute_xg_shot_scores"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "defensive_credit_writer"
+      parameters = [
+        "--catalog", var.catalog_name,
+      ]
+    }
+
+    environment_key = "analytics"
   }
 
   # ── Task: Extract tracking player metadata ─────────────────────────────
@@ -900,6 +961,34 @@ resource "databricks_job" "data_ingestion" {
     }
 
     environment_key = "default"
+  }
+
+  # ── Task: Score GKDV — goalkeeper deterrent value (ADR-013) ─────────────
+  # Per tracking work unit (tracking_marts_driver, reading bronze.spadl_action_context
+  # from the AC drain): infer ball carrier -> derive team_in_possession -> build ghost
+  # frames -> per scored-and-defending frame score delta_das (accessible-space / [das])
+  # + delta_threat_suppression, then pool per keeper x (competition, season) -> bronze.
+  # gkdv_keeper_pooled. Heaviest of the grain-mart writers (per-frame counterfactual);
+  # requires the [das] extra -> environment "analytics" (accessible-space is pinned there).
+  # Governance: wf-gkdv.
+  task {
+    task_key        = "gkdv_writer"
+    timeout_seconds = 7200
+    max_retries     = 0
+
+    depends_on {
+      task_key = "compute_action_context"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "gkdv_writer"
+      parameters = [
+        "--catalog", var.catalog_name,
+      ]
+    }
+
+    environment_key = "analytics"
   }
 
   # ── Task: HF Hub sync — combined imports + exports ───────────────────
@@ -1197,6 +1286,32 @@ resource "databricks_job" "data_ingestion" {
     }
 
     environment_key = "default"
+  }
+
+  # ── Task: Score off-ball runs — detect + value (ADR-013) ────────────────
+  # Per tracking work unit (tracking_marts_driver, reading bronze.spadl_action_context
+  # from the AC drain): reconstruct oriented (actions, frames, xt), detect qualifying
+  # off-ball runs (silly-kicks detect_off_ball_runs, TF-4/TF-35) and value completed
+  # passes/crosses against the fitted xT grid (value_off_ball_runs) -> bronze.off_ball_runs.
+  # Governance: wf-off-ball-xt (run-values family).
+  task {
+    task_key        = "off_ball_runs_writer"
+    timeout_seconds = 5400
+    max_retries     = 0
+
+    depends_on {
+      task_key = "compute_action_context"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "off_ball_runs_writer"
+      parameters = [
+        "--catalog", var.catalog_name,
+      ]
+    }
+
+    environment_key = "analytics"
   }
 
   # ── Task: Action-context preflight — discover units + fill work-queue ──
@@ -1545,6 +1660,34 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "analytics"
   }
 
+  # ── Task: Score xT-GK v2 — GK distribution value (ADR-013) ──────────────
+  # Reads the v2-free corpus bronze.spadl_action_context (GK-distribution slice +
+  # persisted resolved-keeper-geometry columns), loads the fitted MarkovPossessionValue
+  # + EmpiricalTurnoverValue bundle from the UC Volume (HF-trained out-of-band, like
+  # xg_model_v3 — an artifact dependency, NOT a task edge to a trainer), scores xt_gk_v2
+  # per GK-distribution action on the driver, and writes bronze.xt_gk_v2_predictions
+  # (two-tier mart-join, NOT an AC-drain column). Its only task edge is the AC drain that
+  # produces the geometry columns. Governance: wf-xt-gk-v2-writer (governed_by wf-xt-gk-v2).
+  task {
+    task_key        = "xt_gk_v2_writer"
+    timeout_seconds = 1800
+    max_retries     = 0
+
+    depends_on {
+      task_key = "compute_action_context"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "xt_gk_v2_writer"
+      parameters = [
+        "--catalog", var.catalog_name,
+      ]
+    }
+
+    environment_key = "analytics"
+  }
+
   # ── Environment for SPADL/VAEP task (includes analytics extras) ─────────
   # No statsbombpy needed — pipeline reads from bronze, not the API.
   #
@@ -1564,7 +1707,7 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path,
-        "silly-kicks[das,ghost-gk,parse-dfl]==4.43.0",
+        "silly-kicks[das,ghost-gk,parse-dfl]==4.89.0",
         "accessible-space==2.0.15",
         # numba: silly-kicks ships @njit kernels for pitch control + ball-carrier
         # (tracking/pitch_control/_{spearman,fernandez_bornn}.py, tracking/_ball_carrier.py)

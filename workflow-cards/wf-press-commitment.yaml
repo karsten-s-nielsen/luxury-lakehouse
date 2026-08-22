@@ -1,0 +1,75 @@
+---
+name: Press Commitment — Defender Closing-Speed Valuation
+id: wf-press-commitment
+version: "1.0"
+status: production
+type: heuristic
+domain: defensive-valuation
+owners:
+  - karsten
+tags:
+  - press-commitment
+  - defensive-valuation
+  - action-context
+  - deterministic
+
+governance:
+  eu_ai_act: not-high-risk-under-current-posture
+  annex_iii_category: "4 (Employment) — conditional if deployed for employment decisions"
+  reference: AI_GOVERNANCE.md
+
+# silly-kicks-native ORIGINAL metric (TF-51 v2 pressure-commitment cue): a signed
+# closing-speed projection of the nearest pressing defender onto the ball-carrier axis.
+# Per the silly-kicks NOTICE it is a PRACTITIONER concept (PSG / Luis Enrique pressing
+# style; Sumpter coaching literature), attributed as such — NOT a published paper, so it
+# carries no academic citation and no ARCHITECTURE.md Appendix-D row (matching GOV-B).
+references: []
+
+inputs:
+  datasets:
+    - id: "{catalog}.bronze.spadl_action_context"
+      source: delta-table
+      description: "Action-context tracking frames feeding the closing-speed computation"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.spadl_action_context"
+      destination: delta-table
+      description: "press_commitment_closing_speed (signed velocity projection) + press_commitment_source written per-action by the action-context drain; surfaced in dev_gold.fct_action_context (ADR-013 drain-native column, not a separate writer)"
+
+depends_on:
+  - wf-action-context
+
+monitoring:
+  freshness_sla_hours: 168
+
+links:
+  source_code:
+    - "src/analytics/action_context/enrich.py"
+---
+
+## Overview
+
+Press Commitment measures how hard the nearest defending player commits to pressing the
+ball carrier, as a signed projection of the defender's velocity onto the axis toward the
+carrier. Positive values are a defender closing down; a retreating defender is
+legitimately negative, so the physical invariant is a bounded magnitude
+(`|press_commitment_closing_speed| ≤ 15 m/s`), not non-negativity.
+
+This is a **methodology / governance card**. Press commitment is a deterministic column
+emitted by the silly-kicks action-context drain (governed operationally by
+[`wf-action-context`](wf-action-context.yaml)), not by a separate scheduled task — this
+card carries the family's EU-AI-Act posture per the AI governance chain.
+
+## Algorithm
+
+For each on-ball action with tracking, the nearest defending player to the ball carrier is
+identified, and their velocity vector is projected onto the unit axis pointing from the
+defender to the carrier: `v_close = vx·axis[0] + vy·axis[1]`. The computation is
+deterministic and frame-geometry-based — no trained weights.
+
+## Governance
+
+Press commitment is **per-player evaluative** (it evaluates the pressing defender). See
+[`AI_GOVERNANCE.md`](../AI_GOVERNANCE.md) §5/§6 for the full risk classification and the
+not-high-risk-under-current-posture determination.

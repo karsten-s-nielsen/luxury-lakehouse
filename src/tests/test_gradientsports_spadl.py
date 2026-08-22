@@ -40,7 +40,7 @@ def _make_gs_bronze_df(n: int = 5, **kwargs: object) -> pd.DataFrame:
 
 class TestAdaptGradientSportsEvents:
     def test_adapt_rename_completeness(self) -> None:
-        """All 47 EXPECTED_INPUT_COLUMNS present after adaptation."""
+        """All 48 EXPECTED_INPUT_COLUMNS present after adaptation (47 pre-4.89.0 + start_time)."""
         from silly_kicks.spadl.gradientsports import EXPECTED_INPUT_COLUMNS
 
         from ingestion.spadl_adapter import adapt_gradientsports_events
@@ -134,6 +134,51 @@ class TestAdaptGradientSportsEvents:
         assert adapted["player_id"].iloc[0] == 84.0
         assert adapted["team_id"].iloc[0] == 361.0
         assert adapted["set_piece_type"].iloc[0] == "CK"
+
+    def test_adapt_carries_start_time_and_event_time(self) -> None:
+        """silly-kicks 4.89.0 (ADR-065/PR-S159) requires `start_time` (raw absolute event clock);
+        `event_time` is its NaN fallback. The shaper must map bronze `startTime`/`eventTime`
+        (top-level double scalars) -> `start_time`/`event_time`, NOT NaN-fill them via Step 4 (an
+        all-NaN sort tiebreak would silently defeat the chronological-order invariant)."""
+        from silly_kicks.spadl.gradientsports import EXPECTED_INPUT_COLUMNS
+
+        from ingestion.spadl_adapter import adapt_gradientsports_events
+
+        # `start_time` is a REQUIRED converter-input column at 4.89.0.
+        assert "start_time" in EXPECTED_INPUT_COLUMNS
+        pdf = _make_gs_bronze_df(n=3, start_time=1234.5, event_time=1234.5)
+        adapted = adapt_gradientsports_events(pdf)
+        assert "start_time" in adapted.columns
+        assert "event_time" in adapted.columns
+        # Sourced from bronze, not NaN-filled.
+        assert adapted["start_time"].notna().all()
+        assert adapted["event_time"].notna().all()
+        assert adapted["start_time"].iloc[0] == pytest.approx(1234.5)
+        assert adapted["event_time"].iloc[0] == pytest.approx(1234.5)
+
+    def test_real_shaped_fixture_converts_without_missing_start_time(self) -> None:
+        """A real-shaped GS fixture (bronze `startTime`/`eventTime` present) converts through the
+        4.89.0 converter without raising the missing-`start_time` ValueError, and the shaper-supplied
+        clock is a genuine value (converter uses it as the chronological sort tiebreak)."""
+        import silly_kicks.spadl.gradientsports as gs
+
+        from ingestion.spadl_adapter import (
+            adapt_gradientsports_events,
+            extract_gradientsports_match_metadata,
+        )
+
+        pdf = _make_gs_bronze_df(n=5, team_id=366.0, home_team=True, home_team_start_left=True)
+        meta = extract_gradientsports_match_metadata(pdf)
+        adapted = adapt_gradientsports_events(pdf)
+        assert "start_time" in adapted.columns and adapted["start_time"].notna().all()
+        # Must not raise the missing-column ValueError from silly-kicks 4.89.0.
+        actions, _report = gs.convert_to_actions(
+            adapted,
+            home_team_id=meta["home_team_id"],
+            home_team_start_left=meta["home_team_start_left"],
+            home_team_start_left_extratime=meta["home_team_start_left_extratime"],
+        )
+        assert len(actions) > 0
 
     def test_adapt_time_seconds_is_period_relative(self) -> None:
         """GS bronze startGameClock is a NOMINAL absolute clock (nominal_offset[period] +

@@ -1,0 +1,130 @@
+---
+name: xT-GK v2 (Markov Possession Value + Empirical Turnover)
+id: wf-xt-gk-v2
+version: "1.0"
+# Governed system for goalkeeper distribution value (v2). v2 REPLACES the retired
+# in-repo v1 `add_xt_gk` metric (16 columns + 5 philosophy presets). The possession-value
+# surface + empirical turnover cost are FIT by scripts/train_xt_gk_v2_hf.py (ADR-012) and
+# delivered to a UC Volume; the retention model ships bundled in the wheel. INFERENCE
+# materialization is owned by the ADR-013 writer src/ingestion/xt_gk_v2_writer.py
+# (bronze.xt_gk_v2_predictions -> stg_xt_gk_v2 -> a LEFT JOIN in fct_action_context).
+# The writer is now scheduled (Chunk WIRE): its scheduled-inference contract lives on the
+# separate card `wf-xt-gk-v2-writer` (governance.governed_by: wf-xt-gk-v2, NOT in
+# PER_PLAYER_EVALUATIVE_CARDS), mirroring the wf-xg-v2 / wf-shot-xg-scorer split. This card
+# is training + governance.
+status: development
+type: training-and-inference
+domain: goalkeeper-valuation
+owners:
+  - karsten
+tags:
+  - xt-gk
+  - goalkeeper-valuation
+  - markov-possession-value
+  - expected-threat
+
+governance:
+  eu_ai_act: not-high-risk-under-current-posture
+  annex_iii_category: "4 (Employment) — conditional if deployed for employment decisions"
+  reference: AI_GOVERNANCE.md
+  model_artifact: xt_gk_v2
+  notes: >-
+    v2 replaces the retired v1 add_xt_gk metric. The MarkovPossessionValue surface and
+    EmpiricalTurnoverValue cost are fitted (ADR-012, HF Jobs) and delivered via UC Volume;
+    the GkRetentionModel ships bundled. The ADR-013 writer xt_gk_v2_writer scores
+    xt_gk_v2 per GK-distribution action into bronze -> fct_action_context (mart-join, not a
+    drain column). Accepted consequence: the 5 v1 philosophy presets have no v2 successor
+    (capability loss, documented in the spec), and the v2 possession-value surface is not
+    independently construct-validated at adoption. See AI_GOVERNANCE.md §5/§6.
+
+references:
+  - citation: "Eyestone, J. \"xT-GK: Expected Threat for Goalkeepers\" (course materials)."
+    role: methodology
+  - citation: "Singh, K. (2018). Introducing Expected Threat (xT). https://karun.in/blog/expected-threat.html"
+    role: algorithm
+
+inputs:
+  datasets:
+    - id: "{catalog}.bronze.spadl_action_context"
+      source: delta-table
+      description: "v2-free action corpus (GK-distribution rows + resolved keeper geometry) — the writer reads bronze, never the post-join fct_action_context mart (acyclicity)"
+  models:
+    - id: "xt_gk_v2"
+      source: uc-volume
+      description: "Fitted MarkovPossessionValue surface + EmpiricalTurnoverValue cost, packed as one JSON envelope (ADR-012); GkRetentionModel bundled in the wheel"
+
+outputs:
+  models:
+    - id: "xt_gk_v2"
+      destination: uc-volume
+      format: json-base64
+  tables:
+    - id: "{catalog}.bronze.xt_gk_v2_predictions"
+      destination: delta-table
+      description: "Per-GK-distribution-action xt_gk_v2 (+ position/pev/retention_loss/dzv) written by xt_gk_v2_writer (ADR-013)"
+    - id: "{catalog}.dev_gold.fct_action_context"
+      destination: delta-table
+      description: "6 v2 columns registered in the mart contract ONLY (fed by stg_xt_gk_v2 via a per-action LEFT JOIN); not an AC-drain column, so absent from the drain golden (ADR-013 / spec §7.4 two-tier split)"
+
+execution:
+  training:
+    trigger: manual
+    runtime: hf-jobs
+    flavor: cpu-large
+    script: "scripts/train_xt_gk_v2_hf.py"
+    timeout: "1800s"
+  # Inference is the ADR-013 writer src/ingestion/xt_gk_v2_writer.py. Its scheduled Databricks
+  # task (entry point xt_gk_v2_writer) and the scheduled-inference contract live on the
+  # separate wf-xt-gk-v2-writer card (governed_by: wf-xt-gk-v2) — so no scheduled/orchestrated
+  # phase is declared here; this card stays training + governance.
+
+depends_on:
+  - wf-action-context
+  - wf-vaep
+
+monitoring:
+  validator: wf-model-validation
+  freshness_sla_hours: 168
+
+links:
+  source_code:
+    - "scripts/train_xt_gk_v2_hf.py"
+    - "src/ingestion/xt_gk_v2_writer.py"
+---
+
+## Overview
+
+xT-GK v2 values a goalkeeper's distribution (passes and throws) as the change in expected
+possession value it produces, netted against the empirical cost of a turnover. It replaces
+the retired in-repo v1 `add_xt_gk` metric (16 columns + 5 philosophy presets) with a
+fitted three-part model:
+
+1. **MarkovPossessionValue** — a possession-value surface fit on the gold action corpus.
+2. **EmpiricalTurnoverValue** — an empirically-fit turnover cost.
+3. **GkRetentionModel** — a bundled retention model (per-provider variant), shipped in the
+   wheel.
+
+The possession-value surface and turnover cost are **fitted** by
+`scripts/train_xt_gk_v2_hf.py` (ADR-012, HF Jobs) and delivered to a UC Volume as a single
+JSON envelope; the ADR-013 writer `src/ingestion/xt_gk_v2_writer.py` loads the fitted
+bundle and scores `xt_gk_v2` per GK-distribution action into bronze, which dbt joins into
+`fct_action_context` as a mart-join column set (six columns registered in the mart
+contract only — the AC drain never emits them, per the ADR-013 / xG-style two-tier split).
+
+## Algorithm
+
+For each GK-distribution action the writer pre-filters to `is_gk_distribution` rows,
+overrides coordinates with the resolved keeper geometry (`apply_resolved_gk_geometry`),
+extracts retention features, and calls `compute_xt_gk_v2` with the pooled possession-value
+and turnover surfaces plus the per-provider retention model. Coordinate coherence
+(resolve → features → score) is enforced by the metric's internal guard. The fitted
+surfaces are never refit at score time — `pressure_levels` round-trips in the envelope so
+the terciles match the corpus the surface was fit on.
+
+## Governance
+
+xT-GK v2 is **per-player evaluative** (per-goalkeeper distribution value). Accepted
+consequences at adoption: the five v1 philosophy presets have no v2 successor (a capability
+regression documented in the adoption spec), and the v2 possession-value surface is not
+independently construct-validated. See [`AI_GOVERNANCE.md`](../AI_GOVERNANCE.md) §5/§6 for
+the full risk classification and the not-high-risk-under-current-posture determination.

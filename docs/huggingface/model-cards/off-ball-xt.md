@@ -74,6 +74,18 @@ Benchmark target: off-ball xT frame computation ≤ 5 ms for 22 targets.
 - **Tactical profiling**: Identify overlap runs, channel threats, and half-space occupancy quantitatively
 - **Research**: Reproducible off-ball-xT implementation combining open xT grids and physics-based pitch control
 
+## Run-Values (silly-kicks 4.87.0)
+
+This card also documents the **run-values** family: off-ball run detection and valuation
+(`detect_off_ball_runs` + `value_off_ball_runs`, TF-4/TF-35), materialised per-(action,
+runner) in the `fct_off_ball_runs` mart by the ADR-013 writer
+`src/ingestion/off_ball_runs_writer.py`. It detects qualifying off-ball runs from the
+oriented tracking frames and values completed passes/crosses with a resolved receiver
+against the fitted expected-threat grid; every other run is legitimately off-domain
+(`run_value` NaN). It is the same off-ball expected-threat family as off-ball xT, and shares
+this method card and the [`wf-off-ball-xt.yaml`](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/workflow-cards/wf-off-ball-xt.yaml)
+governance home.
+
 ## EU AI Act — Intended Use and Non-Use
 
 This method is published for **research and reproducibility** purposes on public, open-licensed tracking data. It is **not intended for, not validated for, and not supplied to** any use that would fall within Annex III §4 (Employment, workers management and access to self-employment) of Regulation (EU) 2024/1689 — including recruitment or selection of natural persons, decisions affecting work-related contractual relationships, promotion, termination, task allocation based on individual traits, or the monitoring and evaluation of performance and behaviour of workers for employment decisions.

@@ -33,9 +33,9 @@ def test_sweeper_cols_subset_of_stats_mart():
 
 
 def test_distribution_profile_cols_subset_of_actions_mart():
-    # ADR-061: the offensive profile is action-grain off fct_gk_tracking_actions.
+    # ADR-061: the offensive profile is action-grain off fct_gk_tracking_actions (re-homed onto xt_gk_v2).
     live = _cols("fct_gk_tracking_actions_synced")
-    assert {"player_key", "match_key", "xt_gk", "gk_completion", "start_x", "end_x"} <= live
+    assert {"player_key", "match_key", "xt_gk_v2", "gk_completion", "start_x", "end_x"} <= live
 
 
 def test_goals_prevented_cols_subset_of_pooled_mart():

@@ -341,8 +341,51 @@ non_sb_summary as (
        and dt_a_track.native_team_id = tho.away_team_id_str
     where dm.provider != 'statsbomb'
 
+),
+
+-- silly-kicks 4.87.0 bravery (spec §7.5, Task 17g). Per (match, DEFENDING team): the % of the
+-- opponent's final actions (shots + open-play crosses) the defending team blocks. stg_bravery
+-- resolves the native writer output to (match_key, team_key). This mart is one-row-per-match with
+-- home_/away_ pivots, so bravery lands the SAME way every other per-team metric here does — joined
+-- TWICE, once per defending side (team_key = home_team_key, team_key = away_team_key) -> home_bravery_*
+-- / away_bravery_*. (The plan's "10 columns" counted the family's raw columns incl. its 2 keys; the
+-- mart-consistent landing is 16 home_/away_-prefixed metric columns, preserving the match grain.)
+combined as (
+
+    select * from sb_summary
+    union all
+    select * from non_sb_summary
+
+),
+
+bravery as (
+
+    select * from {{ ref('stg_bravery') }}
+
 )
 
-select * from sb_summary
-union all
-select * from non_sb_summary
+select
+    c.*,
+    hb.bravery_shots                                as home_bravery_shots,
+    hb.bravery_open_play_crosses                    as home_bravery_open_play_crosses,
+    hb.bravery_set_piece_crosses                    as home_bravery_set_piece_crosses,
+    hb.bravery_pct_known_domain                     as home_bravery_pct_known_domain,
+    hb.n_shots_faced                                as home_bravery_n_shots_faced,
+    hb.n_open_play_crosses_faced                    as home_bravery_n_open_play_crosses_faced,
+    hb.n_set_piece_crosses_faced                    as home_bravery_n_set_piece_crosses_faced,
+    hb.n_blocks_known                               as home_bravery_n_blocks_known,
+    ab.bravery_shots                                as away_bravery_shots,
+    ab.bravery_open_play_crosses                    as away_bravery_open_play_crosses,
+    ab.bravery_set_piece_crosses                    as away_bravery_set_piece_crosses,
+    ab.bravery_pct_known_domain                     as away_bravery_pct_known_domain,
+    ab.n_shots_faced                                as away_bravery_n_shots_faced,
+    ab.n_open_play_crosses_faced                    as away_bravery_n_open_play_crosses_faced,
+    ab.n_set_piece_crosses_faced                    as away_bravery_n_set_piece_crosses_faced,
+    ab.n_blocks_known                               as away_bravery_n_blocks_known
+from combined c
+left join bravery hb
+    on  hb.match_key = c.match_key
+   and hb.team_key = c.home_team_key
+left join bravery ab
+    on  ab.match_key = c.match_key
+   and ab.team_key = c.away_team_key

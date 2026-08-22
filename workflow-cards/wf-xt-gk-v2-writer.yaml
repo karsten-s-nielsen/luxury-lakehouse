@@ -1,0 +1,112 @@
+---
+name: xT-GK v2 Scorer (writer)
+id: wf-xt-gk-v2-writer
+version: "1.0.0"
+status: development
+type: inference
+domain: goalkeeper-valuation
+owners:
+  - karsten
+tags:
+  - xt-gk
+  - goalkeeper-valuation
+  - scoring
+  - markov-possession-value
+
+# Governance: this task MATERIALIZES xt_gk_v2 per GK-distribution action from the
+# already-governed xt_gk_v2 methodology (MarkovPossessionValue + EmpiricalTurnoverValue +
+# bundled GkRetentionModel). It introduces NO new methodology of its own — the governed
+# system, model card, and EU-AI-Act posture all live under wf-xt-gk-v2 (model_artifact:
+# xt_gk_v2). This card is the inference-materialization surface, mirroring the
+# wf-xg-v2 / wf-shot-xg-scorer split. NOT a member of PER_PLAYER_EVALUATIVE_CARDS.
+governance:
+  eu_ai_act: not-high-risk-under-current-posture
+  reference: AI_GOVERNANCE.md
+  governed_by: wf-xt-gk-v2
+  model_artifact: xt_gk_v2
+  notes: >-
+    Loads the fitted MarkovPossessionValue surface + EmpiricalTurnoverValue cost (packed as
+    one JSON envelope, ADR-012) from the UC Volume and the wheel-bundled GkRetentionModel,
+    then scores xt_gk_v2 per GK-distribution action into bronze.xt_gk_v2_predictions. The xT-GK
+    v2 methodology's governance (model card, Annex III posture, capability-loss disclosure) is
+    consolidated under wf-xt-gk-v2 — this card is the scoring surface, not a new evaluative
+    system. The writer reads the v2-free corpus (bronze.spadl_action_context) and never the
+    post-join fct_action_context mart (acyclicity).
+
+# Operational plumbing: no new academic methodology (the Markov possession-value + expected
+# threat references live on wf-xt-gk-v2, which governs the xt_gk_v2 artifact).
+references: []
+
+inputs:
+  datasets:
+    - id: "{catalog}.bronze.spadl_action_context"
+      source: delta-table
+      description: "v2-free action corpus — GK-distribution rows (is_gk_distribution) + the persisted resolved-keeper-geometry columns (xt_gk_origin_x/_y, xt_gk_dest_x/_y) + the pressure feature"
+  models:
+    - id: "xt_gk_v2"
+      source: uc-volume
+      description: "Fitted MarkovPossessionValue surface + EmpiricalTurnoverValue cost as one JSON envelope (ADR-012); GkRetentionModel bundled in the wheel"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.xt_gk_v2_predictions"
+      destination: delta-table
+      description: "Per-GK-distribution-action xt_gk_v2 (+ position / pev / retention_loss / dzv + gk_geometry_source), native ids; dbt LEFT-JOINs it into fct_action_context as a two-tier mart-join column set (fct_action_context's dbt_model is registered on wf-dbt-build-output-marts)"
+
+execution:
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: xt_gk_v2_writer
+    module: ingestion.xt_gk_v2_writer
+    distribution: driver-bound
+    schedule: "daily 06:00 UTC"
+    timeout: "1800s"
+    environment: analytics
+
+depends_on:
+  - wf-xt-gk-v2
+  - wf-action-context
+
+idempotency:
+  strategy: full-overwrite
+  key:
+    - data_source
+  description: "replaceWhere on the data_source set present in the scored slice — a re-run overwrites exactly the covered providers' predictions."
+
+performance:
+  inference_timeout: "1800s"
+  memory_ceiling: "16 GB driver, 1 GB UDF executor"
+
+monitoring:
+  validator: wf-model-validation
+  freshness_sla_hours: 168
+
+links:
+  source_code:
+    - "src/ingestion/xt_gk_v2_writer.py"
+    - "scripts/train_xt_gk_v2_hf.py"
+---
+
+## Overview
+
+`xt_gk_v2_writer` turns the fitted xT-GK v2 model into the consumable per-action fact
+`bronze.xt_gk_v2_predictions`. It reads the v2-free corpus `bronze.spadl_action_context`,
+pre-filters to `is_gk_distribution` rows, overrides coordinates with the persisted resolved
+keeper geometry (`apply_resolved_gk_geometry`), extracts retention features, and calls
+`compute_xt_gk_v2` with the pooled MarkovPossessionValue + EmpiricalTurnoverValue surfaces
+(loaded from the UC Volume envelope) plus the per-provider bundled `GkRetentionModel`. It
+writes one row per GK-distribution action; dbt joins the six v2 columns into
+`fct_action_context` via `stg_xt_gk_v2` (a mart-join column set — the AC drain never emits
+them, per the ADR-013 / xG-style two-tier split).
+
+## Governance split
+
+This is the **inference-materialization** card. The xT-GK v2 methodology, model card, HF
+Jobs trainer (`scripts/train_xt_gk_v2_hf.py`), and EU-AI-Act posture are consolidated under
+[`wf-xt-gk-v2`](wf-xt-gk-v2.yaml) (`governed_by`), mirroring the
+`wf-xg-v2` / `wf-shot-xg-scorer` split. Because it materialises rather than introduces
+methodology, this card is deliberately **not** a member of `PER_PLAYER_EVALUATIVE_CARDS` and
+carries no separate HuggingFace model card. The fitted bundle is an artifact dependency
+delivered out-of-band to the UC Volume (like `xg_model_v3`); the only orchestration edge is
+the action-context drain that produces the geometry columns.

@@ -1736,6 +1736,13 @@ def _process_tracking_match(
                 F.col("player_id"),
                 F.col("team_id").cast("string").alias("team_id"),  # silly-kicks SC builder contract (TF-23)
                 (F.col("position_acronym") == "GK").alias("is_goalkeeper"),
+                # silly-kicks 4.87.0 SC builder REQUIRES per-match pitch dims to scale centre-origin
+                # metres -> SPADL 105x68 (a fixed offset lands the goal line ~1-2 m off on a non-105 m
+                # pitch — the ADR-038 defect). Denormalised onto every tracking row here (match-level,
+                # constant across the roster) so convert_skillcorner_bronze_to_frames threads the REAL
+                # dims instead of assume_standard_pitch. Cast to double for the builder's float() read.
+                F.col("pitch_length").cast("double").alias("pitch_length"),
+                F.col("pitch_width").cast("double").alias("pitch_width"),
             )
         )
         trk_sdf = trk_sdf.join(F.broadcast(matches_meta), on="player_id", how="left")
@@ -1780,9 +1787,12 @@ def _process_tracking_match(
     if provider == "idsse":
         from silly_kicks.providers.sportec import (
             derive_idsse_home_team_start_left,
-            derive_idsse_home_team_start_left_extratime,
             shape_events_to_native,
         )
+
+        # ET deriver via the lakehouse defensive wrapper (preserves the "no period column -> None"
+        # contract that silly-kicks 4.87.0 changed to a RuntimeError). See spadl_adapter.
+        from ingestion.spadl_adapter import derive_idsse_home_team_start_left_extratime
 
         hb.set_phase("toPandas_idsse_events")
         events_pdf = spark.table(f"{catalog}.bronze.idsse_events").filter(F.col("match_id") == match_id).toPandas()
@@ -2246,7 +2256,7 @@ def _run_profile_on_driver(
     # Result-health: non-null counts for carrier/possession-dependent columns. Proves the
     # enrichment RESOLVES (not just "no crash") — e.g. catches GS possession breaking when
     # frame ids don't match the action id space. All-zero here == broken resolution.
-    _health_cols = ("das_team", "das_opponent", "das_diff", "ghost_gk_x", "ghost_gk_density_spread")
+    _health_cols = ("das_team", "das_opponent", "das_diff", "ghost_gk_x", "ghost_gk_y")
     health_nonnull: dict[str, int] = dict.fromkeys(_health_cols, 0)
     profiler = cProfile.Profile()
     t0 = _time.monotonic()
@@ -2411,7 +2421,11 @@ def _make_sb360_cogroup_udf(xt_grid_data: list[list[float]], xt_l: int, xt_w: in
             return _empty_result_pdf()
         home = resolve_home_team_id(actions_pdf)
         xt = _reconstruct_xt(xt_grid_data, xt_l, xt_w)
-        result = _enrich_sb360_match(actions_pdf, frames, home, xt)
+        # Thread the RAW 360 slice so the visibility-coverage columns (silly-kicks 4.87.0, spec
+        # §7.1/§7.5) can build their action_id -> visible_area polygon frame. SB360-only; the local
+        # hexagon path (pipeline.enrich_batch) has no raw df and passes None → those 8 columns fill
+        # NaN/None via build_output.
+        result = _enrich_sb360_match(actions_pdf, frames, home, xt, sb360_raw_df=sb360_pdf)
         return _build_output(result, match_id_native=match_id, data_source="statsbomb")
 
     return _udf

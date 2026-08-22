@@ -1,0 +1,28 @@
+version: 2
+
+sources:
+  - name: bravery
+    description: >
+      Per-(match, defending team) bravery (spec §7.5, Task 17g). Written by the
+      ingestion.bravery_writer ADR-013 writer: it reads bronze.spadl_actions (event-only, all
+      providers) and runs silly-kicks 4.87.0 compute_bravery — the % of the opponent's final
+      actions (shots + open-play crosses) the defending team blocks. Feeds fct_match_summary
+      (home_bravery_* / away_bravery_*). The table is CREATE-IF-NOT-EXISTS'd by
+      scripts/migrations/2026-08-20-add-marts2-bravery-gkdv-bronze.sql so the staging view
+      resolves (empty) before the Part-B scoring run (Task 22b) populates it.
+    database: soccer_analytics
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 168, period: hour}
+        error_after: {count: 336, period: hour}
+
+    tables:
+      - name: bravery
+        description: >
+          One row per (data_source, match_id, defending team_id). team_id + match_id are NATIVE
+          (surrogates resolve in stg_bravery). bravery_set_piece_crosses is always NaN in v1
+          (silly-kicks column limitation); bravery_pct_known_domain is NaN when the match has no
+          known block signal (both shot + cross block columns unknown).

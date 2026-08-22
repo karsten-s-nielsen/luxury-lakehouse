@@ -62,24 +62,31 @@ def build_gk_keeper_lov_sql(competition_key: int) -> tuple[str, tuple]:
 
 
 def build_distribution_profile_sql(competition_key: int) -> tuple[str, tuple]:
-    """Per-GK distribution PROFILE for one competition, action grain (ADR-061 investigation 2026-06-22):
-    the six game-model preset columns are ~0.99 collinear (one rescaled xT-GK formula) so the old
-    "best-fit model" ladder was degenerate. Replaced by two real, ~independent axes:
-      - share_adds_threat = fraction of distributions with xt_gk > 0 (threat headline; xT-GK is ~97%
-        negative so the mean is a poor headline — the SHARE that adds threat varies, CV~0.46).
+    """Per-GK distribution PROFILE for one competition, action grain (ADR-061 investigation 2026-06-22;
+    re-homed onto xt_gk_v2 at spec §7.4 — the v1 xt_gk metric + 5 collinear philosophy presets are
+    retired). The old "best-fit model" preset ladder was ~0.99 collinear so it was already replaced by
+    two real, ~independent axes:
+      - share_adds_threat = fraction of distributions with xt_gk_v2 > 0 (threat headline; xT-GK v2 is
+        signed and mostly negative, so the mean is a poor headline — the SHARE that adds threat varies).
       - directness = mean forward progression (m); mean_completion is its inverse (r=-0.91) → tooltip.
-    Floored at n>=20 distributions. xt_gk IS NOT NULL selects distribution actions."""
+    mean_xtgk carries the xt_gk_v2 composite; mean_v2_* carry its 4 additive terms (position / pev /
+    retention_loss / dzv) for the composite breakdown tile. Floored at n>=20 distributions.
+    xt_gk_v2 IS NOT NULL selects GK-distribution actions."""
     sql = (
         f"SELECT a.player_key AS gk_player_key, p.player_display_name, "  # noqa: S608
         f"       COUNT(*) AS n_distributions, "
-        f"       AVG(a.xt_gk) AS mean_xtgk, "
-        f"       AVG(CASE WHEN a.xt_gk > 0 THEN 1.0 ELSE 0.0 END) AS share_adds_threat, "
+        f"       AVG(a.xt_gk_v2) AS mean_xtgk, "
+        f"       AVG(a.xt_gk_v2_position) AS mean_v2_position, "
+        f"       AVG(a.xt_gk_v2_pev) AS mean_v2_pev, "
+        f"       AVG(a.xt_gk_v2_retention_loss) AS mean_v2_retention_loss, "
+        f"       AVG(a.xt_gk_v2_dzv) AS mean_v2_dzv, "
+        f"       AVG(CASE WHEN a.xt_gk_v2 > 0 THEN 1.0 ELSE 0.0 END) AS share_adds_threat, "
         f"       AVG(a.gk_completion) AS mean_completion, "
         f"       AVG(a.end_x - a.start_x) AS mean_progress_m "
         f"FROM {t('fct_gk_tracking_actions_synced')} a "
         f"JOIN {t('dim_matches_synced')} m ON m.match_key = a.match_key "
         f"JOIN {t('dim_players_synced')} p ON p.player_key = a.player_key "
-        f"WHERE m.competition_key = %s AND a.xt_gk IS NOT NULL "
+        f"WHERE m.competition_key = %s AND a.xt_gk_v2 IS NOT NULL "
         f"GROUP BY a.player_key, p.player_display_name "
         f"HAVING COUNT(*) >= {_DIST_FLOOR} LIMIT 500"
     )

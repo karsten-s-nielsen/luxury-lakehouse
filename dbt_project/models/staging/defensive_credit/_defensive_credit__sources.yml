@@ -1,0 +1,31 @@
+version: 2
+
+sources:
+  - name: defensive_credit
+    description: >
+      Defensive-credit (TF-51) writer bronze (spec §7.5, Tasks 17d + 17f). Written by the
+      ingestion.defensive_credit_writer ADR-013 writer: per tracking work unit it reconstructs the
+      oriented (actions, frames, xt), LEFT-JOINs per-shot xG from bronze.xg_shot_predictions, and runs
+      silly-kicks 4.87.0 add_defensive_credit (per-action aggregate) + compute_defensive_credits
+      (long-form). Feeds fct_action_defensive + fct_defensive_credit_attributions. Both tables are
+      CREATE-IF-NOT-EXISTS'd by scripts/migrations/2026-08-20-add-marts1-defensive-offball-bronze.sql so
+      the staging views resolve (empty) before the Part-B scoring run (Task 22b, after fct_shot_xg
+      rebuild) populates them.
+    database: soccer_analytics
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 168, period: hour}
+        error_after: {count: 336, period: hour}
+
+    tables:
+      - name: action_defensive_credit
+        description: >
+          Per-action defending-team credit aggregate. Keyed (data_source, match_id, action_id).
+          defensive_credit_net/_plus/_minus are 0.0 (not NULL) where no credit; n_defensive_credits >= 0.
+      - name: defensive_credit_attributions
+        description: >
+          Long-form signed credit, one row per (action, credited player, rule). Keyed
+          (data_source, match_id, action_id, player_id, rule). signed_value is a nullable DOUBLE.

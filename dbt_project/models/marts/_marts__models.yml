@@ -842,6 +842,13 @@ models:
       - name: bodypart
         data_type: string
         description: Body part used for the action
+      # silly-kicks 4.56 / 4.86.0 SPADL block flags (spec §7.2). BOOLEAN nullable.
+      - name: shot_blocked
+        data_type: boolean
+        description: "TRUE where the shot was blocked (silly-kicks SPADL block flag; NULL/NA off-domain)."
+      - name: cross_blocked
+        data_type: boolean
+        description: "TRUE where the open-play cross was blocked (StatsBomb flipped all-NA to a real mask at silly-kicks 4.86.0; NULL/NA off-domain)."
       - name: offensive_value
         data_type: double
         description: >
@@ -1349,6 +1356,60 @@ models:
                 row_condition: "away_ppda is not null"
               config:
                 severity: warn
+      # ── silly-kicks 4.87.0 bravery (spec §7.5, Task 17g). Per defending team, pivoted home_/away_
+      #    like every other per-team metric in this one-row-per-match mart. Fed by stg_bravery
+      #    (ingestion.bravery_writer). bravery_* are block RATES (0–1, higher = braver = more of the
+      #    opponent's final actions blocked); n_* are the faced/blocked counts. set_piece_crosses is
+      #    always NULL in v1 (silly-kicks column limitation); pct_known_domain is NULL when the match
+      #    has no known block signal. NULL for non-tracking-and-non-event matches with no bravery row.
+      - name: home_bravery_shots
+        data_type: double
+        description: Home team's shot-block rate while defending (0–1, higher = braver). NULL if unknown.
+      - name: home_bravery_open_play_crosses
+        data_type: double
+        description: Home team's open-play-cross block rate while defending (0–1, higher = braver).
+      - name: home_bravery_set_piece_crosses
+        data_type: double
+        description: Home set-piece-cross block rate while defending. Always NULL in silly-kicks v1.
+      - name: home_bravery_pct_known_domain
+        data_type: double
+        description: Home team's headline bravery — blocked / faced over the known-block-status domain (0–1, higher = braver).
+      - name: home_bravery_n_shots_faced
+        data_type: bigint
+        description: Shots the home team faced (bravery denominator).
+      - name: home_bravery_n_open_play_crosses_faced
+        data_type: bigint
+        description: Open-play crosses the home team faced.
+      - name: home_bravery_n_set_piece_crosses_faced
+        data_type: bigint
+        description: Set-piece crosses the home team faced.
+      - name: home_bravery_n_blocks_known
+        data_type: bigint
+        description: Blocks the home team made over the known-block-status domain. NULL when no known signal.
+      - name: away_bravery_shots
+        data_type: double
+        description: Away team's shot-block rate while defending (0–1, higher = braver). NULL if unknown.
+      - name: away_bravery_open_play_crosses
+        data_type: double
+        description: Away team's open-play-cross block rate while defending (0–1, higher = braver).
+      - name: away_bravery_set_piece_crosses
+        data_type: double
+        description: Away set-piece-cross block rate while defending. Always NULL in silly-kicks v1.
+      - name: away_bravery_pct_known_domain
+        data_type: double
+        description: Away team's headline bravery — blocked / faced over the known-block-status domain (0–1, higher = braver).
+      - name: away_bravery_n_shots_faced
+        data_type: bigint
+        description: Shots the away team faced (bravery denominator).
+      - name: away_bravery_n_open_play_crosses_faced
+        data_type: bigint
+        description: Open-play crosses the away team faced.
+      - name: away_bravery_n_set_piece_crosses_faced
+        data_type: bigint
+        description: Set-piece crosses the away team faced.
+      - name: away_bravery_n_blocks_known
+        data_type: bigint
+        description: Blocks the away team made over the known-block-status domain. NULL when no known signal.
 
   - name: fct_tracking_frames
     config:
@@ -4788,8 +4849,6 @@ models:
         data_type: double
       - name: ghost_gk_y
         data_type: double
-      - name: ghost_gk_density_spread
-        data_type: double
       - name: structural_lbs
         data_type: bigint
       - name: structural_sgm
@@ -4850,51 +4909,9 @@ models:
       - name: shot_z_profile
         data_type: string
         description: "Categorical height profile of the shot trajectory (provenance)."
-      - name: xt_gk
-        data_type: double
-        description: "xT-GK composite (Eyestone), library-default params; GK-distribution actions only, NULL elsewhere. Signed."
-      - name: xt_gk_possession
-        data_type: double
-        description: "xT-GK composite, 'possession' philosophy preset."
-      - name: xt_gk_counter
-        data_type: double
-        description: "xT-GK composite, 'counter' philosophy preset."
-      - name: xt_gk_direct
-        data_type: double
-        description: "xT-GK composite, 'direct' philosophy preset."
-      - name: xt_gk_high_press
-        data_type: double
-        description: "xT-GK composite, 'high_press' philosophy preset."
-      - name: xt_gk_low_block
-        data_type: double
-        description: "xT-GK composite, 'low_block' philosophy preset."
-      - name: xt_gk_base
-        data_type: double
-      - name: xt_gk_pev
-        data_type: double
-      - name: xt_gk_rav
-        data_type: double
-        description: "Risk-adjusted value component (signed: includes the delta-weighted counter term)."
-      - name: xt_gk_dzv
-        data_type: double
-      - name: xt_gk_pressure
-        data_type: double
-      - name: xt_gk_origin_source
-        data_type: string
-        description: "Origin-coordinate provenance (silly-kicks 4.37.0): native (the common value — open-play keeps
-          the keeper-at-feet native origin) / tracking_gk (detected-keeper goal-kick) / goalkick_prior (rule-point
-          fallback) / unresolved (rare; xt_gk NULL, never imputed)."
-      - name: xt_gk_dest_source
-        data_type: string
-      - name: xt_gk_origin_confidence
-        data_type: double
-        description: "Origin-resolution confidence in [0,1]."
-      - name: xt_gk_completion_variant
-        data_type: string
-        description: "GK-completion model variant that scored RAV (gs / skillcorner / custom)."
-      - name: xt_gk_completion_source
-        data_type: string
-        description: "Per-type serve mode: model / base_rate (silly-kicks 4.21.4 honesty gate)."
+      # xT-GK v1 METRIC columns RETIRED (spec §7.4 — xt_gk_v2 replaces them; see the xt_gk_v2_* entries
+      # below, fed by ingestion.xt_gk_v2_writer via a mart LEFT JOIN). The 4 resolved-coordinate columns
+      # + gk_completion are KEPT (the v2 writer's geometry bridge + the distinct completion metric).
       - name: xt_gk_origin_x
         data_type: double
         description: "Resolved origin x the grid lookup used (LTR SPADL m, [0,105]); NaN off-scope. silly-kicks 4.36.0 audit col."
@@ -4909,7 +4926,31 @@ models:
         description: "Resolved destination y the grid lookup used (LTR SPADL m, [0,68]); NaN off-scope."
       - name: gk_completion
         data_type: double
-        description: "P(success) for in-scope GK distributions — the exact probability xt_gk_rav consumes. [0,1]."
+        description: "P(success) for in-scope GK distributions (the keeper-completion model). [0,1]. NULL off-scope."
+      # xT-GK v2 (spec §7.4 — replaces the retired v1 metric) — a MART-JOIN column set scored by
+      # ingestion.xt_gk_v2_writer into bronze.xt_gk_v2_predictions and LEFT-JOINed per action (ADR-013);
+      # NOT drain-native. NaN off-domain / non-finite coords; value family NULLed for guard-flagged
+      # contaminated matches. The 5 v1 philosophy presets have NO v2 successor (documented regression).
+      - name: xt_gk_v2_position
+        data_type: double
+        description: "xT-GK v2 position term ρ·ΔV_position (signed xG units); NULL off GK-distribution domain."
+      - name: xt_gk_v2_pev
+        data_type: double
+        description: "xT-GK v2 pressure-effect value term ρ·ΔV_pressure (signed); 0 by construction at base pressure."
+      - name: xt_gk_v2_retention_loss
+        data_type: double
+        description: "xT-GK v2 retention-loss term −(1−ρ)·V(s) (signed, ≤0); the expected loss if possession is lost."
+      - name: xt_gk_v2_dzv
+        data_type: double
+        description: "xT-GK v2 deep-zone-value / turnover term −(1−ρ)·κ·V_opp (signed, ≤0); opponent threat after loss."
+      - name: xt_gk_v2
+        data_type: double
+        description: "xT-GK v2 composite = position + pev + retention_loss + dzv (signed xG units). NULL off-domain."
+      - name: gk_geometry_source
+        data_type: string
+        description: >
+          Resolved-geometry provenance stamped by xtgk.apply_resolved_gk_geometry (silly-kicks 4.87.0):
+          off_domain / native / resolved_origin / resolved_dest / resolved_both / unresolved / unattested.
       - name: is_gk_distribution
         data_type: boolean
         description: >
@@ -4922,18 +4963,112 @@ models:
           until re-materialized, which silly-kicks' rho retention loader handles via COALESCE(...,FALSE).
       - name: pitch_control_method
         data_type: string
-      - name: ghost_gk_method
+      # === silly-kicks 4.87.0 DRAIN-NATIVE columns (spec §7.1) ===
+      - name: obso_epv_source
         data_type: string
-        description: "Ghost-GK KDE backend that produced this row's ghost_gk_* values (scopes to ghost_gk_* only; orthogonal to pitch_control_method). NULL on event-only rows."
+        description: "Real-xT OBSO provenance (silly-kicks 4.52): 'xt' on the tracking path, 'synthetic'/'injected' otherwise; NA off-domain."
+      - name: run_value_target
+        data_type: double
+        description: "TF-35 off-ball run value of the receiver's own run (0-1 xT units; 0.0 = no qualifying run, NA off-domain / unvaluable)."
+      - name: run_value_disruptive_sum
+        data_type: double
+        description: "TF-35 summed value of qualifying disruptive teammate runs (xT units; NA off-domain)."
+      - name: run_value_enabled_pass
+        data_type: double
+        description: "TF-35 the pass's own floored xT gain the disruptive runs helped unlock (xT units; NA off-domain)."
+      - name: n_disruptive_runs
+        data_type: bigint
+        description: "TF-35 count of qualifying runs by non-receiving teammates (>=0; NA off-domain)."
+      - name: n_valued_disruptive_runs
+        data_type: bigint
+        description: "TF-35 how many disruptive runs carried a value (mean divides by THIS, never n_disruptive_runs; NA off-domain)."
+      - name: press_commitment
+        data_type: double
+        description: "TF-51 pressing-defender cue (m/s^2; + committing / - containing). NaN off-domain / velocity-less."
+      - name: press_commitment_closing_speed
+        data_type: double
+        description: "TF-51 pressing defender's closing speed toward the actor (m/s, physical range; NaN off-domain)."
+      - name: press_commitment_source
+        data_type: string
+        description: "TF-51 provenance (computed / no_pressing_defender / velocity_unavailable / window_too_short / degenerate_axis / unlinked)."
+      - name: packing_made
+        data_type: bigint
+        description: "TF-49 Impect-faithful count of opponent defenders bypassed (>=0; NA off-domain = non-successful pass/cross)."
+      - name: packing_goal_threat
+        data_type: bigint
+        description: "TF-49 forward bypass count restricted to the defending back line (MSC goal-threat packing; >=0; NA off-domain)."
+      - name: packing_net
+        data_type: double
+        description: "TF-49 direction-multiplied signed bypass count (+forward / side / back multipliers; NaN off-domain)."
+      - name: packing_receiver_player_id
+        data_type: string
+        description: "TF-49 native player_id of the next same-team touch (source-dtype passthrough; NA for dribbles / off-domain / period end)."
+      - name: packing_secured
+        data_type: boolean
+        description: "TF-49 whether the ball stays past the bypassed line (NA unless a receiver resolved AND packing_made >= 1)."
+      - name: das_source
+        data_type: string
+        description: "DAS provenance (ADR-043): computed / unlinked / unscoreable_frame / team_unresolved / unscoreable_call. NULL on event-only rows."
+      - name: ghost_gk_source
+        data_type: string
+        description: "Ghost-GK provenance (closed vocabulary: computed / velocity_unavailable / no_keeper / unlinked / goal_end_unresolved / direction_unresolved). NULL on event-only rows."
+      - name: max_single_defender_player_id
+        data_type: string
+        description: "Native player_id of the single defender with the highest cover-shadow blocking score (add_cover_shadows detailed=True; source-dtype passthrough)."
+      - name: team_shape_defensive_line_height_attacking
+        data_type: double
+        description: "Attacking team's defensive-line height (x-position, metres LTR). NULL where team shape is unresolvable."
+      - name: team_shape_defensive_line_height_defending
+        data_type: double
+        description: "Defending team's defensive-line height (x-position, metres LTR). NULL where team shape is unresolvable."
+      - name: team_shape_inter_line_gap_1_attacking
+        data_type: double
+        description: "Attacking team's first inter-line gap (metres between adjacent tactical lines)."
+      - name: team_shape_inter_line_gap_1_defending
+        data_type: double
+        description: "Defending team's first inter-line gap (metres between adjacent tactical lines)."
+      - name: team_shape_inter_line_gap_2_attacking
+        data_type: double
+        description: "Attacking team's second inter-line gap (metres between adjacent tactical lines)."
+      - name: team_shape_inter_line_gap_2_defending
+        data_type: double
+        description: "Defending team's second inter-line gap (metres between adjacent tactical lines)."
+      # === silly-kicks 4.87.0 visibility coverage (spec §7.1/§7.5) — SB360-only; NULL/NA on tracking
+      # providers and until SB360 AC is enabled (ADR-058), shipped in the contract now. ===
+      - name: visible_area_fraction
+        data_type: double
+        description: "Share of the PITCH the SB360 camera observed for this action (clipped to pitch, 0-1). NaN unless visible_area_source='observed' (never 0.0/1.0 for a missing/degenerate polygon). SB360-only."
+      - name: visible_area_source
+        data_type: string
+        description: "Visibility provenance over the closed vocabulary observed / no_polygon / degenerate_polygon / unlinked. SB360-only; NULL on tracking providers."
+      - name: nearest_defender_distance_observed_fraction
+        data_type: double
+        description: "Fraction of the nearest-defender inscribed-disk region observed by the SB360 polygon (0-1). NaN off-observed (no_polygon / degenerate_polygon / degenerate_region / unlinked). SB360-only."
+      - name: nearest_defender_distance_observed_source
+        data_type: string
+        description: "Region-observation provenance for nearest_defender_distance (observed / no_polygon / degenerate_polygon / degenerate_region / unlinked). SB360-only."
+      - name: receiver_zone_density_observed_fraction
+        data_type: double
+        description: "Fraction of the receiver-zone disk region observed by the SB360 polygon (0-1). NaN off-observed. SB360-only."
+      - name: receiver_zone_density_observed_source
+        data_type: string
+        description: "Region-observation provenance for receiver_zone_density (observed / no_polygon / degenerate_polygon / degenerate_region / unlinked). SB360-only."
+      - name: defenders_in_triangle_to_goal_observed_fraction
+        data_type: double
+        description: "Fraction of the actor->goal triangle region observed by the SB360 polygon (0-1). NaN off-observed. SB360-only."
+      - name: defenders_in_triangle_to_goal_observed_source
+        data_type: string
+        description: "Region-observation provenance for defenders_in_triangle_to_goal (observed / no_polygon / degenerate_polygon / degenerate_region / unlinked). SB360-only."
       - name: xt_gk_match_contaminated
         data_type: boolean
         description: >
-          Mart-level GK-contamination guard flag (2026-07-01 handoff). TRUE where a (match, team)
-          carried more distinct xt_gk-scored players than the var threshold
-          (xt_gk_max_scored_players_per_team) — the whole-squad contamination class that is only
-          visible cross-batch at the mart. On a flagged match the xt_gk VALUE family (xt_gk, the 5
-          presets, base/pev/rav/dzv/pressure, gk_completion) is NULLed fail-safe; provenance/coord
-          columns are retained for audit. FALSE on clean matches and on all event-only rows.
+          Mart-level GK-contamination guard flag (2026-07-01 handoff; re-keyed onto xt_gk_v2 at spec
+          §7.4). TRUE where a (match, team) carried more distinct xt_gk_v2-scored players than the var
+          threshold (xt_gk_max_scored_players_per_team) — the whole-squad contamination class that is
+          only visible cross-batch at the mart. On a flagged match the xt_gk_v2 VALUE family
+          (position/pev/retention_loss/dzv/xt_gk_v2 + gk_completion) is NULLed fail-safe;
+          gk_geometry_source + the resolved-coordinate columns are retained for audit. FALSE on clean
+          matches and on all event-only rows.
 
   - name: fct_gk_tracking_actions
     config:
@@ -5008,33 +5143,30 @@ models:
         description: "SPADL action result from fct_action_values (LEFT JOIN; nullable). 'success' on a shot row = goal; own goals carry 'owngoal' and never count as goals conceded."
       - name: gk_was_distributing
         data_type: boolean
-      - name: xt_gk
+      # xT-GK v2 distribution VALUE family (spec §7.4 — replaces the retired v1 xt_gk metric + the 5
+      # collinear philosophy presets). Composite xt_gk_v2 + its 4 additive terms; writer-scored into
+      # bronze.xt_gk_v2_predictions and LEFT-JOINed per action from stg_xt_gk_v2. GK distributions only.
+      - name: xt_gk_v2
         data_type: double
-        description: "xT-GK composite, default preset (Eyestone). GK distributions only; NULL off-domain."
-      - name: xt_gk_possession
+        description: "xT-GK v2 composite = position + pev + retention_loss + dzv (signed xG units, higher = better). GK distributions only; NULL off-domain."
+      - name: xt_gk_v2_position
         data_type: double
-      - name: xt_gk_counter
+        description: "Position term ρ·ΔV_position (signed xG units, higher = better)."
+      - name: xt_gk_v2_pev
         data_type: double
-      - name: xt_gk_direct
+        description: "Pressure-effect value term ρ·ΔV_pressure (signed xG units)."
+      - name: xt_gk_v2_retention_loss
         data_type: double
-      - name: xt_gk_high_press
+        description: "Retention-loss term −(1−ρ)·V(s) (signed, ≤0)."
+      - name: xt_gk_v2_dzv
         data_type: double
-      - name: xt_gk_low_block
-        data_type: double
-      - name: xt_gk_base
-        data_type: double
-      - name: xt_gk_pev
-        data_type: double
-        description: "Pressure Escape Value component. NOTE: =0 on unpressured restarts BY CONSTRUCTION (silly-kicks verdict 2026-06-11) — any display must caption this."
-      - name: xt_gk_rav
-        data_type: double
-      - name: xt_gk_dzv
-        data_type: double
-      - name: xt_gk_pressure
-        data_type: double
+        description: "Deep-zone / turnover term −(1−ρ)·κ·V_opp (signed, ≤0)."
+      - name: gk_geometry_source
+        data_type: string
+        description: "Resolved-geometry provenance for the v2 score (off_domain / native / resolved_* / unresolved / unattested)."
       - name: gk_completion
         data_type: double
-        description: "P(success) of the distribution. Populated on a SUPERSET of xt_gk rows (GS carries completion-only rows — review C1)."
+        description: "P(success) of the distribution. Populated on a SUPERSET of xt_gk_v2 rows (GS carries completion-only rows — review C1)."
       - name: pressure_on_actor__andrienko_oval
         data_type: double
       - name: ghost_gk_x
@@ -5042,10 +5174,6 @@ models:
         description: "Ghost-GK optimum x, LTR action frame (defended goal at x≈105, ADR-052). For the x~0 canonical view apply 105−x; ghost_deviation_m already gives the frame-invariant distance to gk_actual."
       - name: ghost_gk_y
         data_type: double
-      - name: ghost_gk_density_spread
-        data_type: double
-      - name: ghost_gk_method
-        data_type: string
       - name: gk_pitch_control_share_weighted
         data_type: double
       - name: gk_reachable_area_m2
@@ -5141,20 +5269,24 @@ models:
                 values: ['gradientsports', 'idsse', 'skillcorner', 'metrica']
       - name: n_distributions
         data_type: bigint
-        description: GK distributions with xT-GK in this match (NULL when the GK has none).
-      - name: dist_xt_gk_mean
+        description: GK distributions with xT-GK v2 in this match (NULL when the GK has none).
+      # xT-GK v2 (spec §7.4 — replaces the retired v1 dist_xt_gk_mean + the 5 collinear preset means):
+      # composite mean + its 4 additive-term means (position / pev / retention_loss / dzv).
+      - name: dist_xt_gk_v2_mean
         data_type: double
-        description: "Mean xT-GK per distribution, default preset. Typical -0.05..0.10; higher = better."
-      - name: dist_xt_gk_possession_mean
+        description: "Mean xT-GK v2 composite per distribution (signed xG units; the keeper norm is negative; higher = better)."
+      - name: dist_xt_gk_v2_position_mean
         data_type: double
-      - name: dist_xt_gk_counter_mean
+        description: "Mean position term per distribution (signed xG units, higher = better)."
+      - name: dist_xt_gk_v2_pev_mean
         data_type: double
-      - name: dist_xt_gk_direct_mean
+        description: "Mean pressure-effect value term per distribution (signed xG units)."
+      - name: dist_xt_gk_v2_retention_loss_mean
         data_type: double
-      - name: dist_xt_gk_high_press_mean
+        description: "Mean retention-loss term per distribution (signed, ≤0)."
+      - name: dist_xt_gk_v2_dzv_mean
         data_type: double
-      - name: dist_xt_gk_low_block_mean
-        data_type: double
+        description: "Mean deep-zone / turnover term per distribution (signed, ≤0)."
       - name: dist_completion_mean
         data_type: double
         description: "Mean P(completion) of attempted distributions [0,1]; lower = riskier selection."
@@ -5406,6 +5538,47 @@ models:
         description: percent_rank within (competition, season); NULL while ranking_enabled=false.
       - name: _loaded_at
         data_type: timestamp
+      # ── silly-kicks 4.87.0 GKDV (spec §7.5, Task 17h). Per-keeper counterfactual deterrent value,
+      #    pooled over (competition, season) by stg_gkdv (ingestion.gkdv_writer). Both arms are in
+      #    ATTACKER-VALUE units, so NEGATIVE = deterrent. gate_eligible = >=20 nonzero observations AND
+      #    >=2 distinct matches. LEFT-joined: NULL for keepers with no scored counterfactual frames.
+      #    gkdv API is evolving upstream — pinned to the silly-kicks 4.87.0 surface.
+      - name: gkdv_delta_das_mean
+        data_type: double
+        description: Mean ΔDAS (accessible-space deterrent; attacker-value units, negative = deterrent). NULL if unscored.
+      - name: gkdv_delta_das_median
+        data_type: double
+        description: Median ΔDAS (outlier-robust companion to the mean; negative = deterrent).
+      - name: gkdv_delta_das_n
+        data_type: bigint
+        description: Sampled ΔDAS observations (scored counterfactual frames) for this keeper.
+      - name: gkdv_delta_das_n_nonzero
+        data_type: bigint
+        description: Informative (non-zero, non-NaN) ΔDAS observations — the evidence count the gate reads.
+      - name: gkdv_delta_das_n_games
+        data_type: bigint
+        description: Distinct matches contributing ΔDAS observations for this keeper.
+      - name: gkdv_delta_das_gate_eligible
+        data_type: boolean
+        description: True when n_nonzero >= 20 AND n_games >= 2 (registered clustering floors).
+      - name: gkdv_delta_threat_mean
+        data_type: double
+        description: Mean Δ-threat-suppression (pitch-control threat deterrent; attacker-value units, negative = deterrent).
+      - name: gkdv_delta_threat_median
+        data_type: double
+        description: Median Δ-threat-suppression (outlier-robust companion; negative = deterrent).
+      - name: gkdv_delta_threat_n
+        data_type: bigint
+        description: Sampled Δ-threat-suppression observations for this keeper.
+      - name: gkdv_delta_threat_n_nonzero
+        data_type: bigint
+        description: Informative (non-zero, non-NaN) Δ-threat observations — the evidence count the gate reads.
+      - name: gkdv_delta_threat_n_games
+        data_type: bigint
+        description: Distinct matches contributing Δ-threat observations for this keeper.
+      - name: gkdv_delta_threat_gate_eligible
+        data_type: boolean
+        description: True when n_nonzero >= 20 AND n_games >= 2 (registered clustering floors).
 
   - name: fct_gk_defensive_line
     config:
@@ -5439,3 +5612,224 @@ models:
         data_type: double
       - name: n_actions
         data_type: bigint
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # silly-kicks 4.87.0 Rev-6 tracking grain marts (spec §7.5, Chunk MARTS-1).
+  # ADR-013 writer-fed (ingestion.off_ball_runs_writer / ingestion.defensive_credit_writer).
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  - name: fct_off_ball_runs
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Off-ball runs (silly-kicks 4.87.0 TF-4/TF-35; Task 17e). One row per (action, runner). Detected +
+      valued by ingestion.off_ball_runs_writer; Kimball surrogates resolved from the AC identity fact
+      fct_action_values (match/competition/acting-team) + dim_players (the runner). value_off_ball_runs
+      values only completed passes/crosses with a resolved receiver, so run_value/role are legitimately
+      NULL on most rows (ADR-033) — the null-rate is by design.
+    columns:
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches (the run's action's match).
+        data_tests:
+          - not_null
+      - name: action_id
+        data_type: bigint
+        description: SPADL per-match action id the run precedes (degenerate dimension).
+        data_tests:
+          - not_null
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players — the RUNNER (NULL if unresolved).
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams — the acting/runner team.
+      - name: competition_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_competitions.
+      - name: data_source
+        data_type: string
+        description: Provider (idsse / metrica / skillcorner / gradientsports).
+      - name: period_id
+        data_type: bigint
+        description: Match period.
+      - name: player_id_native
+        data_type: string
+        description: Native runner player id (traceability; resolves to player_key).
+      - name: run_start_x
+        data_type: double
+        description: Run start x, SPADL action-LTR metres (0-105).
+      - name: run_start_y
+        data_type: double
+        description: Run start y, SPADL metres (0-68).
+      - name: run_end_x
+        data_type: double
+        description: Run end x, SPADL action-LTR metres — run_end_x > run_start_x = toward the attacked goal.
+      - name: run_end_y
+        data_type: double
+        description: Run end y, SPADL metres (0-68).
+      - name: displacement_m
+        data_type: double
+        description: First-to-last straight-line displacement (metres).
+      - name: duration_s
+        data_type: double
+        description: Run duration (seconds).
+      - name: mean_speed_ms
+        data_type: double
+        description: Mean speed over the run window (m/s).
+      - name: peak_speed_ms
+        data_type: double
+        description: Peak speed over the run window (m/s).
+      - name: peak_speed_source
+        data_type: string
+        description: How the peak was obtained (measured / displacement_rate).
+      - name: toward_goal
+        data_type: boolean
+        description: Whether the run heads toward the attacked goal.
+      - name: role
+        data_type: string
+        description: Run role (target / disruptive); NULL off-domain (unvalued action).
+      - name: is_receiver
+        data_type: boolean
+        description: Whether the runner is the pass receiver.
+      - name: run_value
+        data_type: double
+        description: Threat-weighted controlled-space value (signed xT-like units); NULL off-domain / visibility gap.
+      - name: enabled_pass_credit
+        data_type: double
+        description: Credit for enabling the pass; NULL off-domain.
+
+  - name: fct_action_defensive
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Per-action defending-team defensive credit (silly-kicks 4.87.0 TF-51; Task 17d). One row per action
+      (match_key, action_id). DOWNSTREAM of fct_shot_xg (the credit is xG-sized; putting it on
+      fct_action_values would be a dbt cycle). Scored by ingestion.defensive_credit_writer; surrogates
+      resolved from the AC identity fact fct_action_values; shot_xg exposed via LEFT JOIN fct_shot_xg on
+      shot-action rows. Enabled via var 'xg_v3_enabled' (same gate as fct_shot_xg).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - match_key
+              - action_id
+    columns:
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches.
+        data_tests:
+          - not_null
+      - name: action_id
+        data_type: bigint
+        description: SPADL per-match action id (degenerate dimension).
+        data_tests:
+          - not_null
+      - name: data_source
+        data_type: string
+        description: Provider (idsse / metrica / skillcorner / gradientsports).
+      - name: defensive_credit_net
+        data_type: double
+        description: Net defending-team credit on the action (signed xG units); 0.0 (not NULL) where no credit.
+        data_tests:
+          - not_null
+      - name: defensive_credit_plus
+        data_type: double
+        description: Sum of positive defending-team credits (0.0 where none).
+        data_tests:
+          - not_null
+      - name: defensive_credit_minus
+        data_type: double
+        description: Sum of negative defending-team credits (0.0 where none).
+        data_tests:
+          - not_null
+      - name: n_defensive_credits
+        data_type: bigint
+        description: Number of defending-team credit rows on the action (0 where none).
+      - name: competition_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_competitions.
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams — the ACTING team of the action.
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players — the actor.
+      - name: shot_xg
+        data_type: double
+        description: The shot's own pre-shot xG (from fct_shot_xg) on shot-action rows; NULL for non-shot actions.
+
+  - name: fct_defensive_credit_attributions
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Long-form defensive-credit attributions (silly-kicks 4.87.0 TF-51 compute_defensive_credits; Task
+      17f). One row per credit EVENT — (action, credited player, rule) is NOT a unique key (a rule can
+      credit a defender multiple times), so this is an event log. Scored by
+      ingestion.defensive_credit_writer; surrogates resolved from fct_action_values (match/competition) +
+      dim_players / dim_teams (the credited defender/team). signed_value is a nullable DOUBLE.
+    columns:
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches.
+        data_tests:
+          - not_null
+      - name: competition_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_competitions.
+      - name: data_source
+        data_type: string
+        description: Provider (idsse / metrica / skillcorner / gradientsports).
+      - name: game_id
+        data_type: bigint
+        description: silly-kicks SPADL game id (informational; native match id resolves match_key).
+      - name: period_id
+        data_type: bigint
+        description: Match period.
+      - name: action_id
+        data_type: bigint
+        description: Triggering SPADL per-match action id (degenerate dimension).
+        data_tests:
+          - not_null
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players — the CREDITED player (NULL if unresolved).
+      - name: player_id_native
+        data_type: string
+        description: Native credited-player id (traceability).
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams — the credited player's team (NULL if unresolved).
+      - name: team_id_native
+        data_type: string
+        description: Native credited-team id (traceability).
+      - name: rule
+        data_type: string
+        description: Credit rule (10-value silly-kicks vocab, e.g. shot_block / failed_cross_block).
+      - name: signed_value
+        data_type: double
+        description: Signed credit magnitude (xT/xG units); nullable when the magnitude is unresolvable.
+      - name: anchor_type
+        data_type: string
+        description: Anchoring action type (shot / pass / cross / bad_touch / take_on).
+      - name: frame_id
+        data_type: bigint
+        description: Linked tracking frame id (nullable).
+      - name: sizing
+        data_type: string
+        description: Magnitude-sizing provenance (xg / xt / xt_pressing).
+      - name: resolution
+        data_type: string
+        description: How the credited player was determined (lane / nearest / nearest_fallback / anchor_actor / ...).

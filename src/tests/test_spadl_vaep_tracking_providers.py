@@ -143,6 +143,11 @@ def _build_two_team_fixture(n_actions: int = 100) -> pd.DataFrame:
     for col in ("start_coord_confidence", "end_coord_confidence"):
         df[col] = float("nan")
 
+    # silly-kicks 4.56/4.86.0 SPADL block flags (BOOLEAN nullable; the UDF output projection selects
+    # them strictly, so every post-migration bronze row carries them).
+    for col in ("shot_blocked", "cross_blocked"):
+        df[col] = pd.NA
+
     # Populate team_id_native (realistic for tracking providers)
     df["team_id_native"] = df["team_id"].map({_HOME_TEAM_ID: _HOME_NATIVE, _AWAY_TEAM_ID: _AWAY_NATIVE})
 

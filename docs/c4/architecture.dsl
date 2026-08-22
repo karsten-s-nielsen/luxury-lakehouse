@@ -36,14 +36,14 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
 
         pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "47 workflow-card-registered workflows. Centralized hooks, lifecycle tracking, three-tier cost tracking." {
             workflowFramework = container "Workflow Framework" "Registry, @workflow decorator, lifecycle runner with hook dispatch" "Python"
-            workflowCards = container "Workflow Cards" "48 YAML manifests: inputs, outputs, deps, cost estimates, provenance" "YAML" "Database"
+            workflowCards = container "Workflow Cards" "55 YAML manifests: inputs, outputs, deps, cost estimates, provenance" "YAML" "Database"
             costEstimateHook = container "CostEstimateHook" "Writes run state, entity_count, row_count, cost to Delta via MERGE" "Python, PySpark"
             hfCostRecorder = container "HFJobsCostRecorder" "Cost recorder for HF Jobs. Writes to HF Hub repos. 90-day pruning." "Python"
             guardRegistry = container "Guard Registry" "SkipGuard protocol, FilterResult, find_new_ids(), timed_check(), watermark guards (ADR-024)" "Python"
             artifactDeploy = container "Artifact Deploy" "Training-to-production contract (ADR-012). MLflow + UC Volume helpers." "Python"
             hfPublish = container "HF Publish Helper" "README delivery (ADR-014) + ADR-072 publish seam: prepare_public_upload guards/splits/drops; GuardedFrame gates writes; upload_guarded derives repo privacy, sweep and HF token; refuses unaccounted files." "Python"
             databricksSqlFetch = container "Databricks SQL Fetch" "HTTP helper for HF Jobs trainers querying gold marts (no Spark)" "Python, requests"
-            ingestionPipelines = container "Compute Pipelines" "36 @workflow Databricks ingestion/compute pipelines, 6 providers. Stamps per-match visibility on bronze, threaded to SPADL (ADR-064). GS dedup (ADR-030), ET derivers (ADR-029), DFL via silly-kicks (ADR-055)." "Python, PySpark, silly-kicks 4.43.0"
+            ingestionPipelines = container "Compute Pipelines" "36 @workflow Databricks ingestion/compute pipelines, 6 providers. Stamps per-match visibility on bronze, threaded to SPADL (ADR-064). GS dedup (ADR-030), ET derivers (ADR-029), DFL via silly-kicks (ADR-055)." "Python, PySpark, silly-kicks 4.89.0"
             refreshSyncedTables = container "Synced Table Refresh" "Triggers refresh on 41 synced tables; detect-only for checkpoint-broken TRIGGERED tables — flags + dispatches the heal, never deletes (ADR-041)" "Python, databricks-sdk"
             migrateSyncedTables = container "Synced Table Migration" "SDK-managed lifecycle: delete, CDF enable, create, wait (ADR-026). Replaces Terraform module." "Python, databricks-sdk"
             rederiveSyncedMarts = container "Strand-safe Re-derive" "Operator re-derive of TRIGGERED synced marts (ADR-043): D MERGE-reprocess / T plain-rebuild / B delete+full-refresh+recreate. Pure planner + thin executor." "Python, databricks-sdk"
@@ -51,7 +51,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             evolveEngine = container "Evolve Engine" "LLM-guided architecture search. AST validation, restricted exec." "Python, OpenEvolve"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models: xG + canonical-SPADL pre-shot xG v3 (SB-360 freeze-frame builder, two-mode gate, OOF calibration; ADR-066), xT, VAEP, OBSO, pitch control, PSxG (ADR-059), embeddings" "Python, PyTorch"
             execVisibility = container "Executor Visibility (exec_visibility)" "Driver heartbeat + executor env-fingerprint/faulthandler markers + silly-kicks env-drift guard (ADR-044). Spark-Connect-safe applyInPandas progress + hang diagnostics (ADR-031)." "Python"
-            actionContextHexagon = container "Action Context Hexagon" "Pure-domain AC enrichment (ADR-028): ports + enrich_batch, one Spark+local UDF. Frames-required (ADR-057); sb360 cogroup (ADR-058); velocity via silly-kicks (ADR-067); drain gate (ADR-068)." "Python, pandas, silly-kicks 4.43.0"
+            actionContextHexagon = container "Action Context Hexagon" "Pure-domain AC enrichment (ADR-028): ports + enrich_batch, one Spark+local UDF. Frames-required (ADR-057); sb360 cogroup (ADR-058); velocity via silly-kicks (ADR-067); drain gate (ADR-068)." "Python, pandas, silly-kicks 4.89.0"
             sharedLibrary = container "Shared Library" "Cross-package constants, identifiers, and the per-match access_tier classifier — a fail-safe ALLOWLIST (ADR-064): open-data providers public, everything else restricted. Zero external deps." "Python"
         }
 
@@ -66,15 +66,15 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             telemetryTable = container "Telemetry Table" "Cycle log: items, smoke-gate pass/fail, cost tracking, heartbeat rows." "Delta Lake" "Database"
         }
 
-        dbtProject = softwareSystem "dbt Project" "Medallion transformation: 94 models (40 staging, 11 intermediate, 43 marts). Kimball dims, liquid clustering. on-run-start tripwire blocks --full-refresh of TRIGGERED synced marts (ADR-043)." {
+        dbtProject = softwareSystem "dbt Project" "Medallion transformation: 103 models (46 staging, 11 intermediate, 46 marts). Kimball dims, liquid clustering. on-run-start tripwire blocks --full-refresh of TRIGGERED synced marts (ADR-043)." {
             fctWorkflowCosts = container "fct_workflow_costs" "Gold-layer cost attribution with billing JOIN. 90-day rolling window." "SQL, dbt" "Database"
-            goldModels = container "Gold Models" "38 fact (+ fct_workflow_costs) + 4 dim tables, contracts, liquid clustering, per-row access_tier (ADR-064). Pre-shot xG fct_shot_xg (ADR-066); PSxG fct_shot_psxg (ADR-059); GK insight-views (ADR-061)." "SQL, dbt" "Database"
+            goldModels = container "Gold Models" "41 fact (+ fct_workflow_costs) + 4 dim tables, contracts, liquid clustering, per-row access_tier (ADR-064). Pre-shot xG fct_shot_xg (ADR-066); PSxG fct_shot_psxg (ADR-059); GK insight-views (ADR-061)." "SQL, dbt" "Database"
         }
 
         # Data stores
         unityCatalog = softwareSystem "Unity Catalog" "Governed Delta Lake: bronze (raw), gold (analytics), observability (metadata)" "External" {
             bronzeSchema = container "Bronze Schema" "Raw events, tracking, SPADL actions, VAEP scores, PSxG + pre-shot xG predictions, shot freeze frames, compute results" "Delta Lake" "Database"
-            goldSchema = container "Gold Schema" "39 fact + 4 dim tables. Analytics-ready." "Delta Lake" "Database"
+            goldSchema = container "Gold Schema" "42 fact + 4 dim tables. Analytics-ready." "Delta Lake" "Database"
             observabilitySchema = container "Observability Schema" "workflow_cost_live, workflow_import_checksums, workflow_watermarks, action_context_unit_events (per-worker tables + UNION view, ADR-068), definer's-rights views" "Delta Lake" "Database"
         }
 
@@ -468,7 +468,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             databricksWorkflows -> ingestionPipelines "9 leaf computes run"
             databricksWorkflows -> dbtRunner "dbt_build after leaves"
             dbtRunner -> guardRegistry "Watermark check upstream tables"
-            dbtRunner -> dbtProject "Build 43 marts"
+            dbtRunner -> dbtProject "Build 46 marts"
             dbtRunner -> observabilitySchema "Record watermarks"
             databricksWorkflows -> refreshSyncedTables "Final task"
             refreshSyncedTables -> guardRegistry "Watermark check gold tables"

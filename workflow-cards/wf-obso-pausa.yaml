@@ -13,6 +13,7 @@ tags:
   - pitch-control
   - gpu
   - pass-timing
+  - obso-epv-source
 
 governance:
   eu_ai_act: not-high-risk-under-current-posture
@@ -131,3 +132,12 @@ at every pitch location. The GPU computation vectorizes across all frames in a m
 PAUSA extends OBSO by evaluating pass timing: for each actual pass, it computes OBSO
 values at surrounding frames to determine whether the passer waited optimally or
 released too early/late.
+
+## obso_epv_source provenance column (silly-kicks 4.87.0)
+
+This card also governs the **obso_epv_source** provenance column emitted by the
+action-context drain: a per-action label recording which EPV grid source fed the OBSO
+value on that row. It is a drain-native provenance annotation on the already-governed OBSO
+surface (not a new evaluative signal of its own), so it folds into this OBSO card rather
+than needing a separate governance card. Its vocabulary is validated against the installed
+silly-kicks source by the action-context golden tests.

@@ -58,6 +58,13 @@ def _make_gs_bronze_row(
     game_event_id: float = 6498520.0,
     period: float = 1.0,
     start_game_clock: float = 2800.0,
+    # Raw absolute event clock (top-level GS scalar). silly-kicks 4.89.0 requires `start_time`
+    # (mapped from bronze `startTime`) as the chronological sort tiebreak + foul-time imputation
+    # basis; `event_time` (bronze `eventTime`) is the NaN-`start_time` fallback. Default to the
+    # game clock so `_make_gs_bronze_df`'s per-row increment keeps them monotone (matches the real
+    # feed's 0-inversion property); pass explicitly to exercise divergence.
+    start_time: float | None = None,
+    event_time: float | None = None,
     player_id: float = 12345.0,
     team_id: float = 366.0,
     home_team: bool = True,
@@ -86,6 +93,10 @@ def _make_gs_bronze_row(
     - gameEvents.homeTeam (boolean) -- used to derive home_team_id
     - ball (JSON string) -- NOT possessionEvents.ballX/ballY
     """
+    if start_time is None:
+        start_time = start_game_clock
+    if event_time is None:
+        event_time = start_time
     row: dict = {
         "match_id": match_id,
         # PR-2a R-6b: the converter left-joins bronze.gradientsports_metadata onto the events
@@ -98,6 +109,9 @@ def _make_gs_bronze_row(
         "gameId": game_id,
         "gameEventId": game_event_id,
         "possessionEventId": possession_event_id,
+        # Top-level absolute-clock scalars (double in bronze) — silly-kicks 4.89.0 required input.
+        "startTime": start_time,
+        "eventTime": event_time,
         "gameEvents.gameEventType": game_event_type,
         "gameEvents.period": period,
         "gameEvents.startGameClock": start_game_clock,

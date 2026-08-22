@@ -437,6 +437,17 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     # xg_model_v3@Champion -> bronze.xg_shot_predictions (two-mode gate + per-provider calibration).
     "compute_xg_shot_scores": "wf-shot-xg-scorer",
     "compute_off_ball_xt": "wf-off-ball-xt",
+    # silly-kicks 4.87.0 full adoption (Chunk WIRE): the 5 ADR-013 grain-mart writers,
+    # scheduled into the daily job. Deterministic families materialise onto their existing
+    # governance cards (which now declare a scheduled phase, like wf-defcon / wf-obso-pausa);
+    # run-values folds onto wf-off-ball-xt as a second phase. xt_gk_v2_writer follows the
+    # wf-xg-v2 / wf-shot-xg-scorer split: a separate writer card governed_by wf-xt-gk-v2
+    # (NOT in PER_PLAYER_EVALUATIVE_CARDS — it materialises, it introduces no methodology).
+    "off_ball_runs_writer": "wf-off-ball-xt",
+    "defensive_credit_writer": "wf-defensive-credit",
+    "bravery_writer": "wf-bravery",
+    "gkdv_writer": "wf-gkdv",
+    "xt_gk_v2_writer": "wf-xt-gk-v2-writer",
     "compute_pitch_control": "wf-pitch-control",
     "compute_formations_efpi": "wf-formations",
     "compute_formations_shape_graph": "wf-shape-graphs",

@@ -52,11 +52,11 @@ _ANALYTICS_DEPENDENCIES: tuple[str, ...] = (
     # serverless exact-pin lockstep). The 4.25.0 adoption (2026-06-11) updated terraform but
     # missed this mirror — caught in the GK-page cycle; the floors that lived here were the
     # exact divergence class ADR-046 exists to prevent.
-    "silly-kicks[das,ghost-gk,parse-dfl]==4.43.0",
+    "silly-kicks[das,ghost-gk,parse-dfl]==4.89.0",
     "accessible-space==2.0.15",
     # numba: JITs silly-kicks pitch-control + ball-carrier kernels (else silent
     # numpy fallback). Added to the TF analytics env in PR #325; mirrored here.
-    "numba==0.64.0",
+    "numba==0.66.0",
     "numpy==1.26.4",
     "xgboost-cpu==3.2.0",
     "rapidfuzz==3.14.3",

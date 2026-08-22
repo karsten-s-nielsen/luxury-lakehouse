@@ -32,7 +32,7 @@ def build_distribution_scatter_figure(
     progress_median: float | None,
 ) -> go.Figure | None:
     """Cohort 2-D scatter: x = avg forward progression (m; short-safe <-> long-direct), y = % of
-    distributions that add threat (xt_gk>0). Each WC keeper is a point (size = volume = confidence),
+    distributions that add threat (xt_gk_v2>0). Each WC keeper is a point (size = volume = confidence),
     the selected keeper highlighted, with a cohort-median crosshair splitting the four quadrants
     (proactive / recycler / risk-without-reward). Cross-keeper POSITIONING, not a rank.
     `points` = [(name, progress_m, share, n, is_selected)]."""

@@ -10,7 +10,7 @@
         where not exists (
             select 1 from {{ ref('fct_gk_tracking_actions') }} a
             where a.match_key = t.match_key
-              and ((a.player_key = t.gk_player_key and a.xt_gk is not null)
+              and ((a.player_key = t.gk_player_key and a.xt_gk_v2 is not null)
                    or a.defending_gk_player_key = t.gk_player_key)
         )
     """
@@ -29,7 +29,7 @@
 -- ORPHAN SWEEP (review R2): merge never deletes — without the post_hook above, a
 -- (gk, match) row whose underlying actions disappear (AC wipe + selective recompute) lingers
 -- with stale values and trips the reconciliation test. The keep-condition MUST mirror this
--- mart's SOURCE GRAIN — a row exists only if the GK is a current DISTRIBUTOR (xt_gk-not-null
+-- mart's SOURCE GRAIN — a row exists only if the GK is a current DISTRIBUTOR (xt_gk_v2-not-null
 -- actor, the `distribution` CTE grain) OR a current DEFENDER (`defense` CTE grain). A looser
 -- `a.player_key = t.gk_player_key` (ANY actor) kept GKs who are merely non-distribution actors,
 -- so their stale n_distributions (from a prior build) survived the merge and failed
@@ -46,25 +46,26 @@ distribution as (
         match_key,
         max(data_source) as data_source,
         count(*) as n_distributions,
-        avg(xt_gk) as dist_xt_gk_mean,
-        avg(xt_gk_possession) as dist_xt_gk_possession_mean,
-        avg(xt_gk_counter) as dist_xt_gk_counter_mean,
-        avg(xt_gk_direct) as dist_xt_gk_direct_mean,
-        avg(xt_gk_high_press) as dist_xt_gk_high_press_mean,
-        avg(xt_gk_low_block) as dist_xt_gk_low_block_mean,
+        -- xT-GK v2 (spec §7.4 — replaces the retired v1 xt_gk metric + 5 collinear philosophy presets):
+        -- composite mean + its 4 additive-term means (position / pev / retention_loss / dzv, signed xG).
+        avg(xt_gk_v2) as dist_xt_gk_v2_mean,
+        avg(xt_gk_v2_position) as dist_xt_gk_v2_position_mean,
+        avg(xt_gk_v2_pev) as dist_xt_gk_v2_pev_mean,
+        avg(xt_gk_v2_retention_loss) as dist_xt_gk_v2_retention_loss_mean,
+        avg(xt_gk_v2_dzv) as dist_xt_gk_v2_dzv_mean,
         avg(gk_completion) as dist_completion_mean,
         avg(pressure_on_actor__andrienko_oval) as dist_pressure_mean
     from actions
-    -- Domain: scoped via `xt_gk is not null` — the Eyestone GK-distribution value is non-null ONLY
-    -- on the acting GK's distribution actions (pass/goalkick). As of F1 (2026-07-11) there is now an
-    -- EXPLICIT canonical domain marker, `is_gk_distribution` (silly-kicks 4.43.0 gk_distribution_mask:
-    -- goalkick OR acting-GK open-play pass) — broadly a superset of `xt_gk is not null` here (which
-    -- also drops contamination-guard-NULLed matches and any distribution xt_gk left null). Switching
-    -- the scope to `is_gk_distribution` is a deliberate follow-up, NOT part of F1 (it changes the
-    -- population). gk_was_distributing remains a DISJOINT silly-kicks PRE-SHOT feature on SHOT actions
-    -- (was the *defending* GK distributing at a shot; lives on fct_action_values per ADR-056) — ANDing
-    -- it here zeroed the entire distribution family (ADR-051 follow-up); never use it as the domain.
-    where xt_gk is not null and player_key is not null
+    -- Domain: scoped via `xt_gk_v2 is not null` — the xT-GK v2 value is non-null ONLY on the acting
+    -- GK's distribution actions (the writer pre-filters to is_gk_distribution). As of F1 (2026-07-11)
+    -- there is an EXPLICIT canonical domain marker, `is_gk_distribution` (silly-kicks 4.43.0
+    -- gk_distribution_mask: goalkick OR acting-GK open-play pass) — broadly a superset of
+    -- `xt_gk_v2 is not null` here (which also drops any distribution left null). Switching the scope
+    -- to `is_gk_distribution` is a deliberate follow-up (it changes the population). gk_was_distributing
+    -- remains a DISJOINT silly-kicks PRE-SHOT feature on SHOT actions (was the *defending* GK
+    -- distributing at a shot; lives on fct_action_values per ADR-056) — ANDing it here zeroed the entire
+    -- distribution family (ADR-051 follow-up); never use it as the domain.
+    where xt_gk_v2 is not null and player_key is not null
     group by player_key, match_key
 ),
 
@@ -96,12 +97,11 @@ select
     coalesce(d.match_key, f.match_key) as match_key,
     coalesce(d.data_source, f.data_source) as data_source,
     d.n_distributions,
-    d.dist_xt_gk_mean,
-    d.dist_xt_gk_possession_mean,
-    d.dist_xt_gk_counter_mean,
-    d.dist_xt_gk_direct_mean,
-    d.dist_xt_gk_high_press_mean,
-    d.dist_xt_gk_low_block_mean,
+    d.dist_xt_gk_v2_mean,
+    d.dist_xt_gk_v2_position_mean,
+    d.dist_xt_gk_v2_pev_mean,
+    d.dist_xt_gk_v2_retention_loss_mean,
+    d.dist_xt_gk_v2_dzv_mean,
     d.dist_completion_mean,
     d.dist_pressure_mean,
     f.n_defended_actions,

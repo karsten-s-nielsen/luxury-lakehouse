@@ -56,8 +56,17 @@ def test_sb360_supported_metrics_populate() -> None:
     assert _nn(df, "pitch_control_at_target__voronoi") > 0, "voronoi at_target must populate on sb360"
     assert _nn(df, "obso_actual") > 0
     assert _nn(df, "pausa_composite") > 0
-    assert _nn(df, "gk_pitch_control_share_weighted") > 0  # voronoi
-    assert _nn(df, "gk_closing_time_mean_s__near_post") > 0  # voronoi, new zone
+    assert _nn(df, "gk_pitch_control_share_weighted") > 0  # voronoi (position-only)
+    # silly-kicks 4.87.0 velocity-availability contract (their ADR-063): GK zone closing-time is a
+    # velocity-DERIVED quantity (time-to-intercept), so compute_zone_closing_times WITHHOLDS it as
+    # honest NaN on velocity-less-by-design frames (speed_source='unavailable' — the SB360 freeze-
+    # frame shape), independent of the voronoi pitch-control method used for the position-only
+    # metrics. It previously populated a biased zero-velocity value; under 4.87.0 it is NULL.
+    # Rebaselined from ">0" during the silly-kicks 4.87.0 adoption (P1b) — genuine coverage change,
+    # not a lakehouse regression: freeze-frames have no velocity, so honest NULL beats a biased value.
+    assert _nn(df, "gk_closing_time_mean_s__near_post") == 0, (
+        "gk zone closing-time is velocity-derived -> NULL on velocity-less SB360 freeze-frames (sk 4.87.0)"
+    )
     assert df["shape_graph_density_defending"].notna().any()
     assert _nn(df, "xshot_occurrence") > 0  # sparse but present
     # Provenance: voronoi on the SB360 path
@@ -73,7 +82,7 @@ def test_sb360_new_fields_present() -> None:
         "structural_lbs", "structural_sgm", "structural_sdi",
         "actor_reachable_area_m2", "off_ball_xt_team", "off_ball_xt_opponent",
         "off_ball_xt_diff", "reachable_area_team", "reachable_area_opponent",
-        "reachable_area_diff", "xcross_attempt", "ghost_gk_density_spread",
+        "reachable_area_diff", "xcross_attempt",
     ):  # fmt: skip
         assert col in df.columns, f"{col} missing from SB360 output"
 

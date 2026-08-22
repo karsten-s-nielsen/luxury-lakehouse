@@ -120,7 +120,12 @@ _SPADL_SCHEMA = (
     "enriched_start_x DOUBLE, enriched_start_y DOUBLE, "
     "enriched_end_x DOUBLE, enriched_end_y DOUBLE, "
     "start_coord_source STRING, end_coord_source STRING, "
-    "start_coord_confidence DOUBLE, end_coord_confidence DOUBLE"
+    "start_coord_confidence DOUBLE, end_coord_confidence DOUBLE, "
+    # silly-kicks 4.56 / 4.86.0 SPADL block flags — baked into SPADL_COLUMNS (every
+    # convert_to_actions emits them). shot_blocked = blocked shot; cross_blocked = blocked
+    # open-play cross (StatsBomb flipped all-NA → real mask at 4.86.0). BOOLEAN nullable; feed
+    # the per-action defensive-credit (spec §7.2/§7.5).
+    "shot_blocked BOOLEAN, cross_blocked BOOLEAN"
 )
 _VAEP_TABLE = "vaep_action_values"
 _VAEP_SCHEMA = (
@@ -167,7 +172,9 @@ _VAEP_SCHEMA = (
     "enriched_start_x DOUBLE, enriched_start_y DOUBLE, "
     "enriched_end_x DOUBLE, enriched_end_y DOUBLE, "
     "start_coord_source STRING, end_coord_source STRING, "
-    "start_coord_confidence DOUBLE, end_coord_confidence DOUBLE"
+    "start_coord_confidence DOUBLE, end_coord_confidence DOUBLE, "
+    # silly-kicks 4.56 / 4.86.0 SPADL block flags carried through from spadl_actions (spec §7.2).
+    "shot_blocked BOOLEAN, cross_blocked BOOLEAN"
 )
 
 
@@ -607,6 +614,9 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                 "end_coord_source",
                 "start_coord_confidence",
                 "end_coord_confidence",
+                # silly-kicks 4.56 / 4.86.0 SPADL block flags carried through from spadl_actions.
+                "shot_blocked",
+                "cross_blocked",
             ]
         )
 
@@ -758,6 +768,9 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                                 "end_coord_source",
                                 "start_coord_confidence",
                                 "end_coord_confidence",
+                                # silly-kicks 4.56 / 4.86.0 SPADL block flags from spadl_actions.
+                                "shot_blocked",
+                                "cross_blocked",
                             ]
                             if c in game_actions.columns
                         ]
@@ -1013,6 +1026,9 @@ def _vaep_output_schema() -> Any:
             StructField("end_coord_source", StringType()),
             StructField("start_coord_confidence", DoubleType()),
             StructField("end_coord_confidence", DoubleType()),
+            # silly-kicks 4.56 / 4.86.0 SPADL block flags carried through to vaep_action_values.
+            StructField("shot_blocked", BooleanType()),
+            StructField("cross_blocked", BooleanType()),
         ]
     )
 

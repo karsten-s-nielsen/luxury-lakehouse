@@ -97,6 +97,17 @@ _MODEL_CARD_ORPHAN_EXEMPT: frozenset[str] = frozenset(
         # created with the trainer; the HF model repo (xg-v3-model-set-encoder) is NOT published yet
         # (the live GPU retrain is a later human-gated step). Remove once that run lands.
         "xg-v3-model-card",
+        # silly-kicks 4.87.0 full-adoption (Rev 6 / GOV-A): the new evaluative-family method/model
+        # cards are created with the governance chain; their HF method-model repos are NOT published
+        # yet (publishing rides the operator's writer-scheduling decision, like the existing
+        # deterministic method cards were published via scripts/publish_hf_cards.py). Remove each
+        # once its first publish lands.
+        "packing",
+        "press-commitment",
+        "defensive-credit",
+        "bravery",
+        "gkdv",
+        "xt-gk-v2",
     }
 )
 

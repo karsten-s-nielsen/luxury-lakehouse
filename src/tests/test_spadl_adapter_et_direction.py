@@ -17,13 +17,16 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
-from silly_kicks.providers.sportec import derive_idsse_home_team_start_left_extratime
 
-# IDSSE ET deriver moved to the silly-kicks DFL parse port under
-# delete-and-depend (ADR-031 T3 / Gate B); the Metrica ET deriver stays
-# lakehouse-owned. These tests now also serve as a live port contract for
-# the IDSSE side.
-from ingestion.spadl_adapter import derive_metrica_home_team_start_left_extratime
+# The IDSSE ET deriver's direction logic lives in the silly-kicks DFL parse port under
+# delete-and-depend (ADR-031 T3 / Gate B); the lakehouse keeps a THIN defensive wrapper over it
+# in ``spadl_adapter`` that preserves the "no period column -> no ET -> None" contract (silly-kicks
+# 4.87.0 changed the port to RAISE on a period-less frame). The Metrica ET deriver stays fully
+# lakehouse-owned. These tests exercise the lakehouse wrappers (and, through them, the IDSSE port).
+from ingestion.spadl_adapter import (
+    derive_idsse_home_team_start_left_extratime,
+    derive_metrica_home_team_start_left_extratime,
+)
 
 _HOME = "DFL-CLU-000008"
 _AWAY = "DFL-CLU-00000G"

@@ -425,9 +425,12 @@ def _resolve_tracking_match_meta(
     if provider == "idsse":
         from silly_kicks.providers.sportec import (
             derive_idsse_home_team_start_left,
-            derive_idsse_home_team_start_left_extratime,
             shape_events_to_native,
         )
+
+        # ET deriver via the lakehouse defensive wrapper (preserves the "no period column -> None"
+        # contract that silly-kicks 4.87.0 changed to a RuntimeError). See spadl_adapter.
+        from ingestion.spadl_adapter import derive_idsse_home_team_start_left_extratime
 
         events_pdf = (
             spark.table(f"{catalog}.bronze.idsse_events").filter(spark_fn.col("match_id") == native_id).toPandas()

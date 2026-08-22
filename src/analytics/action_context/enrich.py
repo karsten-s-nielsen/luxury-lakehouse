@@ -229,8 +229,9 @@ def _enrich_tracking_match(
 ) -> pd.DataFrame:
     """Full enrichment chain for tracking providers.
 
-    ``kde_backend`` selects the ghost-GK KDE backend (resolved upstream; default ``fft-cic``) and is
-    recorded per-row in ``ghost_gk_method``. See spec section 4.2 for the complete call graph.
+    ``kde_backend`` is retained for WorkUnit/signature compatibility but is no longer persisted:
+    silly-kicks 4.87.0 resolves the ghost-GK KDE backend upstream (predict_density default) and the
+    ``ghost_gk_method`` provenance column was retired. See spec section 4.2 for the complete call graph.
     """
     from silly_kicks.spadl import add_game_state
     from silly_kicks.spadl.utils import add_pre_shot_gk_context
@@ -246,9 +247,12 @@ def _enrich_tracking_match(
         add_line_break,
         add_obso,
         add_off_ball_context,
+        add_off_ball_run_values,
+        add_packing,
         add_pausa,
         add_pre_shot_gk_angle,
         add_pre_shot_gk_position,
+        add_press_commitment,
         add_pressure_on_actor,
         add_shape_graph,
         add_shot_goalmouth,
@@ -258,12 +262,13 @@ def _enrich_tracking_match(
         add_team_shape,
         add_xcross_attempt,
         add_xshot_occurrence,
-        add_xt_gk,
         derive_team_in_possession,
         gk_distribution_mask,
         infer_ball_carrier,
         link_actions_to_frames,
         pitch_control_at_target,
+        resolve_defended_goals,
+        resolve_gk_geometry,
     )
 
     # add_ghost_gk + add_player_influence + PitchControlCache are not re-exported from the
@@ -324,17 +329,23 @@ def _enrich_tracking_match(
         s = pitch_control_at_target(out, tracking_df, links=links, method=method, pitch_control_cache=pc_cache)
         out[s.name] = s.values
 
+    # Direction map (silly-kicks 4.53+): resolve defended goals ONCE per work-unit on the full
+    # frames and pass goal_map= to the aggregators that accept it (perf — avoids each re-resolving).
+    # The other direction-aware aggregators self-resolve on our home-LTR frames (ADR-053), so the
+    # 4.87.0 migration is a straight drop of the retired home_team_id= kwarg on those.
+    goal_map = resolve_defended_goals(tracking_df)
+
     # Step 7: Defensive line
-    out = add_defensive_line(out, tracking_df, links=links, home_team_id=home_team_id)
+    out = add_defensive_line(out, tracking_df, links=links, goal_map=goal_map)
 
     # Step 8: Off-ball context (umbrella — includes off-ball-run columns)
-    out = add_off_ball_context(out, tracking_df, links=links, home_team_id=home_team_id)
+    out = add_off_ball_context(out, tracking_df, links=links, goal_map=goal_map)
 
     # Step 9: Ward line-breaking
-    out = add_line_break(out, tracking_df, links=links, method="ward", home_team_id=home_team_id)
+    out = add_line_break(out, tracking_df, links=links, method="ward")
 
     # Step 10: Team shape
-    out = add_team_shape(out, tracking_df, links=links, home_team_id=home_team_id)
+    out = add_team_shape(out, tracking_df, links=links)
 
     # Step 11: DAS (chunk_size=10 prevents OOM under 1 GB group cap).
     # add_das -> _precompute_das_lookup requires a `team_in_possession` column; derive it
@@ -371,6 +382,10 @@ def _enrich_tracking_match(
     # <0.3%. CIC chosen over plain "fft" (NGP): 95% vs 78% mode-exact at the same cost. NOT
     # value-equivalent to cpu-numba within bit tolerance — BOTH goldens were re-baselined to
     # fft-cic. See ADR-035 (amendment) + project memory next-session-cic-ghost-gk-testing.
+    # silly-kicks 4.87.0 dropped the ``kde_backend`` selector from add_ghost_gk / compute_ghost_gk;
+    # the KDE backend is now resolved upstream (predict_density default). The ``ghost_gk_method``
+    # provenance column was retired with it (drain-native schema change), so ``kde_backend`` is
+    # accepted for WorkUnit/signature compatibility but no longer persisted.
     out = add_ghost_gk(
         out,
         tracking_df,
@@ -378,7 +393,6 @@ def _enrich_tracking_match(
         links=links,
         home_team_id=home_team_id,
         actions_for_context=actions_df,
-        kde_backend=kde_backend,
     )
 
     # Step 13: GK influence (xt positional). Explicit method="spearman" (velocity-aware; full
@@ -389,7 +403,7 @@ def _enrich_tracking_match(
         tracking_df,
         xt,
         links=links,
-        home_team_id=home_team_id,
+        goal_map=goal_map,
         pitch_control_cache=pc_cache,
         method="spearman",
         zone_names=["six_yard_box", "near_post", "far_post"],
@@ -400,28 +414,32 @@ def _enrich_tracking_match(
     # per-defender counterfactual by more than that column's own observed range. ~1.5x the
     # cover_shadows cost (scales with action count, not frames; not on the critical path).
     out = add_cover_shadows(
-        out, tracking_df, xt, links=links, home_team_id=home_team_id, detailed=True, pitch_control_cache=pc_cache
+        out, tracking_df, xt, links=links, goal_map=goal_map, detailed=True, pitch_control_cache=pc_cache
     )
 
     # Step 15: Shape graph — silly-kicks 3.25.0 restricts the per-frame snapshot computation
     # to action-linked frames internally when `links` is supplied (bit-identical).
-    out = add_shape_graph(out, tracking_df, links=links, home_team_id=home_team_id)
+    out = add_shape_graph(out, tracking_df, links=links)
 
-    # Step 16: OBSO — MUST precede add_pausa. Explicit spearman (provenance honesty).
+    # Step 16: OBSO — MUST precede add_pausa. Explicit spearman (provenance honesty). xt= is the
+    # fitted GLOBAL xT grid: MANDATORY from silly-kicks 4.52 (omitting it fires a non-fatal
+    # SyntheticEPVWarning and falls back to SYNTHETIC EPV) and switches OBSO to real fitted xT (stamps
+    # obso_epv_source="xt"). The warning is NOT escalated to an error (no filterwarnings config); the
+    # mini-golden obso_epv_source value test is what guards against a regression to synthetic EPV.
     out = add_obso(
         out,
         tracking_df,
         links=links,
-        home_team_id=home_team_id,
+        xt=xt,
         pitch_control_cache=pc_cache,
         pitch_control_method="spearman",
     )
 
     # Step 17: PAUSA (depends on OBSO columns from Step 16)
-    out = add_pausa(out, tracking_df, links=links, home_team_id=home_team_id, pitch_control_method="spearman")
+    out = add_pausa(out, tracking_df, links=links, pitch_control_method="spearman")
 
     # Step 18: Space creation
-    out = add_space_creation(out, tracking_df, links=links, home_team_id=home_team_id, pitch_control_cache=pc_cache)
+    out = add_space_creation(out, tracking_df, links=links, pitch_control_cache=pc_cache, xt=xt)
 
     # Step 19: ELASTIC sync
     out = add_elastic_sync(out, tracking_df)
@@ -432,9 +450,7 @@ def _enrich_tracking_match(
     # Step 21: xShotOccurrence (xS) — P(shot attempted); Pipping-Gamón, Feng & Sabin (2026),
     # arXiv:2512.00203. Bundled "default" XGBoost (model=None; no network, serverless-safe).
     # Reuse the shared pitch-control cache. ADR-039.
-    out = add_xshot_occurrence(
-        out, tracking_df, model=None, links=links, home_team_id=home_team_id, pitch_control_cache=pc_cache
-    )
+    out = add_xshot_occurrence(out, tracking_df, model=None, links=links, pitch_control_cache=pc_cache)
 
     # Step 21b: Shot goalmouth crossing (TF-48; Anzer & Bauer 2021). Pure ball-trajectory geometry
     # over the post-shot frames — post-contact outcome, so NOT a VAEP feature (upstream ADR-030
@@ -444,7 +460,7 @@ def _enrich_tracking_match(
 
     # Step 22: Structural-pass primitives (TF-45; Karakus & Arkadas 2026, arXiv:2603.28916).
     # No xt / no pitch control. NaN for non-pass/non-cross + non-possessing-team actions.
-    out = add_structural_pass(out, tracking_df, links=links, home_team_id=home_team_id)
+    out = add_structural_pass(out, tracking_df, links=links)
 
     # Step 23: Player influence (xt positional; shared pitch-control cache; spearman = velocity-aware).
     out = add_player_influence(
@@ -452,7 +468,6 @@ def _enrich_tracking_match(
         tracking_df,
         xt,
         links=links,
-        home_team_id=home_team_id,
         method="spearman",
         pitch_control_cache=pc_cache,
     )
@@ -469,41 +484,41 @@ def _enrich_tracking_match(
         pitch_control_cache=pc_cache,
     )
 
-    # Step 25: xT-GK (Eyestone; silly-kicks 4.21.0+/4.22.0, upstream ADR-024) — GK-distribution
-    # valuation. The wrapper auto-selects the completion variant from frames["source_provider"]
-    # (skillcorner → its own bundled weights; everything else → the native-completion GS
-    # "default") and emits the default-params composite `xt_gk`, the 5 raw components, and the
-    # 5 provenance columns. The baseline xT grid is the caller-injected pre-fitted GLOBAL grid
-    # (same `xt` the chain already uses — never self-fit, per the upstream no-leakage contract).
-    out = add_xt_gk(out, tracking_df, xt, links=links, home_team_id=home_team_id)
+    # Step 25: GK-distribution GEOMETRY RESOLUTION (spec §7.4 — v1 xt_gk metric RETIRED, replaced by
+    # the xt_gk_v2 mart-join). The v1 `add_xt_gk` metric + the 5-preset `compute_xt_gk` loop are gone;
+    # what stays is the geometry resolution the v2 writer depends on. `apply_resolved_gk_geometry`
+    # (silly-kicks xtgk) reads `xt_gk_origin_x/_y` + `xt_gk_dest_x/_y` by default to override the
+    # GK-distribution start/end coords with the resolved keeper geometry — but that resolution needs
+    # tracking frames, which the writer lacks, so the drain persists it here. This mirrors what
+    # `compute_xt_gk` did internally: distrust a broadcast provider's native origin, resolve, and
+    # write the 4 `_COORD_COLS` for in-scope rows only (NaN off-scope). native_origin_is_trusted +
+    # _resolve_single_provider + _gk_distribution_mask are imported from the same sanctioned private
+    # submodules the guard already lists (exec_visibility._SK_GUARD_SUBMODULES).
+    from silly_kicks.tracking._gk_geometry import native_origin_is_trusted
+    from silly_kicks.tracking._xt_gk import (
+        _gk_distribution_mask,
+        _resolve_completion_for_frames,
+        _resolve_single_provider,
+    )
 
-    # Step 25b: the deck's five philosophy presets as NAMED composites. δ enters the stored
-    # rav term and η the (unstored) temporal factor, so other presets are NOT derivable
-    # client-side from the stored components — each is honestly re-valued (cheap: only
-    # GK-distribution actions are in scope). compute_xt_gk's completion default is the GS
-    # bundled model, so the provider-aware variant is resolved via the SAME private resolver
-    # add_xt_gk uses (defining-module import, the add_ghost_gk pattern) — a hand-rolled
-    # variant_key_for_provider + from_variant chain breaks: the mapper returns key "gs" but the
-    # bundled weights dir is "default" (from_variant("gs") → FileNotFoundError; the resolver owns
-    # that fallback). Reported upstream as an API-seam wrinkle.
-    from silly_kicks.tracking import compute_xt_gk
-    from silly_kicks.tracking._xt_gk import XtGkParams, _resolve_completion_for_frames
+    _distrust = not native_origin_is_trusted(_resolve_single_provider(tracking_df))
+    _geom = resolve_gk_geometry(out, frames=tracking_df, links=links, distrust_native_origin=_distrust)
+    _in_scope = _gk_distribution_mask(out, tracking_df)
+    for _dst, _src in (
+        ("xt_gk_origin_x", "origin_x"),
+        ("xt_gk_origin_y", "origin_y"),
+        ("xt_gk_dest_x", "dest_x"),
+        ("xt_gk_dest_y", "dest_y"),
+    ):
+        out[_dst] = float("nan")
+        out.loc[_in_scope, _dst] = _geom.loc[_in_scope, _src].to_numpy()
 
+    # Step 26: GK-distribution completion probability — the exact P(success) the keeper-completion model
+    # scores (shared geometry + scoring path, masked to in-scope GK distributions; NaN out-of-scope).
+    # The provider-aware completion variant is resolved via the SAME private resolver the retired
+    # `add_xt_gk` used: the mapper returns key "gs" but the bundled weights dir is "default"
+    # (from_variant("gs") → FileNotFoundError; the resolver owns that fallback).
     _completion, _variant_key = _resolve_completion_for_frames(tracking_df, None)
-    for _preset in ("possession", "counter", "direct", "high_press", "low_block"):
-        _vals = compute_xt_gk(
-            out,
-            tracking_df,
-            xt=xt,
-            params=XtGkParams.for_philosophy(_preset),
-            links=links,
-            completion=_completion,
-        )
-        out[f"xt_gk_{_preset}"] = _vals["xt_gk"]
-
-    # Step 26: GK-distribution completion probability — the exact P(success) RAV consumes
-    # (shared geometry + scoring path, masked to in-scope GK distributions; NaN out-of-scope).
-    # Same explicitly-resolved variant as the preset composites.
     out = add_gk_completion(out, tracking_df, model=_completion, links=links)
 
     # Step 26b: goal-kick actor override (silly-kicks 4.39.0 acting_gk_from_frames) — credit
@@ -522,10 +537,27 @@ def _enrich_tracking_match(
     # silly-kicks' rho retention loader consumes this column on fct_action_context.
     out["is_gk_distribution"] = gk_distribution_mask(out, tracking_df, resolve_gk="robust")
 
-    # Provenance: the persisted pitch-control-derived metrics on the tracking path use spearman;
-    # ghost_gk_method records which KDE backend produced ghost_gk_* (scopes to ghost_gk_* only).
+    # Step 27: Off-ball run values (TF-35, silly-kicks 4.52; ADR-042). Values the receiver's own run
+    # plus disruptive teammate runs against the fitted GLOBAL xT grid; reuses the shared pitch-control
+    # cache. NA/<NA> off-domain (domain = completed pass/cross with a resolved receiver). Emits
+    # run_value_target/_disruptive_sum/_enabled_pass (DOUBLE) + n_disruptive_runs/n_valued_disruptive_runs
+    # (Int64). NOT a VAEP feature here — persisted to fct_action_context only.
+    out = add_off_ball_run_values(out, tracking_df, xt, links=links, pitch_control_cache=pc_cache)
+
+    # Step 28: Press commitment (TF-51, silly-kicks 4.61). Per-action pressing-defender cue
+    # (+ committing / - containing), closing speed (m/s) and provenance. Direction-agnostic (relative
+    # defender->actor axis) — no home_team_id. Honest-NaN off-domain / on velocity-less frames.
+    out = add_press_commitment(out, tracking_df, links=links)
+
+    # Step 29: Packing (TF-49, silly-kicks 4.50; Impect-faithful bypass counts). Emits packing_made/
+    # packing_goal_threat (Int64), packing_net (DOUBLE), packing_receiver_player_id (native-id
+    # passthrough) and packing_secured (boolean). NaN/<NA> off-domain (domain = successful pass/cross).
+    out = add_packing(out, tracking_df, links=links)
+
+    # Provenance: the persisted pitch-control-derived metrics on the tracking path use spearman.
+    # (silly-kicks 4.87.0 retired the ghost_gk_method KDE-backend provenance column — the KDE backend
+    # is resolved upstream on the default predict_density path; kde_backend is no longer persisted.)
     out["pitch_control_method"] = "spearman"
-    out["ghost_gk_method"] = kde_backend
 
     return out
 
@@ -536,6 +568,7 @@ def _enrich_sb360_match(
     home_team_id: str,
     xt: ExpectedThreat,
     kde_backend: str = "fft-cic",
+    sb360_raw_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Enrichment chain for StatsBomb 360 matches.
 
@@ -550,6 +583,14 @@ def _enrich_sb360_match(
 
     ``kde_backend`` is retained for caller/signature compatibility but is no longer used (it only fed
     ghost-GK, which no longer runs on this path).
+
+    ``sb360_raw_df`` is the RAW ``bronze.statsbomb_360`` slice (``id`` + ``visible_area`` STRING) for
+    this match — threaded ONLY from the production cogroup UDF (``ingestion.action_context``). When
+    supplied, the silly-kicks 4.87.0 visibility-coverage columns populate (spec §7.1/§7.5): the
+    ``add_action_context`` companions (6) + ``add_visible_area_coverage`` (2). ``None`` on the local
+    hexagon path (the raw freeze-frame df is not threaded there) leaves those 8 columns NaN/None via
+    ``build_output``. SB360-only; moot for live data (SB360 AC held/empty, ADR-058), correct for tests
+    and future enable.
     """
     from silly_kicks.spadl import add_game_state
     from silly_kicks.spadl.utils import add_pre_shot_gk_context
@@ -563,12 +604,16 @@ def _enrich_sb360_match(
         add_shape_graph,
         add_structural_pass,
         add_team_shape,
+        add_visible_area_coverage,
         add_xshot_occurrence,
         gk_distribution_mask,
         pitch_control_at_target,
+        resolve_defended_goals,
         snapshot_to_tracking_frames,
     )
     from silly_kicks.tracking.features import add_gk_influence, add_player_influence
+
+    from analytics.action_context.visible_area import build_visible_area
 
     # Step 0: Actions-only enrichments
     out = add_game_state(actions_df)
@@ -594,23 +639,41 @@ def _enrich_sb360_match(
     if len(frames) == 0:
         return out.iloc[0:0]
 
-    # Step 2: Single-frame positional features
-    out = add_action_context(out, frames, links=links)
+    # Direction map (silly-kicks 4.53+): resolve defended goals once on the synthetic frames for the
+    # aggregators that accept goal_map= (defensive_line, gk_influence). The rest self-resolve, so the
+    # 4.87.0 migration drops the retired home_team_id= kwarg. (SB360 AC is held/empty — code-correct.)
+    goal_map = resolve_defended_goals(frames)
+
+    # Visibility coverage (silly-kicks 4.87.0; spec §7.1/§7.5) — SB360-only. Build the action_id ->
+    # polygon frame from the RAW 360 visible_area STRING; None on the local hexagon (raw df not
+    # threaded there) → the 8 visibility columns fill NaN/None via build_output. The polygon is keyed
+    # canonically (ADR-019) and coordinate-consistent (SPADL) with `out`'s SPADL actions.
+    visible_area = build_visible_area(actions_df, sb360_raw_df) if sb360_raw_df is not None else None
+
+    # Step 2: Single-frame positional features. Passing visible_area= appends the 6 *_observed_*
+    # companions ({nearest_defender_distance,receiver_zone_density,defenders_in_triangle_to_goal} x
+    # {fraction,source}); the 4 primary columns are byte-identical with/without it (opt-in, additive).
+    out = add_action_context(out, frames, links=links, visible_area=visible_area)
+
+    # Observed pitch fraction + provenance (visible_area_fraction/source) — the 2 base visibility
+    # columns. links lets it tag unlinked actions distinctly from no_polygon.
+    if visible_area is not None:
+        out = add_visible_area_coverage(out, visible_area=visible_area, links=links)
 
     # Step 3: Defensive line
-    out = add_defensive_line(out, frames, links=links, home_team_id=home_team_id)
+    out = add_defensive_line(out, frames, links=links, goal_map=goal_map)
 
     # Step 4: Ward line-breaking — primary SB360 value-add
-    out = add_line_break(out, frames, links=links, method="ward", home_team_id=home_team_id)
+    out = add_line_break(out, frames, links=links, method="ward")
 
     # Step 5: Team shape
-    out = add_team_shape(out, frames, links=links, home_team_id=home_team_id)
+    out = add_team_shape(out, frames, links=links)
 
     # SB360 coverage (ADR-039): the remaining single-frame-supportable metrics. Pitch-control-
     # dependent ones use voronoi (no velocity on freeze-frames; spearman returns all-NaN). All
     # partial/sparse — honest NULL where the freeze-frame lacks the needed players.
     out = add_pressure_on_actor(out, frames, links=links)
-    out = add_shape_graph(out, frames, links=links, home_team_id=home_team_id)
+    out = add_shape_graph(out, frames, links=links)
 
     # Ghost-GK is deliberately NOT run on SB360 (ADR-058). It is a velocity-aware tracking model:
     # 5 of its 26 features are velocity-derived (ball_vx/vy, ball_speed, defensive_line_speed,
@@ -633,25 +696,26 @@ def _enrich_sb360_match(
         frames,
         xt,
         links=links,
-        home_team_id=home_team_id,
+        goal_map=goal_map,
         method="voronoi",
         zone_names=["six_yard_box", "near_post", "far_post"],
     )
-    out = add_obso(out, frames, links=links, home_team_id=home_team_id, pitch_control_method="voronoi")
-    out = add_pausa(out, frames, links=links, home_team_id=home_team_id, pitch_control_method="voronoi")
-    out = add_xshot_occurrence(out, frames, model=None, links=links, home_team_id=home_team_id)
+    out = add_obso(out, frames, links=links, xt=xt, pitch_control_method="voronoi")
+    out = add_pausa(out, frames, links=links, pitch_control_method="voronoi")
+    out = add_xshot_occurrence(out, frames, model=None, links=links)
 
     # Structural-pass (single-frame supportable; no pitch control / no velocity).
-    out = add_structural_pass(out, frames, links=links, home_team_id=home_team_id)
+    out = add_structural_pass(out, frames, links=links)
     # Player influence — voronoi (freeze-frames have no velocity; spearman returns all-NaN).
-    out = add_player_influence(out, frames, xt, links=links, home_team_id=home_team_id, method="voronoi")
+    out = add_player_influence(out, frames, xt, links=links, method="voronoi")
     # NOTE: add_xcross_attempt is NOT run on SB360 — its extract_xcross_features hard-requires ball
     # velocity (`vx`), which freeze-frames lack (raises KeyError, not honest-NaN). xcross is therefore
     # velocity-dependent like DAS / cover_shadows / pre_shot_gk and stays NULL on SB360 (build_output
     # fills it). It runs only on the full-tracking path.
 
     # Provenance: the persisted pitch-control-derived metrics on SB360 use voronoi (ADR-039).
-    # ghost_gk_method stays NULL — ghost-GK is not run on SB360 (ADR-058; see above).
+    # (Ghost-GK is not run on SB360 anyway — ADR-058; and its provenance column was retired at
+    # silly-kicks 4.87.0.)
     out["pitch_control_method"] = "voronoi"
 
     return out

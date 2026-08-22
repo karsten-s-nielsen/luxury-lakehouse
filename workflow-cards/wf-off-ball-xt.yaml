@@ -12,6 +12,8 @@ tags:
   - off-ball
   - tracking-data
   - spatial-value
+  - off-ball-runs
+  - run-values
 
 governance:
   eu_ai_act: not-high-risk-under-current-posture
@@ -23,6 +25,14 @@ references:
     role: methodology
   - citation: "Spearman (2017). Physics-Based Modeling of Pass Probabilities in Soccer. MIT Sloan Sports Analytics Conference."
     role: algorithm
+  # Run-values (off-ball run detection + valuation, TF-4/TF-35) provenance — inspired-by /
+  # framing-only per the silly-kicks NOTICE; surnames match ARCHITECTURE.md Appendix-D.
+  - citation: "Power, P., Ruiz, H., Wei, X., & Lucey, P. (2017). Not all passes are created equal: Objectively measuring the risk and reward of passes in soccer from tracking data. KDD '17."
+    role: inspiration
+  - citation: "Vidal-Codina, F., Evans, N., El Fakir, B., & Billingham, J. (2022). Automatic Event Detection in Football Using Tracking Data. Sports Engineering, 25, 18."
+    role: inspiration
+  - citation: "Esposito, U., et al. (2026). Off-ball movement analysis in elite football. International Journal of Sports Science & Coaching. doi:10.1177/17479541261427153. (framing only — no estimator or numeric taken)"
+    role: inspiration
 
 inputs:
   datasets:
@@ -49,12 +59,26 @@ execution:
     schedule: "daily 06:00 UTC"
     timeout: "600s"
     environment: default
+  # Run-values (fct_off_ball_runs) ADR-013 writer — a SECOND scheduled phase on this card
+  # (the run-values family's governance home). Driver-mode: reconstructs oriented inputs per
+  # tracking work unit and detects/values runs. Needs silly-kicks -> environment: analytics.
+  run_values:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: off_ball_runs_writer
+    module: ingestion.off_ball_runs_writer
+    distribution: driver-bound
+    schedule: "daily 06:00 UTC"
+    timeout: "5400s"
+    environment: analytics
 
 depends_on:
   - wf-metrica
   - wf-idsse
   - wf-skillcorner
   - wf-xt-grids
+  # Run-values phase reconstructs oriented inputs from the AC drain output.
+  - wf-action-context
 
 idempotency:
   strategy: skip-guard
@@ -94,3 +118,18 @@ with a pitch control weighting to produce an attributed xT score. Players who po
 themselves in high-value areas while maintaining receivability (pitch control advantage)
 earn higher off-ball xT credits. Computation is distributed via `applyInPandas` with
 synthetic frame batch partitions.
+
+## Run-Values Extension (silly-kicks 4.87.0)
+
+This card also governs the **run-values** family: off-ball run detection and valuation
+(`detect_off_ball_runs` + `value_off_ball_runs`, TF-4/TF-35). Off-ball runs are a
+drain-native action-context signal; the per-(action, runner) mart `fct_off_ball_runs` is
+materialised by the ADR-013 writer `src/ingestion/off_ball_runs_writer.py`, which
+reconstructs the oriented `(actions, frames, xt)` per tracking work unit, detects
+qualifying runs, and values completed passes/crosses against the fitted expected-threat
+grid. Run-values is a **per-player evaluative** off-ball-movement metric and belongs to the
+same off-ball expected-threat family as off-ball xT — this card is its governance home.
+`value_off_ball_runs` values only completed passes/crosses with a resolved receiver, so
+most rows carry a legitimately off-domain NaN `run_value`. The writer is scheduled into the
+daily job as the `run_values` execution phase above (entry point `off_ball_runs_writer`,
+`analytics` environment), running after the action-context drain.

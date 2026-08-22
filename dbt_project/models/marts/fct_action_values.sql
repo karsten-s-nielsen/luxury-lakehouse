@@ -59,6 +59,9 @@ with action_values as (
         result_source,
         bodypart_id,
         bodypart,
+        -- silly-kicks 4.56 / 4.86.0 SPADL block flags (spec §7.2), carried from stg_spadl__action_values.
+        shot_blocked,
+        cross_blocked,
         offensive_value,
         defensive_value,
         vaep_value,
@@ -184,6 +187,9 @@ actions_with_score as (
         -- ('native'/'inferred'/'stopgap'; NULL on synthesized dribbles).
         av.result_source,
         av.bodypart,
+        -- silly-kicks 4.56 / 4.86.0 SPADL block flags (spec §7.2).
+        av.shot_blocked,
+        av.cross_blocked,
 
         -- VAEP scores
         av.offensive_value,
@@ -354,6 +360,9 @@ final as (
         action_result,
         result_source,
         bodypart,
+        -- silly-kicks 4.56 / 4.86.0 SPADL block flags (spec §7.2).
+        shot_blocked,
+        cross_blocked,
         offensive_value,
         defensive_value,
         vaep_value,

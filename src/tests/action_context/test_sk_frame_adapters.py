@@ -48,6 +48,13 @@ def _sc_bronze() -> pd.DataFrame:
                     "ball_x": float(fr),
                     "ball_y": 0.0,
                     "ball_z": 1.5 + fr * 0.3,
+                    # silly-kicks 4.87.0 SC builder REQUIRES per-match pitch dims (metres) to scale
+                    # centre-origin metres -> SPADL 105x68. Standard 105x68 here => x_spadl = x + 52.5
+                    # (home GK -40 -> 12.5, away GK 45 -> 97.5), which is the geometry this fixture
+                    # was designed around. Threaded on the bronze exactly as production denormalises
+                    # bronze.skillcorner_matches.pitch_length/width.
+                    "pitch_length": 105.0,
+                    "pitch_width": 68.0,
                 }
             )
     return pd.DataFrame(rows)
@@ -127,6 +134,9 @@ def test_skillcorner_adapter_maps_is_visible_to_visibility() -> None:
                     "ball_x": float(fr),
                     "ball_y": 0.0,
                     "ball_z": 1.5,
+                    # silly-kicks 4.87.0: SC builder requires per-match pitch dims (see _sc_bronze).
+                    "pitch_length": 105.0,
+                    "pitch_width": 68.0,
                 }
             )
     bronze = pd.DataFrame(rows)

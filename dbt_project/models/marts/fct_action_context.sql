@@ -119,7 +119,6 @@ with action_raw as (
         shape_graph_mean_stability_defending,
         ghost_gk_x,
         ghost_gk_y,
-        ghost_gk_density_spread,
         structural_lbs,
         structural_sgm,
         structural_sdi,
@@ -143,22 +142,9 @@ with action_raw as (
         shot_fit_rmse,
         shot_fit_end_reason,
         shot_z_profile,
-        xt_gk,
-        xt_gk_possession,
-        xt_gk_counter,
-        xt_gk_direct,
-        xt_gk_high_press,
-        xt_gk_low_block,
-        xt_gk_base,
-        xt_gk_pev,
-        xt_gk_rav,
-        xt_gk_dzv,
-        xt_gk_pressure,
-        xt_gk_origin_source,
-        xt_gk_dest_source,
-        xt_gk_origin_confidence,
-        xt_gk_completion_variant,
-        xt_gk_completion_source,
+        -- xT-GK v1 metric columns RETIRED (spec §7.4); the 4 resolved-coordinate columns are KEPT as
+        -- the v2 writer's geometry bridge, gk_completion KEPT. xt_gk_v2 arrives via the stg_xt_gk_v2
+        -- LEFT JOIN below (a mart-join, ADR-013 — not a drain column).
         xt_gk_origin_x,
         xt_gk_origin_y,
         xt_gk_dest_x,
@@ -166,7 +152,39 @@ with action_raw as (
         gk_completion,
         is_gk_distribution,
         pitch_control_method,
-        ghost_gk_method,
+        -- === silly-kicks 4.87.0 DRAIN-NATIVE columns (spec §7.1) ===
+        obso_epv_source,
+        run_value_target,
+        run_value_disruptive_sum,
+        run_value_enabled_pass,
+        n_disruptive_runs,
+        n_valued_disruptive_runs,
+        press_commitment,
+        press_commitment_closing_speed,
+        press_commitment_source,
+        packing_made,
+        packing_goal_threat,
+        packing_net,
+        packing_receiver_player_id,
+        packing_secured,
+        das_source,
+        ghost_gk_source,
+        max_single_defender_player_id,
+        team_shape_defensive_line_height_attacking,
+        team_shape_defensive_line_height_defending,
+        team_shape_inter_line_gap_1_attacking,
+        team_shape_inter_line_gap_1_defending,
+        team_shape_inter_line_gap_2_attacking,
+        team_shape_inter_line_gap_2_defending,
+        -- Visibility coverage (silly-kicks 4.87.0; spec §7.1/§7.5) — SB360-only drain columns.
+        visible_area_fraction,
+        visible_area_source,
+        nearest_defender_distance_observed_fraction,
+        nearest_defender_distance_observed_source,
+        receiver_zone_density_observed_fraction,
+        receiver_zone_density_observed_source,
+        defenders_in_triangle_to_goal_observed_fraction,
+        defenders_in_triangle_to_goal_observed_source,
         -- Per-match HF redistribution tier (spec 2026-06-29 §6.4) — per-row passthrough.
         access_tier
     from {{ ref('stg_action_context__values') }}
@@ -180,7 +198,16 @@ keyed as (
         dt.team_key,
         dp.player_key,
         dp_gk.player_key as defending_gk_player_key,
-        ar.*
+        ar.*,
+        -- xT-GK v2 (spec §7.4) — a MART-JOIN column set scored by ingestion.xt_gk_v2_writer into
+        -- bronze.xt_gk_v2_predictions, NOT a drain column (ADR-013 writer-join). Per-action LEFT JOIN
+        -- on the native identity; non-GK-distribution actions get NULL v2 (correct).
+        xtv2.xt_gk_v2_position,
+        xtv2.xt_gk_v2_pev,
+        xtv2.xt_gk_v2_retention_loss,
+        xtv2.xt_gk_v2_dzv,
+        xtv2.xt_gk_v2,
+        xtv2.gk_geometry_source
     from action_raw ar
     inner join {{ ref('dim_matches') }} dm
         on dm.provider = ar.data_source
@@ -194,24 +221,25 @@ keyed as (
     left join {{ ref('dim_players') }} dp_gk
         on dp_gk.provider = ar.data_source
        and dp_gk.native_player_id = ar.defending_gk_player_id_native
+    left join {{ ref('stg_xt_gk_v2') }} xtv2
+        on xtv2.data_source = ar.data_source
+       and xtv2.native_match_id = ar.native_match_id
+       and xtv2.action_id = ar.action_id
 
 ),
 
--- Mart-level GK-contamination guard (2026-07-01 handoff). The whole-squad xt_gk
--- contamination (non-keeper actors scored) is only visible CROSS-BATCH at the mart:
--- silly-kicks' per-call n_implausible_gk_teams guard runs per 250-frame batch (~1/team
--- there, silent), but the contamination is the union across ~164 batches. A (match, team)
--- carrying more distinct xt_gk-scored players than a squad has keepers (one, occasionally
--- a sub) is contaminated. At the mart we cannot tell which flagged player is the real
--- keeper, so the whole match is excluded fail-safe (its xt_gk value family NULLed below) —
--- better to lose a contaminated match than serve silently-wrong keeper metrics. Warn-and-
--- exclude, never crash (one bad match must not kill the rebuild). Threshold pinned from the
--- clean recompute via var (clean providers sit ≈1–2/team; contaminated ≈8–17).
+-- Mart-level GK-contamination guard (2026-07-01 handoff), re-keyed onto xt_gk_v2 (spec §7.4 —
+-- v1 xt_gk retired). The whole-squad contamination (non-keeper actors scored) is only visible
+-- CROSS-BATCH at the mart. A (match, team) carrying more distinct xt_gk_v2-scored players than a
+-- squad has keepers (one, occasionally a sub) is contaminated. At the mart we cannot tell which
+-- flagged player is the real keeper, so the whole match is excluded fail-safe (its xt_gk_v2 value
+-- family NULLed below) — better to lose a contaminated match than serve silently-wrong keeper
+-- metrics. Warn-and-exclude, never crash. Threshold pinned via var (clean providers ≈1–2/team).
 xt_gk_contaminated_matches as (
 
     select distinct match_key as _contam_match_key
     from keyed
-    where xt_gk is not null
+    where xt_gk_v2 is not null
     group by match_key, team_key
     having count(distinct player_key) > {{ var('xt_gk_max_scored_players_per_team', 4) }}
 
@@ -326,7 +354,6 @@ final as (
         shape_graph_mean_stability_defending,
         ghost_gk_x,
         ghost_gk_y,
-        ghost_gk_density_spread,
         structural_lbs,
         structural_sgm,
         structural_sdi,
@@ -350,37 +377,60 @@ final as (
         shot_fit_rmse,
         shot_fit_end_reason,
         shot_z_profile,
-        -- xt_gk VALUE family: NULLed for guard-flagged contaminated matches (the actor is
-        -- untrustworthy match-wide; the value itself is geometrically fine but must not be
-        -- served as a keeper metric). Provenance/coords below are retained for audit.
-        case when cm._contam_match_key is not null then null else xt_gk end as xt_gk,
-        case when cm._contam_match_key is not null then null else xt_gk_possession end as xt_gk_possession,
-        case when cm._contam_match_key is not null then null else xt_gk_counter end as xt_gk_counter,
-        case when cm._contam_match_key is not null then null else xt_gk_direct end as xt_gk_direct,
-        case when cm._contam_match_key is not null then null else xt_gk_high_press end as xt_gk_high_press,
-        case when cm._contam_match_key is not null then null else xt_gk_low_block end as xt_gk_low_block,
-        case when cm._contam_match_key is not null then null else xt_gk_base end as xt_gk_base,
-        case when cm._contam_match_key is not null then null else xt_gk_pev end as xt_gk_pev,
-        case when cm._contam_match_key is not null then null else xt_gk_rav end as xt_gk_rav,
-        case when cm._contam_match_key is not null then null else xt_gk_dzv end as xt_gk_dzv,
-        case when cm._contam_match_key is not null then null else xt_gk_pressure end as xt_gk_pressure,
-        xt_gk_origin_source,
-        xt_gk_dest_source,
-        xt_gk_origin_confidence,
-        xt_gk_completion_variant,
-        xt_gk_completion_source,
+        -- Resolved-coordinate geometry bridge (KEPT — feeds the v2 writer; audit-only here).
         xt_gk_origin_x,
         xt_gk_origin_y,
         xt_gk_dest_x,
         xt_gk_dest_y,
         case when cm._contam_match_key is not null then null else gk_completion end as gk_completion,
+        -- xt_gk_v2 VALUE family (spec §7.4 — replaces the retired v1 metric): NULLed for guard-flagged
+        -- contaminated matches (the actor is untrustworthy match-wide). gk_geometry_source is retained
+        -- for audit. Off-domain (non-GK-distribution) actions are already NULL from the LEFT JOIN.
+        case when cm._contam_match_key is not null then null else xt_gk_v2_position end as xt_gk_v2_position,
+        case when cm._contam_match_key is not null then null else xt_gk_v2_pev end as xt_gk_v2_pev,
+        case when cm._contam_match_key is not null then null else xt_gk_v2_retention_loss end as xt_gk_v2_retention_loss,
+        case when cm._contam_match_key is not null then null else xt_gk_v2_dzv end as xt_gk_v2_dzv,
+        case when cm._contam_match_key is not null then null else xt_gk_v2 end as xt_gk_v2,
+        gk_geometry_source,
         -- GK-distribution domain marker (silly-kicks 4.43.0). NOT gated by the xt_gk contamination
         -- guard: it is an actor-domain predicate (goal-kick OR acting-GK open-play pass), valid
         -- regardless of the whole-squad xt_gk scoring contamination. Full domain on tracking arms;
         -- goal-kicks-only on SB360 (frames=None). Consumed by silly-kicks' rho retention loader.
         is_gk_distribution,
         pitch_control_method,
-        ghost_gk_method,
+        -- === silly-kicks 4.87.0 DRAIN-NATIVE columns (spec §7.1) ===
+        obso_epv_source,
+        run_value_target,
+        run_value_disruptive_sum,
+        run_value_enabled_pass,
+        n_disruptive_runs,
+        n_valued_disruptive_runs,
+        press_commitment,
+        press_commitment_closing_speed,
+        press_commitment_source,
+        packing_made,
+        packing_goal_threat,
+        packing_net,
+        packing_receiver_player_id,
+        packing_secured,
+        das_source,
+        ghost_gk_source,
+        max_single_defender_player_id,
+        team_shape_defensive_line_height_attacking,
+        team_shape_defensive_line_height_defending,
+        team_shape_inter_line_gap_1_attacking,
+        team_shape_inter_line_gap_1_defending,
+        team_shape_inter_line_gap_2_attacking,
+        team_shape_inter_line_gap_2_defending,
+        -- Visibility coverage (silly-kicks 4.87.0; spec §7.1/§7.5) — SB360-only drain columns.
+        visible_area_fraction,
+        visible_area_source,
+        nearest_defender_distance_observed_fraction,
+        nearest_defender_distance_observed_source,
+        receiver_zone_density_observed_fraction,
+        receiver_zone_density_observed_source,
+        defenders_in_triangle_to_goal_observed_fraction,
+        defenders_in_triangle_to_goal_observed_source,
         -- Per-match HF redistribution tier (spec 2026-06-29 §6.4).
         access_tier,
         -- Mart-level GK-contamination guard flag (2026-07-01): true where this match's

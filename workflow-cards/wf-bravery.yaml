@@ -1,0 +1,97 @@
+---
+name: Bravery — Defending-Team Block Willingness
+id: wf-bravery
+version: "1.0"
+status: development
+type: heuristic
+domain: defensive-valuation
+owners:
+  - karsten
+tags:
+  - bravery
+  - defensive-valuation
+  - match-summary
+  - deterministic
+
+governance:
+  eu_ai_act: not-high-risk-under-current-posture
+  annex_iii_category: "4 (Employment) — conditional if deployed for employment decisions"
+  reference: AI_GOVERNANCE.md
+
+# silly-kicks-native ORIGINAL metric (TF-51): the share of the opponent's final actions
+# (shots + open-play crosses) that the defending team blocks, per (game, defending team).
+# Per the silly-kicks NOTICE it is PRACTITIONER / MSC-corpus vocabulary (the Tigres Femenil
+# "bravery" metric, Sumpter Soccermatics Pro), attributed as such — NOT a published paper,
+# so it carries no academic citation and no ARCHITECTURE.md Appendix-D row (matching GOV-B).
+references: []
+
+inputs:
+  datasets:
+    - id: "{catalog}.bronze.spadl_actions"
+      source: delta-table
+      description: "SPADL actions with shot_blocked / cross_blocked enrichments (event-only, all providers)"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.bravery"
+      destination: delta-table
+      description: "Per-(match, defending team) bravery aggregate written by bravery_writer (ADR-013), native ids"
+    - id: "{catalog}.dev_gold.fct_match_summary"
+      destination: delta-table
+      description: "Existing match-summary mart extended with home_/away_bravery_* via a double LEFT-JOIN on the defending team; dbt-built, contract-enforced (ADR-013)"
+
+execution:
+  # Deterministic-method card carrying its own scheduled compute phase (like wf-defcon /
+  # wf-obso-pausa). Event-only across all providers: reads bronze.spadl_actions and computes
+  # the per-(match, defending team) block share via applyInPandas. Needs silly-kicks ->
+  # environment: analytics.
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: bravery_writer
+    module: ingestion.bravery_writer
+    distribution: applyInPandas
+    partition_key: match_id_native
+    schedule: "daily 06:00 UTC"
+    timeout: "1800s"
+    environment: analytics
+
+depends_on:
+  - wf-vaep
+
+monitoring:
+  freshness_sla_hours: 168
+
+links:
+  source_code:
+    - "src/ingestion/bravery_writer.py"
+---
+
+## Overview
+
+Bravery is the defending team's willingness to put a body in the way: the percentage of
+the opponent's final actions (shots + open-play crosses) that the defending team blocks,
+computed per `(match, defending team)`. It is an event-only metric covering every event
+provider (StatsBomb / Wyscout / IDSSE / Metrica / SkillCorner / GradientSports).
+
+This is a **methodology / governance card** for the silly-kicks 4.87.0 `compute_bravery`
+family. The materialising ADR-013 writer (`src/ingestion/bravery_writer.py`) reads
+`bronze.spadl_actions`, computes the aggregate per defending team, and lands it in bronze
+for dbt to join into the existing `fct_match_summary` mart (one row per match, with
+`home_bravery_*` / `away_bravery_*` pivots). It is scheduled into the daily job via the
+`inference` execution phase above (entry point `bravery_writer`, `analytics` environment),
+running after the SPADL/VAEP producer.
+
+## Algorithm
+
+`compute_bravery` groups the opponent's shots and open-play crosses by defending team and
+computes the blocked share from the `shot_blocked` / `cross_blocked` SPADL enrichments.
+Native `(match_id, team_id)` are emitted and resolved to Kimball surrogates
+(`match_key` / `team_key`) in dbt staging. The computation is deterministic — no trained
+weights.
+
+## Governance
+
+Bravery is **per-team evaluative** and aggregates from per-player defensive actions;
+per [`AI_GOVERNANCE.md`](../AI_GOVERNANCE.md) §5/§6 it is in scope as a defensive-valuation
+family, not-high-risk under the current operating posture.
