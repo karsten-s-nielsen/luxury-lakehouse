@@ -147,8 +147,19 @@ def _fill_possession_from_set_piece_actions(
     split between silly-kicks (no-crash + honest NaN) and lakehouse (modeling
     decision: synthesize possession for the SPADL-unambiguous subset).
     """
+    # Guard (ADR-078): only synthesize possession from a set-piece action whose team is one of the
+    # two teams actually on the pitch (the frames' player ``team_id`` set). A restart whose team is
+    # unresolvable — e.g. an IDSSE freekick_short carrying the ``__UNKNOWN_TEAM__`` sentinel — must NOT
+    # be injected into ``team_in_possession``: silly-kicks' ``add_das`` feeds it to accessible_space's
+    # ``infer_playing_direction``, which unions the frame ``team_id`` column with ``team_in_possession``
+    # and hard-raises ``ValueError`` on a 3rd team, killing the entire applyInPandas work-unit (the
+    # 2026-08-22 idsse-p2 drain failure). Possession must be an on-pitch team; an unresolvable-team
+    # restart correctly degrades to NaN DAS. The ball row carries ``team_id`` NaN → dropped by dropna.
+    valid_teams = set(frames_tip["team_id"].dropna().unique())
     type_ids = _set_piece_restart_type_ids()
-    sp_actions = actions[actions["type_id"].isin(type_ids) & actions["team_id"].notna()]
+    sp_actions = actions[
+        actions["type_id"].isin(type_ids) & actions["team_id"].notna() & actions["team_id"].isin(valid_teams)
+    ]
     if sp_actions.empty:
         return frames_tip
 

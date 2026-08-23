@@ -192,6 +192,43 @@ def test_fill_handles_two_set_pieces_on_same_frame() -> None:
     assert (out.loc[out["frame_id"] == 100, "team_in_possession"] == fill).all()
 
 
+# --- guard: never inject a team that is not on the pitch (ADR-078) ---
+
+
+def test_fill_skips_action_whose_team_is_not_on_the_pitch() -> None:
+    """A set-piece action whose team_id is not one of the frame's two player teams
+    (e.g. the IDSSE freekick_short ``__UNKNOWN_TEAM__`` sentinel) must NOT be injected into
+    ``team_in_possession``.
+
+    silly-kicks' ``add_das`` → accessible_space ``infer_playing_direction`` unions the frames'
+    ``team_id`` column with ``team_in_possession`` and hard-raises ``ValueError`` when it finds a
+    third team — killing the whole applyInPandas work-unit (the 2026-08-22 idsse-p2 drain failure).
+    An action whose team is not on the pitch has unresolvable possession, so it correctly gets NaN DAS.
+    """
+    frames = _make_frames_tip(team_in_possession_per_frame={100: None})  # players are teams A / B only
+    actions = _make_actions([(1, "freekick_short", "__UNKNOWN_TEAM__", 1)])
+    links = _make_links([(1, 100)])
+
+    out = _fill_possession_from_set_piece_actions(frames, actions=actions, links=links)
+
+    assert out.loc[out["frame_id"] == 100, "team_in_possession"].isna().all()
+    # A third team must never appear in the possession column
+    assert set(out["team_in_possession"].dropna().unique()) <= {"A", "B"}
+
+
+def test_fill_is_surgical_valid_team_fills_while_off_pitch_team_skipped() -> None:
+    """The guard is per-action: a valid on-pitch team still fills while an off-pitch (sentinel)
+    team is skipped — one bad action must not suppress the legitimate fills."""
+    frames = _make_frames_tip(team_in_possession_per_frame={100: None, 101: None})
+    actions = _make_actions([(1, "goalkick", "A", 1), (2, "freekick_short", "__UNKNOWN_TEAM__", 1)])
+    links = _make_links([(1, 100), (2, 101)])
+
+    out = _fill_possession_from_set_piece_actions(frames, actions=actions, links=links)
+
+    assert (out.loc[out["frame_id"] == 100, "team_in_possession"] == "A").all()  # valid team fills
+    assert out.loc[out["frame_id"] == 101, "team_in_possession"].isna().all()  # off-pitch team skipped
+
+
 # --- module-level invariants ---
 
 

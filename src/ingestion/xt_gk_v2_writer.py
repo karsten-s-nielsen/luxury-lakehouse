@@ -54,7 +54,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 logger = logging.getLogger(__name__)
 
 # Keep in lockstep with the other silly-kicks-consuming entry points (CLAUDE.md §serverless env pins).
-_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 89, 0)
+_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 90, 1)
 
 # The AC-layer pressure that feeds the retention model's `release_pressure` feature AND the
 # possession/turnover pressure terciles. andrienko_oval is silly-kicks' DEFAULT pressure method
