@@ -134,6 +134,16 @@ import {
   id = "/experiments/1644169474913777"
 }
 
+import {
+  to = databricks_permissions.scoutgpt_experiment_acl
+  id = "/experiments/451147925512376"
+}
+
+import {
+  to = databricks_permissions.xg_v3_experiment_acl
+  id = "/experiments/1557416745207844"
+}
+
 # ── Module: Catalog (Medallion Schemas) ──────────────────────────────────────
 # Creates bronze / silver / gold schemas inside the soccer_analytics catalog.
 # Also manages Unity Catalog grants for the ingestion and app service principals.
@@ -183,7 +193,7 @@ module "workflows" {
   source = "../../modules/workflows"
 
   catalog_name             = module.workspace.catalog_name
-  wheel_path               = "${module.catalog.libs_volume_path}/luxury_lakehouse-0.5.98-py3-none-any.whl"
+  wheel_path               = "${module.catalog.libs_volume_path}/luxury_lakehouse-0.5.99-py3-none-any.whl"
   environment              = var.environment
   notification_emails      = var.notification_emails
   run_as_sp_application_id = module.service_principals.ingestion_sp_application_id
@@ -333,16 +343,21 @@ resource "databricks_permissions" "lakebase_project_acl" {
   }
 }
 
-# ── MLflow Experiments: Ingestion SP Read Access ──────────────────────────────
-# The ingestion SP loads @Champion models (VAEP, xG v2) at scoring time.
-# Unity Catalog grants cover the registered model alias, but artifact-hash
-# verification (ADR-012 §2) calls mlflow.get_run() which requires CAN_READ
-# on the backing workspace experiment. Without this, the hash check silently
-# skips — defeating integrity verification.
+# ── MLflow Experiments: SP read (inference) + dbt-owners write (training) ─────
+# READ (inference): the ingestion SP loads @Champion models at scoring time.
+# UC grants cover the registered-model alias, but artifact-hash verification
+# (ADR-012 §2) calls mlflow.get_run(), which requires CAN_READ on the backing
+# workspace experiment. Without it, the hash check silently skips.
+#
+# WRITE (training — ADR-079 M2M auth + ADR-080 grants): HF-Jobs trainers create
+# runs and register the @Champion version as the ingestion SP via M2M OAuth.
+# Creating a run needs CAN_EDIT on the experiment; it is granted to the
+# dbt-owners group (the SP is a member), matching the group-owned registered
+# models. Historically training ran as a USER, so the SP was never granted this.
 #
 # databricks_permissions is authoritative per experiment — every non-inherited
-# ACL must be declared. The deployer IS_OWNER is inherited (experiment creator)
-# and does not need to be re-declared.
+# ACL must be declared, or `terraform apply` REVERTS it. The deployer IS_OWNER is
+# inherited (experiment creator) and is not re-declared.
 
 data "databricks_mlflow_experiment" "vaep" {
   name = "/soccer_analytics/vaep_model"
@@ -352,6 +367,16 @@ data "databricks_mlflow_experiment" "xg_v2" {
   name = "/soccer_analytics/xg_model_v2"
 }
 
+data "databricks_mlflow_experiment" "scoutgpt" {
+  name = "/soccer_analytics/scoutgpt"
+}
+
+data "databricks_mlflow_experiment" "xg_v3" {
+  name = "/soccer_analytics/xg_model_v3"
+}
+
+# The three experiments whose models are retrained via HF Jobs (ADR-080): SP
+# CAN_READ (inference) + dbt-owners CAN_EDIT (training run creation).
 resource "databricks_permissions" "vaep_experiment_acl" {
   experiment_id = data.databricks_mlflow_experiment.vaep.id
 
@@ -359,8 +384,39 @@ resource "databricks_permissions" "vaep_experiment_acl" {
     service_principal_name = module.service_principals.ingestion_sp_application_id
     permission_level       = "CAN_READ"
   }
+  access_control {
+    group_name       = module.service_principals.dbt_owners_group_display_name
+    permission_level = "CAN_EDIT"
+  }
 }
 
+resource "databricks_permissions" "scoutgpt_experiment_acl" {
+  experiment_id = data.databricks_mlflow_experiment.scoutgpt.id
+
+  access_control {
+    service_principal_name = module.service_principals.ingestion_sp_application_id
+    permission_level       = "CAN_READ"
+  }
+  access_control {
+    group_name       = module.service_principals.dbt_owners_group_display_name
+    permission_level = "CAN_EDIT"
+  }
+}
+
+resource "databricks_permissions" "xg_v3_experiment_acl" {
+  experiment_id = data.databricks_mlflow_experiment.xg_v3.id
+
+  access_control {
+    service_principal_name = module.service_principals.ingestion_sp_application_id
+    permission_level       = "CAN_READ"
+  }
+  access_control {
+    group_name       = module.service_principals.dbt_owners_group_display_name
+    permission_level = "CAN_EDIT"
+  }
+}
+
+# xg_v2 is legacy (retired — ADR-066): read-only for inference, no training.
 resource "databricks_permissions" "xg_v2_experiment_acl" {
   experiment_id = data.databricks_mlflow_experiment.xg_v2.id
 
