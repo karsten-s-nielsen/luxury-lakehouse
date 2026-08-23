@@ -228,7 +228,7 @@ def _extract_pep723_block(src: str) -> str:
 def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     """No trainer may pin `silly-kicks` in its PEP 723 deps.
 
-    The wheel's ``[spadl]`` extra (silly-kicks>=4.89.0,<5) is the single source
+    The wheel's ``[spadl]`` extra (silly-kicks>=4.90.1,<5) is the single source
     of truth. Trainers install ``luxury-lakehouse[spadl] @ ...wheel`` which
     resolves silly-kicks transitively. uv silently picks a conflicting
     top-level pin over the wheel's transitive pin (verified empirically
@@ -255,7 +255,14 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     )
 
 
-# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 89, 0) ──────────
+# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 90, 1) ──────────
+# Floor advanced 4.89.0 -> 4.90.1 (2026-08-23) for the silly-kicks 4.90.1 IDSSE set-piece team
+# resolution fix (ADR-078): freekick_team/goalkick_team/corner_team/penalty_team added to the sportec
+# parser's _TEAM_QUALIFIER_PRIORITY. A direct freekick's `team` is 'unknown' with the real team only in
+# `freekick_team`; unresolved -> __UNKNOWN_TEAM__ sentinel -> crashed add_das -> infer_playing_direction
+# (3-team ValueError) in the live AC recompute. Also carries 4.90.0's SB360 velocity-availability
+# honest-NaN (space_creation/xshot/bekkers_pi) + additive space_opponent_source + receiver model —
+# ALL full-tracking byte-identical (SB360-only or unused), so only IDSSE SPADL re-converts.
 # Floor advanced 4.87.0 -> 4.89.0 (2026-08-21) for the silly-kicks 4.89.0 action_id
 # chronological-order fix (ADR-065/PR-S159): all six order-dependent converters now sort
 # chronologically before positional derivation + a raise-by-default _assert_chronological_action_id
@@ -346,11 +353,11 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
 # metrica/skillcorner bronze-frame LTR-orientation helper; ADR-029) plus the 4.21-4.26
 # adoptions already shipped (space-creation lean contract, GS null-actor NaN identifiers,
 # tracking-geometry action-LTR frame unification). See ADR-052 / 4.27.0 adoption.
-# Matches the pyproject [spadl] pin `silly-kicks>=4.89.0,<5`.
+# Matches the pyproject [spadl] pin `silly-kicks>=4.90.1,<5`.
 
 
 def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
-    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 89, 0)`.
+    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 90, 1)`.
 
     Per spec §2.10.5: the runtime check inside `main()` is not directly
     introspectable post-hoc, so we assert the constant. Code review covers
@@ -368,11 +375,11 @@ def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
         if not hasattr(trainer, "_REQUIRED_SK_MIN"):
             missing.append(item)
             continue
-        expected = (4, 89, 0)
+        expected = (4, 90, 1)
         actual = trainer._REQUIRED_SK_MIN
         if actual != expected:
             wrong_value[item] = actual
     assert not missing, (
-        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 89, 0)`: {missing}"
+        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 90, 1)`: {missing}"
     )
-    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 89, 0): {wrong_value}"
+    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 90, 1): {wrong_value}"

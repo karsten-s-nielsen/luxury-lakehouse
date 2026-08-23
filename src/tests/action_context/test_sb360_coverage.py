@@ -68,7 +68,17 @@ def test_sb360_supported_metrics_populate() -> None:
         "gk zone closing-time is velocity-derived -> NULL on velocity-less SB360 freeze-frames (sk 4.87.0)"
     )
     assert df["shape_graph_density_defending"].notna().any()
-    assert _nn(df, "xshot_occurrence") > 0  # sparse but present
+    # silly-kicks 4.90.1 velocity-availability contract (their ADR-066/PR-S160): xShotOccurrence's
+    # `speed` is a TRAINED feature, so scoring on a velocity-less-by-design frame (the SB360 freeze-
+    # frame shape, speed_source='unavailable') would make the model impute an input the source
+    # structurally cannot carry — the ADR-053 fabrication shape. compute_xshot_occurrence now WITHHOLDS
+    # it as honest NaN instead of the previous distance-only fallback. Rebaselined from ">0" during the
+    # silly-kicks 4.90.1 adoption (mirrors the gk_closing_time 4.87.0 rebaseline above) — a genuine
+    # coverage change, not a lakehouse regression: honest NULL beats a fabricated score. See ADR-078.
+    assert _nn(df, "xshot_occurrence") == 0, (
+        "xshot_occurrence's speed feature is velocity-derived -> honest NULL on velocity-less SB360 "
+        "freeze-frames (silly-kicks 4.90.1)"
+    )
     # Provenance: voronoi on the SB360 path
     assert df["pitch_control_method"].notna().all()
     assert set(df["pitch_control_method"].unique()) == {"voronoi"}

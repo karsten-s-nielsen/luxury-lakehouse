@@ -250,69 +250,14 @@ def resolve_wyscout_home_team_ids(matches_pdf: pd.DataFrame) -> dict[int, int]:
 # each row's acting team lands in the ``team_id_native`` SPADL column.
 
 
-# -- DFL qualifier column priority for team resolution --------------------
-# Each tuple: (qualifier_column, contains_dfl_clu_id).
-# Columns that carry a DFL CLU id need home/away resolution; columns that
-# already carry 'home'/'away' labels do not (none exist today, but the
-# structure supports it).
-_TEAM_QUALIFIER_PRIORITY: list[str] = [
-    "play_team",
-    "throwin_team",
-    "foul_team_fouler",
-]
-
-# -- DFL qualifier column priority for player resolution ------------------
-_PLAYER_QUALIFIER_PRIORITY: list[str] = [
-    "play_player",
-    "foul_fouler",
-]
-
-
-def _resolve_idsse_team_from_qualifiers(df: pd.DataFrame) -> None:
-    """Fill ``team`` from qualifier columns where it is ``'unknown'``.
-
-    DFL XML ThrowIn/FreeKick/GoalKick/CornerKick/Foul events store the
-    acting team's CLU id in qualifier columns.  This function resolves
-    the CLU id to ``'home'`` / ``'away'`` by comparing against the
-    match-level ``home_team_id_native`` / ``away_team_id_native``.
-
-    Mutates *df* in place.
-    """
-    for qual_col in _TEAM_QUALIFIER_PRIORITY:
-        if qual_col not in df.columns:
-            continue
-        still_unknown = (df["team"] == "unknown") & df[qual_col].notna() & (df[qual_col] != "")
-        if not still_unknown.any():
-            continue
-        is_home = still_unknown & (df[qual_col] == df["home_team_id_native"])
-        is_away = still_unknown & (df[qual_col] == df["away_team_id_native"])
-        df.loc[is_home, "team"] = "home"
-        df.loc[is_away, "team"] = "away"
-
-
-def _resolve_idsse_player_from_qualifiers(df: pd.DataFrame) -> None:
-    """Fill ``player_id`` from qualifier columns where it is empty/null.
-
-    DFL XML set-piece events store the acting player's OBJ id in
-    qualifier columns (``play_player``, ``foul_fouler``).
-
-    Mutates *df* in place.
-    """
-    mask = df["player_id"].isna() | (df["player_id"].astype(str) == "")
-    if not mask.any():
-        return
-
-    for qual_col in _PLAYER_QUALIFIER_PRIORITY:
-        if qual_col not in df.columns:
-            continue
-        still_empty = mask & (df["player_id"].isna() | (df["player_id"].astype(str) == ""))
-        if not still_empty.any():
-            break
-        qual_vals = df.loc[still_empty, qual_col]
-        has_qual = still_empty & qual_vals.notna() & (qual_vals != "")
-        if not has_qual.any():
-            continue
-        df.loc[has_qual, "player_id"] = df.loc[has_qual, qual_col]
+# NOTE: the DFL qualifier team/player resolution for IDSSE (formerly
+# ``_resolve_idsse_team_from_qualifiers`` / ``_resolve_idsse_player_from_qualifiers`` +
+# their ``_TEAM_QUALIFIER_PRIORITY`` / ``_PLAYER_QUALIFIER_PRIORITY`` lists) now lives
+# UPSTREAM in ``silly_kicks.providers.sportec.shape_events_to_native`` — the production
+# IDSSE UDF (``ingestion.spadl_conversion``) imports the adapter from there. The former
+# lakehouse copy was removed once the logic was upstreamed (it had drifted — it lacked the
+# ``freekick_team`` / ``goalkick_team`` qualifiers). Do NOT re-add a lakehouse copy; extend
+# the sportec parser in silly-kicks instead.
 
 
 # ---------------------------------------------------------------------------

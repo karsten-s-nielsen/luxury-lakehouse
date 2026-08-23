@@ -447,7 +447,7 @@ def executor_env_fingerprint(rendezvous_dir: str | None, *, seq: str) -> bool:
 # executor-side assertion is the only thing that converts silent, intermittent
 # contamination into an immediate, debuggable failure.
 
-_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 89, 0)
+_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 90, 1)
 """Minimum silly-kicks the AC executor must run. Keep in lockstep with the
 ``silly-kicks`` floor in ``pyproject.toml`` — enforced by
 ``src/tests/test_executor_env_guard.py::test_required_sk_min_matches_pyproject_floor``."""

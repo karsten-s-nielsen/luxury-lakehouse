@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.5.96"
+version = "0.5.97"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -71,7 +71,7 @@ dependencies = [
 
 [project.optional-dependencies]
 spadl = [
-    "silly-kicks[das,ghost-gk,parse-dfl]>=4.89.0,<5",
+    "silly-kicks[das,ghost-gk,parse-dfl]>=4.90.1,<5",
 ]
 analytics = [
     "luxury-lakehouse[spadl]",

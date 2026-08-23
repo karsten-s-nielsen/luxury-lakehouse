@@ -91,8 +91,8 @@ def _synthetic_corpus(n_games: int = 2, per_game: int = 140, seed: int = 7) -> p
 
 
 class TestRequiredSkMin:
-    def test_required_sk_min_is_4_87_0(self) -> None:
-        assert trainer._REQUIRED_SK_MIN == (4, 89, 0)
+    def test_required_sk_min_is_4_90_1(self) -> None:
+        assert trainer._REQUIRED_SK_MIN == (4, 90, 1)
 
 
 class TestAdr012Delivery:
