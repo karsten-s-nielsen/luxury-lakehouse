@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.97-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.98-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -27,7 +27,8 @@ Usage (HF Jobs CLI):
     hf jobs uv run scripts/train_scoutgpt_hf.py \\
         --flavor l40sx1 --timeout 180m \\
         --secrets HF_TOKEN=$HF_TOKEN \\
-        --secrets DATABRICKS_TOKEN=$DATABRICKS_TOKEN \\
+        --secrets DATABRICKS_CLIENT_ID=$DATABRICKS_CLIENT_ID \\
+        --secrets DATABRICKS_CLIENT_SECRET=$DATABRICKS_CLIENT_SECRET \\
         --env MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI \\
         --env DATABRICKS_HOST=$DATABRICKS_HOST \\
         --env DATABRICKS_SQL_WAREHOUSE_ID=$WAREHOUSE_ID \\
@@ -67,6 +68,7 @@ from analytics.scoutgpt_training import (
     train_loop,
 )
 from ingestion.artifact_deploy import require_mlflow_env, set_and_verify_mlflow_champion
+from ingestion.databricks_auth import bearer_token
 from ingestion.hf_jobs_cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 from shared.constants import mlflow_model_uri
@@ -408,7 +410,8 @@ def _run_training_core(
     if db_host:
         data, _player_id_map, dataset_commit = load_training_data_sql(
             db_host.replace("https://", "").replace("http://", "").rstrip("/"),
-            os.environ["DATABRICKS_TOKEN"],
+            # M2M-aware (ADR-079): SDK provider chain (M2M OAuth or static token), not a raw env token.
+            bearer_token(),
             os.environ["DATABRICKS_SQL_WAREHOUSE_ID"],
         )
     else:

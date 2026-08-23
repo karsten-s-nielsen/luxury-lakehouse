@@ -43,35 +43,72 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-REQUIRED_MLFLOW_ENV_VARS: tuple[str, ...] = (
+# Base env vars always required for Databricks-backed MLflow + UC registration.
+_BASE_MLFLOW_ENV_VARS: tuple[str, ...] = (
     "MLFLOW_TRACKING_URI",
     "DATABRICKS_HOST",
-    "DATABRICKS_TOKEN",
 )
-"""Environment variables required to register a model in the Databricks UC registry."""
+# M2M OAuth service-principal credential (client_id + client_secret). The
+# databricks-sdk (and MLflow-on-Databricks, and
+# ``ingestion.databricks_auth.workspace_client``) mint AND auto-refresh tokens
+# from these on demand inside the running job — so, unlike a static token, this
+# credential survives an HF-Jobs run longer than an OAuth access token's ~1h TTL
+# (e.g. a 180-min ScoutGPT fit). See ADR-079.
+_M2M_ENV_VARS: tuple[str, ...] = (
+    "DATABRICKS_CLIENT_ID",
+    "DATABRICKS_CLIENT_SECRET",
+)
+
+# Back-compat: the historical name = base env vars + the static-token credential.
+# Retained for external references; ``require_mlflow_env`` now ALSO accepts the
+# M2M credential form (``_M2M_ENV_VARS``) as an alternative to DATABRICKS_TOKEN.
+REQUIRED_MLFLOW_ENV_VARS: tuple[str, ...] = (*_BASE_MLFLOW_ENV_VARS, "DATABRICKS_TOKEN")
+"""Environment variables to register a model with a STATIC-token credential."""
 
 
 def require_mlflow_env() -> None:
-    """Fail loud if any MLflow/Databricks registration env var is missing.
+    """Fail loud unless the Databricks MLflow/UC registration env is complete.
 
-    Training scripts must call this at the top of ``main()`` BEFORE doing
-    any work, so a silent skip of the registry step cannot occur.
+    Requires ``MLFLOW_TRACKING_URI`` + ``DATABRICKS_HOST`` **and** a Databricks
+    credential in one of two forms:
+
+    - ``DATABRICKS_TOKEN`` — a static bearer token (a PAT, or a short-lived OAuth
+      access token). Simple, but expires mid-job; unsafe for a training run
+      longer than the token's TTL.
+    - ``DATABRICKS_CLIENT_ID`` + ``DATABRICKS_CLIENT_SECRET`` — M2M OAuth
+      service-principal creds. The databricks-sdk / MLflow-on-Databricks /
+      :func:`ingestion.databricks_auth.workspace_client` mint and **auto-refresh**
+      tokens from these on demand, so the credential survives an arbitrarily long
+      job. PREFERRED for HF-Jobs training since the PAT->OAuth migration (ADR-079).
+
+    Training scripts must call this at the top of ``main()`` BEFORE any work, so
+    a silent skip of the registry step cannot occur (ADR-002).
 
     Raises:
-        RuntimeError: listing every missing env var, with a remediation hint
-            for the ``hf jobs uv run`` CLI invocation.
+        RuntimeError: naming what is missing, with the ``hf jobs uv run``
+            remediation hint (both credential forms).
     """
-    missing = [name for name in REQUIRED_MLFLOW_ENV_VARS if not os.environ.get(name)]
-    if not missing:
+    missing_base = [name for name in _BASE_MLFLOW_ENV_VARS if not os.environ.get(name)]
+    has_token = bool(os.environ.get("DATABRICKS_TOKEN"))
+    has_m2m = all(os.environ.get(name) for name in _M2M_ENV_VARS)
+    if not missing_base and (has_token or has_m2m):
         return
+
+    problems: list[str] = []
+    if missing_base:
+        problems.append(f"missing base env vars {missing_base}")
+    if not (has_token or has_m2m):
+        problems.append(
+            "no Databricks credential (need DATABRICKS_TOKEN, or DATABRICKS_CLIENT_ID + DATABRICKS_CLIENT_SECRET)"
+        )
     raise RuntimeError(
-        f"Missing required env vars for MLflow UC registration: {missing}. "
-        "Pass HF_TOKEN + DATABRICKS_TOKEN via `--secrets` (encrypted) and "
-        "MLFLOW_TRACKING_URI + DATABRICKS_HOST via `--env` on the "
-        "`hf jobs uv run` invocation. MLFLOW_TRACKING_URI should be the "
-        "literal string 'databricks'; DATABRICKS_TOKEN is a PAT from "
-        "Workspace > Settings > Developer. Silent MLflow skip is not "
-        "allowed (ADR-002)."
+        "MLflow UC registration env incomplete: " + "; ".join(problems) + ". "
+        "On `hf jobs uv run`: pass MLFLOW_TRACKING_URI (literal 'databricks') + "
+        "DATABRICKS_HOST via `--env`, and the Databricks credential via `--secrets` "
+        "(encrypted). PREFER M2M OAuth — DATABRICKS_CLIENT_ID + "
+        "DATABRICKS_CLIENT_SECRET (service-principal creds auto-refresh, so a >1h "
+        "job survives) — over a static DATABRICKS_TOKEN, which expires mid-job. "
+        "Silent MLflow skip is not allowed (ADR-002)."
     )
 
 

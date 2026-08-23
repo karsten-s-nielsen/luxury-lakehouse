@@ -9,7 +9,17 @@ import pytest
 
 
 class TestRequireMlflowEnv:
-    """Pre-flight check — fails loud when any registration env var is missing."""
+    """Pre-flight check — fails loud unless base env + a credential form is present.
+
+    Accepts EITHER a static ``DATABRICKS_TOKEN`` OR M2M OAuth service-principal
+    creds (``DATABRICKS_CLIENT_ID`` + ``DATABRICKS_CLIENT_SECRET``) — ADR-079.
+    """
+
+    @staticmethod
+    def _clear_m2m(monkeypatch: pytest.MonkeyPatch) -> None:
+        """Ensure ambient M2M creds (a dev shell may export them) don't mask a gap."""
+        monkeypatch.delenv("DATABRICKS_CLIENT_ID", raising=False)
+        monkeypatch.delenv("DATABRICKS_CLIENT_SECRET", raising=False)
 
     def test_raises_when_mlflow_tracking_uri_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from ingestion.artifact_deploy import require_mlflow_env
@@ -17,6 +27,7 @@ class TestRequireMlflowEnv:
         monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
         monkeypatch.setenv("DATABRICKS_HOST", "https://example.cloud.databricks.com")
         monkeypatch.setenv("DATABRICKS_TOKEN", "dapi-xxx")
+        self._clear_m2m(monkeypatch)
 
         with pytest.raises(RuntimeError, match="MLFLOW_TRACKING_URI"):
             require_mlflow_env()
@@ -27,35 +38,64 @@ class TestRequireMlflowEnv:
         monkeypatch.setenv("MLFLOW_TRACKING_URI", "databricks")
         monkeypatch.delenv("DATABRICKS_HOST", raising=False)
         monkeypatch.setenv("DATABRICKS_TOKEN", "dapi-xxx")
+        self._clear_m2m(monkeypatch)
 
         with pytest.raises(RuntimeError, match="DATABRICKS_HOST"):
             require_mlflow_env()
 
-    def test_raises_when_databricks_token_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_raises_when_no_credential(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Base env present but NEITHER a static token NOR M2M creds -> raise."""
         from ingestion.artifact_deploy import require_mlflow_env
 
         monkeypatch.setenv("MLFLOW_TRACKING_URI", "databricks")
         monkeypatch.setenv("DATABRICKS_HOST", "https://example.cloud.databricks.com")
         monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
+        self._clear_m2m(monkeypatch)
 
-        with pytest.raises(RuntimeError, match="DATABRICKS_TOKEN"):
+        with pytest.raises(RuntimeError, match="no Databricks credential"):
             require_mlflow_env()
 
-    def test_passes_when_all_env_vars_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_passes_when_static_token_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from ingestion.artifact_deploy import require_mlflow_env
 
         monkeypatch.setenv("MLFLOW_TRACKING_URI", "databricks")
         monkeypatch.setenv("DATABRICKS_HOST", "https://example.cloud.databricks.com")
         monkeypatch.setenv("DATABRICKS_TOKEN", "dapi-xxx")
+        self._clear_m2m(monkeypatch)
         require_mlflow_env()
 
+    def test_passes_with_m2m_creds_and_no_token(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """M2M OAuth creds (client_id + client_secret) satisfy the gate with NO token."""
+        from ingestion.artifact_deploy import require_mlflow_env
+
+        monkeypatch.setenv("MLFLOW_TRACKING_URI", "databricks")
+        monkeypatch.setenv("DATABRICKS_HOST", "https://example.cloud.databricks.com")
+        monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
+        monkeypatch.setenv("DATABRICKS_CLIENT_ID", "008b207b-0000-0000-0000-000000000000")
+        monkeypatch.setenv("DATABRICKS_CLIENT_SECRET", "dose-fake-secret")
+        require_mlflow_env()
+
+    def test_raises_with_partial_m2m_and_no_token(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """client_id WITHOUT client_secret is not a usable credential -> raise."""
+        from ingestion.artifact_deploy import require_mlflow_env
+
+        monkeypatch.setenv("MLFLOW_TRACKING_URI", "databricks")
+        monkeypatch.setenv("DATABRICKS_HOST", "https://example.cloud.databricks.com")
+        monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
+        monkeypatch.setenv("DATABRICKS_CLIENT_ID", "008b207b-0000-0000-0000-000000000000")
+        monkeypatch.delenv("DATABRICKS_CLIENT_SECRET", raising=False)
+
+        with pytest.raises(RuntimeError, match="no Databricks credential"):
+            require_mlflow_env()
+
     def test_error_message_names_remediation_flags(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Error message must mention --secrets and --env so debuggers can act."""
+        """Error message must mention --secrets, --env, BOTH cred forms, and ADR-002."""
         from ingestion.artifact_deploy import require_mlflow_env
 
         monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
         monkeypatch.delenv("DATABRICKS_HOST", raising=False)
         monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
+        self._clear_m2m(monkeypatch)
 
         with pytest.raises(RuntimeError) as excinfo:
             require_mlflow_env()
@@ -63,6 +103,8 @@ class TestRequireMlflowEnv:
         assert "--secrets" in msg
         assert "--env" in msg
         assert "ADR-002" in msg
+        assert "DATABRICKS_CLIENT_ID" in msg
+        assert "DATABRICKS_TOKEN" in msg
 
 
 class TestUploadWeightsToUcVolume:

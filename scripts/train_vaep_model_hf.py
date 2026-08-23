@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.97-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.98-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -30,9 +30,15 @@ Usage (HF Jobs CLI):
     hf jobs uv run scripts/train_vaep_model_hf.py \
         --flavor cpu-basic --timeout 60m \
         --secrets HF_TOKEN=$HF_TOKEN \
-        --secrets DATABRICKS_TOKEN=$DATABRICKS_TOKEN \
-        --env MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI \
+        --secrets DATABRICKS_CLIENT_ID=$DATABRICKS_CLIENT_ID \
+        --secrets DATABRICKS_CLIENT_SECRET=$DATABRICKS_CLIENT_SECRET \
+        --env MLFLOW_TRACKING_URI=databricks \
         --env DATABRICKS_HOST=$DATABRICKS_HOST
+
+M2M OAuth service-principal creds (client_id + client_secret) are PREFERRED: the
+databricks-sdk auto-refreshes them inside the job, so the credential survives a
+run longer than an OAuth access token's ~1h TTL (ADR-079). A static
+``--secrets DATABRICKS_TOKEN=...`` still works but expires mid-job.
 """
 
 from __future__ import annotations

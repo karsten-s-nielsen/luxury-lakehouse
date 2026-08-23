@@ -1,13 +1,22 @@
 databricks:
   target: dev
   outputs:
+    # dev / prod = LOCAL operator targets. PAT->OAuth migration completion (the project
+    # is OAuth-only, no PATs): these use the developer's Databricks CLI OAuth U2M session
+    # instead of a static DATABRICKS_TOKEN. `auth_type: oauth` + `client_id: databricks-cli`
+    # makes dbt-databricks resolve the token that `databricks auth login` already cached
+    # (keyed by host + the `databricks-cli` client_id), so NO browser is opened, and the
+    # databricks-sdk auto-refreshes it via the `offline_access` refresh token -> a dbt build
+    # of ANY length is safe (no ~44-minute access-token ceiling). CI + the daily job use the
+    # `serverless` target (runtime SP token); the `ci` target keeps token auth for automation.
     dev:
       type: databricks
       catalog: soccer_analytics
       schema: dev
       host: "{{ env_var('DATABRICKS_HOST') }}"
       http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
-      token: "{{ env_var('DATABRICKS_TOKEN') }}"
+      auth_type: oauth
+      client_id: databricks-cli
       threads: 4
 
     prod:
@@ -16,7 +25,8 @@ databricks:
       schema: gold
       host: "{{ env_var('DATABRICKS_HOST') }}"
       http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
-      token: "{{ env_var('DATABRICKS_TOKEN') }}"
+      auth_type: oauth
+      client_id: databricks-cli
       threads: 8
 
     ci:
