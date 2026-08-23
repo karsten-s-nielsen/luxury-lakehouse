@@ -40,7 +40,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             costEstimateHook = container "CostEstimateHook" "Writes run state, entity_count, row_count, cost to Delta via MERGE" "Python, PySpark"
             hfCostRecorder = container "HFJobsCostRecorder" "Cost recorder for HF Jobs. Writes to HF Hub repos. 90-day pruning." "Python"
             guardRegistry = container "Guard Registry" "SkipGuard protocol, FilterResult, find_new_ids(), timed_check(), watermark guards (ADR-024)" "Python"
-            artifactDeploy = container "Artifact Deploy" "Training-to-production contract (ADR-012). MLflow + UC Volume helpers." "Python"
+            artifactDeploy = container "Artifact Deploy" "Training-to-production contract (ADR-012); M2M-OAuth-capable auth (ADR-079). MLflow + UC Volume helpers." "Python"
             hfPublish = container "HF Publish Helper" "README delivery (ADR-014) + ADR-072 publish seam: prepare_public_upload guards/splits/drops; GuardedFrame gates writes; upload_guarded derives repo privacy, sweep and HF token; refuses unaccounted files." "Python"
             databricksSqlFetch = container "Databricks SQL Fetch" "HTTP helper for HF Jobs trainers querying gold marts (no Spark)" "Python, requests"
             ingestionPipelines = container "Compute Pipelines" "36 @workflow Databricks ingestion/compute pipelines, 6 providers. Stamps per-match visibility on bronze, threaded to SPADL (ADR-064). GS dedup (ADR-030), ET derivers (ADR-029), DFL via silly-kicks (ADR-055)." "Python, PySpark, silly-kicks 4.90.1"
@@ -60,7 +60,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             orchestratorScript = container "sk3_mig_b_retrain.py" "PEP 723 single-file orchestrator. Resumable, cost-capped, walltime-capped." "Python"
             hfInputPublishers = container "Input Dataset Publishers" "3 scripts: SPADL/VAEP, xG shots, freeze frames. Publish to HF pre-training through the ADR-072 seam; restricted rows to a private companion repo by per-match access_tier (ADR-064)." "Python"
             hfOutputPublishers = container "Output Dataset Publishers" "5 scripts: embeddings, OBSO grids, line-breaking, pitch control, shots-on-target." "Python"
-            hfJobsTrainers = container "HF Jobs Trainers" "Cloud-GPU training: VAEP, xG v2, PSxG, Football2Vec v2/360, ScoutGPT." "Python, PyTorch"
+            hfJobsTrainers = container "HF Jobs Trainers" "Cloud-GPU training: VAEP, xG v3, PSxG, Football2Vec v2/360, ScoutGPT." "Python, PyTorch"
             extV2Gates = container "ExT Smoke Gates" "Local NLL validation for Expected Threat Phase 0/1. Baseline thresholds." "pytest"
             ciSentinels = container "CI Invariant Sentinels" "Task mappings, flavor configs, dep versions, Kimball contracts." "pytest"
             telemetryTable = container "Telemetry Table" "Cycle log: items, smoke-gate pass/fail, cost tracking, heartbeat rows." "Delta Lake" "Database"
@@ -280,7 +280,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
                     cpuJobInstance = infrastructureNode "xT, EPV, VAEP training"
                 }
                 deploymentNode "l40sx1 ($1.80/hr)" "62 GB RAM, L40S 48 GB VRAM" "Python 3.10, UV" {
-                    gpuJobInstance = infrastructureNode "PSxG, xG v2, Football2vec, OBSO, Evolve"
+                    gpuJobInstance = infrastructureNode "PSxG, xG v3, Football2vec, OBSO, Evolve"
                 }
             }
         }

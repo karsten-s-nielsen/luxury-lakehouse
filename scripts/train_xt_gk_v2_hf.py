@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.97-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.98-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -42,7 +42,8 @@ Usage (HF Jobs CLI) — secrets ENCRYPTED via ``--secrets`` (never ``--env``, AD
     hf jobs uv run scripts/train_xt_gk_v2_hf.py \\
         --flavor cpu-basic --timeout 60m \\
         --secrets HF_TOKEN=$HF_TOKEN \\
-        --secrets DATABRICKS_TOKEN=$DATABRICKS_TOKEN \\
+        --secrets DATABRICKS_CLIENT_ID=$DATABRICKS_CLIENT_ID \\
+        --secrets DATABRICKS_CLIENT_SECRET=$DATABRICKS_CLIENT_SECRET \\
         --env MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI \\
         --env DATABRICKS_HOST=$DATABRICKS_HOST \\
         --env DATABRICKS_SQL_WAREHOUSE_ID=$DATABRICKS_SQL_WAREHOUSE_ID
@@ -276,10 +277,13 @@ def main() -> None:
     _assert_silly_kicks_min()
     require_mlflow_env()  # fail loud BEFORE any work (ADR-012)
 
-    from ingestion.databricks_auth import workspace_client
+    from ingestion.databricks_auth import bearer_token, workspace_client
 
     host = os.environ["DATABRICKS_HOST"].replace("https://", "").rstrip("/")
-    token = os.environ["DATABRICKS_TOKEN"]
+    # M2M-aware (ADR-079): resolve the SQL bearer via the SDK provider chain (M2M OAuth or
+    # a static token), NOT os.environ["DATABRICKS_TOKEN"] — so the fit-corpus read works
+    # when the job is launched with service-principal client-id/secret.
+    token = bearer_token()
     warehouse_id = os.environ["DATABRICKS_SQL_WAREHOUSE_ID"]
 
     corpus = load_fit_corpus(host, token, warehouse_id)
