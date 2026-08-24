@@ -131,9 +131,12 @@ def test_phase_skip_phase_conflict_skips(monkeypatch: pytest.MonkeyPatch, capsys
 
     import scripts.migrate_synced_tables as mod
 
-    # Mock WorkspaceClient to avoid live API calls
+    # main() builds its client via the ambiguity-aware workspace_client() helper
+    # (ingestion.databricks_auth) — NOT the raw WorkspaceClient class (which main uses
+    # only as a type annotation). Patch the name main() actually calls, else the test
+    # hits real auth and SystemExits on a machine with ambiguous ~/.databrickscfg profiles.
     mock_ws = MagicMock()
-    monkeypatch.setattr(mod, "WorkspaceClient", lambda: mock_ws)
+    monkeypatch.setattr(mod, "workspace_client", lambda: mock_ws)
 
     # Patch argparse to return the conflicting args
     monkeypatch.setattr(

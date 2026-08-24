@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.99-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.101-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -29,12 +29,9 @@ import logging
 import os
 import sys
 import tempfile
-import time
 from pathlib import Path
 
-import pandas as pd
-import requests
-
+from analytics.databricks_sql_fetch import query_databricks_sql
 from ingestion.hf_publish import (
     RESTRICTED_HF_PROVIDERS,
     get_hf_card_path,
@@ -66,55 +63,6 @@ RESTRICTED_DATASET_REPO = restricted_repo_id(DATASET_REPO)
 _PSXG_SHOTS_SQL = """\
 SELECT * FROM soccer_analytics.dev_gold.fct_shot_psxg
 """
-
-_POLL_INTERVAL_S = 2.0
-_TIMEOUT_SUBMIT = (10, 120)
-_TIMEOUT_POLL = (10, 30)
-_TIMEOUT_CHUNK = (10, 120)
-
-
-def query_databricks_sql(host: str, token: str, sql: str, warehouse_id: str) -> pd.DataFrame:
-    url = f"https://{host}/api/2.0/sql/statements"
-    headers = {"Authorization": f"Bearer {token}"}
-    payload = {
-        "statement": sql,
-        "warehouse_id": warehouse_id,
-        "wait_timeout": "50s",
-        "disposition": "EXTERNAL_LINKS",
-        "format": "ARROW_STREAM",
-    }
-    resp = requests.post(url, json=payload, headers=headers, timeout=_TIMEOUT_SUBMIT, verify=True)
-    resp.raise_for_status()
-    result = resp.json()
-    statement_id = result.get("statement_id")
-    status = result.get("status", {}).get("state")
-    while status in ("PENDING", "RUNNING"):
-        time.sleep(_POLL_INTERVAL_S)
-        poll_resp = requests.get(f"{url}/{statement_id}", headers=headers, timeout=_TIMEOUT_POLL, verify=True)
-        poll_resp.raise_for_status()
-        result = poll_resp.json()
-        status = result.get("status", {}).get("state")
-    if status != "SUCCEEDED":
-        err = result.get("status", {}).get("error", {})
-        raise RuntimeError(f"SQL {status}: {err.get('message', '?')}")
-
-    manifest = result.get("manifest", {})
-    total_chunks = int(manifest.get("total_chunk_count", 0) or 0)
-    import pyarrow as pa
-
-    arrow_tables: list[pa.Table] = []
-    for chunk_idx in range(total_chunks):
-        chunk_url = f"{url}/{statement_id}/result/chunks/{chunk_idx}"
-        chunk_resp = requests.get(chunk_url, headers=headers, timeout=_TIMEOUT_CHUNK, verify=True)
-        chunk_resp.raise_for_status()
-        for link_info in chunk_resp.json().get("external_links", []):
-            dl_resp = requests.get(link_info["external_link"], timeout=_TIMEOUT_CHUNK, verify=True)
-            dl_resp.raise_for_status()
-            reader = pa.ipc.open_stream(dl_resp.content)
-            arrow_tables.append(reader.read_all())
-    if not arrow_tables:
-        raise RuntimeError("No data chunks")
-    return pa.concat_tables(arrow_tables).to_pandas()
 
 
 def publish_to_hf_hub(guarded: GuardedFrame, hf_token: str, *, repo_id: str = DATASET_REPO) -> str:

@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.99-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.101-py3-none-any.whl",
 #     "databricks-sdk>=0.20",
 #     "gensim>=4.3",
 #     "huggingface-hub>=1.5.0",
@@ -50,15 +50,13 @@ import logging
 import os
 import sys
 import tempfile
-import time
 from pathlib import Path
 
-import pandas as pd
-import requests
 from databricks.sdk import WorkspaceClient
 from gensim.models.doc2vec import Doc2Vec
 from huggingface_hub import HfApi, get_token
 
+from analytics.databricks_sql_fetch import query_databricks_sql
 from analytics.football2vec import (
     Football2VecModel,
     TokenizerConfig,
@@ -133,57 +131,6 @@ WHERE a.data_source IN ('statsbomb', 'wyscout')
 """
 # access_tier = 'public': co-occurrence training means a private action shapes EVERY co-occurring
 # public player's vector, so the CORPUS — not just the output — must be public-only (spec §6.8 (2)).
-
-_POLL_INTERVAL_S = 2.0
-_TIMEOUT_SUBMIT = (10, 120)
-_TIMEOUT_POLL = (10, 30)
-_TIMEOUT_CHUNK = (10, 300)
-
-
-def query_databricks_sql(host: str, token: str, sql: str, warehouse_id: str) -> pd.DataFrame:
-    """Execute SQL via Databricks Statement Execution + Arrow chunks."""
-    url = f"https://{host}/api/2.0/sql/statements"
-    headers = {"Authorization": f"Bearer {token}"}
-    payload = {
-        "statement": sql,
-        "warehouse_id": warehouse_id,
-        "wait_timeout": "50s",
-        "disposition": "EXTERNAL_LINKS",
-        "format": "ARROW_STREAM",
-    }
-    resp = requests.post(url, json=payload, headers=headers, timeout=_TIMEOUT_SUBMIT, verify=True)
-    resp.raise_for_status()
-    result = resp.json()
-    statement_id = result.get("statement_id")
-    status = result.get("status", {}).get("state")
-    while status in ("PENDING", "RUNNING"):
-        time.sleep(_POLL_INTERVAL_S)
-        poll_resp = requests.get(f"{url}/{statement_id}", headers=headers, timeout=_TIMEOUT_POLL, verify=True)
-        poll_resp.raise_for_status()
-        result = poll_resp.json()
-        status = result.get("status", {}).get("state")
-    if status != "SUCCEEDED":
-        err = result.get("status", {}).get("error", {})
-        raise RuntimeError(f"SQL {status}: {err.get('message', '?')}")
-
-    manifest = result.get("manifest", {})
-    total_chunks = int(manifest.get("total_chunk_count", 0) or 0)
-
-    import pyarrow as pa
-
-    arrow_tables: list[pa.Table] = []
-    for chunk_idx in range(total_chunks):
-        chunk_url = f"{url}/{statement_id}/result/chunks/{chunk_idx}"
-        chunk_resp = requests.get(chunk_url, headers=headers, timeout=_TIMEOUT_CHUNK, verify=True)
-        chunk_resp.raise_for_status()
-        for link_info in chunk_resp.json().get("external_links", []):
-            dl_resp = requests.get(link_info["external_link"], timeout=_TIMEOUT_CHUNK, verify=True)
-            dl_resp.raise_for_status()
-            reader = pa.ipc.open_stream(dl_resp.content)
-            arrow_tables.append(reader.read_all())
-    if not arrow_tables:
-        raise RuntimeError("No data chunks")
-    return pa.concat_tables(arrow_tables).to_pandas()
 
 
 def upload_gensim_to_uc_volume(

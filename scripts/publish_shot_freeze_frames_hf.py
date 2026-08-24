@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.99-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.101-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -41,12 +41,11 @@ import logging
 import os
 import sys
 import tempfile
-import time
 from pathlib import Path
 
 import pandas as pd
-import requests
 
+from analytics.databricks_sql_fetch import query_databricks_sql
 from ingestion.hf_publish import (
     RESTRICTED_HF_PROVIDERS,
     get_hf_card_path,
@@ -97,108 +96,6 @@ SELECT
     access_tier
 FROM soccer_analytics.bronze.shot_freeze_frames
 """
-
-# Databricks SQL Statement Execution API polling interval (seconds)
-_POLL_INTERVAL_S = 2.0
-
-# HTTP timeouts: (connect, read) in seconds
-_TIMEOUT_SUBMIT = (10, 120)
-_TIMEOUT_POLL = (10, 30)
-_TIMEOUT_CHUNK = (10, 120)
-
-
-# ---------------------------------------------------------------------------
-# Databricks SQL Statement Execution API
-# ---------------------------------------------------------------------------
-
-
-def query_databricks_sql(host: str, token: str, sql: str, warehouse_id: str) -> pd.DataFrame:
-    """Execute SQL via Databricks Statement Execution API and return DataFrame.
-
-    Handles asynchronous execution (PENDING/RUNNING states) and paginated result chunks
-    using EXTERNAL_LINKS disposition with Arrow stream format.
-
-    Args:
-        host: Databricks workspace hostname (without ``https://`` prefix).
-        token: Databricks personal access token or OAuth token.
-        sql: SQL statement to execute.
-        warehouse_id: SQL warehouse ID to target.
-
-    Returns:
-        DataFrame with columns matching the SQL result schema.
-
-    Raises:
-        RuntimeError: If the SQL statement fails on the server or returns no data.
-        requests.HTTPError: If an API call returns a non-2xx status.
-    """
-    url = f"https://{host}/api/2.0/sql/statements"
-    headers = {"Authorization": f"Bearer {token}"}
-    payload = {
-        "statement": sql,
-        "warehouse_id": warehouse_id,
-        "wait_timeout": "50s",
-        "disposition": "EXTERNAL_LINKS",
-        "format": "ARROW_STREAM",
-    }
-
-    logger.info("Submitting SQL query to Databricks (warehouse=%s)", warehouse_id)
-    resp = requests.post(url, json=payload, headers=headers, timeout=_TIMEOUT_SUBMIT, verify=True)
-    if resp.status_code != 200:
-        logger.error("SQL API error %d: %s", resp.status_code, resp.text[:500])
-    resp.raise_for_status()
-    result = resp.json()
-
-    # Poll until terminal state if the query is still running.
-    statement_id = result.get("statement_id")
-    status = result.get("status", {}).get("state")
-    logger.info("Statement %s — initial state: %s", statement_id, status)
-
-    while status in ("PENDING", "RUNNING"):
-        time.sleep(_POLL_INTERVAL_S)
-        poll_resp = requests.get(f"{url}/{statement_id}", headers=headers, timeout=_TIMEOUT_POLL, verify=True)
-        poll_resp.raise_for_status()
-        result = poll_resp.json()
-        status = result.get("status", {}).get("state")
-        logger.info("Statement %s — polled state: %s", statement_id, status)
-
-    if status == "FAILED":
-        error = result.get("status", {}).get("error", {})
-        raise RuntimeError(f"SQL statement failed: {error.get('message', 'unknown error')}")
-
-    if status != "SUCCEEDED":
-        raise RuntimeError(f"Unexpected terminal state: {status}")
-
-    manifest = result.get("manifest", {})
-    columns = [col["name"] for col in manifest.get("schema", {}).get("columns", [])]
-    total_row_count = manifest.get("total_row_count", "unknown")
-    total_chunk_count = manifest.get("total_chunk_count", 0)
-    logger.info("Query returned %s rows in %s chunks, columns: %s", total_row_count, total_chunk_count, columns)
-
-    import pyarrow as pa
-
-    arrow_tables: list[pa.Table] = []
-    n_chunks = int(total_chunk_count) if total_chunk_count else 0
-
-    for chunk_idx in range(n_chunks):
-        chunk_url = f"{url}/{statement_id}/result/chunks/{chunk_idx}"
-        logger.info("Fetching chunk %d/%d", chunk_idx + 1, n_chunks)
-        chunk_resp = requests.get(chunk_url, headers=headers, timeout=_TIMEOUT_CHUNK, verify=True)
-        chunk_resp.raise_for_status()
-        for link_info in chunk_resp.json().get("external_links", []):
-            link_url = link_info["external_link"]
-            byte_count = link_info.get("byte_count", 0)
-            logger.info("  Downloading %d bytes", byte_count)
-            dl_resp = requests.get(link_url, timeout=_TIMEOUT_CHUNK, verify=True)
-            dl_resp.raise_for_status()
-            reader = pa.ipc.open_stream(dl_resp.content)
-            arrow_tables.append(reader.read_all())
-
-    if not arrow_tables:
-        raise RuntimeError("No data chunks returned from Databricks SQL")
-
-    combined = pa.concat_tables(arrow_tables)
-    logger.info("Collected %d total rows from %d Arrow chunks", combined.num_rows, len(arrow_tables))
-    return combined.to_pandas()
 
 
 # ---------------------------------------------------------------------------
