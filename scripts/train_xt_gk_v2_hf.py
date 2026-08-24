@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.102-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.103-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -41,7 +41,6 @@ Usage (HF Jobs CLI) — secrets ENCRYPTED via ``--secrets`` (never ``--env``, AD
 
     hf jobs uv run scripts/train_xt_gk_v2_hf.py \\
         --flavor cpu-basic --timeout 60m \\
-        --secrets HF_TOKEN=$HF_TOKEN \\
         --secrets DATABRICKS_CLIENT_ID=$DATABRICKS_CLIENT_ID \\
         --secrets DATABRICKS_CLIENT_SECRET=$DATABRICKS_CLIENT_SECRET \\
         --env MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI \\
@@ -97,14 +96,14 @@ XG_COLUMN = "xg"
 # pressure alias equals PRESSURE_COLUMN ("pressure") and the xG column is XG_COLUMN ("xg"); keep in sync.
 _FIT_CORPUS_SQL = """
 SELECT
-    sa.match_id                            AS game_id,
+    sa.match_id_native                     AS game_id,
     sa.period_id                           AS period_id,
     sa.action_id                           AS action_id,
     sa.team_id                             AS team_id,
     sa.time_seconds                        AS time_seconds,
     sa.type_id                             AS type_id,
     sa.result_id                           AS result_id,
-    sa.possession_id                       AS possession_id,
+    sa.possession_id_heuristic             AS possession_id,
     sa.start_x                             AS start_x,
     sa.start_y                             AS start_y,
     sa.end_x                               AS end_x,
@@ -114,16 +113,20 @@ SELECT
 FROM soccer_analytics.bronze.spadl_actions sa
 JOIN soccer_analytics.bronze.spadl_action_context ac
     ON  ac.data_source = sa.data_source
-    AND ac.match_id    = sa.match_id
+    AND ac.match_id    = sa.match_id_native
     AND ac.action_id   = sa.action_id
 LEFT JOIN soccer_analytics.dev_gold.dim_matches dm
     ON  dm.provider        = sa.data_source
-    AND dm.native_match_id = sa.match_id
+    AND dm.native_match_id = sa.match_id_native
 LEFT JOIN soccer_analytics.dev_gold.fct_shot_xg xg
     ON  xg.match_key = dm.match_key
     AND xg.action_id = sa.action_id
-WHERE sa.match_id IS NOT NULL
+WHERE sa.match_id_native IS NOT NULL
   AND ac.pressure_on_actor__andrienko_oval IS NOT NULL
+-- LOAD-BEARING: EmpiricalTurnoverValue.fit does a POSITIONAL forward scan that assumes rows are
+-- contiguous by game and in chronological order. EXTERNAL_LINKS + Arrow-chunk concat give NO row
+-- order guarantee, so without this ORDER BY the turnover surface (V_opp) is silently mis-attributed.
+ORDER BY game_id, period_id, time_seconds, action_id
 """
 
 
@@ -192,7 +195,7 @@ def fit_xt_gk_v2(
 # ---------------------------------------------------------------------------
 
 
-def _log_and_register_mlflow(envelope: bytes, run_id_holder: dict[str, str]) -> None:
+def _log_and_register_mlflow(envelope: bytes) -> None:
     """Log the fitted bundle as an MLflow artifact + register the model, verifying @Champion (ADR-012)."""
     import mlflow
     from mlflow.tracking import MlflowClient
@@ -200,8 +203,13 @@ def _log_and_register_mlflow(envelope: bytes, run_id_holder: dict[str, str]) -> 
     from shared.constants import mlflow_model_uri
 
     fqn = mlflow_model_uri(CATALOG, SCHEMA, MODEL_NAME)
+    # Select the per-model experiment BEFORE start_run (mirrors train_xg_v3/train_vaep). Without
+    # this, start_run logs to the workspace Default experiment (id 0), where the training SP has no
+    # CAN_EDIT (ADR-080 grants CAN_EDIT only on /soccer_analytics/<model>), so an M2M HF-Jobs run
+    # fails with PERMISSION_DENIED. The first run also CREATES /soccer_analytics/xt_gk_v2 here.
+    mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
+    mlflow.set_experiment(f"/soccer_analytics/{MODEL_NAME}")
     with mlflow.start_run() as run:
-        run_id_holder["run_id"] = run.info.run_id
         mlflow.log_dict({"format": "xt_gk_v2_bundle", "bytes": len(envelope)}, "bundle_meta.json")
         mlflow.pyfunc.log_model(
             name=MODEL_NAME,
@@ -248,7 +256,7 @@ def main() -> None:
         weights_bytes=envelope,
     )
     # ADR-012 leg 2: MLflow registry + @Champion.
-    _log_and_register_mlflow(envelope, {})
+    _log_and_register_mlflow(envelope)
     logger.info("xt_gk_v2 fit complete (bundle=%d bytes)", len(envelope))
 
 

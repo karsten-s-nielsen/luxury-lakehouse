@@ -155,3 +155,29 @@ class TestFitAndSerializeRoundTrip:
             "unattested",
             "off_domain",
         }
+
+
+def test_fit_corpus_sql_uses_real_bronze_columns_and_orders_for_turnover_scan() -> None:
+    """Guards the xtgk-v2 fit-corpus SQL against the column/order bugs that blocked its first real fit:
+    bronze.spadl_actions exposes ``possession_id_heuristic`` (not ``possession_id``) and
+    ``match_id_native`` (the STRING native id; plain ``match_id`` is the LONG hash that cannot join
+    spadl_action_context's STRING ``match_id``), and ``EmpiricalTurnoverValue.fit``'s POSITIONAL forward
+    scan needs a chronological ``ORDER BY`` (EXTERNAL_LINKS Arrow chunks arrive unordered)."""
+    import re
+
+    sql = trainer._FIT_CORPUS_SQL
+    assert "possession_id_heuristic" in sql
+    assert re.search(r"sa\.possession_id(?!_heuristic)", sql) is None, "bare sa.possession_id does not exist on bronze"
+    assert re.search(r"sa\.match_id(?!_native)", sql) is None, "must join/boundary/filter on match_id_native"
+    assert sql.count("sa.match_id_native") >= 3  # game_id + ac-join + dm-join + WHERE
+    assert "ORDER BY game_id" in sql, "turnover scan is order-dependent — the ORDER BY is load-bearing"
+
+
+def test_mlflow_registration_selects_the_per_model_experiment() -> None:
+    """Without ``set_experiment`` the run logs to the workspace Default experiment (id 0), where the
+    training SP has no CAN_EDIT (ADR-080) -> PERMISSION_DENIED. Mirror the sibling trainers."""
+    import inspect
+
+    src = inspect.getsource(trainer._log_and_register_mlflow)
+    assert "set_experiment" in src
+    assert "set_tracking_uri" in src
