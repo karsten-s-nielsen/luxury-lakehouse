@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.99-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.101-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -53,11 +53,11 @@ from __future__ import annotations
 
 import logging
 import os
-import time
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
+from analytics.databricks_sql_fetch import query_databricks_sql
 from ingestion.artifact_deploy import (
     require_mlflow_env,
     set_and_verify_mlflow_champion,
@@ -126,11 +126,6 @@ WHERE sa.match_id IS NOT NULL
   AND ac.pressure_on_actor__andrienko_oval IS NOT NULL
 """
 
-_TIMEOUT_SUBMIT = (10, 60)
-_TIMEOUT_POLL = (10, 60)
-_TIMEOUT_CHUNK = (10, 300)
-_POLL_INTERVAL_S = 3.0
-
 
 def _assert_silly_kicks_min() -> None:
     import silly_kicks
@@ -146,54 +141,6 @@ def _assert_silly_kicks_min() -> None:
 # ---------------------------------------------------------------------------
 # Databricks SQL (Statement Execution API — no Spark on HF Jobs)
 # ---------------------------------------------------------------------------
-
-
-def query_databricks_sql(host: str, token: str, sql: str, warehouse_id: str) -> pd.DataFrame:
-    """Execute SQL via the Databricks Statement Execution API and return a DataFrame (ARROW_STREAM)."""
-    import pyarrow as pa
-    import requests
-
-    url = f"https://{host}/api/2.0/sql/statements"
-    headers = {"Authorization": f"Bearer {token}"}
-    payload = {
-        "statement": sql,
-        "warehouse_id": warehouse_id,
-        "wait_timeout": "50s",
-        "disposition": "EXTERNAL_LINKS",
-        "format": "ARROW_STREAM",
-    }
-    resp = requests.post(url, json=payload, headers=headers, timeout=_TIMEOUT_SUBMIT, verify=True)
-    resp.raise_for_status()
-    result = resp.json()
-    statement_id = result.get("statement_id")
-    status = result.get("status", {}).get("state")
-    while status in ("PENDING", "RUNNING"):
-        time.sleep(_POLL_INTERVAL_S)
-        poll = requests.get(f"{url}/{statement_id}", headers=headers, timeout=_TIMEOUT_POLL, verify=True)
-        poll.raise_for_status()
-        result = poll.json()
-        status = result.get("status", {}).get("state")
-    if status != "SUCCEEDED":
-        error = result.get("status", {}).get("error", {})
-        raise RuntimeError(f"SQL statement terminal state {status}: {error.get('message', '')}")
-
-    manifest = result.get("manifest", {})
-    columns = [c["name"] for c in manifest.get("schema", {}).get("columns", [])]
-    total_chunk_count = int(manifest.get("total_chunk_count", 0) or 0)
-    tables: list[pa.Table] = []
-    for chunk_idx in range(total_chunk_count):
-        chunk = requests.get(
-            f"{url}/{statement_id}/result/chunks/{chunk_idx}", headers=headers, timeout=_TIMEOUT_CHUNK, verify=True
-        )
-        chunk.raise_for_status()
-        for link in chunk.json().get("external_links", []):
-            dl = requests.get(link["external_link"], timeout=_TIMEOUT_CHUNK, verify=True)
-            dl.raise_for_status()
-            reader = pa.ipc.open_stream(dl.content)
-            tables.append(reader.read_all())
-    if not tables:
-        return pd.DataFrame(columns=columns)
-    return pa.concat_tables(tables).to_pandas()
 
 
 def load_fit_corpus(host: str, token: str, warehouse_id: str) -> pd.DataFrame:
