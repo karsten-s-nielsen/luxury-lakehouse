@@ -247,12 +247,16 @@ resource "databricks_grant" "dbt_owners_silver_select" {
   privileges = ["USE_SCHEMA", "SELECT"]
 }
 
+# SELECT: dbt tests read gold views. CREATE_MODEL (ADR-080): the HF-Jobs trainers
+# create/register UC models (e.g. xt_gk_v2) in dev_gold as the ingestion SP (a
+# dbt-owners member). New models' ownership is normalized to the group by the
+# ADR-080 ownership migration so the training-write path stays consistent.
 resource "databricks_grant" "dbt_owners_gold_select" {
   count = var.dbt_owners_group_name != "" && var.gold_schema_override != "" ? 1 : 0
 
   schema     = "${var.catalog_name}.${var.gold_schema_override}"
   principal  = var.dbt_owners_group_name
-  privileges = ["USE_SCHEMA", "SELECT"]
+  privileges = ["USE_SCHEMA", "SELECT", "CREATE_MODEL"]
 }
 
 resource "databricks_grant" "ingestion_sp_libs_volume" {
