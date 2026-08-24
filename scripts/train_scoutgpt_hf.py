@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.101-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.102-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -369,9 +369,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _build_scoutgpt_config(args: argparse.Namespace) -> ScoutGPTConfig:
-    """Build a ScoutGPTConfig from CLI overrides, with None → config default semantics."""
-    cfg_overrides: dict[str, Any] = {"position_embedding": args.variant}
+def _build_scoutgpt_config(args: argparse.Namespace, num_players: int) -> ScoutGPTConfig:
+    """Build a ScoutGPTConfig from CLI overrides, with None → config default semantics.
+
+    ``num_players`` is ALWAYS derived by the caller from the training data's player_id_map
+    length — NEVER the ScoutGPTConfig hardcoded default (11_918), which silently drifts behind
+    the data as new matches add players and then overflows the player embedding (a CUDA gather
+    index-out-of-bounds at train time; hit at 12_054 players after the sk-4.90.1 rebuild).
+    """
+    cfg_overrides: dict[str, Any] = {"position_embedding": args.variant, "num_players": num_players}
     if args.conditioning_type is not None:
         cfg_overrides["conditioning_type"] = args.conditioning_type
     if args.hidden_dim is not None:
@@ -381,6 +387,21 @@ def _build_scoutgpt_config(args: argparse.Namespace) -> ScoutGPTConfig:
     if args.num_heads is not None:
         cfg_overrides["num_heads"] = args.num_heads
     return ScoutGPTConfig(**cfg_overrides)
+
+
+def _assert_player_indices_in_range(all_pidxs: list[list[int]], num_players: int, n_map: int) -> None:
+    """Fail loud if any player index would overflow the ``num_players``-sized player embedding.
+
+    Holds by construction when ``num_players == len(player_id_map)``; this catches a data/map
+    drift with a clear message instead of an opaque CUDA "gather index out of bounds" mid-train.
+    """
+    max_player_idx = max((max(pidxs) for pidxs in all_pidxs if pidxs), default=-1)
+    if max_player_idx >= num_players:
+        raise RuntimeError(
+            f"Player index {max_player_idx} >= num_players {num_players} "
+            f"(player_id_map has {n_map} entries) — the player embedding would overflow. "
+            "num_players must cover every player index in the data."
+        )
 
 
 def _run_training_core(
@@ -408,14 +429,14 @@ def _run_training_core(
 
     db_host = os.environ.get("DATABRICKS_HOST", "")
     if db_host:
-        data, _player_id_map, dataset_commit = load_training_data_sql(
+        data, player_id_map, dataset_commit = load_training_data_sql(
             db_host.replace("https://", "").replace("http://", "").rstrip("/"),
             # M2M-aware (ADR-079): SDK provider chain (M2M OAuth or static token), not a raw env token.
             bearer_token(),
             os.environ["DATABRICKS_SQL_WAREHOUSE_ID"],
         )
     else:
-        data, _player_id_map, dataset_commit = load_training_data(
+        data, player_id_map, dataset_commit = load_training_data(
             hf_token,
             TRAINING_DATASET,
             revision=dataset_revision,
@@ -435,8 +456,9 @@ def _run_training_core(
     tei = test_df.index.tolist()
     logger.info("Split: train=%d val=%d test=%d", len(ti), len(vi), len(tei))
 
-    config = _build_scoutgpt_config(args)
+    config = _build_scoutgpt_config(args, num_players=len(player_id_map))
     logger.info("Config: %s", config)
+    _assert_player_indices_in_range(all_pidxs, config.num_players, len(player_id_map))
 
     train_ds = ScoutGPTDataset(
         [all_atypes[i] for i in ti],

@@ -34,6 +34,7 @@ class _CachedData:
     val_indices: list[int]
     test_indices: list[int]
     action_freqs: dict[int, dict[int, float]]
+    num_players: int
 
 
 _dataset_cache: dict[str, _CachedData] = {}
@@ -62,7 +63,7 @@ def _load_or_cache(dataset_repo: str, hf_token: str) -> _CachedData:
             stratified_split,
         )
 
-        data, _player_map, _sha = load_training_data(hf_token=hf_token, dataset_repo=dataset_repo)
+        data, player_map, _sha = load_training_data(hf_token=hf_token, dataset_repo=dataset_repo)
         parsed = build_datasets(data)
 
         train_df, val_df, test_df = stratified_split(data)
@@ -80,6 +81,7 @@ def _load_or_cache(dataset_repo: str, hf_token: str) -> _CachedData:
             val_indices=vi,
             test_indices=tei,
             action_freqs=action_freqs,
+            num_players=len(player_map),
         )
         _dataset_cache[dataset_repo] = cached
         return cached
@@ -148,6 +150,36 @@ def _apply_program(
         model._embed = types.MethodType(restricted_globals["custom_embed"], model)  # type: ignore[assignment]
 
 
+_CONFIG_KEYS = frozenset(
+    {
+        "hidden_dim",
+        "num_layers",
+        "num_heads",
+        "dropout",
+        "max_seq_len",
+        "spatial_mlp_dim",
+        "vaep_loss_weight",
+        "conditioning_type",
+    }
+)
+
+
+def _build_config_from_candidate(candidate_config: dict[str, Any], num_players: int) -> Any:
+    """Build a ScoutGPTConfig from a candidate's architecture keys, FORCING ``num_players``
+    to the data-derived count (``len(player_id_map)``).
+
+    num_players is fixed by the training data's player vocabulary — it is NEVER searched or
+    taken from ScoutGPTConfig's hardcoded default (11_918). A value smaller than the data
+    overflows the player embedding (a CUDA gather index-out-of-bounds; the 12_054-vs-11_918
+    class of bug the production trainer hit after the sk-4.90.1 rebuild).
+    """
+    from analytics.scoutgpt_decoder import ScoutGPTConfig
+
+    model_kwargs = {k: v for k, v in candidate_config.items() if k in _CONFIG_KEYS}
+    model_kwargs["num_players"] = num_players  # data wins — never a candidate value or the default
+    return ScoutGPTConfig(**model_kwargs)
+
+
 def train_and_evaluate(
     candidate_config: dict[str, Any],
     device: str,
@@ -178,7 +210,7 @@ def train_and_evaluate(
     """
     import torch
 
-    from analytics.scoutgpt_decoder import ScoutGPTConfig, ScoutGPTDecoder
+    from analytics.scoutgpt_decoder import ScoutGPTDecoder
     from analytics.scoutgpt_training import (
         ScoutGPTDataset,
         evaluate_counterfactual_ranking,
@@ -193,25 +225,13 @@ def train_and_evaluate(
     lr: float = candidate_config.get("learning_rate", 1e-4)
     batch_size: int = candidate_config.get("batch_size", 256)
 
-    # --- Build ScoutGPTConfig from model architecture keys ---
-    config_keys = {
-        "hidden_dim",
-        "num_layers",
-        "num_heads",
-        "dropout",
-        "max_seq_len",
-        "num_players",
-        "spatial_mlp_dim",
-        "vaep_loss_weight",
-        "conditioning_type",
-    }
-    model_kwargs = {k: v for k, v in candidate_config.items() if k in config_keys}
-    config = ScoutGPTConfig(**model_kwargs)
-
     # --- Load dataset (cached across candidates) ---
     hf_token = os.environ.get("HF_TOKEN", "")
     dataset_repo: str = candidate_config.get("dataset", "luxury-lakehouse/scoutgpt-training-data")
     cached = _load_or_cache(dataset_repo, hf_token)
+
+    # --- Build ScoutGPTConfig; num_players is the data's player vocabulary, not a search key ---
+    config = _build_config_from_candidate(candidate_config, cached.num_players)
 
     # Slice cached parsed fields into per-split datasets.
     def _slice(indices: list[int]) -> tuple[list[Any], ...]:
