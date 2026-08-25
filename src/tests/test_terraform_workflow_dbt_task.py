@@ -84,6 +84,20 @@ def _find_task_block_start(src: str, task_key: str) -> int:
     return -1
 
 
+def _task_body(src: str, task_key: str) -> str:
+    """Return a task block's body from its ``task_key`` declaration up to the next ``task {`` block.
+
+    Robust to task-block length: a fixed-size forward window silently truncates a task's tail (e.g. its
+    ``environment_key`` / ``run_if``) when the task grows, so anchor on the declaration and slice to the
+    next ``\\n  task {`` (or module end). Returns "" when the task is absent.
+    """
+    idx = _find_task_block_start(src, task_key)
+    if idx == -1:
+        return ""
+    next_task = src.find("\n  task {", idx)
+    return src[idx : next_task if next_task != -1 else len(src)]
+
+
 def test_three_stage_dbt_tasks_exist() -> None:
     """ADR-019: single `dbt_build` is replaced with three sequential
     invocations driven by mart classification tags."""
@@ -103,11 +117,8 @@ def test_three_stage_dbt_tasks_use_correct_entry_point_and_environment() -> None
     is by the `--select` parameter, not by entry point."""
     src = _read_workflows_main_tf()
     for task_key in _THREE_STAGE_TASKS:
-        idx = _find_task_block_start(src, task_key)
-        assert idx != -1, f"task_key declaration for {task_key!r} not found in TF"
-        # Window ends before the next task block; 2500 is generous given
-        # each stage carries up to 16 depends_on entries.
-        window = src[idx : idx + 2500]
+        window = _task_body(src, task_key)
+        assert window, f"task_key declaration for {task_key!r} not found in TF"
         assert "python_wheel_task" in window, f"{task_key} must use python_wheel_task"
         assert 'entry_point  = "dbt_build"' in window or 'entry_point = "dbt_build"' in window, (
             f"{task_key} entry_point must be 'dbt_build' (selector differentiates stages)"
@@ -129,17 +140,15 @@ def test_three_stage_dbt_tasks_use_distinct_select_parameters() -> None:
         "dbt_build_output_marts": ["+tag:output_mart", "path:models/staging", "path:models/intermediate"],
     }
     for task_key, selectors in expected.items():
-        idx = _find_task_block_start(src, task_key)
-        assert idx != -1, f"task_key declaration for {task_key!r} not found in TF"
-        window = src[idx : idx + 2500]
+        window = _task_body(src, task_key)
+        assert window, f"task_key declaration for {task_key!r} not found in TF"
         for sel in selectors:
             assert f'"{sel}"' in window, (
                 f"{task_key} must pass --select with selector {sel!r}; window=\n{window[:600]}..."
             )
     # Stage 3 must --exclude what stages 1+2 already built so it rebuilds ONLY the
     # output marts + their not-yet-built ancestors (no redundant mart rebuilds).
-    idx3 = _find_task_block_start(src, "dbt_build_output_marts")
-    window3 = src[idx3 : idx3 + 2500]
+    window3 = _task_body(src, "dbt_build_output_marts")
     assert '"--exclude"' in window3, "dbt_build_output_marts must --exclude stage-1/2 models"
     for ex in ("+tag:input_mart", "+tag:dimension", "+tag:intermediate_mart"):
         assert f'"{ex}"' in window3, f"dbt_build_output_marts --exclude must contain {ex!r}"
@@ -150,9 +159,8 @@ def test_dbt_build_input_marts_depends_on_all_ingest_helpers() -> None:
     ingest-helper `compute_*` tasks per ADR-019: `extract_tracking_metadata`,
     backfills, `resolve_players`)."""
     src = _read_workflows_main_tf()
-    idx = _find_task_block_start(src, "dbt_build_input_marts")
-    assert idx != -1, "task_key declaration for 'dbt_build_input_marts' not found in TF"
-    window = src[idx : idx + 2500]
+    window = _task_body(src, "dbt_build_input_marts")
+    assert window, "task_key declaration for 'dbt_build_input_marts' not found in TF"
     expected_deps = [
         "backfill_statsbomb_360",
         "backfill_statsbomb_extra",
@@ -174,9 +182,8 @@ def test_dbt_build_intermediate_marts_depends_on_stage1_and_spadl_vaep() -> None
     `compute_spadl_vaep` which writes the SPADL/VAEP bronze that
     `fct_action_values` (the only intermediate_mart) consumes."""
     src = _read_workflows_main_tf()
-    idx = _find_task_block_start(src, "dbt_build_intermediate_marts")
-    assert idx != -1, "task_key declaration for 'dbt_build_intermediate_marts' not found in TF"
-    window = src[idx : idx + 2500]
+    window = _task_body(src, "dbt_build_intermediate_marts")
+    assert window, "task_key declaration for 'dbt_build_intermediate_marts' not found in TF"
     for dep in ("compute_spadl_vaep", "dbt_build_input_marts"):
         assert f'task_key = "{dep}"' in window, f"dbt_build_intermediate_marts must depend on {dep!r}"
 
@@ -186,9 +193,8 @@ def test_dbt_build_output_marts_depends_on_stage2_and_phase2_compute() -> None:
     AND after every phase-2 compute task that writes bronze read by an
     output_mart."""
     src = _read_workflows_main_tf()
-    idx = _find_task_block_start(src, "dbt_build_output_marts")
-    assert idx != -1, "task_key declaration for 'dbt_build_output_marts' not found in TF"
-    window = src[idx : idx + 2500]
+    window = _task_body(src, "dbt_build_output_marts")
+    assert window, "task_key declaration for 'dbt_build_output_marts' not found in TF"
     expected_deps = [
         "compute_defcon_lite",
         "compute_elastic_sync",

@@ -905,6 +905,14 @@ resource "databricks_job" "data_ingestion" {
     depends_on { task_key = "off_ball_runs_writer" }
     depends_on { task_key = "xt_gk_v2_writer" }
 
+    # run_if = ALL_DONE: a single scheduled writer's failure (e.g. xt_gk_v2_writer hitting a missing/bad
+    # bundle) must NOT skip the entire gold-marts build. Every output_mart consumer of writer output is a
+    # LEFT JOIN that degrades to a stale/NULL column, and any genuinely-missing bronze table still fails
+    # loud at the dbt layer (TABLE_OR_VIEW_NOT_FOUND). So ALL_DONE trades "all ~43 marts skipped on one
+    # writer failure" for "marts build with one visibly-failed upstream's stale column" — the same
+    # signal-not-gate pattern verify_action_context_drain uses (ADR-081 audit follow-up).
+    run_if = "ALL_DONE"
+
     environment_key = "dbt"
   }
 

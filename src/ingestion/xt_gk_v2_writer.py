@@ -49,6 +49,7 @@ from shared.constants import DEFAULT_BRONZE_SCHEMA, IDENTIFIER_RE
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from pyspark.sql import SparkSession
+    from pyspark.sql.types import StructType
     from silly_kicks.xtgk import EmpiricalTurnoverValue, MarkovPossessionValue, PressureLevels
 
 logger = logging.getLogger(__name__)
@@ -335,11 +336,32 @@ def score_xt_gk_v2(
 # ---------------------------------------------------------------------------
 
 
-def load_bundle_from_volume(volume_path: str, *, filename: str = WEIGHTS_FILENAME) -> XtGkV2Bundle:
-    """Read the fitted-bundle JSON from a UC Volume path and reconstruct the ports."""
+def load_bundle_from_volume(spark: SparkSession, volume_path: str, *, filename: str = WEIGHTS_FILENAME) -> XtGkV2Bundle:
+    """Read the fitted-bundle JSON from a UC Volume path and reconstruct the ports.
+
+    Uses ``spark.read.format("binaryFile")`` — the serverless-safe read for UC Volume artifacts — rather
+    than a bare ``open()`` on the ``/Volumes`` path, and verifies the sha256 sidecar the trainer writes
+    (ADR-012 / SEC2), matching ``ingestion.xg_shot_scorer._load_champion_weights``.
+    """
+    from ingestion.utils import _load_volume_sidecar_hash, verify_artifact_hash
+
     artifact_path = f"{volume_path.rstrip('/')}/{MODEL_NAME}/{filename}"
-    with open(artifact_path, "rb") as fh:
-        data = fh.read()
+    try:
+        row = spark.read.format("binaryFile").load(artifact_path).first()
+        if row is None:
+            raise RuntimeError(f"UC Volume bundle is empty: {artifact_path}")
+        data = bytes(row["content"])
+    except Exception as exc:
+        raise RuntimeError(
+            f"xt_gk_v2 bundle not available at UC Volume {artifact_path}. Train + deliver a bundle "
+            "via scripts/train_xt_gk_v2_hf.py before running the writer."
+        ) from exc
+    verify_artifact_hash(
+        data=data,
+        expected_sha256=_load_volume_sidecar_hash(artifact_path),
+        artifact_label=f"{MODEL_NAME}_bundle_volume",
+        logger=logger,
+    )
     return deserialize_xt_gk_v2_bundle(data)
 
 
@@ -359,6 +381,31 @@ def _assert_silly_kicks_min() -> None:
         )
 
 
+def _output_spark_schema() -> StructType:
+    """Explicit Spark schema for the scored DataFrame (ADR-033).
+
+    Never let ``createDataFrame`` infer types for a typed Delta target: a value column that is all-NaN
+    for a batch would infer to the wrong type (or NullType-and-drop), silently corrupting the write.
+    Field order + types mirror ``[*_IDENTITY_COLUMNS, *V2_OUTPUT_COLUMNS]`` and ``XT_GK_V2_DDL``
+    (``_ingested_at`` is added downstream by ``write_delta_table``).
+    """
+    from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType
+
+    return StructType(
+        [
+            StructField("data_source", StringType(), True),
+            StructField("match_id", StringType(), True),
+            StructField("action_id", LongType(), True),
+            StructField("xt_gk_v2_position", DoubleType(), True),
+            StructField("xt_gk_v2_pev", DoubleType(), True),
+            StructField("xt_gk_v2_retention_loss", DoubleType(), True),
+            StructField("xt_gk_v2_dzv", DoubleType(), True),
+            StructField("xt_gk_v2", DoubleType(), True),
+            StructField("gk_geometry_source", StringType(), True),
+        ]
+    )
+
+
 def run_pipeline(
     spark: SparkSession,
     catalog: str,
@@ -375,7 +422,7 @@ def run_pipeline(
 
     _assert_silly_kicks_min()
     if bundle is None:
-        bundle = load_bundle_from_volume(volume_path)
+        bundle = load_bundle_from_volume(spark, volume_path)
 
     source_table = f"{catalog}.{DEFAULT_BRONZE_SCHEMA}.spadl_action_context"
     logger.info("Reading GK-distribution actions from %s", source_table)
@@ -389,7 +436,7 @@ def run_pipeline(
         logger.info("No xt_gk_v2 rows to write")
         return 0
 
-    sdf = spark.createDataFrame(scored)
+    sdf = spark.createDataFrame(scored, schema=_output_spark_schema())
     providers = [str(r["data_source"]) for r in sdf.select("data_source").distinct().collect()]
     quoted = ", ".join(f"'{p}'" for p in providers)
     replace_where = f"data_source IN ({quoted})"
