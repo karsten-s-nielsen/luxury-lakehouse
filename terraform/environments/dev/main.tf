@@ -158,7 +158,7 @@ module "workflows" {
   source = "../../modules/workflows"
 
   catalog_name             = module.workspace.catalog_name
-  wheel_path               = "${module.catalog.libs_volume_path}/luxury_lakehouse-0.5.104-py3-none-any.whl"
+  wheel_path               = "${module.catalog.libs_volume_path}/luxury_lakehouse-0.5.105-py3-none-any.whl"
   environment              = var.environment
   notification_emails      = var.notification_emails
   run_as_sp_application_id = module.service_principals.ingestion_sp_application_id
@@ -372,27 +372,6 @@ resource "databricks_mlflow_experiment" "xt_gk_v2" {
   lifecycle {
     prevent_destroy = true
   }
-}
-
-# One-time adoption of dev's four pre-existing experiments into TF state (preserves their run
-# history — a plain `apply` without these would try to CREATE them and fail on name-conflict).
-# These IDs are dev-workspace-specific: a genuinely fresh workspace has nothing to import — delete
-# these four blocks there and the resources above create the experiments from scratch.
-import {
-  to = databricks_mlflow_experiment.vaep
-  id = "1644169474913777"
-}
-import {
-  to = databricks_mlflow_experiment.xg_v2
-  id = "1644169474913776"
-}
-import {
-  to = databricks_mlflow_experiment.scoutgpt
-  id = "451147925512376"
-}
-import {
-  to = databricks_mlflow_experiment.xg_v3
-  id = "1557416745207844"
 }
 
 # The four experiments whose models are retrained via HF Jobs (ADR-080): SP
