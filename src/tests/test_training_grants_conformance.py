@@ -25,12 +25,24 @@ _CATALOG_TF = _REPO / "terraform" / "modules" / "catalog" / "main.tf"
 _OWNERSHIP_SCRIPT = _REPO / "scripts" / "normalize_training_model_ownership.py"
 
 # model name (UC + TRAINING_MODELS) -> the databricks_permissions resource key in dev/main.tf.
-# xt_gk_v2 is intentionally absent: its experiment does not exist until its first training run,
-# so its ACL is added once the experiment exists (ADR-080). The script list still carries it.
+# Every training model — including xt_gk_v2 — now has both a Terraform-managed experiment RESOURCE
+# and its ACL: TF creates the experiment (ADR-081) so the grant always has a target, even before
+# the model's first training run. The map covers the experiment ACLs; the resource presence is
+# asserted separately below.
 _MODEL_TO_ACL_RESOURCE = {
     "vaep_model": "vaep_experiment_acl",
     "scoutgpt": "scoutgpt_experiment_acl",
     "xg_model_v3": "xg_v3_experiment_acl",
+    "xt_gk_v2": "xt_gk_v2_experiment_acl",
+}
+
+# model name -> the databricks_mlflow_experiment resource key in dev/main.tf (ADR-081). Terraform
+# owns experiment creation so a fresh `apply` reproduces them (the training SP cannot create one).
+_MODEL_TO_EXPERIMENT_RESOURCE = {
+    "vaep_model": "vaep",
+    "scoutgpt": "scoutgpt",
+    "xg_model_v3": "xg_v3",
+    "xt_gk_v2": "xt_gk_v2",
 }
 
 
@@ -60,6 +72,26 @@ def test_training_experiments_grant_dbt_owners_can_edit() -> None:
         )
 
 
+def test_training_experiments_are_terraform_managed_resources() -> None:
+    """ADR-081: each training experiment is a `databricks_mlflow_experiment` RESOURCE (not a `data`
+    lookup), so a fresh `terraform apply` CREATES it — the training SP is not a workspace admin and
+    cannot create experiments itself. A `data` lookup would ERROR on a fresh workspace where the
+    experiment does not exist, and leaves the ACL with nothing to grant on (the xt_gk_v2 failure)."""
+    tf = _DEV_TF.read_text(encoding="utf-8")
+    for model, resource_name in _MODEL_TO_EXPERIMENT_RESOURCE.items():
+        block = _resource_block(tf, "databricks_mlflow_experiment", resource_name)
+        assert "prevent_destroy" in block, (
+            f"{model}: experiment resource {resource_name} must set lifecycle.prevent_destroy "
+            f"to guard its run history against an accidental force-replace (ADR-081)"
+        )
+        # No stale `data "databricks_mlflow_experiment" "<name>"` lookup may remain for a managed model.
+        assert not re.search(rf'data\s+"databricks_mlflow_experiment"\s+"{re.escape(resource_name)}"', tf), (
+            f"{model}: a `data` lookup for {resource_name} remains — it must be a resource (ADR-081)"
+        )
+    # Every ACL must reference the resource, never a `data` source (which cannot exist post-ADR-081).
+    assert "data.databricks_mlflow_experiment" not in tf, "experiment ACLs must reference the resource, not data"
+
+
 def test_gold_schema_grants_dbt_owners_create_model() -> None:
     catalog = _CATALOG_TF.read_text(encoding="utf-8")
     block = _resource_block(catalog, "databricks_grant", "dbt_owners_gold_select")
@@ -84,8 +116,7 @@ def _training_models_from_script() -> set[str]:
 
 def test_ownership_script_lists_every_training_model() -> None:
     models = _training_models_from_script()
-    # Every TF-managed training experiment must be in the ownership-normalization list...
+    # Every TF-managed training experiment must be in the ownership-normalization list (xt_gk_v2
+    # included — it is now a first-class TF-managed experiment like the others, ADR-081).
     for model in _MODEL_TO_ACL_RESOURCE:
         assert model in models, f"{model} has a TF experiment ACL but is missing from TRAINING_MODELS"
-    # ...and xt_gk_v2 (the not-yet-created model) is tracked so its ownership is normalized on creation.
-    assert "xt_gk_v2" in models

@@ -14,7 +14,7 @@ variable "environment" {
 }
 
 variable "wheel_path" {
-  description = "Full path to the luxury_lakehouse wheel on a UC Volume (e.g. /Volumes/soccer_analytics/bronze/libs/luxury_lakehouse-0.5.103-py3-none-any.whl). Do NOT append a #sha256= fragment — serverless pip rejects it on UC Volume paths."
+  description = "Full path to the luxury_lakehouse wheel on a UC Volume (e.g. /Volumes/soccer_analytics/bronze/libs/luxury_lakehouse-0.5.104-py3-none-any.whl). Do NOT append a #sha256= fragment — serverless pip rejects it on UC Volume paths."
   type        = string
 }
 
