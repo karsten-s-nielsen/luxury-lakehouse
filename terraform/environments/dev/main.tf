@@ -109,41 +109,6 @@ module "secret_scopes" {
   }
 }
 
-import {
-  to = module.secret_scopes.databricks_secret_scope.scope["hf"]
-  id = "hf"
-}
-
-import {
-  to = module.secret_scopes.databricks_secret_scope.scope["pining"]
-  id = "pining"
-}
-
-import {
-  to = module.secret_scopes.databricks_secret_acl.read["hf-008b207b-96a8-4d54-b185-a77479a55abe"]
-  id = "hf|||008b207b-96a8-4d54-b185-a77479a55abe"
-}
-
-import {
-  to = module.secret_scopes.databricks_secret_acl.read["pining-008b207b-96a8-4d54-b185-a77479a55abe"]
-  id = "pining|||008b207b-96a8-4d54-b185-a77479a55abe"
-}
-
-import {
-  to = databricks_permissions.vaep_experiment_acl
-  id = "/experiments/1644169474913777"
-}
-
-import {
-  to = databricks_permissions.scoutgpt_experiment_acl
-  id = "/experiments/451147925512376"
-}
-
-import {
-  to = databricks_permissions.xg_v3_experiment_acl
-  id = "/experiments/1557416745207844"
-}
-
 # ── Module: Catalog (Medallion Schemas) ──────────────────────────────────────
 # Creates bronze / silver / gold schemas inside the soccer_analytics catalog.
 # Also manages Unity Catalog grants for the ingestion and app service principals.
@@ -193,7 +158,7 @@ module "workflows" {
   source = "../../modules/workflows"
 
   catalog_name             = module.workspace.catalog_name
-  wheel_path               = "${module.catalog.libs_volume_path}/luxury_lakehouse-0.5.103-py3-none-any.whl"
+  wheel_path               = "${module.catalog.libs_volume_path}/luxury_lakehouse-0.5.104-py3-none-any.whl"
   environment              = var.environment
   notification_emails      = var.notification_emails
   run_as_sp_application_id = module.service_principals.ingestion_sp_application_id
@@ -359,26 +324,81 @@ resource "databricks_permissions" "lakebase_project_acl" {
 # ACL must be declared, or `terraform apply` REVERTS it. The deployer IS_OWNER is
 # inherited (experiment creator) and is not re-declared.
 
-data "databricks_mlflow_experiment" "vaep" {
-  name = "/soccer_analytics/vaep_model"
+# ADR-081: MLflow training experiments are Terraform-MANAGED resources, not data lookups.
+# The ACLs below need an experiment to grant CAN_EDIT on, and the training SP
+# (luxury-lakehouse-ingestion-dev) is NOT a workspace admin — it cannot create an experiment.
+# That is exactly why xt_gk_v2's first M2M run failed with PERMISSION_DENIED at set_experiment.
+# Declaring the experiments as resources means `terraform apply` (as the workspace-admin CI SP)
+# CREATES them on a fresh install, so the grants have a target — the fresh-install correctness
+# ADR-080 claimed but the `data` lookups could not deliver (a data source ERRORS when the
+# experiment does not exist). prevent_destroy guards each experiment's run history against an
+# accidental force-replace.
+resource "databricks_mlflow_experiment" "vaep" {
+  name              = "/soccer_analytics/vaep_model"
+  artifact_location = "dbfs:/databricks/mlflow-tracking/1644169474913777"
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
-data "databricks_mlflow_experiment" "xg_v2" {
-  name = "/soccer_analytics/xg_model_v2"
+resource "databricks_mlflow_experiment" "xg_v2" {
+  name              = "/soccer_analytics/xg_model_v2"
+  artifact_location = "dbfs:/databricks/mlflow-tracking/1644169474913776"
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
-data "databricks_mlflow_experiment" "scoutgpt" {
-  name = "/soccer_analytics/scoutgpt"
+resource "databricks_mlflow_experiment" "scoutgpt" {
+  name              = "/soccer_analytics/scoutgpt"
+  artifact_location = "dbfs:/databricks/mlflow-tracking/451147925512376"
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
-data "databricks_mlflow_experiment" "xg_v3" {
-  name = "/soccer_analytics/xg_model_v3"
+resource "databricks_mlflow_experiment" "xg_v3" {
+  name              = "/soccer_analytics/xg_model_v3"
+  artifact_location = "dbfs:/databricks/mlflow-tracking/1557416745207844"
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
-# The three experiments whose models are retrained via HF Jobs (ADR-080): SP
+# xt_gk_v2 has never been trained, so its experiment does not exist yet. TF creates it here (no
+# import block) — the workspace-admin CI SP can, the training SP cannot. This is the whole fix.
+resource "databricks_mlflow_experiment" "xt_gk_v2" {
+  name = "/soccer_analytics/xt_gk_v2"
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+# One-time adoption of dev's four pre-existing experiments into TF state (preserves their run
+# history — a plain `apply` without these would try to CREATE them and fail on name-conflict).
+# These IDs are dev-workspace-specific: a genuinely fresh workspace has nothing to import — delete
+# these four blocks there and the resources above create the experiments from scratch.
+import {
+  to = databricks_mlflow_experiment.vaep
+  id = "1644169474913777"
+}
+import {
+  to = databricks_mlflow_experiment.xg_v2
+  id = "1644169474913776"
+}
+import {
+  to = databricks_mlflow_experiment.scoutgpt
+  id = "451147925512376"
+}
+import {
+  to = databricks_mlflow_experiment.xg_v3
+  id = "1557416745207844"
+}
+
+# The four experiments whose models are retrained via HF Jobs (ADR-080): SP
 # CAN_READ (inference) + dbt-owners CAN_EDIT (training run creation).
 resource "databricks_permissions" "vaep_experiment_acl" {
-  experiment_id = data.databricks_mlflow_experiment.vaep.id
+  experiment_id = databricks_mlflow_experiment.vaep.id
 
   access_control {
     service_principal_name = module.service_principals.ingestion_sp_application_id
@@ -391,7 +411,7 @@ resource "databricks_permissions" "vaep_experiment_acl" {
 }
 
 resource "databricks_permissions" "scoutgpt_experiment_acl" {
-  experiment_id = data.databricks_mlflow_experiment.scoutgpt.id
+  experiment_id = databricks_mlflow_experiment.scoutgpt.id
 
   access_control {
     service_principal_name = module.service_principals.ingestion_sp_application_id
@@ -404,7 +424,20 @@ resource "databricks_permissions" "scoutgpt_experiment_acl" {
 }
 
 resource "databricks_permissions" "xg_v3_experiment_acl" {
-  experiment_id = data.databricks_mlflow_experiment.xg_v3.id
+  experiment_id = databricks_mlflow_experiment.xg_v3.id
+
+  access_control {
+    service_principal_name = module.service_principals.ingestion_sp_application_id
+    permission_level       = "CAN_READ"
+  }
+  access_control {
+    group_name       = module.service_principals.dbt_owners_group_display_name
+    permission_level = "CAN_EDIT"
+  }
+}
+
+resource "databricks_permissions" "xt_gk_v2_experiment_acl" {
+  experiment_id = databricks_mlflow_experiment.xt_gk_v2.id
 
   access_control {
     service_principal_name = module.service_principals.ingestion_sp_application_id
@@ -418,7 +451,7 @@ resource "databricks_permissions" "xg_v3_experiment_acl" {
 
 # xg_v2 is legacy (retired — ADR-066): read-only for inference, no training.
 resource "databricks_permissions" "xg_v2_experiment_acl" {
-  experiment_id = data.databricks_mlflow_experiment.xg_v2.id
+  experiment_id = databricks_mlflow_experiment.xg_v2.id
 
   access_control {
     service_principal_name = module.service_principals.ingestion_sp_application_id
