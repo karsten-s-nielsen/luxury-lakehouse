@@ -142,3 +142,23 @@ Experiment IDs for the dev import blocks: `vaep_model 1644169474913777`,
 apply. Apply choreography: merge → CI `terraform apply` imports the four + creates xt_gk_v2 + sets
 the five ACLs (plan reviewed for zero destroy/recreate) → the xt_gk_v2 M2M fit re-dispatch then
 finds its experiment and registers `@Champion`.
+
+## Amendment — 2026-08-25 (0.5.106): post-apply E2E surfaced downstream fixes
+
+Re-dispatching the xt_gk_v2 fit against the now-existing experiment (the "registers `@Champion`" step
+above) confirmed the grant fix and — via a 3-agent audit + E2E-before-commit — surfaced the *downstream*
+issues that had never run before this ADR unblocked them:
+
+- **Mega-job marts-build decoupling (structural pipeline trade-off).** `dbt_build_output_marts` depended
+  on `xt_gk_v2_writer` (and ~20 other writers) with the default `run_if = ALL_SUCCESS`, so a single
+  writer's failure would skip **all ~43 gold marts**. Changed to `run_if = "ALL_DONE"`
+  (`terraform/modules/workflows/main.tf`): every output_mart consumer of writer output is a LEFT JOIN
+  that degrades to a stale/NULL column, and any genuinely-missing bronze table still fails loud at the
+  dbt layer — so ALL_DONE trades "all marts skipped on one writer failure" for "marts build with one
+  visibly-failed upstream's stale column," the same signal-not-gate pattern `verify_action_context_drain`
+  already uses. No separate ADR: this applies that established pattern.
+- **Trainer/writer bug fixes (bundled).** `mlflow.pyfunc.log_model` needs a `PythonModel` subclass AND an
+  `input_example` (UC registered models require a model signature); the writer loads the bundle via Spark
+  `binaryFile` + sha256-sidecar verify and passes an explicit `createDataFrame` schema (ADR-033). All
+  three were divergences from the working sibling trainers/writers, invisible until this ADR's grant let
+  the path run. E2E-verified: `soccer_analytics.dev_gold.xt_gk_v2` `@Champion` → version 1.

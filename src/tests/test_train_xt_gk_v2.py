@@ -181,3 +181,58 @@ def test_mlflow_registration_selects_the_per_model_experiment() -> None:
     src = inspect.getsource(trainer._log_and_register_mlflow)
     assert "set_experiment" in src
     assert "set_tracking_uri" in src
+
+
+def test_pyfunc_wrapper_subclasses_pythonmodel() -> None:
+    """The pyfunc wrapper handed to ``mlflow.pyfunc.log_model`` MUST subclass ``mlflow.pyfunc.PythonModel``.
+
+    Newer MLflow's ``_validate_function_python_model`` rejects a plain duck-typed class at save time
+    (``MlflowException: python_model must be a PythonModel instance, callable object, or a script path``)
+    — the bug that blocked the first real xt_gk_v2 fit. Every sibling trainer subclasses it. Static AST
+    guard on the class defined inside ``_log_and_register_mlflow``.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    tree = ast.parse(textwrap.dedent(inspect.getsource(trainer._log_and_register_mlflow)))
+    class_defs = [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]
+    assert class_defs, "no pyfunc wrapper class defined in _log_and_register_mlflow (guard would be vacuous)"
+    for cd in class_defs:
+        bases = [b.attr for b in cd.bases if isinstance(b, ast.Attribute)]
+        assert "PythonModel" in bases, (
+            f"class {cd.name} must subclass mlflow.pyfunc.PythonModel — a plain class raises "
+            "MlflowException at mlflow.pyfunc.log_model (bases found: "
+            f"{[ast.dump(b) for b in cd.bases]})"
+        )
+    # UC registered models REQUIRE a signature — the trainer must pass input_example so MLflow infers it
+    # (mirrors the siblings). No input_example → the UC model version is rejected at registration.
+    src = inspect.getsource(trainer._log_and_register_mlflow)
+    assert "input_example=" in src, "log_model must pass input_example so UC can register a signed version"
+
+
+def test_writer_createdataframe_passes_explicit_schema() -> None:
+    """Every ``spark.createDataFrame(...)`` in xt_gk_v2_writer.py must pass an explicit ``schema=`` (ADR-033).
+
+    An all-NaN value column would otherwise infer to the wrong type / NullType-and-drop into the typed
+    ``bronze.xt_gk_v2_predictions`` Delta table. The AC-1 sentinel
+    (``test_action_context_createdataframe_schema``) only covers ``action_context.py``, so this writer
+    needs its own guard.
+    """
+    import ast
+    from pathlib import Path
+
+    import ingestion.xt_gk_v2_writer as writer_mod
+
+    tree = ast.parse(Path(writer_mod.__file__).read_text(encoding="utf-8"))
+    calls = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "createDataFrame"
+    ]
+    assert calls, "no spark.createDataFrame call found in xt_gk_v2_writer.py (guard would be vacuous)"
+    offenders = [c.lineno for c in calls if "schema" not in {kw.arg for kw in c.keywords if kw.arg} and len(c.args) < 2]
+    assert not offenders, (
+        f"spark.createDataFrame without explicit schema= in xt_gk_v2_writer.py at line(s) {offenders} "
+        "(ADR-033 — all-NaN value columns infer to the wrong type into the typed Delta table)"
+    )

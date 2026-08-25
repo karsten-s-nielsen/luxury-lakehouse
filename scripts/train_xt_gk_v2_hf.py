@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.105-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.106-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -202,6 +202,25 @@ def _log_and_register_mlflow(envelope: bytes) -> None:
 
     from shared.constants import mlflow_model_uri
 
+    class _XtGkV2Model(mlflow.pyfunc.PythonModel):
+        """Minimal MLflow pyfunc wrapper — the served artifact is the UC-Volume JSON bundle (ADR-012).
+
+        MUST subclass ``mlflow.pyfunc.PythonModel``: newer MLflow's ``log_model`` validates that
+        ``python_model`` is a ``PythonModel`` instance or a callable
+        (``mlflow/pyfunc/__init__.py::_validate_function_python_model``), so a plain duck-typed class
+        raises ``MlflowException`` at save time. ``predict`` returns a dummy zero vector purely so MLflow
+        can INFER an output signature from ``input_example`` — every UC registered model REQUIRES a
+        signature with input AND output type specs (a raising ``predict`` breaks inference and UC rejects
+        the version). Real scoring runs in ``ingestion.xt_gk_v2_writer``, never via MLflow serving.
+        Defined inside the function (not module level) so the module stays importable without mlflow.
+        Mirrors train_xg_v3 / train_vaep / train_scoutgpt.
+        """
+
+        def predict(self, context: Any, model_input: Any) -> Any:
+            import numpy as np
+
+            return np.zeros(len(model_input))
+
     fqn = mlflow_model_uri(CATALOG, SCHEMA, MODEL_NAME)
     # Select the per-model experiment BEFORE start_run (mirrors train_xg_v3/train_vaep). Without
     # this, start_run logs to the workspace Default experiment (id 0), where the training SP has no
@@ -215,15 +234,11 @@ def _log_and_register_mlflow(envelope: bytes) -> None:
             name=MODEL_NAME,
             python_model=_XtGkV2Model(),
             registered_model_name=fqn,
+            # input_example lets MLflow infer the input+output signature every UC registered model
+            # requires (mirrors train_xg_v3 / train_scoutgpt). Without it the version is rejected.
+            input_example=pd.DataFrame({"x": [0.0]}),
         )
         set_and_verify_mlflow_champion(MlflowClient(), mlflow_fqn=fqn, run_id=run.info.run_id)
-
-
-class _XtGkV2Model:
-    """Minimal MLflow pyfunc wrapper — the served artifact is the UC-Volume JSON bundle (ADR-012)."""
-
-    def predict(self, context: Any, model_input: Any) -> Any:
-        raise NotImplementedError("xt_gk_v2 scoring runs in ingestion.xt_gk_v2_writer, not MLflow serving")
 
 
 @workflow("wf-xt-gk-v2", phase="training")

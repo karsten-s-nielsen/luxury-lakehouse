@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [ARCHITECTURE.md](ARCHITECTURE.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
-**Last updated**: 2026-08-25 — **Release 0.5.105:** removed the 4 now-consumed `databricks_mlflow_experiment` import blocks left by the ADR-081 apply (cleanup plan verified *no changes*) — TF config clean, no leftovers. Remaining: re-dispatch xtgk-v2 fit → score → 5 marts → DAG rebuild → HF republish → synced refresh → delete the minted SP secret.
+**Last updated**: 2026-08-25 — **Release 0.5.106:** unblocked xt_gk_v2's first train→register cycle — 3 trainer/writer divergences from the working siblings (log_model needs a `mlflow.pyfunc.PythonModel` subclass + `input_example` for the UC-required signature; writer loads the bundle via Spark `binaryFile` + sha256 verify + explicit `createDataFrame` schema, ADR-033) + decoupled the gold-marts build (`dbt_build_output_marts` → `run_if=ALL_DONE`, so one writer failure can't skip all ~43 marts). `@Champion` v1 registered + verified E2E. Remaining: mega-job xt_gk_v2 score → 5 marts → DAG rebuild → HF republish → synced refresh → normalize model ownership → delete the SP secret.
 
 **Open**: whether to re-derive StatsBomb SPADL for provenance (7.15M rows, measured unnecessary). Optional defence-in-depth, not urgent given the layout finding: vendoring Taipy's one-line containment fix (`129fd40`) rather than waiting on their release.
 
