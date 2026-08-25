@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [ARCHITECTURE.md](ARCHITECTURE.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
-**Last updated**: 2026-08-24 — **Release 0.5.104:** MLflow training experiments are now Terraform-managed `databricks_mlflow_experiment` resources, not `data` lookups (ADR-081) — a fresh `terraform apply` creates them (the non-admin training SP can't), closing the xt_gk_v2 `set_experiment` `PERMISSION_DENIED` blocker; existing experiments adopted via `import` + `prevent_destroy`. Remaining: apply → re-dispatch xtgk-v2 fit → score → 5 marts → DAG rebuild → HF republish → synced refresh → delete the minted SP secret.
+**Last updated**: 2026-08-25 — **Release 0.5.105:** removed the 4 now-consumed `databricks_mlflow_experiment` import blocks left by the ADR-081 apply (cleanup plan verified *no changes*) — TF config clean, no leftovers. Remaining: re-dispatch xtgk-v2 fit → score → 5 marts → DAG rebuild → HF republish → synced refresh → delete the minted SP secret.
 
 **Open**: whether to re-derive StatsBomb SPADL for provenance (7.15M rows, measured unnecessary). Optional defence-in-depth, not urgent given the layout finding: vendoring Taipy's one-line containment fix (`129fd40`) rather than waiting on their release.
 
