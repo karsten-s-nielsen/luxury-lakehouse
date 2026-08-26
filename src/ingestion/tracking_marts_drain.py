@@ -385,6 +385,16 @@ def main_gkdv_pool() -> None:
     """Entry point ``compute_gkdv_pool``: the single-driver gkdv pooling reduce (runs after the drain)."""
     args = parse_ingestion_args("Pool gkdv keeper observations -> bronze.gkdv_keeper_pooled")
     task_logger = configure_logging("gkdv_pool")
+
+    # gkdv is gated off pending its perf project (ADR-082 amendment): the drain writes no observations, so
+    # the reduce has nothing to pool. Short-circuit BEFORE touching Spark — the task stays in the job so the
+    # perf project re-enables the whole path by flipping one constant. Single source of truth: GKDV_ENABLED.
+    from ingestion.tracking_marts_processor import GKDV_ENABLED
+
+    if not GKDV_ENABLED:
+        task_logger.info("gkdv_pool: gkdv scoring is gated off (GKDV_ENABLED=False) -- skipping pool, no rows written")
+        return
+
     spark = get_spark_session()
 
     from ingestion.bootstrap import bootstrap_hooks

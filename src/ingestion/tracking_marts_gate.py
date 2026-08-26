@@ -14,10 +14,12 @@ TWO tracking-marts-specific deltas from the AC gate:
   worker (``-1``) must NOT be expected — otherwise its (never-emitted) ``slice_completed`` reads as a dead
   worker and the gate reports ``DRAIN_FAILED`` on EVERY run, muting the real verdict. The AC gate passes
   the default (the sb360 sentinel); this one passes the empty set.
-* **N1 — the results cross-check sums rows across ALL FOUR output tables per unit**
-  (``off_ball_runs`` + ``action_defensive_credit`` + ``defensive_credit_attributions`` +
-  ``gkdv_observations``). Omitting the AGG table would misclassify a dead worker's agg-only unit as
-  ``in_flight`` instead of ``completed_terminal_lost`` in the V6 reconstruction.
+* **N1 — the results cross-check sums rows across every PRODUCED output table per unit**
+  (``off_ball_runs`` + ``action_defensive_credit`` + ``defensive_credit_attributions``; and
+  ``gkdv_observations`` ONLY when ``GKDV_ENABLED`` — gkdv is gated off pending its perf project, ADR-082
+  amendment). Omitting a produced table would misclassify a dead worker's partial-write unit as
+  ``in_flight`` instead of ``completed_terminal_lost`` in the V6 reconstruction; including an
+  intentionally-empty one (gkdv while gated off) would cry wolf on every unit.
 
 ``run_if = ALL_DONE`` (spec §6): the task runs even when the drain FAILED — so only ``INCOMPLETE`` (and a
 planner alarm) fail the task; ``DRAIN_FAILED`` / ``UNVERIFIABLE`` are REPORTS (the job already failed, and
@@ -44,7 +46,7 @@ from ingestion.defensive_credit_writer import AGG_TABLE, LONG_TABLE
 from ingestion.drain_adapters import _EVENT_SCHEMA, _QUEUE_SCHEMA
 from ingestion.off_ball_runs_writer import BRONZE_TABLE as OFF_BALL_TABLE
 from ingestion.tracking_marts_drain import discover_open_units
-from ingestion.tracking_marts_processor import GKDV_OBS_TABLE
+from ingestion.tracking_marts_processor import GKDV_ENABLED, GKDV_OBS_TABLE
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
 from shared.constants import DEFAULT_BRONZE_SCHEMA
 
@@ -55,10 +57,13 @@ _DRAIN_NAME = "tracking_marts"
 _QUEUE_TABLE = f"{_DRAIN_NAME}_work_queue"
 _EVENT_VIEW = f"{_DRAIN_NAME}_unit_events"
 
-#: N1 — the four bronze outputs a tracking-marts unit writes. A unit's "rows landed" count for the V6
-#: dead-worker reconstruction is the SUM across all four (they share the (data_source, match_id,
-#: period_id) grain). Omitting any one misclassifies a partial-write dead unit.
-_OUTPUT_TABLES: tuple[str, ...] = (OFF_BALL_TABLE, AGG_TABLE, LONG_TABLE, GKDV_OBS_TABLE)
+#: N1 — the bronze outputs a tracking-marts unit writes. A unit's "rows landed" count for the V6
+#: dead-worker reconstruction is the SUM across them (they share the (data_source, match_id,
+#: period_id) grain). Omitting one that IS produced misclassifies a partial-write dead unit — but
+#: INCLUDING ``gkdv_observations`` while gkdv is gated off (GKDV_ENABLED, ADR-082 amendment) is the
+#: mirror-image bug: the write-landed alarm would cry wolf over an intentionally-empty table on every
+#: unit. So the gkdv table joins this set ONLY when gkdv actually scores.
+_OUTPUT_TABLES: tuple[str, ...] = (OFF_BALL_TABLE, AGG_TABLE, LONG_TABLE) + ((GKDV_OBS_TABLE,) if GKDV_ENABLED else ())
 
 
 def _read_queue(spark: SparkSession, catalog: str, run_id: str) -> list[QueueRow]:
@@ -109,11 +114,12 @@ def _read_events(spark: SparkSession, catalog: str, run_id: str) -> list[UnitEve
 def _read_result_counts(
     spark: SparkSession, catalog: str, keys: list[UnitKey]
 ) -> dict[tuple[str, str, int | None], int]:
-    """What LANDED, per ``(provider, match_id, period_id)`` — SUMMED across all four output tables (N1).
+    """What LANDED, per ``(provider, match_id, period_id)`` — SUMMED across every produced output table (N1).
 
     SCOPED to this run's match ids. One bounded aggregate per (provider, table); at most
-    ``len(keys) x len(_OUTPUT_TABLES)`` rows reach the driver. All four outputs share the
+    ``len(keys) x len(_OUTPUT_TABLES)`` rows reach the driver. All outputs share the
     ``(data_source, match_id, period_id)`` grain, so a unit's landed-rows total is their sum.
+    ``_OUTPUT_TABLES`` omits ``gkdv_observations`` while gkdv is gated off (ADR-082 amendment).
     """
     from pyspark.sql import functions as F  # noqa: N812
 

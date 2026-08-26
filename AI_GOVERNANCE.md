@@ -165,7 +165,7 @@ The `REG-01` finding names seven systems by label. This document analyses the fu
 | 15 | Press Commitment (defender closing-speed) | [`wf-press-commitment.yaml`](workflow-cards/wf-press-commitment.yaml) | `src/analytics/action_context/enrich.py` | [`docs/huggingface/model-cards/press-commitment.md`](docs/huggingface/model-cards/press-commitment.md) | **Direct** — evaluates the pressing defender | Production (deterministic, drain-native) |
 | 16 | Defensive Credit (per-action + long-form) | [`wf-tracking-marts.yaml`](workflow-cards/wf-tracking-marts.yaml) | `src/ingestion/defensive_credit_writer.py` (scorer), `src/ingestion/tracking_marts_processor.py` (drain) | [`docs/huggingface/model-cards/defensive-credit.md`](docs/huggingface/model-cards/defensive-credit.md) | **Direct** — per-defender credit attribution | Development (scored via the consolidated `wf-tracking-marts` drain — ADR-082) |
 | 17 | Bravery (defending-team block willingness) | [`wf-bravery.yaml`](workflow-cards/wf-bravery.yaml) | `src/ingestion/bravery_writer.py` | [`docs/huggingface/model-cards/bravery.md`](docs/huggingface/model-cards/bravery.md) | Team-level; aggregates from per-player defensive actions | Development (writer; scheduling pending) |
-| 18 | GKDV (goalkeeper deterrent value) | [`wf-tracking-marts.yaml`](workflow-cards/wf-tracking-marts.yaml) | `src/ingestion/gkdv_writer.py` (scorer), `src/ingestion/tracking_marts_processor.py` (drain) | [`docs/huggingface/model-cards/gkdv.md`](docs/huggingface/model-cards/gkdv.md) | **Direct** — per-goalkeeper deterrent value | Development (scored via the consolidated `wf-tracking-marts` drain — ADR-082) |
+| 18 | GKDV (goalkeeper deterrent value) | [`wf-tracking-marts.yaml`](workflow-cards/wf-tracking-marts.yaml) | `src/ingestion/gkdv_writer.py` (scorer), `src/ingestion/tracking_marts_processor.py` (drain) | [`docs/huggingface/model-cards/gkdv.md`](docs/huggingface/model-cards/gkdv.md) | **Direct** — per-goalkeeper deterrent value | Development — **GATED OFF** in the drain (`GKDV_ENABLED=False`, ADR-082 amendment) pending the gkdv perf project (TODO GKDV-PERF); operationally paused, not currently producing. In-scope and governed for when it re-enables. |
 | 19 | xT-GK v2 (Markov PV + empirical turnover) | [`wf-xt-gk-v2.yaml`](workflow-cards/wf-xt-gk-v2.yaml) | `scripts/train_xt_gk_v2_hf.py`, `src/ingestion/xt_gk_v2_writer.py` | [`docs/huggingface/model-cards/xt-gk-v2.md`](docs/huggingface/model-cards/xt-gk-v2.md) | **Direct** — per-goalkeeper distribution value; replaces v1 | Development (fitted; scheduling pending) |
 
 Systems 14–19 were added with the silly-kicks 4.87.0 full adoption (Rev 6). Two further
@@ -180,8 +180,9 @@ per-player evaluative set, mirroring the `wf-xg-v2` / `wf-shot-xg-scorer` split.
 
 **Tracking-marts drain consolidation (ADR-082).** Systems 16 (Defensive Credit) and 18 (GKDV) —
 formerly the standalone `wf-defensive-credit` / `wf-gkdv` writer cards — are now produced by a single
-consolidated worker-drain, `wf-tracking-marts`, which scores all three tracking-grain writers per unit
-(off-ball-runs + defensive-credit + gkdv) in one pass. **Both evaluative models keep their own §5 rows and
+consolidated worker-drain, `wf-tracking-marts`, which scores the enabled tracking-grain writers per unit
+(off-ball-runs + defensive-credit; **gkdv is GATED OFF pending its perf project** — ADR-082 amendment,
+`GKDV_ENABLED=False`) in one pass. **Both evaluative models keep their own §5 rows and
 their own HuggingFace model cards** (`defensive-credit.md`, `gkdv.md`); the governance inventory maps the
 one `wf-tracking-marts` card to *both* model cards (`WORKFLOW_TO_MODEL_CARD` is a one-to-many mapping). The
 third writer in the same drain, **run-values** (off-ball-run detection + valuation,

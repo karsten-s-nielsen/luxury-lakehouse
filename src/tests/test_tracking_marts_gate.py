@@ -140,3 +140,16 @@ def test_gate_REFUSES_an_empty_run_id(monkeypatch: pytest.MonkeyPatch) -> None: 
     silently auditing a run with no events."""
     with pytest.raises(SystemExit, match=r"\{\{job.run_id\}\}"):
         _drive(monkeypatch, queue=[], events=[], run_id="")
+
+
+def test_output_tables_exclude_gkdv_while_gated_off() -> None:
+    """gkdv is gated off (GKDV_ENABLED=False, ADR-082 amendment), so the write-landed alarm must NOT expect
+    gkdv_observations rows — including an intentionally-empty table would make the gate cry wolf on EVERY
+    unit. Only the two shipping surfaces (off_ball_runs + defensive_credit) are checked."""
+    from ingestion.defensive_credit_writer import AGG_TABLE, LONG_TABLE
+    from ingestion.off_ball_runs_writer import BRONZE_TABLE as OFF_BALL_TABLE
+    from ingestion.tracking_marts_processor import GKDV_ENABLED, GKDV_OBS_TABLE
+
+    assert GKDV_ENABLED is False  # shipped default
+    assert GKDV_OBS_TABLE not in gate._OUTPUT_TABLES
+    assert set(gate._OUTPUT_TABLES) == {OFF_BALL_TABLE, AGG_TABLE, LONG_TABLE}
