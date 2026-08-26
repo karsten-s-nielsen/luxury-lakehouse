@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.5.106"
+version = "0.5.107"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -185,16 +185,14 @@ compute_expected_threat = "ingestion.expected_threat:main"
 compute_formations_efpi = "ingestion.formations_efpi:main_efpi"
 compute_formations_shape_graph = "ingestion.formations_shape_graph:main_shape_graph"
 compute_xg_shot_scores = "ingestion.xg_shot_scorer:main"
-# silly-kicks 4.87.0 full-adoption Rev-6 ADR-013 writers. Registered so the writers can be
-# invoked via any Databricks python_wheel_task path (Part-B recompute). Their scheduled
-# Terraform tasks are a pending operator decision (the writer scheduling fork) — an
-# entry point without an owning scheduled card / TF task is intentional here and is not
-# gated by any test (only scheduled/orchestrated cards require a pyproject entry, not the
-# reverse; and TF tasks require a card, not the reverse).
-off_ball_runs_writer = "ingestion.off_ball_runs_writer:main"
-defensive_credit_writer = "ingestion.defensive_credit_writer:main"
+# silly-kicks 4.87.0 full-adoption Rev-6 ADR-013 writers. The three tracking-grain writers
+# (off_ball_runs_writer / defensive_credit_writer / gkdv_writer) were driver-sequential and
+# chronically timed out; they are REPLACED by the consolidated `tracking_marts` worker-drain
+# (preflight_tracking_marts -> compute_tracking_marts_drain_worker -> verify_tracking_marts_drain
+# -> compute_gkdv_pool, registered below). Their pure scoring functions remain in the writer
+# modules and are called per-unit by TrackingMartsProcessor. The event-only bravery + xt_gk_v2
+# writers keep their own scheduled tasks/cards (they were never part of the tracking-marts drain).
 bravery_writer = "ingestion.bravery_writer:main"
-gkdv_writer = "ingestion.gkdv_writer:main"
 xt_gk_v2_writer = "ingestion.xt_gk_v2_writer:main"
 compute_pitch_control = "ingestion.pitch_control_batch:main"
 compute_action_context = "ingestion.action_context:main"
@@ -203,6 +201,11 @@ compute_action_context_statsbomb = "ingestion.action_context:main_statsbomb"
 preflight_action_context = "ingestion.action_context:main_preflight"
 verify_action_context_drain = "ingestion.action_context_gate:main"
 profile_action_context = "ingestion.action_context:profile_action_context"
+# tracking_marts worker-drain (replaces the three driver-sequential grain-mart writers).
+preflight_tracking_marts = "ingestion.tracking_marts_drain:main_tracking_marts_preflight"
+compute_tracking_marts_drain_worker = "ingestion.tracking_marts_drain:main_tracking_marts_drain_worker"
+compute_gkdv_pool = "ingestion.tracking_marts_drain:main_gkdv_pool"
+verify_tracking_marts_drain = "ingestion.tracking_marts_gate:main"
 ingest_idsse_events = "ingestion.idsse_events:main"
 compute_elastic_sync = "ingestion.elastic_sync:main"
 compute_pausa = "ingestion.pausa:main"

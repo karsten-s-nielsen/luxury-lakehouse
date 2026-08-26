@@ -30,11 +30,10 @@ as ``xg_shot_scorer.run_pipeline``.
 
 from __future__ import annotations
 
-import argparse
 import logging
 from typing import TYPE_CHECKING, Any
 
-from shared.constants import DEFAULT_BRONZE_SCHEMA, IDENTIFIER_RE
+from shared.constants import DEFAULT_BRONZE_SCHEMA
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import pandas as pd
@@ -229,86 +228,3 @@ def _read_xg_preds(spark: SparkSession, catalog: str, provider: str, match_id: s
         .select(*XG_PRED_COLUMNS)
         .toPandas()
     )
-
-
-def run_pipeline(
-    spark: SparkSession,
-    catalog: str,
-    *,
-    providers: tuple[str, ...] = ("idsse", "metrica", "skillcorner", "gradientsports"),
-    match_ids: dict[str, list[str]] | None = None,
-) -> int:
-    """Score both defensive-credit marts over every tracking unit -> two bronze tables.
-
-    Returns the total rows written across both bronze tables (the ``@workflow`` runner passes this
-    to ``CostEstimateHook``; the per-table breakdown is logged). Per unit: reconstruct oriented inputs,
-    read this match's native-keyed xG predictions, attach xG, score both, write idempotently
-    (``replaceWhere`` per unit).
-    """
-    from ingestion.tracking_marts_driver import iter_unit_inputs
-    from ingestion.utils import write_delta_table
-
-    _assert_silly_kicks_min()
-    agg_schema = _struct_type(AGG_OUTPUT_COLUMNS, _AGG_TYPES)
-    long_schema = _struct_type(LONG_OUTPUT_COLUMNS, _LONG_TYPES)
-    agg_total = long_total = 0
-
-    for wu, inputs in iter_unit_inputs(spark, catalog, providers=providers, match_ids=match_ids):
-        xg_preds = _read_xg_preds(spark, catalog, wu.provider, wu.match_id)
-        actions = attach_xg(inputs.actions, xg_preds)
-
-        agg = compute_action_defensive_credit(actions, inputs.frames, inputs.xt)
-        long = compute_defensive_credit_long(actions, inputs.frames, inputs.xt)
-        logger.info(
-            "defensive_credit %s:%s:%s -> %d actions, %d attributions",
-            wu.provider,
-            wu.match_id,
-            wu.period,
-            len(agg),
-            len(long),
-        )
-
-        # Per-UNIT (data_source, match_id, period) replaceWhere: IDSSE processes per (match, period),
-        # so a per-match predicate would drop period 1 when period 2 writes. Both bronze tables carry
-        # period_id for exactly this.
-        where = f"data_source = '{wu.provider}' AND match_id = '{wu.match_id}' AND period_id = {int(wu.period or 0)}"
-        agg_total += write_delta_table(
-            spark.createDataFrame(agg, schema=agg_schema),
-            catalog,
-            DEFAULT_BRONZE_SCHEMA,
-            AGG_TABLE,
-            replace_where=where,
-            logger=logger,
-        )
-        long_total += write_delta_table(
-            spark.createDataFrame(long, schema=long_schema),
-            catalog,
-            DEFAULT_BRONZE_SCHEMA,
-            LONG_TABLE,
-            replace_where=where,
-            logger=logger,
-        )
-    logger.info("defensive_credit: wrote %d aggregate + %d attribution rows", agg_total, long_total)
-    return agg_total + long_total
-
-
-def main() -> None:
-    """CLI entry point (Databricks)."""
-    from pyspark.sql import SparkSession  # type: ignore[import-not-found]
-
-    logging.basicConfig(level=logging.INFO)
-    parser = argparse.ArgumentParser(description="Score defensive credit (per-action + long-form) to bronze")
-    parser.add_argument("--catalog", default=CATALOG)
-    args = parser.parse_args()
-    if not IDENTIFIER_RE.match(args.catalog):
-        raise SystemExit(f"Invalid catalog name: {args.catalog!r}")
-
-    spark = SparkSession.builder.getOrCreate()  # type: ignore[attr-defined]
-    from ingestion.bootstrap import bootstrap_hooks
-
-    bootstrap_hooks(spark, args.catalog, DEFAULT_BRONZE_SCHEMA)
-    run_pipeline(spark, args.catalog)
-
-
-if __name__ == "__main__":
-    main()

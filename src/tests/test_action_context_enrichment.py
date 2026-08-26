@@ -946,8 +946,8 @@ def test_main_preflight_builds_queue_and_task_values(monkeypatch: pytest.MonkeyP
     import argparse
 
     import ingestion.action_context as ac
-    import ingestion.action_context_queue as q
     import ingestion.bootstrap as bs
+    import ingestion.drain_adapters as q
     from ingestion.guards import FilterResult
 
     ns = argparse.Namespace(catalog="cat", schema="bronze", provider=None, max_units=None, run_id="JOBRUN42")
@@ -1021,8 +1021,8 @@ def test_main_preflight_empty_emits_empty_worker_ids(monkeypatch: pytest.MonkeyP
     import argparse
 
     import ingestion.action_context as ac
-    import ingestion.action_context_queue as q
     import ingestion.bootstrap as bs
+    import ingestion.drain_adapters as q
     from ingestion.guards import FilterResult
 
     ns = argparse.Namespace(catalog="cat", schema="bronze", provider=None, max_units=None, run_id="JOBRUN42")
@@ -1076,8 +1076,8 @@ def test_main_drain_worker_calls_drain(monkeypatch: pytest.MonkeyPatch) -> None:
     import argparse
 
     import ingestion.action_context as ac
-    import ingestion.action_context_queue as q
     import ingestion.bootstrap as bs
+    import ingestion.drain_adapters as q
     from analytics.action_context.drain import DrainSummary
 
     ns = argparse.Namespace(catalog="cat", schema="bronze", worker_id="2", run_id="JOBRUN42")
@@ -1124,8 +1124,8 @@ def test_main_drain_worker_empty_slice_short_circuits(monkeypatch: pytest.Monkey
     import argparse
 
     import ingestion.action_context as ac
-    import ingestion.action_context_queue as q
     import ingestion.bootstrap as bs
+    import ingestion.drain_adapters as q
 
     ns = argparse.Namespace(catalog="cat", schema="bronze", worker_id="5", run_id="JOBRUN42")
     monkeypatch.setattr(ac, "parse_ingestion_args", lambda *a, **k: ns)

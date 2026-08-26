@@ -106,8 +106,8 @@ def _drive_main_statsbomb(
 ) -> _RecordingSink:
     """Run ``main_statsbomb`` with every Spark seam faked; return the sink it constructed."""
     import ingestion.action_context as ac
-    import ingestion.action_context_queue as q
     import ingestion.bootstrap as bs
+    import ingestion.drain_adapters as q
     import ingestion.guards as guards
 
     _RecordingSink.instances.clear()
@@ -289,7 +289,7 @@ def test_sb360_creates_ONLY_ITS_OWN_table_and_NEVER_the_view(monkeypatch: pytest
 def test_ensure_own_table_touches_ONLY_that_workers_table_and_no_view() -> None:  # noqa: N802
     """The adapter half of the same contract, at the SQL level: the narrow method must not emit a
     view DDL, and must not create the other eight workers' tables."""
-    from ingestion.action_context_queue import DeltaUnitEventSink, event_table_for_worker
+    from ingestion.drain_adapters import DeltaUnitEventSink, event_table_for_worker
 
     class _SqlSpy:
         def __init__(self) -> None:
@@ -359,8 +359,8 @@ def test_main_statsbomb_ACCEPTS_the_flag_terraform_passes(monkeypatch: pytest.Mo
     monkeypatch.setattr(ac, "get_spark_session", lambda: object())
     monkeypatch.setattr(ac, "_find_sb360_new_ids", lambda *a, **k: [])
     monkeypatch.setattr(ac, "_load_xt_grid_from_delta", _boom)
-    import ingestion.action_context_queue as q
     import ingestion.bootstrap as bs
+    import ingestion.drain_adapters as q
     import ingestion.guards as guards
 
     _RecordingSink.instances.clear()
@@ -398,7 +398,7 @@ def test_sb360_event_writes_go_through_the_APPEND_guarded_sink() -> None:  # noq
     only persistence seam is the sink — and the sink's writes are append.
     """
     from ingestion.action_context import main_statsbomb
-    from ingestion.action_context_queue import DeltaUnitEventSink
+    from ingestion.drain_adapters import DeltaUnitEventSink
 
     assert write_delta_table_calls(inspect.getsource(main_statsbomb)) == [], (
         "main_statsbomb writes Delta directly — every event write must go through DeltaUnitEventSink, "

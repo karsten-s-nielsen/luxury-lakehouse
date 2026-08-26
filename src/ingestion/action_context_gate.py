@@ -54,7 +54,7 @@ from analytics.action_context.drain_gate import (
     expected_units,
 )
 from ingestion.action_context import _TABLE_NAME as _RESULTS_TABLE
-from ingestion.action_context_queue import _EVENT_SCHEMA, _EVENT_TABLE, _QUEUE_SCHEMA, _QUEUE_TABLE
+from ingestion.drain_adapters import _EVENT_SCHEMA, _EVENT_TABLE, _QUEUE_SCHEMA, _QUEUE_TABLE
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
 
 if TYPE_CHECKING:

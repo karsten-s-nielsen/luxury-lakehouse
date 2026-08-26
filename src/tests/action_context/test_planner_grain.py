@@ -275,8 +275,8 @@ def _preflight_with_queue(monkeypatch: pytest.MonkeyPatch, queue_cls: type) -> N
     import argparse
 
     import ingestion.action_context as ac
-    import ingestion.action_context_queue as q
     import ingestion.bootstrap as bs
+    import ingestion.drain_adapters as q
     from analytics.action_context.work_unit import WorkUnit
     from ingestion.guards import FilterResult
 

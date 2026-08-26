@@ -1,0 +1,162 @@
+---
+name: Tracking-Grain Marts Drain
+id: wf-tracking-marts
+version: "1.0"
+status: production
+type: heuristic
+domain: action-features
+owners:
+  - karsten
+tags:
+  - tracking-marts
+  - off-ball-runs
+  - defensive-credit
+  - gkdv
+  - worker-drain
+  - fan-out
+
+governance:
+  eu_ai_act: not-high-risk-under-current-posture
+  annex_iii_category: "4 (Employment) — conditional if deployed for employment decisions"
+  reference: AI_GOVERNANCE.md
+
+inputs:
+  datasets:
+    - id: "{catalog}.bronze.spadl_action_context"
+      source: delta-table
+      description: "Per-action context features from the AC-1 drain — the tracking frames each scorer reconstructs oriented inputs from"
+    - id: "{catalog}.bronze.idsse_tracking"
+      source: delta-table
+      description: "IDSSE (Sportec) raw tracking data"
+    - id: "{catalog}.bronze.metrica_tracking"
+      source: delta-table
+      description: "Metrica raw tracking data"
+    - id: "{catalog}.bronze.skillcorner_tracking"
+      source: delta-table
+      description: "SkillCorner raw tracking data"
+    - id: "{catalog}.bronze.gradientsports_tracking"
+      source: delta-table
+      description: "GradientSports raw tracking data"
+    - id: "{catalog}.bronze.xg_shot_predictions"
+      source: delta-table
+      description: "Per-shot pre-shot xG (from wf-shot-xg-scorer) — the defensive-credit scorer LEFT-JOINs it per unit"
+    - id: "{catalog}.bronze.expected_threat_grids"
+      source: delta-table
+      description: "Global xT grid surface — a material change forces a full re-materialize (ADR-063)"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.off_ball_runs"
+      destination: delta-table
+      description: "Per-(action, runner) off-ball run detection + valuation written per-unit by the drain (ADR-013)"
+    - id: "{catalog}.bronze.action_defensive_credit"
+      destination: delta-table
+      description: "Per-action defending-team aggregate defensive credit written per-unit by the drain (ADR-013)"
+    - id: "{catalog}.bronze.defensive_credit_attributions"
+      destination: delta-table
+      description: "Long-form per-(action, credited player, rule) defensive-credit attributions written per-unit by the drain (ADR-013)"
+    - id: "{catalog}.bronze.gkdv_observations"
+      destination: delta-table
+      description: "Per-keeper-frame ghost-substitution deltas written per-unit by the drain; the cross-game pooling input"
+    - id: "{catalog}.bronze.gkdv_keeper_pooled"
+      destination: delta-table
+      description: "Per-keeper pooled ghost-frame deltas written by the single-driver gkdv pooling reduce (compute_gkdv_pool)"
+
+execution:
+  # The 8-way for_each worker-drain (ADR-037/068 fan-out reuse via drain_name-generalized adapters).
+  # Each worker drains its slice of observability.tracking_marts_work_queue: per unit it builds oriented
+  # (actions, frames, xt) ONCE and runs all three scorers (off-ball runs / defensive credit / gkdv) with
+  # per-unit replaceWhere. distribution: fan-out (the closest DistributionLiteral to a for_each worker-drain).
+  drain:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: compute_tracking_marts_drain_worker
+    module: ingestion.tracking_marts_drain
+    distribution: fan-out
+    schedule: "daily 06:00 UTC"
+    timeout: "28800s"
+    environment: analytics
+  # The fan-in completeness gate (run_if = ALL_DONE): reads the work queue + the per-unit event log + all
+  # four output bronze tables and asserts every enqueued unit ran and its rows landed (ADR-068). Reuses the
+  # pure analytics.action_context.drain_gate with extra_expected_workers=frozenset() (no sb360 task here).
+  verification:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: verify_tracking_marts_drain
+    module: ingestion.tracking_marts_gate
+    distribution: driver-bound
+    schedule: "daily 06:00 UTC"
+    timeout: "3600s"
+    environment: analytics
+  # The single-driver gkdv pooling reduce (runs AFTER the gate). gkdv pooling is cross-game — a keeper's
+  # deltas are pooled over every game they played — so it CANNOT run per-unit inside the drain. Reads
+  # bronze.gkdv_observations, pools per keeper x (competition, season), writes bronze.gkdv_keeper_pooled.
+  pooling:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: compute_gkdv_pool
+    module: ingestion.tracking_marts_drain
+    distribution: driver-bound
+    schedule: "daily 06:00 UTC"
+    timeout: "3600s"
+    environment: analytics
+
+dbt_model: fct_off_ball_runs
+
+idempotency:
+  strategy: skip-guard
+  key:
+    - data_source
+    - match_id
+    - period_id
+  description: >-
+    CROSS-RUN, succeeded-only skip-guard: a unit is "done" when it has a `succeeded` terminal in
+    tracking_marts_unit_events under ANY run_id. A failed / timed_out / never-run unit stays OPEN.
+    N3 OPERATOR FOOT-GUN: because "done" is a cross-run event (NOT output-left_anti), truncating or
+    dropping any of the four output bronze tables leaves its units marked done — daily incremental runs
+    will SKIP them and the table stays empty until a `preflight_tracking_marts --full` run.
+
+performance:
+  memory_ceiling: "16 GB driver, 1 GB UDF executor"
+
+monitoring:
+  freshness_sla_hours: 168
+
+links:
+  source_code:
+    - "src/ingestion/tracking_marts_drain.py"
+    - "src/ingestion/tracking_marts_gate.py"
+    - "src/ingestion/tracking_marts_processor.py"
+    - "src/ingestion/tracking_marts_driver.py"
+---
+
+## Overview
+
+The **tracking-marts drain** consolidates the three formerly driver-sequential tracking-grain
+writers — off-ball runs (`off_ball_runs_writer`), defensive credit (`defensive_credit_writer`),
+and GKDV (`gkdv_writer`) — into ONE worker-drain that reuses the proven AC-1 fan-out core
+(ADR-037 worker-drain + ADR-068 unit-events completeness gate) through the `drain_name`-generalized
+adapters in `ingestion.action_context_queue`.
+
+Each of the three writers used to reconstruct the oriented `(actions, frames, xt)` per tracking
+work unit independently and run driver-side to completion, so they chronically timed out and
+shipped empty. The drain builds those inputs ONCE per unit and runs all three scorers, writing
+each output with a per-unit `replaceWhere`, so the work parallelises across `_N_TRACKING_MARTS_WORKERS`
+(8) persistent workers and completes within budget.
+
+## Phases
+
+1. **`preflight_tracking_marts`** (pure orchestration, no card) — discovers OPEN units via the
+   CROSS-RUN `succeeded`-only skip-guard, LPT-bin-packs them into the work queue, and emits the
+   constant worker-id list + run_id as task values.
+2. **`drain`** (`compute_tracking_marts` for_each) — the 8-way worker-drain; `TrackingMartsProcessor.process(unit)`
+   builds inputs once and runs the three scorers per unit.
+3. **`verification`** (`verify_tracking_marts_drain`) — the ADR-068 completeness gate over the work
+   queue + per-unit event log + all four output bronze tables.
+4. **`pooling`** (`compute_gkdv_pool`) — the single-driver, cross-game gkdv `pool_keepers` reduce.
+
+## Governance
+
+Off-ball runs, defensive credit, and GKDV are all **per-player evaluative** metrics. See
+[`AI_GOVERNANCE.md`](../AI_GOVERNANCE.md) §5/§6 for the risk classification and the
+not-high-risk-under-current-posture determination.

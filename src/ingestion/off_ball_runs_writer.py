@@ -18,15 +18,11 @@ recompute (Task 22b), same posture as ``xg_shot_scorer.run_pipeline``.
 
 from __future__ import annotations
 
-import argparse
 import logging
 from typing import TYPE_CHECKING, Any
 
-from shared.constants import DEFAULT_BRONZE_SCHEMA, IDENTIFIER_RE
-
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import pandas as pd
-    from pyspark.sql import SparkSession
 
 logger = logging.getLogger(__name__)
 
@@ -154,57 +150,3 @@ def _assert_silly_kicks_min() -> None:
             f"silly-kicks {silly_kicks.__version__} < required "
             f"{'.'.join(str(p) for p in _REQUIRED_SK_MIN)} — refusing to score off_ball_runs."
         )
-
-
-def run_pipeline(
-    spark: SparkSession,
-    catalog: str,
-    *,
-    providers: tuple[str, ...] = ("idsse", "metrica", "skillcorner", "gradientsports"),
-    match_ids: dict[str, list[str]] | None = None,
-) -> int:
-    """Detect + value off-ball runs over every tracking unit -> bronze ``off_ball_runs``.
-
-    Per unit (idempotent ``replaceWhere`` on ``data_source``/``match_id``/``period_id``): reconstruct
-    oriented inputs, score, write. Returns the total rows written.
-    """
-    from ingestion.tracking_marts_driver import iter_unit_inputs
-    from ingestion.utils import write_delta_table
-
-    _assert_silly_kicks_min()
-    schema_out = _struct_type()
-    total = 0
-    for wu, inputs in iter_unit_inputs(spark, catalog, providers=providers, match_ids=match_ids):
-        scored = compute_off_ball_runs(inputs.actions, inputs.frames, inputs.xt)
-        logger.info("off_ball_runs %s:%s:%s -> %d runs", wu.provider, wu.match_id, wu.period, len(scored))
-        sdf = spark.createDataFrame(scored, schema=schema_out)
-        replace_where = (
-            f"data_source = '{wu.provider}' AND match_id = '{wu.match_id}' AND period_id = {int(wu.period or 0)}"
-        )
-        total += write_delta_table(
-            sdf, catalog, DEFAULT_BRONZE_SCHEMA, BRONZE_TABLE, replace_where=replace_where, logger=logger
-        )
-    logger.info("off_ball_runs: wrote %d total rows", total)
-    return total
-
-
-def main() -> None:
-    """CLI entry point (Databricks)."""
-    from pyspark.sql import SparkSession  # type: ignore[import-not-found]
-
-    logging.basicConfig(level=logging.INFO)
-    parser = argparse.ArgumentParser(description="Score off-ball runs to bronze")
-    parser.add_argument("--catalog", default=CATALOG)
-    args = parser.parse_args()
-    if not IDENTIFIER_RE.match(args.catalog):
-        raise SystemExit(f"Invalid catalog name: {args.catalog!r}")
-
-    spark = SparkSession.builder.getOrCreate()  # type: ignore[attr-defined]
-    from ingestion.bootstrap import bootstrap_hooks
-
-    bootstrap_hooks(spark, args.catalog, DEFAULT_BRONZE_SCHEMA)
-    run_pipeline(spark, args.catalog)
-
-
-if __name__ == "__main__":
-    main()

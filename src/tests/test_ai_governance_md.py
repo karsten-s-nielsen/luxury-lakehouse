@@ -45,10 +45,15 @@ PER_PLAYER_EVALUATIVE_CARDS: frozenset[str] = frozenset(
         # governed_by: wf-xt-gk-v2) is created at scheduling time and is NOT a member.
         "wf-packing",
         "wf-press-commitment",
-        "wf-defensive-credit",
         "wf-bravery",
-        "wf-gkdv",
         "wf-xt-gk-v2",
+        # ADR-082 (tracking-marts drain fan-out): the defensive-credit + gkdv writers were
+        # CONSOLIDATED into the single wf-tracking-marts drain, which produces BOTH evaluative
+        # models. So wf-tracking-marts is the member (ONE card, TWO model cards — see
+        # WORKFLOW_TO_MODEL_CARD, whose value is a list); the former wf-defensive-credit /
+        # wf-gkdv cards no longer exist. (off_ball_runs is the third writer but is not per-player
+        # evaluative — its run-values fold into wf-off-ball-xt, like the note above.)
+        "wf-tracking-marts",
     }
 )
 
@@ -56,26 +61,29 @@ PER_PLAYER_EVALUATIVE_CARDS: frozenset[str] = frozenset(
 # filename under docs/huggingface/model-cards/. The naming is not mechanical
 # (historical reasons: some cards use "-model-card.md", others "-model.md",
 # and some are method cards for heuristics), so the mapping is explicit.
-WORKFLOW_TO_MODEL_CARD: dict[str, str] = {
-    "wf-xg-v2": "xg-v2-model-card.md",
-    "wf-vaep": "vaep-model.md",
-    "wf-goalkeeper": "psxg-model.md",
-    "wf-pitch-control": "pitch-control.md",
-    "wf-defcon": "defcon.md",
-    "wf-off-ball-xt": "off-ball-xt.md",
-    "wf-obso-pausa": "obso-pausa.md",
-    "wf-space-creation": "space-creation.md",
-    "wf-football2vec": "football2vec-statsbomb-wyscout.md",
-    "wf-football2vec-v2": "football2vec-v2-model-card.md",
-    "wf-football2vec-360": "football2vec-360-model-card.md",
-    "wf-scoutgpt": "scoutgpt.md",
+# Value is a LIST: a workflow card produces one OR MORE evaluative model cards. Almost all are 1:1;
+# wf-tracking-marts (ADR-082) is the consolidated drain that produces TWO evaluative models
+# (defensive-credit + gkdv), so the 1:1 dict became a 1:many mapping.
+WORKFLOW_TO_MODEL_CARD: dict[str, list[str]] = {
+    "wf-xg-v2": ["xg-v2-model-card.md"],
+    "wf-vaep": ["vaep-model.md"],
+    "wf-goalkeeper": ["psxg-model.md"],
+    "wf-pitch-control": ["pitch-control.md"],
+    "wf-defcon": ["defcon.md"],
+    "wf-off-ball-xt": ["off-ball-xt.md"],
+    "wf-obso-pausa": ["obso-pausa.md"],
+    "wf-space-creation": ["space-creation.md"],
+    "wf-football2vec": ["football2vec-statsbomb-wyscout.md"],
+    "wf-football2vec-v2": ["football2vec-v2-model-card.md"],
+    "wf-football2vec-360": ["football2vec-360-model-card.md"],
+    "wf-scoutgpt": ["scoutgpt.md"],
     # silly-kicks 4.87.0 full-adoption new evaluative families (Rev 6 / GOV-A).
-    "wf-packing": "packing.md",
-    "wf-press-commitment": "press-commitment.md",
-    "wf-defensive-credit": "defensive-credit.md",
-    "wf-bravery": "bravery.md",
-    "wf-gkdv": "gkdv.md",
-    "wf-xt-gk-v2": "xt-gk-v2.md",
+    "wf-packing": ["packing.md"],
+    "wf-press-commitment": ["press-commitment.md"],
+    "wf-bravery": ["bravery.md"],
+    "wf-xt-gk-v2": ["xt-gk-v2.md"],
+    # ADR-082: ONE consolidated drain card, TWO evaluative model cards.
+    "wf-tracking-marts": ["defensive-credit.md", "gkdv.md"],
 }
 assert set(WORKFLOW_TO_MODEL_CARD.keys()) == set(PER_PLAYER_EVALUATIVE_CARDS), (
     "WORKFLOW_TO_MODEL_CARD keys must exactly match PER_PLAYER_EVALUATIVE_CARDS"
@@ -180,10 +188,11 @@ def test_every_evaluative_system_has_a_model_card() -> None:
     model card in the same commit.
     """
     missing: list[str] = []
-    for card_id, model_card_filename in sorted(WORKFLOW_TO_MODEL_CARD.items()):
-        model_card_path = MODEL_CARDS_DIR / model_card_filename
-        if not model_card_path.exists():
-            missing.append(f"{card_id} → {model_card_filename}")
+    for card_id, model_card_filenames in sorted(WORKFLOW_TO_MODEL_CARD.items()):
+        for model_card_filename in model_card_filenames:
+            model_card_path = MODEL_CARDS_DIR / model_card_filename
+            if not model_card_path.exists():
+                missing.append(f"{card_id} → {model_card_filename}")
     assert not missing, (
         "Every per-player evaluative workflow card must have a matching model "
         f"card under docs/huggingface/model-cards/. Missing: {missing}"
@@ -225,7 +234,8 @@ def test_every_model_card_has_governance_stanza() -> None:
     """
     missing_stanza: list[str] = []
     missing_reference: list[str] = []
-    for model_card_filename in sorted(WORKFLOW_TO_MODEL_CARD.values()):
+    all_model_cards = sorted({m for models in WORKFLOW_TO_MODEL_CARD.values() for m in models})
+    for model_card_filename in all_model_cards:
         path = MODEL_CARDS_DIR / model_card_filename
         if not path.exists():
             missing_stanza.append(f"{model_card_filename} (file missing)")

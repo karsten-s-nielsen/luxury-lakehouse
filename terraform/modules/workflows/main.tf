@@ -109,6 +109,14 @@ resource "databricks_job" "data_ingestion" {
     name    = "frame_batch_size"
     default = ""
   }
+  # tracking_marts drain: force a FULL re-enumeration (ignore the cross-run succeeded skip-guard).
+  # Empty => incremental (the daily-run default). REQUIRED after truncating/dropping any of the four
+  # tracking-marts output bronze tables, per the ADR N3 operator foot-gun — the skip-guard is a
+  # cross-run `succeeded` unit-event, so a cleared output table stays empty until a `--full` run.
+  parameter {
+    name    = "tracking_marts_full"
+    default = ""
+  }
 
   # ── Schedule: Daily at 6am UTC ───────────────────────────────────────────
   schedule {
@@ -495,6 +503,33 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "analytics"
   }
 
+  # ── Task: Pool gkdv keeper observations (tracking-marts reduce) ─────────
+  # The single-driver gkdv pooling reduce (runs AFTER the tracking-marts drain + gate).
+  # gkdv pooling is cross-game (a keeper's deltas are pooled over every game they played),
+  # so it CANNOT run per-unit inside the drain — it reads bronze.gkdv_observations (written
+  # per-unit by compute_tracking_marts) and writes bronze.gkdv_keeper_pooled per provider.
+  # Governance: wf-tracking-marts (pooling phase).
+  task {
+    task_key        = "compute_gkdv_pool"
+    timeout_seconds = 3600
+    max_retries     = 0
+
+    depends_on {
+      task_key = "verify_tracking_marts_drain"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_gkdv_pool"
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+      ]
+    }
+
+    environment_key = "analytics"
+  }
+
   # ── Task: Detect line-breaking passes ────────────────────────────────
   # Path A: StatsBomb 360 freeze-frame defender positions.
   # Path B: Metrica tracking data for defender line estimation.
@@ -739,6 +774,55 @@ resource "databricks_job" "data_ingestion" {
     }
   }
 
+  # ── Task: Compute tracking-grain marts (tracking_marts fan-out) ─────────
+  # Consolidated worker-drain replacing the three driver-sequential grain-mart writers
+  # (off_ball_runs / defensive_credit / gkdv). Reuses the AC-1 fan-out core (ADR-037/068)
+  # via the drain_name-generalized adapters: N persistent drain workers, each draining its
+  # slice of observability.tracking_marts_work_queue (filled by preflight). Each unit builds
+  # oriented (actions, frames, xt) ONCE and runs all three scorers per-unit with replaceWhere.
+  # The for-each input is the CONSTANT worker-id list (not per-game), so the task value never
+  # approaches the 48 KB cap. concurrency MUST equal _N_TRACKING_MARTS_WORKERS
+  # (pinned by test_tracking_marts_terraform::test_terraform_concurrency_matches_n_workers).
+  task {
+    task_key = "compute_tracking_marts"
+
+    depends_on {
+      task_key = "preflight_tracking_marts"
+    }
+
+    for_each_task {
+      inputs      = "{{tasks.preflight_tracking_marts.values.tracking_marts_worker_ids}}"
+      concurrency = 8 # == _N_TRACKING_MARTS_WORKERS
+
+      task {
+        task_key = "compute_tracking_marts_iteration"
+        # 8 h: a worker drains its slice to COMPLETION. The 2700 s per-game budget is a watchdog
+        # INSIDE the worker (ADR-037), not the iteration timeout. One-time cold start ~5.5 h on the
+        # slowest worker; daily runs are tiny. Documented exception to the "compute task <= 2 hr" budget.
+        timeout_seconds = 28800
+        # Go omitempty zero-value bug: max_retries=0 is silently dropped by the TF provider.
+        # scripts/patch_job_retries.py enforces this post-apply via the REST API.
+        max_retries = 0
+
+        python_wheel_task {
+          package_name = "luxury_lakehouse"
+          entry_point  = "compute_tracking_marts_drain_worker"
+
+          parameters = [
+            "--catalog", var.catalog_name,
+            "--schema", "bronze",
+            "--worker-id", "{{input}}",
+            "--run-id", "{{tasks.preflight_tracking_marts.values.tracking_marts_run_id}}",
+            # Per-game watchdog override (ADR-037 amendment); empty => in-code WATCHDOG_BUDGET_S=2700.
+            "--watchdog-budget-s", "{{job.parameters.watchdog_budget_s}}",
+          ]
+        }
+
+        environment_key = "analytics"
+      }
+    }
+  }
+
   # ── Task: Score shots with the pre-shot xG v3 model (canonical SPADL, two-mode gate) ──
   # Canonical-SPADL Pre-Shot xG Unification (Task 1.9, §C1): loads xg_model_v3@Champion
   # (raw xG) + the shipped per-provider OOF calibrators, scores every shot-family row in
@@ -890,6 +974,9 @@ resource "databricks_job" "data_ingestion" {
     depends_on { task_key = "compute_expected_threat" }
     depends_on { task_key = "compute_formations_efpi" }
     depends_on { task_key = "compute_formations_shape_graph" }
+    # gkdv_keeper_pooled is written by the gkdv pooling reduce (tracking-marts drain), which
+    # runs after verify_tracking_marts_drain; fct_gk_shot_stopping_pooled reads it.
+    depends_on { task_key = "compute_gkdv_pool" }
     depends_on { task_key = "compute_line_breaking" }
     depends_on { task_key = "compute_off_ball_xt" }
     depends_on { task_key = "compute_pausa" }
@@ -898,11 +985,12 @@ resource "databricks_job" "data_ingestion" {
     # (ADR-066; enforced by test_workflow_dag_bronze_reads).
     depends_on { task_key = "compute_xg_shot_scores" }
     depends_on { task_key = "dbt_build_intermediate_marts" }
-    depends_on { task_key = "defensive_credit_writer" }
-    depends_on { task_key = "gkdv_writer" }
     # ADR-074/SEC7: was `hf_sync` — this is the only leg it needed (psxg_predictions).
     depends_on { task_key = "import_psxg_predictions" }
-    depends_on { task_key = "off_ball_runs_writer" }
+    # Off-ball-runs + defensive-credit bronze (fct_off_ball_runs / fct_action_defensive /
+    # fct_defensive_credit_attributions) are written per-unit by the tracking-marts drain;
+    # the gate grandfathers the drain's completion. (Replaces the 3 removed grain-mart writers.)
+    depends_on { task_key = "verify_tracking_marts_drain" }
     depends_on { task_key = "xt_gk_v2_writer" }
 
     # run_if = ALL_DONE: a single scheduled writer's failure (e.g. xt_gk_v2_writer hitting a missing/bad
@@ -914,36 +1002,6 @@ resource "databricks_job" "data_ingestion" {
     run_if = "ALL_DONE"
 
     environment_key = "dbt"
-  }
-
-  # ── Task: Score defensive credit — per-action + long-form (ADR-013) ─────
-  # Reconstructs the oriented (actions, frames, xt) per tracking work unit
-  # (tracking_marts_driver, reading bronze.spadl_action_context from the AC drain),
-  # LEFT-JOINs per-shot xG from bronze.xg_shot_predictions, applies the silly-kicks
-  # TF-51 credit rules, and writes bronze.action_defensive_credit +
-  # bronze.defensive_credit_attributions. Depends on the AC drain AND the xG scorer.
-  # Governance: wf-defensive-credit.
-  task {
-    task_key        = "defensive_credit_writer"
-    timeout_seconds = 5400
-    max_retries     = 0
-
-    depends_on {
-      task_key = "compute_action_context"
-    }
-    depends_on {
-      task_key = "compute_xg_shot_scores"
-    }
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "defensive_credit_writer"
-      parameters = [
-        "--catalog", var.catalog_name,
-      ]
-    }
-
-    environment_key = "analytics"
   }
 
   # ── Task: Extract tracking player metadata ─────────────────────────────
@@ -969,34 +1027,6 @@ resource "databricks_job" "data_ingestion" {
     }
 
     environment_key = "default"
-  }
-
-  # ── Task: Score GKDV — goalkeeper deterrent value (ADR-013) ─────────────
-  # Per tracking work unit (tracking_marts_driver, reading bronze.spadl_action_context
-  # from the AC drain): infer ball carrier -> derive team_in_possession -> build ghost
-  # frames -> per scored-and-defending frame score delta_das (accessible-space / [das])
-  # + delta_threat_suppression, then pool per keeper x (competition, season) -> bronze.
-  # gkdv_keeper_pooled. Heaviest of the grain-mart writers (per-frame counterfactual);
-  # requires the [das] extra -> environment "analytics" (accessible-space is pinned there).
-  # Governance: wf-gkdv.
-  task {
-    task_key        = "gkdv_writer"
-    timeout_seconds = 7200
-    max_retries     = 0
-
-    depends_on {
-      task_key = "compute_action_context"
-    }
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "gkdv_writer"
-      parameters = [
-        "--catalog", var.catalog_name,
-      ]
-    }
-
-    environment_key = "analytics"
   }
 
   # ── Task: HF Hub sync — combined imports + exports ───────────────────
@@ -1296,32 +1326,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
-  # ── Task: Score off-ball runs — detect + value (ADR-013) ────────────────
-  # Per tracking work unit (tracking_marts_driver, reading bronze.spadl_action_context
-  # from the AC drain): reconstruct oriented (actions, frames, xt), detect qualifying
-  # off-ball runs (silly-kicks detect_off_ball_runs, TF-4/TF-35) and value completed
-  # passes/crosses against the fitted xT grid (value_off_ball_runs) -> bronze.off_ball_runs.
-  # Governance: wf-off-ball-xt (run-values family).
-  task {
-    task_key        = "off_ball_runs_writer"
-    timeout_seconds = 5400
-    max_retries     = 0
-
-    depends_on {
-      task_key = "compute_action_context"
-    }
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "off_ball_runs_writer"
-      parameters = [
-        "--catalog", var.catalog_name,
-      ]
-    }
-
-    environment_key = "analytics"
-  }
-
   # ── Task: Action-context preflight — discover units + fill work-queue ──
   # AC-1 (ADR-037): discovers unprocessed units across all 6 providers via skip_guard,
   # LPT-bin-packs them into observability.action_context_work_queue, and writes the
@@ -1467,6 +1471,39 @@ resource "databricks_job" "data_ingestion" {
       parameters = [
         "--catalog", var.catalog_name,
         "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "analytics"
+  }
+
+  # ── Task: Tracking-marts preflight — discover open units + fill work-queue ──
+  # tracking_marts drain (ADR-037 reuse): discovers OPEN units (events-based, CROSS-RUN
+  # succeeded-only skip-guard), LPT-bin-packs them into observability.tracking_marts_work_queue,
+  # and writes the constant worker-id list + run_id as task values for the for_each. Depends on
+  # BOTH action-context arms (they write bronze.spadl_action_context, the drain's input) AND the
+  # xG scorer (defensive-credit scoring reads bronze.xg_shot_predictions). Deps: alphabetical.
+  # The downstream compute_tracking_marts for_each consumes the worker-id list + run_id it writes.
+  task {
+    task_key        = "preflight_tracking_marts"
+    timeout_seconds = 600
+    max_retries     = 0
+
+    depends_on { task_key = "compute_action_context" }
+    depends_on { task_key = "compute_action_context_statsbomb" }
+    depends_on { task_key = "compute_xg_shot_scores" }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "preflight_tracking_marts"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+        # Job-level run id (identical across all tasks) -> tracking_marts_run_id task value -> workers.
+        "--run-id", "{{job.run_id}}",
+        # Force a FULL re-enumeration (empty => incremental). REQUIRED after clearing an output table (ADR N3).
+        "--full", "{{job.parameters.tracking_marts_full}}",
       ]
     }
 
@@ -1661,6 +1698,38 @@ resource "databricks_job" "data_ingestion" {
         # under the JOB run id. A gate wired to the task value would audit run "", find no sb360
         # slice_completed, and report DRAIN_FAILED EVERY QUIET DAY. It is the identical value:
         # preflight is itself passed "{{job.run_id}}" and returns it verbatim.
+        "--run-id", "{{job.run_id}}",
+      ]
+    }
+
+    environment_key = "analytics"
+  }
+
+  # ── Task: Verify tracking-marts drain completeness (fan-in gate) ────────
+  # The fan-in over the 8-way compute_tracking_marts drain (ADR-068). Reads the work queue + the
+  # per-unit event log + all four output bronze tables and asserts every enqueued unit ran and its
+  # rows landed. run_if = ALL_DONE: the gate runs even when the drain FAILED — only INCOMPLETE (and a
+  # planner alarm) fails the task; DRAIN_FAILED / UNVERIFIABLE are REPORTS (say WHAT died, don't mask
+  # the drain's real exception). No sb360 task in this drain -> the gate passes extra_expected_workers
+  # = frozenset() so the sb360 sentinel is NOT expected (G1). Governance: wf-tracking-marts.
+  task {
+    task_key        = "verify_tracking_marts_drain"
+    timeout_seconds = 3600
+    max_retries     = 0
+
+    run_if = "ALL_DONE"
+
+    depends_on { task_key = "compute_tracking_marts" }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "verify_tracking_marts_drain"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+        # {{job.run_id}} — NOT the preflight task value (which is "" on a nothing-to-do run). Preflight
+        # is itself passed "{{job.run_id}}" and returns it verbatim, so this is the identical value.
         "--run-id", "{{job.run_id}}",
       ]
     }

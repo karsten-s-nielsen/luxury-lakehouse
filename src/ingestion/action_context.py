@@ -1028,7 +1028,7 @@ def main_preflight() -> None:
     #     creates only its own `_sb360` table and never touches the view.
     #   * `slice_completed` is FAIL-LOUD, so a missing table would kill every worker.
     # And it must precede the early-return: the gate reads the view even on a nothing-to-do run.
-    from ingestion.action_context_queue import DeltaUnitEventSink
+    from ingestion.drain_adapters import DeltaUnitEventSink
 
     DeltaUnitEventSink(spark, args.catalog, task_logger).ensure_tables()
 
@@ -1041,10 +1041,10 @@ def main_preflight() -> None:
         return
 
     # Spark adapter imported function-locally: it pulls pyspark, and action_context.py must stay
-    # importable offline. Tests patch it at its source (ingestion.action_context_queue.DeltaWorkQueue).
+    # importable offline. Tests patch it at its source (ingestion.drain_adapters.DeltaWorkQueue).
     import os
 
-    from ingestion.action_context_queue import DeltaWorkQueue
+    from ingestion.drain_adapters import DeltaWorkQueue
 
     kde_backend = _resolve_backend_or_exit(
         getattr(args, "ghost_gk_backend", None), os.environ.get("AC1_GHOST_GK_BACKEND")
@@ -1347,8 +1347,8 @@ def main_statsbomb() -> None:
     task_logger = configure_logging("action_context")
     spark = get_spark_session()
 
-    from ingestion.action_context_queue import DeltaUnitEventSink
     from ingestion.bootstrap import bootstrap_hooks
+    from ingestion.drain_adapters import DeltaUnitEventSink
     from ingestion.guards import ensure_table
 
     bootstrap_hooks(spark, args.catalog, args.schema)
@@ -1424,7 +1424,7 @@ def main_drain_worker() -> None:
 
     ``drain_worker`` is module-level (pure, patch on ``ac``); the Spark adapters are
     imported function-locally (they pull pyspark; action_context.py must import offline)
-    and tests patch them at their source ``ingestion.action_context_queue.*`` (P2).
+    and tests patch them at their source ``ingestion.drain_adapters.*`` (P2).
     """
     args = parse_ingestion_args(
         "Drain a worker's action-context queue slice",
@@ -1496,7 +1496,7 @@ def main_drain_worker() -> None:
         os.environ[_FBS_ENV_VAR] = str(fbs)
         task_logger.info("Frame-batch-size override active for this run: %d", fbs)
 
-    from ingestion.action_context_queue import (
+    from ingestion.drain_adapters import (
         DeltaUnitEventSink,
         DeltaWorkQueue,
         SparkGameProcessor,

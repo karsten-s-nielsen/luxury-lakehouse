@@ -38,11 +38,10 @@ same posture as ``xg_shot_scorer.run_pipeline``.
 
 from __future__ import annotations
 
-import argparse
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
-from shared.constants import DEFAULT_BRONZE_SCHEMA, IDENTIFIER_RE
+from shared.constants import DEFAULT_BRONZE_SCHEMA
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import pandas as pd
@@ -243,6 +242,34 @@ def score_unit(
     return observations, report
 
 
+def score_gkdv_unit(
+    frames: pd.DataFrame,
+    home_team_id: Any,
+    xt: Any,
+    *,
+    data_source: str,
+    match_id: str,
+    competition_id: str | None,
+    season_id: str | None,
+    want_threat: bool = True,
+) -> pd.DataFrame:
+    """One unit's oriented frames -> stamped per-frame observations (ADR-037 per-unit drain body).
+
+    Factors the per-unit body of :func:`run_pipeline` (score + identity stamp) so a per-unit drain
+    processor scores one unit at a time and appends to the ``bronze.gkdv_observations`` intermediate.
+    Stamps the four identity columns exactly as the corpus loop does: ``data_source``, ``game_id``
+    (= the native ``match_id`` -> ``aggregate_by_keeper`` ``n_games``), ``competition_id``, ``season_id``.
+    The reduce (:func:`pool_keepers`) runs later over the whole ``gkdv_observations`` corpus.
+    """
+    observations, _report = score_unit(frames, home_team_id, xt, want_threat=want_threat)
+    observations = observations.copy()
+    observations["data_source"] = data_source
+    observations["game_id"] = match_id  # native match id -> aggregate_by_keeper n_games
+    observations["competition_id"] = competition_id
+    observations["season_id"] = season_id
+    return observations
+
+
 def pool_keepers(
     observations: pd.DataFrame,
     *,
@@ -374,94 +401,3 @@ def _build_comp_season_lookup(
             for r in rows:
                 lookup[(provider, str(r["match_id"]))] = (r["competition_id"], r["season_id"])
     return lookup
-
-
-def run_pipeline(
-    spark: SparkSession,
-    catalog: str,
-    *,
-    providers: tuple[str, ...] = _TRACKING_PROVIDERS,
-    match_ids: dict[str, list[str]] | None = None,
-    min_nonzero: int = _MIN_NONZERO,
-    min_games: int = _MIN_GAMES,
-    want_threat: bool = True,
-) -> int:
-    """Score GKDV over every tracking unit, pool per keeper x (comp, season) -> bronze ``gkdv_keeper_pooled``.
-
-    Per unit: reconstruct oriented inputs, resolve ``home_team_id`` + native ``(comp, season)``, score
-    per-frame observations. After the corpus loop: pool per keeper and write per-provider (replaceWhere).
-    Returns the total pooled keeper rows written.
-    """
-    import pandas as pd
-
-    from ingestion.tracking_marts_driver import iter_unit_inputs, resolve_unit_meta
-    from ingestion.utils import write_delta_table
-
-    _assert_silly_kicks_min()
-    comp_season = _build_comp_season_lookup(spark, catalog, providers)
-
-    all_obs: list[pd.DataFrame] = []
-    for wu, inputs in iter_unit_inputs(spark, catalog, providers=providers, match_ids=match_ids):
-        meta = resolve_unit_meta(spark, catalog, wu.provider, wu.match_id)
-        observations, report = score_unit(inputs.frames, meta.home_team_id, inputs.xt, want_threat=want_threat)
-        comp, season = comp_season.get((wu.provider, wu.match_id), (None, None))
-        observations = observations.copy()
-        observations["data_source"] = wu.provider
-        observations["game_id"] = wu.match_id  # native match id -> aggregate_by_keeper n_games
-        observations["competition_id"] = comp
-        observations["season_id"] = season
-        logger.info(
-            "gkdv %s:%s:%s -> %d scored keeper-frames (%d frames in, %d scored)",
-            wu.provider,
-            wu.match_id,
-            wu.period,
-            len(observations),
-            report.n_frames_in,
-            report.n_frames_scored,
-        )
-        all_obs.append(observations)
-
-    if not all_obs:
-        logger.info("gkdv: no units processed")
-        return 0
-
-    observations = pd.concat(all_obs, ignore_index=True)
-    pooled = pool_keepers(observations, min_nonzero=min_nonzero, min_games=min_games, want_threat=want_threat)
-    schema_out = _pooled_struct_type()
-
-    total = 0
-    for provider in providers:
-        slice_pdf = pooled[pooled["data_source"] == provider]
-        sdf = spark.createDataFrame(slice_pdf, schema=schema_out)
-        total += write_delta_table(
-            sdf,
-            catalog,
-            DEFAULT_BRONZE_SCHEMA,
-            BRONZE_TABLE,
-            replace_where=f"data_source = '{provider}'",
-            logger=logger,
-        )
-    logger.info("gkdv: wrote %d pooled keeper rows across %d providers", total, len(providers))
-    return total
-
-
-def main() -> None:
-    """CLI entry point (Databricks)."""
-    from pyspark.sql import SparkSession  # type: ignore[import-not-found]
-
-    logging.basicConfig(level=logging.INFO)
-    parser = argparse.ArgumentParser(description="Score GKDV (per keeper x competition x season) to bronze")
-    parser.add_argument("--catalog", default=CATALOG)
-    args = parser.parse_args()
-    if not IDENTIFIER_RE.match(args.catalog):
-        raise SystemExit(f"Invalid catalog name: {args.catalog!r}")
-
-    spark = SparkSession.builder.getOrCreate()  # type: ignore[attr-defined]
-    from ingestion.bootstrap import bootstrap_hooks
-
-    bootstrap_hooks(spark, args.catalog, DEFAULT_BRONZE_SCHEMA)
-    run_pipeline(spark, args.catalog)
-
-
-if __name__ == "__main__":
-    main()

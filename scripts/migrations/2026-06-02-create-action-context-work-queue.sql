@@ -11,7 +11,7 @@
 -- Idempotent (CREATE TABLE IF NOT EXISTS); auto-applied by
 -- .github/workflows/dbt-live-ci.yml "Apply pending bronze migrations" step.
 --
--- Column list is parity-tested against ingestion.action_context_queue._QUEUE_COLUMNS
+-- Column list is parity-tested against ingestion.drain_adapters._QUEUE_COLUMNS
 -- by src/tests/action_context/test_work_queue_schema_parity.py (single source of truth).
 
 CREATE TABLE IF NOT EXISTS soccer_analytics.observability.action_context_work_queue (

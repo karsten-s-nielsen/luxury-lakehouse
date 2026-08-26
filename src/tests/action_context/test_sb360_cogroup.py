@@ -58,7 +58,7 @@ def test_main_statsbomb_has_skip_guard() -> None:
 def test_drain_does_not_process_statsbomb() -> None:
     """statsbomb exits the per-match drain — a stray statsbomb unit must fail loud, not silently
     revert to the slow per-match path."""
-    import ingestion.action_context_queue as q
+    import ingestion.drain_adapters as q
 
     src = inspect.getsource(q.SparkGameProcessor.process)
     assert "_process_statsbomb_match(" not in src  # the per-match CALL is gone (batch handles statsbomb)
