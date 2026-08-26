@@ -2,7 +2,7 @@
 
 The three driver-sequential writers (``off_ball_runs_writer`` / ``defensive_credit_writer`` /
 ``gkdv_writer``) each rebuilt the SAME oriented ``(actions, frames, xt)`` per unit and looped the whole
-corpus on the driver. This processor builds those inputs ONCE per unit and runs all three scorers, so a
+corpus on the driver. This processor builds those inputs ONCE per unit and runs the enabled scorers, so a
 single ``tracking_marts`` worker-drain (mirroring ``analytics.action_context.drain``) replaces the three
 sequential jobs. It satisfies ``analytics.action_context.drain.GameProcessorPort`` (``process(unit)->int``).
 
@@ -11,7 +11,10 @@ from the writer modules (``compute_off_ball_runs`` / ``compute_action_defensive_
 ``compute_defensive_credit_long`` / ``score_gkdv_unit``); this module only fans them out per unit and
 writes each result idempotently (per-unit ``replaceWhere``). Each scorer runs in its OWN try/except that
 attributes the failure and re-raises a combined unit-level error, so one broken scorer fails the WHOLE
-unit (which the drain rolls forward) rather than silently dropping one of the four outputs.
+unit (which the drain rolls forward) rather than silently dropping one of its outputs.
+
+**gkdv is GATED OFF by default (``GKDV_ENABLED``) pending its perf project (ADR-082 amendment).** The
+default run scores off_ball_runs + defensive_credit only; ``gkdv_enabled=True`` re-adds the gkdv arm.
 
 **gkdv scoring/pooling split.** ``score_gkdv_unit`` writes per-frame keeper observations to the
 ``bronze.gkdv_observations`` intermediate; the whole-corpus ``pool_keepers`` reduce runs later in a
@@ -79,6 +82,17 @@ logger = logging.getLogger(__name__)
 
 GKDV_OBS_TABLE = "gkdv_observations"
 
+#: gkdv scoring is GATED OFF pending its dedicated perf project (ADR-082 amendment 2026-08-26). The gkdv
+#: ghost-GK arm runs a per-scored-frame accessible-space DAS (doubled — actual + ghost frame) under
+#: ``spearman`` pitch control, and ``spearman`` is the ONLY GK-aware method (``lambda_gk`` exists only on
+#: ``SpearmanParams``), so it cannot be swapped for a faster backend. At >45 min/unit x 374 units it
+#: exceeds the per-unit watchdog and cannot finish one drain (>35 h at 8 workers) — the old driver-
+#: sequential writer had the same wall (it "stalled 120 min"), so gkdv has never produced output.
+#: off_ball_runs + defensive_credit are unaffected and ship now; the perf project flips this flag once
+#: gkdv is viable. SINGLE SOURCE OF TRUTH: the gate (``tracking_marts_gate._OUTPUT_TABLES``) excludes
+#: ``gkdv_observations`` and the pool (``tracking_marts_drain.main_gkdv_pool``) no-ops while this is False.
+GKDV_ENABLED = False
+
 # ── gkdv_observations intermediate schema ──
 # Derived from ``gkdv_writer.build_keeper_observations`` (the per-scored-keeper-frame grain, want_threat
 # =True): ``player_id, period_id, frame_id, delta_das, delta_threat_suppression``. Plus the four identity
@@ -127,13 +141,16 @@ def _gkdv_obs_struct_type() -> Any:
 
 
 class TrackingMartsProcessor:
-    """Build one unit's inputs ONCE, run all four tracking-grain scorers, write per-unit (``GameProcessorPort``).
+    """Build one unit's inputs ONCE, run the enabled tracking-grain scorers (up to four), write per-unit.
+
+    ``GameProcessorPort``. gkdv is gated off by default (``GKDV_ENABLED``) pending its perf project, so the
+    default run scores three surfaces (off_ball_runs + defensive_credit); ``gkdv_enabled=True`` adds gkdv.
 
     Loads the xT grid + the ``(provider, match_id) -> (competition, season)`` lookup ONCE at construction
     (mirrors ``drain_adapters.SparkGameProcessor`` loading the xT grid once), not per unit.
     """
 
-    def __init__(self, spark: SparkSession, catalog: str, schema: str) -> None:
+    def __init__(self, spark: SparkSession, catalog: str, schema: str, *, gkdv_enabled: bool = GKDV_ENABLED) -> None:
         # sk-version guard: the retired writer ``run_pipeline``s each asserted this at start; keep it live
         # here (the drain's single scoring entry) so a stale silly-kicks cannot silently score any of the
         # four surfaces once Task 12 deletes those call sites ([silly_kicks-bump-version-sentinels]).
@@ -143,9 +160,13 @@ class TrackingMartsProcessor:
         self._spark = spark
         self._catalog = catalog
         self._schema = schema
+        # gkdv is gated off by default (GKDV_ENABLED) pending its perf project; the arg keeps the scoring
+        # path testable and lets the perf project re-enable it from a tuned worker without a code fork.
+        self._gkdv_enabled = gkdv_enabled
         self._logger = logging.getLogger("tracking_marts_drain")
         self._xt_grid, self._xt_l, self._xt_w = ac_xt_grid(spark, catalog, schema)
-        self._comp_season = _build_comp_season_lookup(spark, catalog, _TRACKING_PROVIDERS)
+        # The per-unit (comp, season) lookup feeds ONLY the gkdv arm — skip the warehouse query when gated off.
+        self._comp_season = _build_comp_season_lookup(spark, catalog, _TRACKING_PROVIDERS) if gkdv_enabled else {}
         # Struct schemas built ONCE (import pyspark.sql.types lazily inside the factories).
         self._off_ball_schema = _off_ball_struct_type()
         self._agg_schema = _dc_struct_type(AGG_OUTPUT_COLUMNS, _AGG_TYPES)
@@ -168,10 +189,12 @@ class TrackingMartsProcessor:
         )
 
     def process(self, unit: WorkUnit) -> int:
-        """Score all four tracking-grain outputs for one unit; return the summed rows written.
+        """Score the enabled tracking-grain outputs for one unit; return the summed rows written.
 
         Each scorer runs in isolation and attributes its own failure; if ANY failed, the unit fails as a
         whole (combined ``RuntimeError``) so the drain rolls it forward rather than shipping a partial unit.
+        gkdv is skipped entirely when gated off (``GKDV_ENABLED`` / ``gkdv_enabled=False``) — it is then
+        never scored, never written, and cannot contribute to the combined failure.
         """
         inputs = read_and_build_unit_inputs(
             self._spark, self._catalog, unit, xt_grid_data=self._xt_grid, xt_l=self._xt_l, xt_w=self._xt_w
@@ -206,23 +229,27 @@ class TrackingMartsProcessor:
             errors.append(f"defensive_credit: {exc}")
 
         # gkdv scoring -> bronze.gkdv_observations (pooled later in the separate gkdv_pool reduce).
-        try:
-            meta = resolve_unit_meta(self._spark, self._catalog, unit.provider, unit.match_id)
-            comp, season = self._comp_season.get((unit.provider, unit.match_id), (None, None))
-            obs = score_gkdv_unit(
-                inputs.frames,
-                meta.home_team_id,
-                inputs.xt,
-                data_source=unit.provider,
-                match_id=unit.match_id,
-                competition_id=comp,
-                season_id=season,
-            )
-            obs = obs.copy()
-            obs["match_id"] = unit.match_id  # for the per-unit replaceWhere (game_id carries the same value)
-            total += self._write(obs[list(_GKDV_OBS_COLUMNS)], self._gkdv_obs_schema, GKDV_OBS_TABLE, where)
-        except Exception as exc:  # noqa: BLE001 — attributed + re-raised as a combined unit failure below
-            errors.append(f"gkdv: {exc}")
+        # GATED OFF by default (GKDV_ENABLED) pending the gkdv perf project (ADR-082 amendment): when off,
+        # gkdv is never scored, never written, and CANNOT fail the unit — off_ball_runs + defensive_credit
+        # complete cleanly. The perf project re-enables it via ``gkdv_enabled=True``.
+        if self._gkdv_enabled:
+            try:
+                meta = resolve_unit_meta(self._spark, self._catalog, unit.provider, unit.match_id)
+                comp, season = self._comp_season.get((unit.provider, unit.match_id), (None, None))
+                obs = score_gkdv_unit(
+                    inputs.frames,
+                    meta.home_team_id,
+                    inputs.xt,
+                    data_source=unit.provider,
+                    match_id=unit.match_id,
+                    competition_id=comp,
+                    season_id=season,
+                )
+                obs = obs.copy()
+                obs["match_id"] = unit.match_id  # for the per-unit replaceWhere (game_id carries the same value)
+                total += self._write(obs[list(_GKDV_OBS_COLUMNS)], self._gkdv_obs_schema, GKDV_OBS_TABLE, where)
+            except Exception as exc:  # noqa: BLE001 — attributed + re-raised as a combined unit failure below
+                errors.append(f"gkdv: {exc}")
 
         if errors:
             raise RuntimeError(

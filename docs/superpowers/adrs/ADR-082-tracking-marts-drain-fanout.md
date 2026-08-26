@@ -119,6 +119,43 @@ a manual TRUNCATE/DROP — MUST be followed by a `--full` run:
 preflight bypasses the `succeeded`-terminal subtraction and re-enqueues the whole universe. Silent
 if forgotten.
 
+## Amendment (2026-08-26) — gkdv gated off pending a dedicated perf project
+
+The first full post-merge drain surfaced that **gkdv cannot finish at production scale** — a
+pre-existing compute wall this consolidation inherited, not a regression it introduced.
+
+**Diagnosis.** gkdv's `delta_das` runs an accessible-space DAS **twice per scored frame** (actual +
+ghost) under `spearman` pitch control, and `spearman` is the **only** GK-aware method
+(`GkdvParams._GK_AWARE_METHODS = ("spearman",)`; `lambda_gk` exists only on `SpearmanParams`), so it
+cannot be swapped for a faster backend. `fft-cic` — the fast ghost-GK **KDE** backend the AC drain
+uses — accelerates keeper *placement*, not the DAS bottleneck. `possession_stride = 5` is already the
+built-in cost control. Measured, gkdv units exceed the 2700 s per-unit watchdog (they abandon with
+zero output); at **>45 min/unit × 374 units ÷ 8 workers = >35 h** gkdv overflows the 8 h task budget
+regardless of the watchdog. The retired driver-sequential `gkdv_writer` had the same wall (it
+"stalled 120 min") — **gkdv has never produced output.**
+
+**Decision.** gkdv scoring is **gated off** behind a single module constant
+`tracking_marts_processor.GKDV_ENABLED = False`. `off_ball_runs` + `defensive_credit` compute fast and
+ship now. Consuming the one flag: `TrackingMartsProcessor.process` skips the gkdv arm (never scored,
+never written, cannot fail a unit); `tracking_marts_gate._OUTPUT_TABLES` **excludes**
+`gkdv_observations` (else the write-landed alarm cries wolf over an intentionally-empty table on every
+unit); `tracking_marts_drain.main_gkdv_pool` no-ops before touching Spark. The `compute_gkdv_pool`
+task stays in the job so the perf project re-enables the whole path by flipping the one constant
+(Chesterton's Fence — the pooling reduce and per-frame scorer are retained, not deleted).
+
+**Supersedes** the "summing rows across **all four** output tables" wording under Consequences →
+Positive: while gated off the gate sums **three** (the two shipping surfaces), which is exactly what
+excluding an un-produced table means. The `gkdv_keeper_pooled` mart stays empty — the status quo,
+since gkdv never produced.
+
+**Follow-up (TODO `GKDV-PERF`).** A dedicated gkdv perf project: measure the true per-unit rate + the
+scored-frame count, then tune the viable levers (higher `possession_stride`, more workers, a bigger
+per-unit watchdog + task timeout, or vectorizing/coarsening the DAS grid — likely a `silly-kicks`
+change). **Any change to gkdv's frame sampling is a methodology change to a per-player evaluative
+model under EU AI Act governance** — it requires a model-card + `AI_GOVERNANCE.md` review, not a config
+flip. gkdv remains an in-scope governed system (`wf-tracking-marts` → `gkdv.md`); it is operationally
+paused, not removed.
+
 ## CLAUDE.md Amendment
 
 Performance Budgets: `compute_tracking_marts` is a worker-drain task like `compute_action_context`

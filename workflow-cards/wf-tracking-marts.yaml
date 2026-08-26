@@ -57,16 +57,17 @@ outputs:
       description: "Long-form per-(action, credited player, rule) defensive-credit attributions written per-unit by the drain (ADR-013)"
     - id: "{catalog}.bronze.gkdv_observations"
       destination: delta-table
-      description: "Per-keeper-frame ghost-substitution deltas written per-unit by the drain; the cross-game pooling input"
+      description: "Per-keeper-frame ghost-substitution deltas written per-unit by the drain; the cross-game pooling input. CURRENTLY GATED OFF (GKDV_ENABLED=False, ADR-082 amendment): gkdv's spearman accessible-space DAS exceeds the per-unit watchdog (>45min/unit), so the drain writes off_ball_runs + defensive_credit only pending the gkdv perf project (TODO GKDV-PERF)."
     - id: "{catalog}.bronze.gkdv_keeper_pooled"
       destination: delta-table
-      description: "Per-keeper pooled ghost-frame deltas written by the single-driver gkdv pooling reduce (compute_gkdv_pool)"
+      description: "Per-keeper pooled ghost-frame deltas written by the single-driver gkdv pooling reduce (compute_gkdv_pool). Empty while gkdv is gated off — compute_gkdv_pool no-ops (ADR-082 amendment)."
 
 execution:
   # The 8-way for_each worker-drain (ADR-037/068 fan-out reuse via drain_name-generalized adapters).
   # Each worker drains its slice of observability.tracking_marts_work_queue: per unit it builds oriented
-  # (actions, frames, xt) ONCE and runs all three scorers (off-ball runs / defensive credit / gkdv) with
-  # per-unit replaceWhere. distribution: fan-out (the closest DistributionLiteral to a for_each worker-drain).
+  # (actions, frames, xt) ONCE and runs the enabled scorers (off-ball runs / defensive credit; gkdv is
+  # GATED OFF by GKDV_ENABLED pending its perf project — ADR-082 amendment) with per-unit replaceWhere.
+  # distribution: fan-out (the closest DistributionLiteral to a for_each worker-drain).
   drain:
     trigger: scheduled
     runtime: databricks-workflow

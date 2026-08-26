@@ -96,3 +96,37 @@ def test_pool_gkdv_reads_observations_pools_and_writes_per_provider_replacewhere
     # (c) row counts per provider slice, and the summed total.
     assert [w["rows"] for w in writes] == [2, 0, 1, 0]
     assert total == 3
+
+
+def test_main_gkdv_pool_noops_when_gkdv_gated_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """gkdv gated off (GKDV_ENABLED=False, ADR-082 amendment): the drain writes no observations, so the
+    reduce entry point must short-circuit BEFORE touching Spark — never constructing a session nor calling
+    ``_pool_gkdv``. The task stays in the job (the perf project re-enables the whole path by one constant)."""
+    import logging
+    import types
+
+    import ingestion.tracking_marts_drain as tmd
+    from ingestion.tracking_marts_processor import GKDV_ENABLED
+
+    assert GKDV_ENABLED is False  # shipped default
+
+    called = {"spark": False, "pool": False}
+
+    def _mark_spark() -> object:
+        called["spark"] = True
+        return object()
+
+    def _mark_pool(spark: Any, catalog: str) -> int:
+        called["pool"] = True
+        return 0
+
+    monkeypatch.setattr(
+        tmd, "parse_ingestion_args", lambda *a, **k: types.SimpleNamespace(catalog="cat", schema="bronze")
+    )
+    monkeypatch.setattr(tmd, "configure_logging", lambda *a, **k: logging.getLogger("gkdv_pool_test"))
+    monkeypatch.setattr(tmd, "get_spark_session", _mark_spark)
+    monkeypatch.setattr(tmd, "_pool_gkdv", _mark_pool)
+
+    tmd.main_gkdv_pool()
+
+    assert called == {"spark": False, "pool": False}

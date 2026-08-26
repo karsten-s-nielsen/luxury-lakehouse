@@ -46,8 +46,13 @@ def _gkdv_frame(match_id: str) -> pd.DataFrame:
     )
 
 
-def _make_processor(monkeypatch, *, inputs, capture):
-    """Construct a processor with every Spark/pyspark seam faked; capture writes into ``capture``."""
+def _make_processor(monkeypatch, *, inputs, capture, gkdv_enabled: bool = True):
+    """Construct a processor with every Spark/pyspark seam faked; capture writes into ``capture``.
+
+    ``gkdv_enabled`` defaults True here so the existing four-write contract tests keep exercising the gkdv
+    scoring path (the perf project depends on it). The SHIPPED default is False (gkdv gated off) — see
+    ``test_gkdv_gated_off_is_the_shipped_default`` and the ``gkdv_enabled=False`` skip tests.
+    """
     monkeypatch.setattr(tmp, "ac_xt_grid", lambda spark, catalog, schema: ([[0.0]], 1, 1))
     monkeypatch.setattr(
         tmp, "_build_comp_season_lookup", lambda spark, catalog, providers: {("idsse", "M1"): ("C1", "2023")}
@@ -60,7 +65,7 @@ def _make_processor(monkeypatch, *, inputs, capture):
     monkeypatch.setattr(tmp, "_read_xg_preds", lambda spark, catalog, provider, match_id: pd.DataFrame())
     monkeypatch.setattr(tmp, "attach_xg", lambda actions, xg_preds: actions)  # passthrough (same actions object)
 
-    proc = TrackingMartsProcessor(spark=object(), catalog="cat", schema="bronze")
+    proc = TrackingMartsProcessor(spark=object(), catalog="cat", schema="bronze", gkdv_enabled=gkdv_enabled)
 
     def _fake_write(pdf, schema, table, where):
         capture.append({"table": table, "where": where, "rows": len(pdf), "schema": schema})
@@ -196,3 +201,70 @@ def test_process_empty_unit_returns_zero_and_writes_nothing(monkeypatch) -> None
 
     assert total == 0
     assert capture == []
+
+
+# ── gkdv gated off (ADR-082 amendment): default-off ships off_ball_runs + defensive_credit only ──
+
+
+def test_gkdv_gated_off_is_the_shipped_default() -> None:
+    """gkdv is gated off by default pending its perf project: the module constant is False AND the
+    constructor's ``gkdv_enabled`` defaults to it, so an un-parameterized worker (the shipped path) never
+    scores gkdv. Asserted on the signature so no Spark seam is needed."""
+    import inspect
+
+    assert tmp.GKDV_ENABLED is False
+    default = inspect.signature(TrackingMartsProcessor.__init__).parameters["gkdv_enabled"].default
+    assert default is tmp.GKDV_ENABLED
+
+
+def test_gkdv_gated_off_skips_scoring_and_writes_only_three_tables(monkeypatch) -> None:
+    """With gkdv gated off, ``score_gkdv_unit`` is NEVER called, no gkdv_observations write happens, and
+    the unit still succeeds with the two shipping surfaces (off_ball_runs + defensive_credit)."""
+    inputs = UnitInputs(actions=pd.DataFrame({"a": [1]}), frames=pd.DataFrame({"f": [1]}), xt="XT")
+    capture: list[dict] = []
+    proc = _make_processor(monkeypatch, inputs=inputs, capture=capture, gkdv_enabled=False)
+    monkeypatch.setattr(tmp, "compute_off_ball_runs", lambda a, f, xt: pd.DataFrame({"x": range(5)}))
+    monkeypatch.setattr(tmp, "compute_action_defensive_credit", lambda a, f, xt: pd.DataFrame({"x": range(3)}))
+    monkeypatch.setattr(tmp, "compute_defensive_credit_long", lambda a, f, xt: pd.DataFrame({"x": range(2)}))
+    # gkdv scoring AND its meta lookup must be unreachable when gated off.
+    monkeypatch.setattr(tmp, "score_gkdv_unit", lambda *a, **k: (_ for _ in ()).throw(AssertionError("gkdv scored")))
+    monkeypatch.setattr(
+        tmp, "resolve_unit_meta", lambda *a, **k: (_ for _ in ()).throw(AssertionError("gkdv meta resolved"))
+    )
+
+    total = proc.process(WorkUnit(provider="idsse", match_id="M1", period=2))
+
+    assert [c["table"] for c in capture] == [
+        "off_ball_runs",
+        "action_defensive_credit",
+        "defensive_credit_attributions",
+    ]
+    assert "gkdv_observations" not in [c["table"] for c in capture]
+    assert total == 5 + 3 + 2
+    # The gkdv-only (comp, season) warehouse lookup is skipped when gated off.
+    assert proc._comp_season == {}
+
+
+def test_gkdv_gated_off_cannot_fail_the_unit_even_if_scoring_would_raise(monkeypatch) -> None:
+    """A gated-off gkdv is inert: even a score_gkdv_unit that WOULD raise is never invoked, so a unit whose
+    off_ball + defensive scorers succeed completes without the combined RuntimeError."""
+    inputs = UnitInputs(actions=pd.DataFrame({"a": [1]}), frames=pd.DataFrame({"f": [1]}), xt="XT")
+    capture: list[dict] = []
+    proc = _make_processor(monkeypatch, inputs=inputs, capture=capture, gkdv_enabled=False)
+    monkeypatch.setattr(tmp, "compute_off_ball_runs", lambda a, f, xt: pd.DataFrame({"x": [1]}))
+    monkeypatch.setattr(tmp, "compute_action_defensive_credit", lambda a, f, xt: pd.DataFrame({"x": [1]}))
+    monkeypatch.setattr(tmp, "compute_defensive_credit_long", lambda a, f, xt: pd.DataFrame({"x": [1]}))
+
+    def _boom(*a, **k):
+        raise ValueError("gkdv exploded")
+
+    monkeypatch.setattr(tmp, "score_gkdv_unit", _boom)
+
+    # No RuntimeError: gkdv never runs, so it never contributes a combined-failure attribution.
+    total = proc.process(WorkUnit(provider="idsse", match_id="M1", period=2))
+    assert total == 3
+    assert [c["table"] for c in capture] == [
+        "off_ball_runs",
+        "action_defensive_credit",
+        "defensive_credit_attributions",
+    ]
