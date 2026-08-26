@@ -26,7 +26,7 @@ def test_delta_work_queue_roundtrip_and_run_id_isolation(spark, tmp_catalog) -> 
     """B1/L2: enqueue two runs; a worker sees ONLY its run's rows; period preserved."""
     from analytics.action_context.drain import assign_workers
     from analytics.action_context.work_unit import WorkUnit
-    from ingestion.action_context_queue import DeltaWorkQueue
+    from ingestion.drain_adapters import DeltaWorkQueue
 
     q = DeltaWorkQueue(spark, catalog=tmp_catalog)
     q.ensure_table()
@@ -53,7 +53,7 @@ def test_prune_executes_and_spares_fresh_rows(spark, tmp_catalog) -> None:
     """
     from analytics.action_context.drain import assign_workers
     from analytics.action_context.work_unit import WorkUnit
-    from ingestion.action_context_queue import DeltaWorkQueue
+    from ingestion.drain_adapters import DeltaWorkQueue
 
     q = DeltaWorkQueue(spark, catalog=tmp_catalog)
     q.ensure_table()
@@ -86,7 +86,7 @@ def test_spark_interrupt_watchdog_real_processor_smoke(spark, tmp_catalog) -> No
 
     from analytics.action_context.drain import GameTimeoutError
     from analytics.action_context.work_unit import WorkUnit
-    from ingestion.action_context_queue import SparkGameProcessor, SparkInterruptWatchdog
+    from ingestion.drain_adapters import SparkGameProcessor, SparkInterruptWatchdog
 
     proc = SparkGameProcessor(spark, catalog=tmp_catalog, schema="bronze")
     wd = SparkInterruptWatchdog(spark)

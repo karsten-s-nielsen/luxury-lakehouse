@@ -142,6 +142,40 @@ def test_a_clean_run_is_COMPLETE_and_does_not_raise() -> None:  # noqa: N802
     report = evaluate(**_clean_run())  # type: ignore[arg-type]
     assert report.verdict is Verdict.COMPLETE
     assert report.must_raise is False
+    enforce(report)  # a COMPLETE report must not raise (the test's own name promises this)
+
+
+# ── G1 (review #1): the sb360 worker-topology axis is parameterized (tracking-marts has no sb360) ──
+
+
+def test_no_sb360_drain_is_COMPLETE_when_extra_expected_workers_is_empty() -> None:  # noqa: N802
+    # A tracking-marts-shaped run: worker 0 ran two units, its slice_completed landed, NO sb360 task.
+    # extra_expected_workers=frozenset() -> worker -1 is NOT expected -> not dead -> COMPLETE (G1).
+    report = evaluate(
+        run_id="JOBRUN1",
+        queue=[_q(0, "M1"), _q(0, "M2")],
+        events=[*_unit_ran(0, "M1", 10), *_unit_ran(0, "M2", 20), _slice(0)],  # no sb360 slice
+        result_counts={("skillcorner", "M1", 1): 10, ("skillcorner", "M2", 1): 20},
+        planner=PlannerInputs(enqueued=2, remaining=frozenset()),
+        extra_expected_workers=frozenset(),
+    )
+    assert report.verdict is Verdict.COMPLETE
+    assert SB360_WORKER_ID not in report.expected_workers
+
+
+def test_default_extra_expected_workers_still_expects_the_sb360_sentinel() -> None:
+    # SAME run under the DEFAULT: the sb360 sentinel is expected, emits no slice -> dead -> DRAIN_FAILED.
+    # Proves AC behaviour is byte-identical at the default (the sb360 seam stays welded for AC).
+    report = evaluate(
+        run_id="JOBRUN1",
+        queue=[_q(0, "M1"), _q(0, "M2")],
+        events=[*_unit_ran(0, "M1", 10), *_unit_ran(0, "M2", 20), _slice(0)],  # no sb360 slice
+        result_counts={("skillcorner", "M1", 1): 10, ("skillcorner", "M2", 1): 20},
+        planner=PlannerInputs(enqueued=2, remaining=frozenset()),
+    )
+    assert report.verdict is Verdict.DRAIN_FAILED
+    assert SB360_WORKER_ID in report.expected_workers
+    assert report.must_raise is False  # P1 — DRAIN_FAILED reports, does not raise
     enforce(report)  # must not raise
 
 

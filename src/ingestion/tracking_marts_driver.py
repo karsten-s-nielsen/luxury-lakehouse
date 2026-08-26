@@ -17,7 +17,6 @@ fit, and the run-detection / defensive-credit functions are whole-unit computati
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
 from analytics.action_context.unit_inputs import UnitInputs, build_unit_inputs
@@ -136,8 +135,9 @@ def _read_unit(
 def resolve_unit_meta(spark: SparkSession, catalog: str, provider: str, match_id: str) -> MatchMeta:
     """Public accessor for a unit's resolved ``MatchMeta`` (home_team_id etc.).
 
-    ``iter_unit_inputs`` yields ``(WorkUnit, UnitInputs)`` and does not surface the resolved meta, but
-    the gkdv writer (``ingestion.gkdv_writer``) needs ``home_team_id`` to build the ghost counterfactual
+    :func:`read_and_build_unit_inputs` returns oriented ``(actions, frames, xt)`` and does not surface the
+    resolved meta, but the gkdv scorer (via ``ingestion.tracking_marts_processor.TrackingMartsProcessor``)
+    needs ``home_team_id`` to build the ghost counterfactual
     (``silly_kicks.gkdv.build_ghost_frames(home_team_id=...)``). This thin wrapper reuses the SAME
     per-provider resolution the driver already applies, so orientation/home-team identity stay byte-
     identical to the AC drain rather than being re-derived independently.
@@ -213,45 +213,44 @@ def _resolve_meta(spark: SparkSession, catalog: str, provider: str, match_id: st
     raise ValueError(f"Unknown tracking provider: {provider}")
 
 
-def iter_unit_inputs(
+def read_and_build_unit_inputs(
     spark: SparkSession,
     catalog: str,
+    unit: WorkUnit,
     *,
-    providers: tuple[str, ...] = _TRACKING_PROVIDERS,
-    match_ids: dict[str, list[str]] | None = None,
-    schema: str = "bronze",
-) -> Iterator[tuple[WorkUnit, UnitInputs]]:
-    """Yield ``(WorkUnit, UnitInputs)`` for each tracking unit — oriented, identity-resolved, ready.
+    xt_grid_data: list[list[float]],
+    xt_l: int,
+    xt_w: int,
+) -> UnitInputs | None:
+    """Read + build oriented ``(actions, frames, xt)`` for ONE tracking ``WorkUnit``.
 
-    ``match_ids`` optionally restricts to ``{provider: [match_id, ...]}`` (operator-scoped Part-B runs);
-    ``None`` processes every AC-materialised unit for ``providers``. Units that read empty (no tracking
-    or no actions) are skipped with a warning.
+    The per-unit read + build, so a per-unit drain processor
+    (``ingestion.tracking_marts_processor.TrackingMartsProcessor``) can build inputs one unit at a time.
+    Returns ``None`` when the unit reads empty (no tracking frames or no SPADL actions) — the caller
+    treats a ``None`` as a no-op unit (mirrors the old loop's ``continue``). The xT grid is passed in
+    (the processor loads it ONCE via :func:`ac_xt_grid` at construction), not re-loaded per unit.
     """
-    from analytics.action_context.work_unit import WorkUnit
+    from analytics.action_context.work_unit import FrameBundle
 
-    grid_data, xt_l, xt_w = ac_xt_grid(spark, catalog, schema)
-
-    units = discover_tracking_units(spark, catalog, providers=providers, schema=schema)
-    for provider, match_id, period in units:
-        if match_ids is not None and match_id not in match_ids.get(provider, []):
-            continue
-        trk_pdf, actions_pdf, meta = _read_unit(spark, catalog, provider, match_id, period)
-        if trk_pdf.empty or actions_pdf.empty:
-            logger.warning("Skipping empty unit %s:%s:%s (no tracking or actions)", provider, match_id, period)
-            continue
-        from analytics.action_context.work_unit import FrameBundle
-
-        wu = WorkUnit(provider=provider, match_id=match_id, period=period)
-        inputs = build_unit_inputs(
-            wu,
-            frame_bundle=FrameBundle(tier="tracking", frames=trk_pdf),
-            actions_df=actions_pdf,
-            meta=meta,
-            xt_grid_data=grid_data,
-            xt_l=xt_l,
-            xt_w=xt_w,
+    if unit.period is None:
+        # Tracking units are period-grain (discover_tracking_units yields real period_ids); a match-grain
+        # unit has no frames to read, so it is a no-op — and this narrows ``period`` to ``int`` for _read_unit.
+        return None
+    trk_pdf, actions_pdf, meta = _read_unit(spark, catalog, unit.provider, unit.match_id, unit.period)
+    if trk_pdf.empty or actions_pdf.empty:
+        logger.warning(
+            "Skipping empty unit %s:%s:%s (no tracking or actions)", unit.provider, unit.match_id, unit.period
         )
-        yield wu, inputs
+        return None
+    return build_unit_inputs(
+        unit,
+        frame_bundle=FrameBundle(tier="tracking", frames=trk_pdf),
+        actions_df=actions_pdf,
+        meta=meta,
+        xt_grid_data=xt_grid_data,
+        xt_l=xt_l,
+        xt_w=xt_w,
+    )
 
 
 def ac_xt_grid(spark: SparkSession, catalog: str, schema: str) -> tuple[list[list[float]], int, int]:

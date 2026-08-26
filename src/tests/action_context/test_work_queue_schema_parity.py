@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ingestion.action_context_queue import _QUEUE_COLUMNS
+from ingestion.drain_adapters import _QUEUE_COLUMNS
 from tests._ddl import ddl_columns  # W5: SHARED parser — the D9 event parity test uses the same one
 
 _MIGRATION = (

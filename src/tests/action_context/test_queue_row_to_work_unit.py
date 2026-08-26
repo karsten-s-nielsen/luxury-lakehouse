@@ -1,6 +1,6 @@
 """kde_backend survives the queue round trip; NULL reads back as the default (pure — no Spark)."""
 
-from ingestion.action_context_queue import _QUEUE_COLUMNS, _row_to_work_unit
+from ingestion.drain_adapters import _QUEUE_COLUMNS, _row_to_work_unit
 
 
 def test_queue_has_kde_backend_column():

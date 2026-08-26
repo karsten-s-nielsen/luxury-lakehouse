@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from analytics.action_context.drain import SB360_WORKER_ID
-from ingestion.action_context_queue import (
+from ingestion.drain_adapters import (
     _EVENT_COLUMNS,
     _EVENT_TABLE,
     _N_EVENT_WORKERS,

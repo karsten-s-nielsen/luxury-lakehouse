@@ -1,7 +1,9 @@
-"""Spark/Delta/dbutils adapters for the AC-1 worker-drain fan-out (ADR-037).
+"""Spark/Delta/dbutils adapters for the worker-drain fan-out (ADR-037/082).
 
-Implements the pure ports from ``analytics.action_context.drain``. The pure core
-stays Spark-free; everything that touches Spark/Delta lives here.
+SHARED by the action-context drain (default ``drain_name="action_context"``) and the tracking-marts
+drain (``drain_name="tracking_marts"``, ``include_sb360=False``) — see ADR-082. Implements the pure
+ports from ``analytics.action_context.drain``. The pure core stays Spark-free; everything that touches
+Spark/Delta lives here. (Renamed from ``action_context_queue`` when it became drain-neutral, ADR-082.)
 
 IMPORTANT: pyspark is a Databricks-runtime-only dependency (not installed locally /
 in CI). So this module must stay IMPORTABLE OFFLINE — pyspark imports are
@@ -128,29 +130,47 @@ def event_columns_sql() -> str:
     return ", ".join(cols)
 
 
-def event_table_for_worker(worker_id: int) -> str:
-    """The per-writer event table for ``worker_id`` (or the sb360 sentinel). Never the view."""
+def event_table_for_worker(worker_id: int, *, drain_name: str = "action_context") -> str:
+    """The per-writer event table for ``worker_id`` (or the sb360 sentinel). Never the view.
+
+    ``drain_name`` namespaces the table NAME (``action_context`` default → byte-identical AC behaviour;
+    ``tracking_marts`` for the tracking-marts drain). It is orthogonal to ``include_sb360`` (which is a
+    worker-TOPOLOGY axis on the callers below), so this per-worker accessor is unaware of it.
+    """
+    base = f"{drain_name}_unit_events"
     if worker_id == SB360_WORKER_ID:
-        return f"{_EVENT_TABLE}_sb360"
+        return f"{base}_sb360"
     if not 0 <= worker_id < _N_EVENT_WORKERS:
         raise ValueError(
             f"worker_id {worker_id!r} has no event table: expected 0..{_N_EVENT_WORKERS - 1} "
             f"or the sb360 sentinel ({SB360_WORKER_ID})"
         )
-    return f"{_EVENT_TABLE}_w{worker_id}"
+    return f"{base}_w{worker_id}"
 
 
-def event_table_names() -> list[str]:
-    """Every physical event table, in the order the UNION ALL view stacks them."""
-    return [event_table_for_worker(w) for w in range(_N_EVENT_WORKERS)] + [event_table_for_worker(SB360_WORKER_ID)]
+def event_table_names(*, drain_name: str = "action_context", include_sb360: bool = True) -> list[str]:
+    """Every physical event table, in the order the UNION ALL view stacks them.
+
+    ``include_sb360`` is the worker-TOPOLOGY axis (G1): the AC drain has the unconditional sb360 extra
+    worker (default ``True``); a drain WITHOUT an sb360 task (tracking-marts) passes ``False`` so no
+    phantom ``*_sb360`` table is ever created — which would otherwise read to the gate as a dead worker
+    every run.
+    """
+    tables = [event_table_for_worker(w, drain_name=drain_name) for w in range(_N_EVENT_WORKERS)]
+    if include_sb360:
+        tables.append(event_table_for_worker(SB360_WORKER_ID, drain_name=drain_name))
+    return tables
 
 
-def event_view_sql(catalog: str) -> str:
+def event_view_sql(catalog: str, *, drain_name: str = "action_context", include_sb360: bool = True) -> str:
     """The UNION ALL view the gate reads — same columns as a single table would have."""
     # S608 suppressed: no user input reaches the string — the table names are module constants and
     # ``catalog`` is the internal catalog FQN (same trusted pattern as ``ensure_table``'s CREATE TABLE).
-    parts = [f"SELECT * FROM {catalog}.{_EVENT_SCHEMA}.{t}" for t in event_table_names()]  # noqa: S608
-    return f"CREATE OR REPLACE VIEW {catalog}.{_EVENT_SCHEMA}.{_EVENT_TABLE} AS " + " UNION ALL ".join(parts)
+    parts = [
+        f"SELECT * FROM {catalog}.{_EVENT_SCHEMA}.{t}"  # noqa: S608
+        for t in event_table_names(drain_name=drain_name, include_sb360=include_sb360)
+    ]
+    return f"CREATE OR REPLACE VIEW {catalog}.{_EVENT_SCHEMA}.{drain_name}_unit_events AS " + " UNION ALL ".join(parts)
 
 
 def _utcnow() -> datetime:
@@ -225,12 +245,24 @@ class DeltaUnitEventSink:
     ``write_failures``; ``slice_completed`` is FAIL-LOUD and carries that count to the gate.
     """
 
-    def __init__(self, spark: SparkSession, catalog: str, logger: logging.Logger | None = None) -> None:
+    def __init__(
+        self,
+        spark: SparkSession,
+        catalog: str,
+        logger: logging.Logger | None = None,
+        *,
+        drain_name: str = "action_context",
+        include_sb360: bool = True,
+    ) -> None:
         self._spark = spark
         self._catalog = catalog
         self._logger = logger or logging.getLogger("action_context_events")
         self._terminals: list[dict[str, Any]] = []
         self._write_failures = 0
+        # drain_name namespaces the table names; include_sb360 is the worker-topology axis (G1) —
+        # a no-sb360 drain (tracking-marts) omits the phantom sb360 table + view arm.
+        self._drain_name = drain_name
+        self._include_sb360 = include_sb360
 
     @property
     def write_failures(self) -> int:
@@ -248,9 +280,9 @@ class DeltaUnitEventSink:
         calls ``ensure_own_table`` instead; the 8-way drain calls neither.
         """
         self._spark.sql(f"CREATE SCHEMA IF NOT EXISTS {self._catalog}.{_EVENT_SCHEMA}")
-        for table in event_table_names():
+        for table in event_table_names(drain_name=self._drain_name, include_sb360=self._include_sb360):
             self._ensure_one_table(table)
-        self._spark.sql(event_view_sql(self._catalog))
+        self._spark.sql(event_view_sql(self._catalog, drain_name=self._drain_name, include_sb360=self._include_sb360))
 
     def ensure_own_table(self, worker_id: int) -> None:
         """Create ONLY this writer's own event table. Idempotent, and **it never touches the view.**
@@ -263,7 +295,7 @@ class DeltaUnitEventSink:
         does — which is why that statement stays in preflight's hands alone.
         """
         self._spark.sql(f"CREATE SCHEMA IF NOT EXISTS {self._catalog}.{_EVENT_SCHEMA}")
-        self._ensure_one_table(event_table_for_worker(worker_id))
+        self._ensure_one_table(event_table_for_worker(worker_id, drain_name=self._drain_name))
 
     def _ensure_one_table(self, table: str) -> None:
         self._spark.sql(
@@ -413,7 +445,7 @@ class DeltaUnitEventSink:
             sdf,
             self._catalog,
             _EVENT_SCHEMA,
-            event_table_for_worker(worker_id),
+            event_table_for_worker(worker_id, drain_name=self._drain_name),
             mode="append",
             row_count=len(rows),
         )
@@ -476,10 +508,12 @@ def _row_to_work_unit(row) -> WorkUnit:
 class DeltaWorkQueue:
     """Durable work-queue over ``{catalog}.observability.action_context_work_queue``."""
 
-    def __init__(self, spark: SparkSession, catalog: str) -> None:
+    def __init__(self, spark: SparkSession, catalog: str, *, drain_name: str = "action_context") -> None:
         self._spark = spark
         self._catalog = catalog  # P7: store directly, don't re-split the FQN
-        self._table = f"{catalog}.{_QUEUE_SCHEMA}.{_QUEUE_TABLE}"
+        # drain_name namespaces the queue table (``action_context`` default → byte-identical AC).
+        self._queue_table = f"{drain_name}_work_queue"
+        self._table = f"{catalog}.{_QUEUE_SCHEMA}.{self._queue_table}"
 
     def ensure_table(self) -> None:
         # P4: create the schema too, so a fresh catalog (test tmp_catalog) works;
@@ -522,7 +556,7 @@ class DeltaWorkQueue:
             sdf,
             self._catalog,  # P7
             _QUEUE_SCHEMA,
-            _QUEUE_TABLE,
+            self._queue_table,
             replace_where=f"run_id = '{run_id}'",
             row_count=len(rows),
         )

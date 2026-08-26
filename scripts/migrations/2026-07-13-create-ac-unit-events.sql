@@ -21,7 +21,7 @@
 -- Idempotent (CREATE TABLE IF NOT EXISTS / CREATE OR REPLACE VIEW). Operator-applied WITH the
 -- merge: `uv run --extra sdk python scripts/migrations/_runner.py scripts/migrations/2026-07-13-create-ac-unit-events.sql`
 --
--- Column list is parity-tested against ingestion.action_context_queue._EVENT_COLUMNS by
+-- Column list is parity-tested against ingestion.drain_adapters._EVENT_COLUMNS by
 -- src/tests/action_context/test_unit_event_sink.py (single source of truth).
 
 CREATE TABLE IF NOT EXISTS soccer_analytics.observability.action_context_unit_events_w0 (

@@ -35,7 +35,7 @@ shooter-normalized, so no orientation, and stamps ``access_tier='public'`` itsel
 
 LONG-TERM (how IDSSE/Metrica onboard): replace this driver-side loop with a DISTRIBUTED SINK
 mirroring ``compute_action_context`` — a per-``(match, period)`` work-queue in
-``ingestion.action_context_queue`` + a ``compute_shot_freeze_frames_drain_worker`` entry point.
+``ingestion.drain_adapters`` + a ``compute_shot_freeze_frames_drain_worker`` entry point.
 That (a) moves conversion onto Spark executors (via the same ``mapInPandas`` frame-batching +
 M13 owner de-dup ``_process_tracking_match`` uses) so the dense providers scale, and (b)
 amortizes the serverless cold-start across the whole drain instead of paying it per match.

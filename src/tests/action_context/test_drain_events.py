@@ -332,8 +332,8 @@ def test_idle_worker_STILL_emits_slice_completed(monkeypatch: pytest.MonkeyPatch
     prevent, arriving through the front door.
     """
     import ingestion.action_context as ac
-    import ingestion.action_context_queue as q
     import ingestion.bootstrap as bs
+    import ingestion.drain_adapters as q
 
     ns = argparse.Namespace(catalog="cat", schema="bronze", worker_id="5", run_id="JOBRUN42")
     monkeypatch.setattr(ac, "parse_ingestion_args", lambda *a, **k: ns)

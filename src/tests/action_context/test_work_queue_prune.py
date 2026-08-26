@@ -4,14 +4,14 @@ The queue accumulates per-run scratch rows (one batch per daily run, keyed by ru
 nothing ever deleted them, so the table grew unbounded. ``prune`` sweeps rows older than
 the retention window at preflight start (runs as the SP that owns observability). These
 tests exercise the SQL builder + the affected-row extraction OFFLINE (no Spark); the live
-round trip is covered by the serverless integration test in test_action_context_queue.py.
+round trip is covered by the serverless integration test in test_drain_adapters.py.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from ingestion.action_context_queue import (
+from ingestion.drain_adapters import (
     _QUEUE_RETENTION_DAYS,
     DeltaWorkQueue,
     _affected_rows,

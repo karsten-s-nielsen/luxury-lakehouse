@@ -11,7 +11,7 @@ import time
 import pytest
 
 from analytics.action_context.drain import GameTimeoutError
-from ingestion.action_context_queue import SparkInterruptWatchdog
+from ingestion.drain_adapters import SparkInterruptWatchdog
 
 
 class _StubSpark:

@@ -1,7 +1,7 @@
 """Worker-drain fan-out: pure orchestration core (no Spark / Delta / dbutils).
 
 See docs/superpowers/specs/2026-06-02-action-context-worker-drain-fanout-design.md
-and ADR-037. Adapters live in ``ingestion.action_context_queue``.
+and ADR-037. Adapters live in ``ingestion.drain_adapters``.
 """
 
 from __future__ import annotations
@@ -148,7 +148,7 @@ class WatchdogPort(Protocol):
 
 
 class UnitEventSink(Protocol):
-    """Persists per-unit lifecycle events (D9). Adapter: ``ingestion.action_context_queue``.
+    """Persists per-unit lifecycle events (D9). Adapter: ``ingestion.drain_adapters``.
 
     FOUR methods, THREE write policies — and the differences are LOAD-BEARING. Do not "simplify"
     them into one write; each policy is the reason a specific failure stays visible:

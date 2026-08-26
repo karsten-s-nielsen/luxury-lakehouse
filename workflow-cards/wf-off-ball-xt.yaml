@@ -59,26 +59,12 @@ execution:
     schedule: "daily 06:00 UTC"
     timeout: "600s"
     environment: default
-  # Run-values (fct_off_ball_runs) ADR-013 writer — a SECOND scheduled phase on this card
-  # (the run-values family's governance home). Driver-mode: reconstructs oriented inputs per
-  # tracking work unit and detects/values runs. Needs silly-kicks -> environment: analytics.
-  run_values:
-    trigger: scheduled
-    runtime: databricks-workflow
-    entry_point: off_ball_runs_writer
-    module: ingestion.off_ball_runs_writer
-    distribution: driver-bound
-    schedule: "daily 06:00 UTC"
-    timeout: "5400s"
-    environment: analytics
 
 depends_on:
   - wf-metrica
   - wf-idsse
   - wf-skillcorner
   - wf-xt-grids
-  # Run-values phase reconstructs oriented inputs from the AC drain output.
-  - wf-action-context
 
 idempotency:
   strategy: skip-guard
@@ -119,17 +105,13 @@ themselves in high-value areas while maintaining receivability (pitch control ad
 earn higher off-ball xT credits. Computation is distributed via `applyInPandas` with
 synthetic frame batch partitions.
 
-## Run-Values Extension (silly-kicks 4.87.0)
+## Run-Values (silly-kicks 4.87.0) — moved to wf-tracking-marts
 
-This card also governs the **run-values** family: off-ball run detection and valuation
-(`detect_off_ball_runs` + `value_off_ball_runs`, TF-4/TF-35). Off-ball runs are a
-drain-native action-context signal; the per-(action, runner) mart `fct_off_ball_runs` is
-materialised by the ADR-013 writer `src/ingestion/off_ball_runs_writer.py`, which
-reconstructs the oriented `(actions, frames, xt)` per tracking work unit, detects
-qualifying runs, and values completed passes/crosses against the fitted expected-threat
-grid. Run-values is a **per-player evaluative** off-ball-movement metric and belongs to the
-same off-ball expected-threat family as off-ball xT — this card is its governance home.
-`value_off_ball_runs` values only completed passes/crosses with a resolved receiver, so
-most rows carry a legitimately off-domain NaN `run_value`. The writer is scheduled into the
-daily job as the `run_values` execution phase above (entry point `off_ball_runs_writer`,
-`analytics` environment), running after the action-context drain.
+Off-ball run detection + valuation (`detect_off_ball_runs` + `value_off_ball_runs`, TF-4/TF-35;
+the per-(action, runner) mart `fct_off_ball_runs`) used to be materialised by the standalone
+`off_ball_runs_writer` scheduled as a second phase on THIS card. That writer was one of three
+driver-sequential tracking-grain writers consolidated into the **tracking-marts worker-drain**
+([`wf-tracking-marts`](wf-tracking-marts.yaml)); its pure scoring function (`compute_off_ball_runs`)
+is now called per-unit by `TrackingMartsProcessor`. Run-values governance therefore lives on
+`wf-tracking-marts`; this card retains only the off-ball xT attribution phase. The Power / Vidal-Codina /
+Esposito references below remain here for the off-ball expected-threat family provenance.

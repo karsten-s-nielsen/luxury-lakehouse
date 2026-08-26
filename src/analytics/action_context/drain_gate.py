@@ -112,10 +112,14 @@ sb360 **exits the per-match drain** (ADR-058): it has no queue rows, no ``worker
 terraform task and its own lifecycle. So *every rule written while looking at the drain silently
 fails to apply to it*. Two halves, both mandatory:
 
-* **expected WORKERS** = ``DISTINCT worker_id`` from the queue **UNION the sb360 sentinel** — because
-  if the sb360 task dies *before* emitting its ``running`` events it contributes ZERO expected units,
-  no rule fires, and the gate returns COMPLETE while statsbomb did nothing at all. Its task is
-  unconditional in the DAG, so it is **always** expected.
+* **expected WORKERS** = ``DISTINCT worker_id`` from the queue **UNION ``extra_expected_workers``** —
+  because if the sb360 task dies *before* emitting its ``running`` events it contributes ZERO expected
+  units, no rule fires, and the gate returns COMPLETE while statsbomb did nothing at all. Its task is
+  unconditional in the DAG, so it is **always** expected. ``extra_expected_workers`` is a WORKER-TOPOLOGY
+  parameter (default ``frozenset({SB360_WORKER_ID})`` — the AC drain's sb360 sentinel); a drain with **no**
+  sb360 task (tracking-marts) passes ``frozenset()`` so a phantom worker ``-1`` is not expected. AC callers
+  pass nothing → the default → byte-identical behaviour (a defect here has landed in every review round;
+  the sentinel default keeps the union unchanged for AC).
 * **expected UNITS** = queue rows **UNION sb360's ``running`` events** (its persisted
   queue-equivalent).
 
@@ -383,6 +387,7 @@ def evaluate(
     events: Sequence[UnitEvent],
     result_counts: Mapping[tuple[str, str, int | None], int],
     planner: PlannerInputs,
+    extra_expected_workers: frozenset[int] = frozenset({SB360_WORKER_ID}),
 ) -> GateReport:
     """Apply rules 0 → 4 (see the module docstring) and return the verdict. NEVER raises.
 
@@ -397,8 +402,11 @@ def evaluate(
     # Expected WORKERS: derived from the queue -- NEVER a hard-coded fan-out width. Terraform's own
     # comment says "daily runs are tiny", so on a typical run most workers are idle and have no queue
     # rows at all; a gate that expects a fixed number of workers cries wolf on every healthy day (P4).
-    # Plus the sb360 sentinel, whose task is UNCONDITIONAL in the DAG (V2).
-    expected_workers = {row.worker_id for row in queue} | {SB360_WORKER_ID}
+    # Plus ``extra_expected_workers`` -- a WORKER-TOPOLOGY axis, orthogonal to the queue. For the AC drain
+    # this defaults to the sb360 sentinel, whose task is UNCONDITIONAL in the DAG (V2). A drain WITHOUT an
+    # sb360 task (tracking-marts) passes ``frozenset()`` -- else worker -1 (never emitting slice_completed)
+    # reads as dead and the gate reports DRAIN_FAILED every run (G1). AC callers pass nothing → identical.
+    expected_workers = {row.worker_id for row in queue} | extra_expected_workers
 
     slices = {e.worker_id: (e.write_failures or 0) for e in events if e.state == SLICE_COMPLETED}
     dead = sorted(w for w in expected_workers if w not in slices)

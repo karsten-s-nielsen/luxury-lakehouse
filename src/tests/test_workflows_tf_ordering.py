@@ -286,7 +286,11 @@ def test_data_ingestion_parser_count_anchor() -> None:
     # writer tasks — `bravery_writer`, `defensive_credit_writer`, `gkdv_writer`,
     # `off_ball_runs_writer`, `xt_gk_v2_writer` — scheduling the silly-kicks 4.87.0
     # defensive-credit / bravery / gkdv / off-ball-run / xt-gk-v2 families into the daily job.
-    assert len(task_keys) == 47, f"expected 47 task blocks on data_ingestion, parser found {len(task_keys)}"
+    # 47 → 48 (tracking-marts drain fan-out): the three driver-sequential TRACKING-grain writers
+    # (`defensive_credit_writer`, `gkdv_writer`, `off_ball_runs_writer`) were removed and REPLACED
+    # by the tracking-marts worker-drain — `preflight_tracking_marts`, `compute_tracking_marts`
+    # (for_each parent), `verify_tracking_marts_drain`, `compute_gkdv_pool`. Net +1 (-3 writers, +4 drain).
+    assert len(task_keys) == 48, f"expected 48 task blocks on data_ingestion, parser found {len(task_keys)}"
 
 
 if __name__ == "__main__":

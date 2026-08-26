@@ -52,7 +52,7 @@ from typing import Any
 
 import ingestion.action_context_gate as _gate_module
 from ingestion.action_context import _TABLE_NAME as _RESULTS_TABLE
-from ingestion.action_context_queue import _EVENT_TABLE, _QUEUE_TABLE
+from ingestion.drain_adapters import _EVENT_TABLE, _QUEUE_TABLE
 
 #: The allowlist, from the MODULE CONSTANTS — never re-spelled as literals here. ``_EVENT_TABLE``
 #: is the UNION ALL *view*; the per-worker physical tables (``..._w0`` … ``_sb360``) are the sink's
