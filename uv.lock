@@ -16,6 +16,7 @@ constraints = [
     { name = "python-engineio", specifier = ">=4.13.2" },
     { name = "python-socketio", specifier = ">=5.16.2" },
 ]
+overrides = [{ name = "flask-socketio", specifier = ">=5.5.1" }]
 
 [[package]]
 name = "accessible-space"
@@ -1153,15 +1154,19 @@ wheels = [
 
 [[package]]
 name = "flask-socketio"
-version = "5.4.1"
+version = "5.6.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "blinker" },
+    { name = "click" },
     { name = "flask" },
+    { name = "jinja2" },
     { name = "python-socketio" },
+    { name = "werkzeug" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/16/53/a8eece1e8729617056bb754a82f9cbba1011bff1e6a6f82db56958c915cc/flask_socketio-5.4.1.tar.gz", hash = "sha256:2e9b8864a5be37ca54f6c76a4d06b1ac5e0df61fde12d03afc81ab4057e1eb86", size = 37261, upload-time = "2024-10-01T09:52:52.295Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4b/61/3287c8a8fe4c3c59f2573d71aea7d334a113383ed3e6eb96e290dc80115f/flask_socketio-5.6.1.tar.gz", hash = "sha256:fe5bd995c3ed4da9a98f335d0d830fa1a19d84a64789f6265642a671fdacaeac", size = 37857, upload-time = "2026-02-21T13:07:52.858Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0b/d2/9fc23b5bd5c7457b69d91304e2c9244596097327c645cd44de6271badc17/Flask_SocketIO-5.4.1-py3-none-any.whl", hash = "sha256:895da879d162781b9193cbb8fe8f3cf25b263ff242980d5c5e6c16d3c03930d2", size = 18185, upload-time = "2024-10-01T09:52:50.362Z" },
+    { url = "https://files.pythonhosted.org/packages/08/98/2a46f4a3117c17fd36e07ad8b085054451e96723baaeea245682156ba546/flask_socketio-5.6.1-py3-none-any.whl", hash = "sha256:51a3f71b28b4476c650829607e3a993e076034db6c3cc31f718f0a4b45939d42", size = 18683, upload-time = "2026-02-21T13:07:51.442Z" },
 ]
 
 [[package]]
@@ -1778,7 +1783,7 @@ wheels = [
 
 [[package]]
 name = "luxury-lakehouse"
-version = "0.5.108"
+version = "0.5.109"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
