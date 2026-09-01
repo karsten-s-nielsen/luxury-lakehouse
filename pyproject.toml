@@ -138,7 +138,7 @@ evolve = ["openevolve>=0.3.2"]
 taipy-app = [
     "taipy==4.1.1",
     "psycopg2-binary==2.9.12",
-    "mplsoccer==1.6.1",
+    "mplsoccer==1.8.0",
     "pandas==2.3.3",
     "numpy==1.26.4",
     "pydantic>=2.0",
