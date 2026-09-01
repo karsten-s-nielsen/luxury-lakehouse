@@ -98,6 +98,7 @@ updates:
       - dependency-name: "mako"           # transitive via dbt-core/alembic (CVE-2026-44307)
       - dependency-name: "flask-cors"     # transitive via mlflow (PYSEC-2024-271)
       - dependency-name: "joblib"         # transitive via scikit-learn (PYSEC-2024-277)
+      - dependency-name: "dbt-core"       # dbt-databricks 1.12.4 caps dbt-core<1.12.1; and dbt-core 1.12.0-1.12.2 regressed their sqlparse cap to <0.6.0, colliding with our sqlparse>=0.6.0 floor (PYSEC-2026-3696/-3697/-3698/-3699). 1.12.3 restored sqlparse<0.7.0 but stays gated by the adapter cap, so no dbt-core 1.12.x resolves. We run 1.11.14 (latest 1.11.x, secure). Unpin when a stable dbt-databricks lifts dbt-core<1.12.1 (was PR #504).
 
   - package-ecosystem: "github-actions"
     directory: "/"
