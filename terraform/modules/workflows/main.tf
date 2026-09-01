@@ -1795,7 +1795,7 @@ resource "databricks_job" "data_ingestion" {
         # makes the deployed env match the code's design contract. (DAS/accessible-space
         # is pure numpy — numba does not accelerate it; see project memory
         # ac1-numba-das-cost.)
-        "numba==0.66.0",
+        "numba==0.67.0",
         "numpy==1.26.4",
         # xgboost-cpu: same version + API as xgboost, but without the
         # nvidia-nccl-cu12 core dep (300 MB GPU lib, useless on CPU-only
