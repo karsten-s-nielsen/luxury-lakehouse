@@ -8,7 +8,7 @@
 #     "torch>=2.1.0",
 #     "safetensors>=0.4.0",
 #     "huggingface-hub>=1.5.0",
-#     "mlflow>=2.17.0",
+#     "mlflow-skinny>=2.17.0",
 # ]
 # ///
 """Train Football2Vec 360-enriched transformer on HF Jobs A10G GPU.

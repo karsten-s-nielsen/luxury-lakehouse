@@ -7,7 +7,7 @@
 #     "pandas>=2.0.0",
 #     "pyarrow>=14.0.0",
 #     "huggingface-hub>=1.5.0",
-#     "mlflow>=2.17.0",
+#     "mlflow-skinny>=2.17.0",
 #     "scipy>=1.11.0",
 # ]
 # ///

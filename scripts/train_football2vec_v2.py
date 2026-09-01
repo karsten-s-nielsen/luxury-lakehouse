@@ -8,7 +8,7 @@
 #     "torch>=2.0",
 #     "safetensors>=0.4.0",
 #     "huggingface-hub>=1.5.0",
-#     "mlflow>=2.17.0",
+#     "mlflow-skinny>=2.17.0",
 # ]
 # ///
 """Train Football2Vec v2 transformer (MLM + adversarial debiasing) on HF Jobs A10G GPU.

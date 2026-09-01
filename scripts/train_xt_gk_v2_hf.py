@@ -8,7 +8,7 @@
 #     "scikit-learn>=1.3.0",
 #     "requests>=2.31",
 #     "huggingface-hub>=1.5.0",
-#     "mlflow>=2.17.0",
+#     "mlflow-skinny>=2.17.0",
 #     "databricks-sdk>=0.102.0",
 # ]
 # ///

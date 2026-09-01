@@ -12,7 +12,7 @@
 #     # even though v3's set encoder is pure PyTorch. Same rationale as train_vaep_model_hf.
 #     "xgboost>=2.0",
 #     "huggingface-hub>=1.5.0",
-#     "mlflow>=2.17.0",
+#     "mlflow-skinny>=2.17.0",
 #     "databricks-sdk>=0.102.0",
 # ]
 # ///

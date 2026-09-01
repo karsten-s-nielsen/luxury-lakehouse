@@ -40,8 +40,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import joblib
+import mlflow
 import pandas as pd
-from optuna.integration import MLflowCallback
 
 from ingestion.databricks_auth import workspace_client
 
@@ -58,6 +58,31 @@ else:
     except ImportError:
         sql = None  # type: ignore[assignment, misc]
         WorkspaceClient = None  # type: ignore[assignment, misc]
+
+
+def _mlflow_trial_callback(tracking_uri: str | None, metric_name: str):
+    """Per-trial MLflow logger — the mlflow-skinny replacement for Optuna's
+    optuna-integration ``MLflowCallback``.
+
+    ``optuna-integration[mlflow]`` was dropped because its ``[mlflow]`` extra
+    hard-requires full mlflow, which carries CVE-2026-71211 (ADR-027). This logs one
+    MLflow run per Optuna trial (params + scored metric + numeric user_attrs) via
+    mlflow-skinny's tracking API. This is the repo's only optuna-integration use.
+    """
+    if tracking_uri:
+        mlflow.set_tracking_uri(tracking_uri)
+
+    def _callback(study: Any, trial: Any) -> None:
+        with mlflow.start_run(run_name=f"trial-{trial.number}"):
+            mlflow.log_params(trial.params)
+            if trial.value is not None:
+                mlflow.log_metric(metric_name, float(trial.value))
+            for key, val in trial.user_attrs.items():
+                if isinstance(val, (int, float)) and not isinstance(val, bool):
+                    mlflow.log_metric(key, float(val))
+
+    return _callback
+
 
 WAREHOUSE_ID = "6c3b36ca64d183fe"
 """soccer-analytics-warehouse-dev (2X-Small serverless) -- same as Phase 0."""
@@ -185,10 +210,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.study_db is not None:
         args.study_db.parent.mkdir(parents=True, exist_ok=True)
 
-    mlflow_callback = MLflowCallback(
-        tracking_uri=args.mlflow_uri,
-        metric_name="nll_primary",
-    )
+    mlflow_callback = _mlflow_trial_callback(args.mlflow_uri, "nll_primary")
 
     t1 = time.perf_counter()
     result = run_phase1_harness(

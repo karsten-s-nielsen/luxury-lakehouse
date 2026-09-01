@@ -6,7 +6,7 @@
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
 #     "huggingface-hub>=1.5.0",
-#     "mlflow>=2.17.0",
+#     "mlflow-skinny>=2.17.0",
 # ]
 # ///
 """Compute EPV and ball-reachability grids for OBSO on HuggingFace Jobs (CPU).

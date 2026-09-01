@@ -5,7 +5,7 @@
 #     "databricks-sdk>=0.20",
 #     "gensim>=4.3",
 #     "huggingface-hub>=1.5.0",
-#     "mlflow>=2.19",
+#     "mlflow-skinny>=2.19",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",

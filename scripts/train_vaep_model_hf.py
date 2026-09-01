@@ -9,7 +9,7 @@
 #     "xgboost>=2.0",
 #     "psutil>=5.9",
 #     "huggingface-hub>=1.5.0",
-#     "mlflow>=2.17.0",
+#     "mlflow-skinny>=2.17.0",
 # ]
 # ///
 """Train VAEP models (scores + concedes) on HuggingFace Jobs (CPU).

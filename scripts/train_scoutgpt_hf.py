@@ -8,7 +8,7 @@
 #     "torch>=2.0",
 #     "safetensors>=0.4.0",
 #     "huggingface-hub>=1.5.0",
-#     "mlflow>=2.17.0",
+#     "mlflow-skinny>=2.17.0",
 #     "scikit-learn>=1.3.0",
 #     "scipy>=1.11.0",
 # ]
