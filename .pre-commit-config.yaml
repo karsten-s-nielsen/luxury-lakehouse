@@ -5,7 +5,7 @@ repos:
   # two disagree, `uv run ruff` and the commit hook give different verdicts on the same file —
   # measured 2026-08-12, where 0.16.1 accepted 9 handlers that 0.15.22 rejected under BLE001.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.1
+    rev: v0.16.4
     hooks:
       - id: ruff
         args: [--fix]
