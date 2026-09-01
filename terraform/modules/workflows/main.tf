@@ -1858,7 +1858,7 @@ resource "databricks_job" "data_ingestion" {
         [var.wheel_path],
         [
           "gensim==4.4.0",
-          "huggingface_hub==1.6.0",
+          "huggingface_hub==1.28.0",
         ]
       )
     }
@@ -1876,7 +1876,7 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path,
-        "huggingface_hub==1.6.0"
+        "huggingface_hub==1.28.0"
       ]
     }
   }
