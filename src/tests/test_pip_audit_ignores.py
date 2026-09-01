@@ -37,7 +37,6 @@ _EXPECTED_CHECKABLE_IDS = {
     "CVE-2025-58367",  # deepdiff — taipy-common caps <=7.0.1
     "CVE-2026-33155",  # deepdiff — same pair, listed by CVE alias
     "PYSEC-2026-3447",  # setuptools — torch caps <82; cu128 index tops out at torch 2.11.0
-    "PYSEC-2026-3552",  # cryptography — mlflow caps <50
     # Reported ONLY by the taipy-app resolution (scripts/audit_resolutions.py, 2026-08-11).
     "PYSEC-2026-1383",  # flask-cors — taipy-gui caps <5.1
     "PYSEC-2026-1384",  # flask-cors — same cap

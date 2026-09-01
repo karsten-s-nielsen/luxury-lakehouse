@@ -113,3 +113,29 @@ Evidence (individual-run `system.lakeflow.job_task_run_timeline`):
 xgboost wheel footprint: `xgboost` 3.2.0 = 128 MB wheel + 300 MB nvidia-nccl-cu12;
 `xgboost-cpu` 3.2.0 = 5.5 MB wheel, no nccl. mlflow wheel: full 10.1 MB vs skinny
 3.1 MB, the latter dropping ~11 server-side transitives.
+
+## Amendment (2026-08-31) — mlflow-skinny completed repo-wide (CVE-2026-71211 + PYSEC-2026-3552)
+
+**Status: Accepted.** This ADR's analytics-env `mlflow-skinny` decision is extended to the
+whole repo, forced by newly-published **CVE-2026-71211** (SSRF in mlflow's AI Gateway; CVSS
+7.1; affects `mlflow` 3.13.0–3.15.2 with no fixed release). The vulnerable code is
+server/gateway-only — never run by the lakehouse — but full `mlflow` was still resolved via
+the wheel's `[mlflow]` extra and the 12 training/compute PEP 723 script headers.
+
+- `pyproject.toml` `[mlflow]` extra: `mlflow>=2.19.0` → `mlflow-skinny>=2.19.0`, and
+  **`optuna-integration[mlflow]` dropped** — its `[mlflow]` extra hard-requires full mlflow,
+  which would reintroduce the CVE. Its sole consumer, `scripts/run_ext_v2_phase1.py`, now
+  uses a hand-rolled per-trial MLflow callback over skinny's tracking API (raw Optuna;
+  ruthless-efficiency's `OptunaStrategy` is deliberately untouched — the callback need there
+  is served post-hoc from `Result.history`).
+- The 12 training/compute PEP 723 headers: `mlflow` → `mlflow-skinny`.
+- **Bonus — PYSEC-2026-3552 genuinely fixed:** full mlflow was the sole package capping
+  `cryptography<50`. With it gone, the floor was raised `>=49.0.0` → `>=50.0.0` (resolves
+  50.0.1) and the `.pip-audit-ignores.yml` suppression removed (a real fix, not a mute).
+
+ADR-027's original hedge — that training scripts "may need the server-side bits" — is
+disproven: every `mlflow.*` call in `src/` + `scripts/` is the same tracking/pyfunc/registry
+client surface as the analytics env (zero flavor-autolog or server/gateway usage). Verified:
+full `mlflow` + `optuna-integration` leave `uv.lock`; a live `pyfunc.log_model`/`load_model`
+round-trip on mlflow-skinny; `pip-audit` clean (0 vulnerabilities, no cascade — flask-cors
+is not in the analytics resolution). Shipped with PR #551.

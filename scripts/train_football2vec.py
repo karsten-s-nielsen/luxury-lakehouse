@@ -1,11 +1,11 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.108-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.109-py3-none-any.whl",
 #     "databricks-sdk>=0.20",
 #     "gensim>=4.3",
 #     "huggingface-hub>=1.5.0",
-#     "mlflow>=2.19",
+#     "mlflow-skinny>=2.19",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",

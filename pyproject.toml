@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.5.108"
+version = "0.5.109"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -27,22 +27,17 @@ dependencies = [
     # starlette web-server paths are never exercised. uv kept 0.52.1 only because the 1.x line
     # released after the last lock; the floor forces the upgrade.
     "starlette>=1.3.1",
-    # Transitive dep (google-auth -> databricks-sdk -> mlflow-skinny; also mlflow directly).
-    # Floored to >=49.0.0 to resolve GHSA-537c-gmf6-5ccf (cryptography < 48.0.1) plus
-    # PYSEC-2026-3553 + PYSEC-2026-3554 (both fixed 49.0.0).
+    # Transitive dep (google-auth -> databricks-sdk -> mlflow-skinny; also directly).
+    # Floored to >=50.0.0 to resolve GHSA-537c-gmf6-5ccf (cryptography < 48.0.1),
+    # PYSEC-2026-3553 + PYSEC-2026-3554 (fixed 49.0.0), and PYSEC-2026-3552 (needs >=50.0.0).
     #
-    # 49.0.0 is the CEILING our graph permits, not a compromise: **mlflow pins cryptography**
-    # (3.13.0 -> `cryptography<49`; 3.15.1 -> `cryptography<50`). This floor therefore also
-    # pulls mlflow 3.13.0 -> 3.15.1, which is the intended forward move. Floor it to >=50.0.0
-    # instead and NO mlflow 3.x satisfies it, so uv backtracks to mlflow 3.2.0 -- the last
-    # release with no cryptography constraint at all -- dragging cachetools and gunicorn down
-    # with it. That regression is far worse than the residual advisory.
-    #
-    # PYSEC-2026-3552 (needs cryptography>=50.0.0) is therefore UNRESOLVABLE while mlflow caps
-    # <50, and is ignored in .github/workflows/python-ci.yml.
-    # REVIEW TRIGGER: when mlflow ships a release allowing cryptography>=50, raise this floor
-    # and drop that ignore.
-    "cryptography>=49.0.0",
+    # The >=50 floor became reachable only once full `mlflow` was dropped for
+    # `mlflow-skinny` (see the [mlflow] extra + ADR-027, 2026-08-31 amendment): full
+    # mlflow capped `cryptography<50` (3.15.x -> `cryptography>=43,<50`), which made
+    # 49.0.0 the prior ceiling and left PYSEC-2026-3552 unresolvable (it was ignored
+    # in .pip-audit-ignores.yml). mlflow-skinny carries no cryptography pin, so the
+    # floor now resolves and that ignore is REMOVED — a genuine fix, not a suppression.
+    "cryptography>=50.0.0",
     # Transitive dep (optuna → alembic; dbt-core). Floored to >=1.3.12 to resolve
     # CVE-2026-41205 (mako < 1.3.11) and CVE-2026-44307 (mako < 1.3.12) in one bump.
     "mako>=1.3.12",
@@ -121,21 +116,22 @@ jax = [
     "jax[cpu]>=0.6.2",
 ]
 mlflow = [
-    # >=2.19.0 is the first mlflow line that natively allows protobuf 6,
-    # matching the Databricks Serverless runtime's protobuf 6.33.6. The
-    # earlier `>=2.17.0` floor allowed pip to resolve mlflow 2.17.x, which
-    # pins protobuf<5 and produces the dependency-conflict warning observed
-    # on PR #208's live-build CI run (mlflow-skinny 2.11.4 vs protobuf
-    # 6.33.6). Bumping the floor to 2.19 closes the warning and aligns our
-    # wheel's resolved version (currently mlflow 3.13.0 per uv.lock; bumped from 3.11.1
-    # by the cryptography>=48.0.1 CVE floor above) with
-    # the runtime baseline. Training scripts (xg, vaep, psxg, football2vec,
-    # scoutgpt) continue to use the same mlflow tracking client API.
-    "mlflow>=2.19.0",
-    # ExT v2 Phase 1 harness wires Optuna's MLflowCallback for per-trial
-    # logging. Optuna 4.x removed integrations from core into a separate
-    # package; the [mlflow] extra here pulls the mlflow-flavoured callback.
-    "optuna-integration[mlflow]>=4.9.0",
+    # mlflow-skinny, NOT full mlflow (ADR-027, 2026-08-31 amendment): the lakehouse
+    # uses mlflow ONLY as a tracking + model-registry client (no server, UI, or AI
+    # Gateway), so skinny is the correct footprint — and it DROPS the AI-Gateway
+    # code that carries CVE-2026-71211 (SSRF, CVSS 7.1). The Databricks analytics
+    # serverless env already runs mlflow-skinny==3.15.1 (ADR-027, terraform); this
+    # extends it to the wheel's [mlflow] extra + the training scripts. >=2.19.0 is
+    # the first line natively allowing protobuf 6 (Databricks Serverless runtime =
+    # protobuf 6.33.6). Every used API (pyfunc.log_model/load_model, MlflowClient
+    # registry aliases, log_*, artifacts.download_artifacts) is skinny-provided —
+    # verified with a live log/load round-trip.
+    "mlflow-skinny>=2.19.0",
+    # optuna-integration[mlflow] (Optuna's MLflowCallback) is DELIBERATELY DROPPED:
+    # its [mlflow] extra hard-requires full mlflow, which would reintroduce
+    # CVE-2026-71211. Its sole consumer (scripts/run_ext_v2_phase1.py) now uses a
+    # hand-rolled per-trial MLflow callback over skinny's tracking API. optuna core
+    # stays via the [analytics] extra.
 ]
 training = ["torch>=2.0", "pyarrow>=14.0", "datasets>=3.0", "safetensors>=0.4.0"]
 evolve = ["openevolve>=0.3.2"]
@@ -469,6 +465,23 @@ constraint-dependencies = [
     # package sitting still at a vulnerable version is invisible to it.
     "python-engineio>=4.13.2",
     "python-socketio>=5.16.2",
+]
+
+# Taipy-GUI 4.1.2 caps flask-socketio <5.5, but Flask 3.1.3 (pinned by the
+# PYSEC-2026-2151 floor above) made RequestContext.session a read-only property.
+# flask-socketio <5.5.1 still assigns `ctx.session = ...` directly, raising
+# `AttributeError: can't set attribute 'session'` on EVERY Socket.IO connect —
+# Taipy delivers page content over that websocket, so the app rendered blank in
+# production from the 2026-08-12 D5 CVE deploy (which introduced the flask>=3.1.3
+# floor) until this override. Fixed upstream in flask-socketio 5.5.1 (the
+# `_session` compatibility branch). Taipy-GUI 4.1.2 uses only stable SocketIO APIs
+# (SocketIO(), .on, .run, .async_mode, .wsgi_server), so its <5.5 cap is
+# conservative and safe to lift here. Keeping flask>=3.1.3 preserves the CVE fix.
+# Verified: 5.4.1 reproduces the exact prod traceback, 5.6.1 connects cleanly.
+# See ADR-083. Requires hf_taipy_app/Dockerfile to install with --no-deps
+# (plain `pip install -r` fails ResolutionImpossible against taipy-gui's cap).
+override-dependencies = [
+    "flask-socketio>=5.5.1",
 ]
 
 # taipy requires sqlalchemy>=2.0; dbt-databricks requires sqlalchemy<2.0.
