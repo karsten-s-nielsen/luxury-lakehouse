@@ -140,7 +140,7 @@ taipy-app = [
     "psycopg2-binary==2.9.12",
     "mplsoccer==1.6.1",
     "pandas==2.2.3",
-    "numpy==1.26.4",
+    "numpy==2.2.6",
     "pydantic>=2.0",
     # Floored to >=2.14.2 to resolve GHSA-4xgf-cpjx-pc3j (pydantic-settings < 2.14.2).
     "pydantic-settings>=2.14.2",
