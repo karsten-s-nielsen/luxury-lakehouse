@@ -148,7 +148,7 @@ taipy-app = [
     "databricks-sdk==0.121.0",
     "huggingface-hub>=1.5.0",
     "scipy>=1.15.0",
-    "plotly>=6.7.0,<7",
+    "plotly>=6.7.0,<8",
     "cachetools>=6.0.0",
 ]
 # NOTE: kloppy (SkillCorner tracking) is NOT listed here — it runs in a separate
