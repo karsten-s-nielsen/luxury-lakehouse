@@ -13,7 +13,7 @@ import logging
 from dataclasses import dataclass, field
 from html import escape as html_escape
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 
@@ -283,8 +283,8 @@ def build_table_data(
     cold_run_count_lookup: dict[str, int] = {}
     if not cold_costs.empty and "workflow_id" in cold_costs.columns:
         idx = cold_costs.set_index("workflow_id")
-        cold_cost_lookup = idx["total_cost_usd"].apply(lambda x: float(x or 0)).to_dict()
-        cold_run_count_lookup = idx["run_count"].apply(lambda x: int(x or 0)).to_dict()
+        cold_cost_lookup = cast("dict[str, float]", idx["total_cost_usd"].apply(lambda x: float(x or 0)).to_dict())
+        cold_run_count_lookup = cast("dict[str, int]", idx["run_count"].apply(lambda x: int(x or 0)).to_dict())
 
     # Build latest-run lookups keyed by workflow_id
     cold_start_lookup: dict[str, int] = {}
@@ -294,13 +294,15 @@ def build_table_data(
     if not lrm.empty and "workflow_id" in lrm.columns:
         lrm_idx = lrm.set_index("workflow_id")
         if "cold_start_seconds" in lrm_idx.columns:
-            cold_start_lookup = lrm_idx["cold_start_seconds"].dropna().apply(int).to_dict()
+            cold_start_lookup = cast("dict[str, int]", lrm_idx["cold_start_seconds"].dropna().apply(int).to_dict())
         if "entity_count" in lrm_idx.columns:
-            entity_count_lookup = lrm_idx["entity_count"].dropna().apply(int).to_dict()
+            entity_count_lookup = cast("dict[str, int]", lrm_idx["entity_count"].dropna().apply(int).to_dict())
         if "guard_duration_seconds" in lrm_idx.columns:
-            guard_duration_lookup = lrm_idx["guard_duration_seconds"].dropna().apply(int).to_dict()
+            guard_duration_lookup = cast(
+                "dict[str, int]", lrm_idx["guard_duration_seconds"].dropna().apply(int).to_dict()
+            )
         if "duration_seconds" in lrm_idx.columns:
-            workflow_duration_lookup = lrm_idx["duration_seconds"].dropna().apply(int).to_dict()
+            workflow_duration_lookup = cast("dict[str, int]", lrm_idx["duration_seconds"].dropna().apply(int).to_dict())
 
     rows = []
     for card_id, card in cards.items():

@@ -200,7 +200,9 @@ def _compute_metrics(passes: pd.DataFrame) -> dict[str, str]:
         }
 
     completed = int(passes["is_complete"].sum()) if "is_complete" in passes.columns else 0
-    complete_mask = passes["is_complete"] == 1 if "is_complete" in passes.columns else passes.index.notnull()
+    complete_mask = (
+        passes["is_complete"] == 1 if "is_complete" in passes.columns else pd.Series(True, index=passes.index)
+    )
     progressive = int(passes.loc[complete_mask, "is_progressive"].sum()) if "is_progressive" in passes.columns else 0
     line_breaking = (
         int(passes.loc[complete_mask, "is_line_breaking"].sum()) if "is_line_breaking" in passes.columns else 0

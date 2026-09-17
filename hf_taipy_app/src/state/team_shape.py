@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -539,7 +539,7 @@ def _render_timeline(state: Any) -> None:
     # Group by time_bucket to compute shape per time bucket
     bucket_groups: dict[tuple[int, float], pd.DataFrame] = {}
     for (period_val, bucket_val), grp in team_data.groupby(["period", "time_bucket"]):
-        bucket_groups[(int(period_val), float(bucket_val))] = grp
+        bucket_groups[(int(cast(Any, period_val)), float(cast(Any, bucket_val)))] = grp
 
     # Compute shape metrics per bucket
     timestamps: list[float] = []
