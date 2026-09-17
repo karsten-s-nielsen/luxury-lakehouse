@@ -1808,7 +1808,7 @@ resource "databricks_job" "data_ingestion" {
         # path only loads models + uses MlflowClient; the server-side bundle
         # (flask/gunicorn/sqlalchemy/alembic/docker/...) is unused. ~30-50 MB
         # + ~11 fewer transitives off cold-start.
-        "mlflow-skinny==3.15.1",
+        "mlflow-skinny==3.16.1",
         "mplsoccer==1.8.0",
         "matplotlib==3.10.9",
         "scipy==1.15.3"
