@@ -290,7 +290,10 @@ def test_data_ingestion_parser_count_anchor() -> None:
     # (`defensive_credit_writer`, `gkdv_writer`, `off_ball_runs_writer`) were removed and REPLACED
     # by the tracking-marts worker-drain — `preflight_tracking_marts`, `compute_tracking_marts`
     # (for_each parent), `verify_tracking_marts_drain`, `compute_gkdv_pool`. Net +1 (-3 writers, +4 drain).
-    assert len(task_keys) == 48, f"expected 48 task blocks on data_ingestion, parser found {len(task_keys)}"
+    # 48 → 47 (B-ac elastic retirement, 2026-09-20): `compute_elastic_sync` removed — the standalone
+    # ELASTIC producer is retired; elastic frame linkage now rides on the AC drain's action-grain
+    # columns. See docs/superpowers/specs/2026-09-17-silly-kicks-4118-adoption-design.md §5.4.
+    assert len(task_keys) == 47, f"expected 47 task blocks on data_ingestion, parser found {len(task_keys)}"
 
 
 if __name__ == "__main__":

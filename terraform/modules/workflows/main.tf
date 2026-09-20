@@ -18,8 +18,7 @@
 #   compute_off_ball_xt — Off-Ball xT from tracking + pitch control (depends on tracking tasks)
 #   compute_pitch_control — Spearman 2017 pitch control values (depends on tracking tasks)
 #   compute_defcon_lite — DEFCON-lite defensive valuation (depends on SPADL/VAEP)
-#   compute_elastic_sync — ELASTIC event-tracking alignment (depends on idsse_events)
-#   compute_pausa     — PAUSA pass timing pipeline (depends on elastic_sync + OBSO import)
+#   compute_pausa     — PAUSA pass timing pipeline (depends on OBSO import)
 #   resolve_players   — Cross-source entity resolution (depends on statsbomb + wyscout)
 #   compute_embeddings_v2 — Transformer (192d) player embeddings with adversarial debiasing (depends on entity resolution)
 #   compute_formations_efpi — EFPI template-matching formation detection (depends on pitch control)
@@ -337,30 +336,9 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "analytics"
   }
 
-  # ── Task: Compute ELASTIC event-tracking alignment ────────────────────
-  # Kim et al. (2025) ELASTIC sync: aligns discrete events with 25fps
-  # tracking frames via ball acceleration + player-ball distance features.
-  task {
-    task_key        = "compute_elastic_sync"
-    timeout_seconds = 600
-    max_retries     = 0
-
-    depends_on {
-      task_key = "ingest_idsse_events"
-    }
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "compute_elastic_sync"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze"
-      ]
-    }
-
-    environment_key = "default"
-  }
+  # Task compute_elastic_sync REMOVED (B-ac, 2026-09-20): the standalone ELASTIC
+  # producer is retired; elastic frame linkage now rides on the AC drain's ELASTIC
+  # v2 columns in fct_action_context. See docs/superpowers/specs/2026-09-17-*.md §5.4.
 
   # ── Task: Compute player embeddings 360-enriched (Deep Sets + transformer) ───
   # Football2vec 360: imports pre-trained 208d 360-enriched embeddings from
@@ -617,17 +595,16 @@ resource "databricks_job" "data_ingestion" {
 
   # ── Task: Compute PAUSA pass timing values ────────────────────────────
   # Lee et al. (2026) PAUSA: temporal judgment × spatial selection from
-  # OBSO surfaces. Depends on ELASTIC sync results and pre-computed OBSO
-  # values (imported from HF Jobs GPU run via the standalone
-  # import_obso_results task — split out of hf_sync in PR-Cycle-B).
+  # OBSO surfaces. Depends on pre-computed OBSO values (imported from the HF
+  # Jobs GPU run via the standalone import_obso_results task — split out of
+  # hf_sync in PR-Cycle-B). The stale compute_elastic_sync ordering edge was
+  # removed with the B-ac elastic retirement (2026-09-20); PAUSA reads only
+  # bronze.pausa_raw_scores.
   task {
     task_key        = "compute_pausa"
     timeout_seconds = 600
     max_retries     = 0
 
-    depends_on {
-      task_key = "compute_elastic_sync"
-    }
     # PR-Cycle-B (2026-05-01): PAUSA reads bronze.pausa_raw_scores written
     # by import_obso_results. Pre-split, hf_sync wrapped this import as a
     # sub-op and ran in PARALLEL with compute_pausa — so PAUSA silently ran
@@ -968,7 +945,6 @@ resource "databricks_job" "data_ingestion" {
     depends_on { task_key = "compute_action_context" }
     depends_on { task_key = "compute_action_context_statsbomb" }
     depends_on { task_key = "compute_defcon_lite" }
-    depends_on { task_key = "compute_elastic_sync" }
     depends_on { task_key = "compute_embeddings_360" }
     depends_on { task_key = "compute_embeddings_v2" }
     depends_on { task_key = "compute_expected_threat" }
@@ -1048,9 +1024,6 @@ resource "databricks_job" "data_ingestion" {
     # Depends on all compute tasks that produce data for exports
     depends_on {
       task_key = "backfill_statsbomb_360"
-    }
-    depends_on {
-      task_key = "compute_elastic_sync"
     }
     depends_on {
       task_key = "compute_spadl_vaep"
@@ -1784,7 +1757,7 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path,
-        "silly-kicks[das,ghost-gk,parse-dfl]==4.90.1",
+        "silly-kicks[das,ghost-gk,parse-dfl]==4.120.0",
         "accessible-space==2.0.15",
         # numba: silly-kicks ships @njit kernels for pitch control + ball-carrier
         # (tracking/pitch_control/_{spearman,fernandez_bornn}.py, tracking/_ball_carrier.py)

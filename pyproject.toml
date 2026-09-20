@@ -66,7 +66,7 @@ dependencies = [
 
 [project.optional-dependencies]
 spadl = [
-    "silly-kicks[das,ghost-gk,parse-dfl]>=4.90.1,<5",
+    "silly-kicks[das,ghost-gk,parse-dfl]>=4.120.0,<5",
 ]
 analytics = [
     "luxury-lakehouse[spadl]",
@@ -203,7 +203,6 @@ compute_tracking_marts_drain_worker = "ingestion.tracking_marts_drain:main_track
 compute_gkdv_pool = "ingestion.tracking_marts_drain:main_gkdv_pool"
 verify_tracking_marts_drain = "ingestion.tracking_marts_gate:main"
 ingest_idsse_events = "ingestion.idsse_events:main"
-compute_elastic_sync = "ingestion.elastic_sync:main"
 compute_pausa = "ingestion.pausa:main"
 run_model_validation = "ingestion.model_validation:main"
 run_staleness_monitor = "ingestion.staleness_monitor:main"

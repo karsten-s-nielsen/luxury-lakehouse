@@ -4833,6 +4833,15 @@ models:
         data_type: double
       - name: elastic_error_seconds
         data_type: double
+      - name: elastic_receive_frame_id
+        data_type: bigint
+        description: "Receiving-touch frame anchored by silly-kicks 4.114 TF-57 ELASTIC v2 add_elastic_sync; NULL when no resolvable receive frame."
+      - name: elastic_receive_confidence
+        data_type: double
+        description: "Confidence (0–1) of the elastic receive-frame anchor (silly-kicks 4.114 TF-57 v2). NULL when no receive frame resolved."
+      - name: elastic_receive_error_seconds
+        data_type: double
+        description: "Absolute time error (s) between the action's event time and the anchored receive frame (silly-kicks 4.114 TF-57 v2). NULL when no receive frame resolved."
       - name: shape_graph_density_attacking
         data_type: double
       - name: shape_graph_n_edges_attacking

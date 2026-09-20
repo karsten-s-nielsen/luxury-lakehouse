@@ -467,7 +467,6 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     # wf-football2vec.yaml stays on disk (status: deprecated) but is no
     # longer wired to any TF task or pyproject entry point.
     "compute_embeddings_360": "wf-football2vec-360",
-    "compute_elastic_sync": "wf-elastic-sync",
     "compute_pausa": "wf-obso-pausa",
     "compute_action_context": "wf-action-context",
     # ADR-058: statsbomb sb360 arm of action-context — a single distributed cogroup.applyInPandas

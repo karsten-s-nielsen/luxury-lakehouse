@@ -18,7 +18,8 @@ Fixture layout written::
             meta.parquet                      # home_team_id, home_start_left [, gs_*_json]
             oracle_fct_tracking_context.parquet   # tracking providers (via match_key)
             oracle_fct_pausa_values.parquet       # IDSSE only (idsse_-prefixed match_id)
-            oracle_elastic_sync_results.parquet   # IDSSE only (deduped authoritative set)
+            # oracle_elastic_sync_results.parquet — RETIRED (B-ac): standalone ELASTIC producer gone;
+            # committed file kept as historical evidence only, no longer regenerated here.
 
 Env vars: DATABRICKS_HOST, DATABRICKS_TOKEN, DATABRICKS_SQL_WAREHOUSE_ID.
 
@@ -414,26 +415,12 @@ def _pull_oracles(
     pausa.to_parquet(out_dir / "oracle_fct_pausa_values.parquet", index=False)
     logger.info("  oracle fct_pausa_values: %d rows (match_id=%s)", len(pausa), prefixed)
 
-    # elastic_sync_results — stored under BOTH J03WMX and idsse_J03WMX; keep authoritative (max _ingested_at)
-    elastic = _execute_query_to_df(
-        f"SELECT * FROM {catalog}.{bronze}.elastic_sync_results "  # noqa: S608
-        f"WHERE match_id IN ('{_q(match_id)}', '{_q(prefixed)}')",
-        warehouse_id,
-    )
-    if not elastic.empty:
-        elastic = elastic.copy()
-        elastic["_match_norm"] = elastic["match_id"].astype(str).str.replace("^idsse_", "", regex=True)
-        key_cols = ["_match_norm"] + (["event_id"] if "event_id" in elastic.columns else [])
-        if "_ingested_at" in elastic.columns:
-            elastic = (
-                elastic.sort_values("_ingested_at")
-                .drop_duplicates(subset=key_cols, keep="last")
-                .drop(columns="_match_norm")
-            )
-        else:
-            elastic = elastic.drop(columns="_match_norm")
-    elastic.to_parquet(out_dir / "oracle_elastic_sync_results.parquet", index=False)
-    logger.info("  oracle elastic_sync_results: %d rows (deduped)", len(elastic))
+    # NOTE (B-ac, 2026-09-20): the legacy bronze.elastic_sync_results extraction was REMOVED —
+    # the standalone ELASTIC producer is retired and the table is dropped. Elastic frame linkage now
+    # rides on the AC drain's action-grain columns (elastic_frame_id/_confidence/_error_seconds +
+    # elastic_receive_*) in stg_action_context__values / fct_action_context, already captured by the
+    # action-context oracle. The committed oracle_elastic_sync_results.parquet stays as historical
+    # evidence only (oracle_map.py flags it NOT a usable oracle).
 
 
 # ── CLI ────────────────────────────────────────────────────────────────

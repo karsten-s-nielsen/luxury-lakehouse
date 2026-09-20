@@ -143,7 +143,7 @@ VALIDATED_HF_FLAVOR: str = "l40sx1"
 # uv silent-downgrade footgun (CLAUDE.md): a top-level silly-kicks pin in PEP 723
 # deps silently overrides the wheel's transitive pin — so we do NOT pin it here and
 # instead assert the runtime minimum. Keep in lockstep with the other trainers.
-_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 90, 1)
+_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 120, 0)
 
 
 def _assert_silly_kicks_min() -> None:

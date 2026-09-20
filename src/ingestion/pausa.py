@@ -1,9 +1,12 @@
 """PAUSA batch computation pipeline — temporal judgment, spatial selection, composite score.
 
-Reads pre-computed OBSO scalars from ``pausa_raw_scores`` (produced by D16 GPU
-batch), enriches with event metadata from ``elastic_sync_results`` and
-``stg_idsse__events``, computes PAUSA decomposition, and writes results to
-``bronze.pausa_values`` for downstream dbt mart construction.
+Reads pre-computed OBSO scalars from ``pausa_raw_scores`` (produced by the OBSO
+GPU batch and downloaded by ``import_obso_results``), fills any absent
+event-metadata columns with NULL defaults, computes the PAUSA decomposition, and
+writes results to ``bronze.pausa_values`` for downstream dbt mart construction.
+(The former ``elastic_sync_results`` enrichment reference was removed with the
+B-ac elastic retirement, 2026-09-20 — this pipeline reads ``pausa_raw_scores``
+only; the frame linkage rides in that GPU-batch output.)
 
 PR 7 (ADR-013 second application, after PR 3 fct_xg_predictions_v2): writer
 emits raw native identifiers + predictions to bronze; the gold mart

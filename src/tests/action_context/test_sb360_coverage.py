@@ -68,16 +68,21 @@ def test_sb360_supported_metrics_populate() -> None:
         "gk zone closing-time is velocity-derived -> NULL on velocity-less SB360 freeze-frames (sk 4.87.0)"
     )
     assert df["shape_graph_density_defending"].notna().any()
-    # silly-kicks 4.90.1 velocity-availability contract (their ADR-066/PR-S160): xShotOccurrence's
-    # `speed` is a TRAINED feature, so scoring on a velocity-less-by-design frame (the SB360 freeze-
-    # frame shape, speed_source='unavailable') would make the model impute an input the source
-    # structurally cannot carry — the ADR-053 fabrication shape. compute_xshot_occurrence now WITHHOLDS
-    # it as honest NaN instead of the previous distance-only fallback. Rebaselined from ">0" during the
-    # silly-kicks 4.90.1 adoption (mirrors the gk_closing_time 4.87.0 rebaseline above) — a genuine
-    # coverage change, not a lakehouse regression: honest NULL beats a fabricated score. See ADR-078.
-    assert _nn(df, "xshot_occurrence") == 0, (
-        "xshot_occurrence's speed feature is velocity-derived -> honest NULL on velocity-less SB360 "
-        "freeze-frames (silly-kicks 4.90.1)"
+    # silly-kicks 4.120.0 (sk4118 adoption): xShotOccurrence was REWORKED into the END-BLIND,
+    # event-only `XShotOccurrenceModel` — start-anchored geometry + type + bodypart + time, with NO
+    # velocity feature (CHANGELOG: the xsuccess/xShot family is "start-anchored geometry … never the
+    # realized action end"). It therefore SCORES on velocity-less SB360 freeze-frames, reversing the
+    # 4.90.1 velocity-derived honest-NULL behaviour this assertion previously pinned (which had itself
+    # rebaselined the pre-4.90.1 distance-only fallback). Rebaselined `==0` -> populated-and-valid: a
+    # probability in [0,1] on the rows that carry it — a genuine coverage GAIN, not a regression.
+    # (The differential/oracle side already range-checks xshot_occurrence in [0,1] via INVARIANT_ONLY.)
+    _xshot = pd.to_numeric(df["xshot_occurrence"], errors="coerce").dropna()
+    assert len(_xshot) > 0, (
+        "xshot_occurrence must populate on SB360 under silly-kicks 4.120.0 (END-BLIND event-only "
+        "XShotOccurrenceModel — no velocity feature; scores on velocity-less freeze-frames)"
+    )
+    assert _xshot.between(0.0, 1.0).all(), (
+        f"xshot_occurrence must be a probability in [0,1] on SB360 (min={_xshot.min()}, max={_xshot.max()})"
     )
     # Provenance: voronoi on the SB360 path
     assert df["pitch_control_method"].notna().all()

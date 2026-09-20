@@ -44,9 +44,10 @@ _FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures"
 # than a note.
 _SNAPSHOTTED: tuple[str, ...] = ("statsbomb", "wyscout", "idsse", "skillcorner", "gradientsports")
 
-# Live bronze table count, 2026-08-10. Operator verifies against the catalog; a drift here means
-# bronze gained or lost a table and the inventory needs revisiting.
-_LIVE_BRONZE_TABLE_COUNT = 52
+# Live bronze table count, 2026-08-10 (51 as of 2026-09-20 — elastic_sync_results dropped in the
+# B-ac elastic retirement). Operator verifies against the catalog; a drift here means bronze gained
+# or lost a table and the inventory needs revisiting.
+_LIVE_BRONZE_TABLE_COUNT = 51
 
 
 def _snapshot_tables(provider: str) -> frozenset[str]:
@@ -162,8 +163,9 @@ def test_classified_provider_tables_are_a_known_share_of_bronze() -> None:
     classified = set(NON_CONTRACT_TABLES)
     for provider in PROVIDERS:
         classified |= contract_tables(provider)
-    assert len(classified) == 25, (
-        f"classified {len(classified)} provider bronze tables, expected 25 of the "
+    assert len(classified) == 24, (
+        f"classified {len(classified)} provider bronze tables, expected 24 of the "
         f"{_LIVE_BRONZE_TABLE_COUNT} live (the rest are cross-provider facts like spadl_actions). "
-        f"Recount and update both numbers deliberately."
+        f"Recount and update both numbers deliberately. (25→24 on 2026-09-20: elastic_sync_results "
+        f"dropped in the B-ac elastic retirement.)"
     )

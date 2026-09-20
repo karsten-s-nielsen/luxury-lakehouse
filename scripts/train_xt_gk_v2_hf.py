@@ -78,7 +78,7 @@ VALIDATED_HF_FLAVOR: str = "cpu-basic"
 
 # uv silent-downgrade footgun (CLAUDE.md): a top-level silly-kicks pin in PEP 723 deps silently
 # overrides the wheel's transitive pin, so we do NOT pin it and assert the runtime minimum instead.
-_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 90, 1)
+_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 120, 0)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
 logger = logging.getLogger(__name__)

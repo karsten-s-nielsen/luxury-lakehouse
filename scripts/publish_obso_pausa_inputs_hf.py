@@ -9,7 +9,7 @@
 #     "huggingface-hub>=1.5.0",
 # ]
 # ///
-"""Publish OBSO+PAUSA prerequisite inputs (IDSSE events + ELASTIC sync) to HF Hub.
+"""Publish OBSO+PAUSA prerequisite inputs (IDSSE SPADL actions + ELASTIC action-frame alignment) to HF Hub.
 
 Migrated from notebooks/publish_obso_data.py per HF4 (SK3-MIG-B). PEP 723
 single-file: runs locally + on HF Jobs. Uses Databricks SQL Statement Execution
@@ -48,32 +48,34 @@ logger = logging.getLogger(__name__)
 HF_ORG = "luxury-lakehouse"
 DATASET_REPO = f"{HF_ORG}/obso-pausa-inputs"
 
-# Combine IDSSE events + ELASTIC sync results in a single denormalized payload.
+# IDSSE SPADL actions + their ELASTIC action-frame alignment, in a single denormalized payload.
+# B-ac (2026-09-20): elastic is now the AC drain's action-grain output (elastic_frame_id +
+# elastic_receive_*), sourced from stg_action_context__values — the retired standalone
+# bronze.elastic_sync_results (event-grain) is gone. access_tier is stamped per-row on the AC
+# rows (ADR-064), so no dim_matches join is needed; the NULL-tier fail-loud in main() still holds.
+# The elastic_frame_id IS NOT NULL filter is the action-grain equivalent of the old event INNER
+# JOIN — only actions ELASTIC actually anchored to a frame ship (unaligned actions are dropped).
 _INPUTS_SQL = """\
 SELECT
-    e.match_id,
-    e.event_id,
-    e.event_type,
-    e.timestamp_seconds,
-    e.period,
-    e.player_id,
-    e.team,
-    e.x,
-    e.y,
-    sync.frame_id,
-    sync.alignment_confidence,
-    sync.alignment_error_seconds,
-    dm.access_tier
-FROM soccer_analytics.bronze.idsse_events e
-INNER JOIN soccer_analytics.bronze.elastic_sync_results sync
-    ON e.match_id = sync.match_id AND e.event_id = sync.event_id
--- ADR-072 / R-13: prepare_public_upload refuses a frame with no access_tier column, so "no
--- restricted rows" and "no tier column" are not interchangeable. idsse_events carries the NATIVE
--- string match id, so the join is on (provider, native_match_id) — NOT match_key, which this
--- bronze source does not have. IDSSE is public-by-licence, so this publisher stays fail_closed;
--- the join lets it PROVE that rather than assume it.
-LEFT JOIN soccer_analytics.dev_gold.dim_matches dm
-    ON dm.provider = 'idsse' AND dm.native_match_id = e.match_id
+    ac.native_match_id AS match_id,
+    ac.action_id,
+    ac.type_name,
+    ac.period_id AS period,
+    ac.time_seconds AS timestamp_seconds,
+    ac.player_id_native AS player_id,
+    ac.team_id_native AS team,
+    ac.start_x,
+    ac.start_y,
+    ac.elastic_frame_id,
+    ac.elastic_confidence,
+    ac.elastic_error_seconds,
+    ac.elastic_receive_frame_id,
+    ac.elastic_receive_confidence,
+    ac.elastic_receive_error_seconds,
+    ac.access_tier
+FROM soccer_analytics.dev_silver.stg_action_context__values ac
+WHERE ac.data_source = 'idsse'
+    AND ac.elastic_frame_id IS NOT NULL
 """
 
 
@@ -116,17 +118,21 @@ def main() -> None:
 
     df = query_databricks_sql(host, db_token, _INPUTS_SQL, warehouse_id)
     if df.empty:
-        raise RuntimeError("Query returned 0 rows — verify idsse_events + elastic_sync_results are populated")
+        raise RuntimeError(
+            "Query returned 0 rows — verify stg_action_context__values (data_source='idsse') is "
+            "populated with elastic_frame_id (the AC drain must have run for IDSSE)"
+        )
     logger.info("Retrieved %s rows across %s matches", f"{len(df):,}", df["match_id"].nunique())
 
-    # R-13: LEFT JOIN on dim_matches, so an unmatched match yields NULL. split_restricted
-    # fail-safes NULL to restricted, which for this fail_closed publisher would silently WITHHOLD
-    # public open data. Fail loud instead.
+    # R-13 (B-ac): access_tier is stamped per-row on the AC rows (ADR-064), not joined from
+    # dim_matches. A NULL here means a pre-cycle AC row that predates the tier stamp; split_restricted
+    # fail-safes NULL to restricted, which for this fail_closed public-by-licence publisher would
+    # silently WITHHOLD public open data. Fail loud instead (the AC re-materialize backfills the tier).
     unmatched = int(df["access_tier"].isna().sum())
     if unmatched:
         raise RuntimeError(
             f"publish_obso_pausa_inputs_hf: {unmatched} rows have NULL access_tier "
-            f"(idsse match_id missing from dim_matches) — refusing to publish and silently withhold public data"
+            f"(idsse AC rows missing the ADR-064 tier stamp) — refusing to publish and silently withhold public data"
         )
 
     prepared = prepare_public_upload(df, publisher="publish_obso_pausa_inputs_hf")

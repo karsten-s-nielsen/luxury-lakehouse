@@ -9,85 +9,61 @@ tags:
   - obso
   - pausa
   - elastic-sync
-  - event-data
+  - action-data
   - idsse
   - bundesliga
 size_categories: [1K<n<10K]
-configs:
-  - config_name: events
-    data_files:
-      - split: train
-        path: "data/events/**/*.parquet"
-  - config_name: elastic_sync
-    data_files:
-      - split: train
-        path: "data/elastic_sync/**/*.parquet"
 ---
 
-# OBSO/PAUSA Input Data &mdash; IDSSE Events + ELASTIC Sync
+# OBSO/PAUSA Input Data &mdash; IDSSE SPADL Actions + ELASTIC Action-Frame Alignment
 
-Input event data and ELASTIC event-tracking synchronization results for OBSO/PAUSA computation &mdash; **two configs** covering DFL match events and their frame-level alignment to 25fps IDSSE tracking data. These inputs feed the Off-Ball Scoring Opportunity (OBSO) and PAUSA pass-timing pipelines.
+Input data for OBSO/PAUSA computation: one denormalized row per IDSSE SPADL action that the ELASTIC algorithm anchored to a tracking frame, carrying the action's start location plus its ELASTIC start-frame and reception-frame alignment against 25fps IDSSE tracking data. These inputs feed the Off-Ball Scoring Opportunity (OBSO) and PAUSA pass-timing pipelines.
 
 Part of the (Right! Luxury!) Lakehouse soccer analytics platform.
+
+> **Grain change (2026-09):** this dataset moved from event grain (one row per DFL event, with a separate `elastic_sync` config) to **action grain** (one row per SPADL action). The alignment is now produced by the lakehouse Action-Context drain's ELASTIC v2 pass (silly-kicks TF-57), which anchors both the action's start frame and its reception frame &mdash; there is no longer a separate producer or a two-config split.
 
 ## Quick Start
 
 ```python
 from datasets import load_dataset
 
-# Load events
-events = load_dataset("luxury-lakehouse/obso-pausa-inputs", "events")
-df_events = events["train"].to_pandas()
-
-# Load ELASTIC sync results
-sync = load_dataset("luxury-lakehouse/obso-pausa-inputs", "elastic_sync")
-df_sync = sync["train"].to_pandas()
-
-# Join events to their best-matching tracking frame
-merged = df_events.merge(df_sync, on=["match_id", "event_id"], how="inner")
-print(f"{len(merged)} events with frame alignment")
+ds = load_dataset("luxury-lakehouse/obso-pausa-inputs", split="train")
+df = ds.to_pandas()
+# Each row is one ELASTIC-aligned SPADL action; look up the tracking frame directly.
+print(f"{len(df)} actions with frame alignment across {df['match_id'].nunique()} matches")
 ```
 
 > **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 ## What Is This Dataset?
 
-This dataset provides the **input layer** for OBSO and PAUSA computation. It contains two configs:
+This dataset provides the **input layer** for OBSO and PAUSA computation: IDSSE SPADL actions denormalized with their ELASTIC frame alignment. The alignment is the output of the ELASTIC algorithm (Kim et al. 2025) as implemented in silly-kicks' ELASTIC v2 (TF-57), which synchronizes each action to its best-matching tracking frame &mdash; both the frame where the action starts and the frame where it is received &mdash; enabling event-tracking fusion without annotated event locations. Downstream pipelines compute pitch control at the exact moment of each action by looking up the corresponding tracking frame. Only actions that ELASTIC anchored to a frame are included.
 
-1. **`events`** &mdash; Match events extracted from IDSSE open data in DFL format (Play, KickOff, TacklingGame, etc.) with pitch coordinates in meters.
-2. **`elastic_sync`** &mdash; The output of the ELASTIC algorithm (Kim et al. 2025) that synchronizes each event to its best-matching tracking frame, enabling event-tracking fusion without annotated event locations.
-
-Together, these allow downstream pipelines to compute pitch control at the exact moment of each event by looking up the corresponding tracking frame.
-
-## Data Fields &mdash; `events` Config
+## Data Fields
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `match_id` | `string` | Match identifier |
-| `event_id` | `string` | Unique event identifier |
-| `event_type` | `string` | DFL event type (Play, KickOff, TacklingGame, etc.) |
-| `timestamp_seconds` | `double` | Elapsed time in seconds from period start |
-| `period` | `int` | Match period (1 or 2) |
-| `player_id` | `string` | DFL PersonId of the acting player |
-| `team` | `string` | Team affiliation (`home` or `away`) |
-| `x` | `double` | Event x-coordinate (meters, 0&ndash;105) |
-| `y` | `double` | Event y-coordinate (meters, 0&ndash;68) |
-
-## Data Fields &mdash; `elastic_sync` Config
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `match_id` | `string` | Match identifier |
-| `event_id` | `string` | Event identifier (join key to `events` config) |
-| `frame_id` | `int` | Best-matching tracking frame number |
-| `alignment_confidence` | `double` | ELASTIC alignment confidence (0&ndash;1, higher = more confident) |
-| `alignment_error_seconds` | `double` | Estimated temporal error of the alignment in seconds |
+| `match_id` | `string` | Match identifier (partition key; native IDSSE match id) |
+| `action_id` | `bigint` | SPADL action identifier within the match |
+| `type_name` | `string` | SPADL action type (`pass`, `shot`, `cross`, etc.) |
+| `period` | `bigint` | Match period (1 or 2) |
+| `timestamp_seconds` | `double` | Action time in seconds from period start |
+| `player_id` | `string` | Native DFL PersonId of the acting player |
+| `team` | `string` | Native DFL team identifier of the acting player |
+| `start_x` | `double` | Action start x-coordinate (SPADL meters, 0&ndash;105, home-LTR) |
+| `start_y` | `double` | Action start y-coordinate (SPADL meters, 0&ndash;68, home-LTR) |
+| `elastic_frame_id` | `int` | Best-matching tracking frame for the action's start |
+| `elastic_confidence` | `double` | ELASTIC start-frame confidence (0&ndash;1, higher = more confident) |
+| `elastic_error_seconds` | `double` | Estimated temporal error of the start-frame alignment (seconds) |
+| `elastic_receive_frame_id` | `int` | Best-matching tracking frame for the action's reception (NULL if none) |
+| `elastic_receive_confidence` | `double` | ELASTIC reception-frame confidence (0&ndash;1) |
+| `elastic_receive_error_seconds` | `double` | Estimated temporal error of the reception-frame alignment (seconds) |
+| `access_tier` | `string` | Per-row redistribution tier (`public` for this open-data IDSSE dataset) |
 
 ### Coordinate System
 
-**Events**: DFL pitch-origin meters (105&times;68m). The origin (0, 0) is at the center of one goal line; x runs along the pitch length (0&ndash;105m), y along the width (0&ndash;68m).
-
-**ELASTIC sync**: Frame IDs reference 25fps IDSSE tracking data. Each `frame_id` maps to a specific instant in the tracking timeline.
+Action coordinates are canonical SPADL meters on a 105&times;68m pitch, oriented home left-to-right. `elastic_frame_id` / `elastic_receive_frame_id` reference 25fps IDSSE tracking data &mdash; each maps to a specific instant in the tracking timeline.
 
 ## Data Sources
 
@@ -108,8 +84,9 @@ The IDSSE (Integrated Dataset of Spatiotemporal and Event Data in Elite Soccer) 
 
 - **Small sample**: Only 7 Bundesliga matches from the IDSSE open data release. Results may not generalize across leagues or tactical systems.
 - **ELASTIC alignment accuracy**: Synchronization quality depends on event timing precision in the source data. Events with ambiguous timestamps may have lower `alignment_confidence`.
-- **DFL event taxonomy**: Event types follow DFL conventions, which differ from StatsBomb or Opta taxonomies. Cross-provider comparisons require mapping.
-- **No ball tracking in events**: Event coordinates represent player position at the moment of action, not ball trajectory.
+- **SPADL action taxonomy**: `type_name` follows the canonical SPADL vocabulary derived from DFL events; cross-provider comparisons that assume raw DFL or StatsBomb/Opta taxonomies require mapping.
+- **Aligned actions only**: rows exist only for actions ELASTIC anchored to a tracking frame (`elastic_frame_id` non-NULL); actions with no resolvable frame are absent.
+- **Action start coordinates**: `start_x`/`start_y` are the acting player's position at the action start, not ball trajectory.
 
 ## Citation
 
