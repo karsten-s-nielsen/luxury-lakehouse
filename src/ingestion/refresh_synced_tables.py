@@ -241,6 +241,13 @@ SYNCED_TABLES: list[SyncedTableConfig] = [
     # GK insight-views redesign: pooled shot-stopping (goals-prevented band) + per-GK defensive line.
     SyncedTableConfig("fct_gk_shot_stopping_pooled_synced", "fct_gk_shot_stopping_pooled", ("gk_pooled_id",)),
     SyncedTableConfig("fct_gk_defensive_line_synced", "fct_gk_defensive_line", ("gk_defensive_line_id",)),
+    # sk4118 P1 metric marts (Phases A/B-E/C). Match-aggregate grain (team-match / keeper-decision /
+    # player-match), well under the ~100K-row index threshold, so SNAPSHOT (full re-snapshot on refresh)
+    # like the sibling aggregate marts (fct_goalkeeper_stats, fct_match_summary, fct_player_stats). Not
+    # TRIGGERED → not in dbt_project.yml triggered_synced_marts (no CDF contract, no strand concern).
+    SyncedTableConfig("fct_team_metrics_synced", "fct_team_metrics", ("team_metrics_id",)),
+    SyncedTableConfig("fct_gk_decision_synced", "fct_gk_decision", ("gk_decision_id",)),
+    SyncedTableConfig("fct_player_match_metrics_synced", "fct_player_match_metrics", ("player_match_metrics_id",)),
 ]
 
 POLL_INTERVAL_S = 30

@@ -961,8 +961,18 @@ resource "databricks_job" "data_ingestion" {
     # (ADR-066; enforced by test_workflow_dag_bronze_reads).
     depends_on { task_key = "compute_xg_shot_scores" }
     depends_on { task_key = "dbt_build_intermediate_marts" }
+    # sk4118 P1 Task C2: bronze.duels (per-player Glicko-2 ground-duel rating) feeds the new
+    # fct_player_match_metrics mart built here.
+    depends_on { task_key = "duels_writer" }
     # ADR-074/SEC7: was `hf_sync` — this is the only leg it needed (psxg_predictions).
     depends_on { task_key = "import_psxg_predictions" }
+    # sk4118 P1 Task B1: bronze.shot_stopping (Goals Prevented / GSAA) feeds the re-sourced
+    # fct_gk_shot_stopping / _pooled marts built here. The writer reads fct_shot_psxg
+    # today's-gold-tolerantly, so this edge is one-directional (no cycle).
+    depends_on { task_key = "shot_stopping_writer" }
+    # sk4118 P1 Task C1: bronze.territory (per-defender territorial dominance) feeds the new
+    # fct_player_match_metrics mart built here.
+    depends_on { task_key = "territory_writer" }
     # Off-ball-runs + defensive-credit bronze (fct_off_ball_runs / fct_action_defensive /
     # fct_defensive_credit_attributions) are written per-unit by the tracking-marts drain;
     # the gate grandfathers the drain's completion. (Replaces the 3 removed grain-mart writers.)
@@ -978,6 +988,34 @@ resource "databricks_job" "data_ingestion" {
     run_if = "ALL_DONE"
 
     environment_key = "dbt"
+  }
+
+  # ── Task: Score ground-duel Glicko-2 ratings (ADR-013, sk4118 P1 Task C2) ─
+  # Reads bronze.spadl_actions, computes the per-(match, player) Glicko-2 ground-duel
+  # rating via silly-kicks compute_duel_ratings, and writes bronze.duels. STATEFUL —
+  # a SINGLE-DRIVER ORDERED PASS (ratings carry forward across matches in ascending
+  # game_id), NOT applyInPandas. Depends only on the SPADL bronze producer
+  # (compute_spadl_vaep). Per-PLAYER evaluative. Governance: wf-duels. (Task blocks
+  # are alphabetical — this sits between dbt_build_output_marts and
+  # extract_tracking_metadata per test_workflows_tf_ordering.)
+  task {
+    task_key        = "duels_writer"
+    timeout_seconds = 1800
+    max_retries     = 0
+
+    depends_on {
+      task_key = "compute_spadl_vaep"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "duels_writer"
+      parameters = [
+        "--catalog", var.catalog_name,
+      ]
+    }
+
+    environment_key = "analytics"
   }
 
   # ── Task: Extract tracking player metadata ─────────────────────────────
@@ -1297,6 +1335,38 @@ resource "databricks_job" "data_ingestion" {
     }
 
     environment_key = "default"
+  }
+
+  # ── Task: Score match outcome (ADR-013, sk4118 P1 Task A2) ──────────────
+  # Reads bronze.spadl_actions LEFT-joined to per-shot xG (bronze.xg_shot_predictions),
+  # simulates the per-(match, team) win/draw/loss + xPoints via silly-kicks
+  # compute_match_outcome, and writes bronze.match_outcome. Event-only across ALL
+  # providers, dispatched per match via applyInPandas. Depends on the SPADL bronze
+  # producer + the xG scorer. Per-TEAM aggregate, NOT per-player-evaluative.
+  # Governance: wf-match-outcome. (Task blocks are alphabetical — this sits between
+  # ingest_wyscout and preflight_action_context per test_workflows_tf_ordering.)
+  task {
+    task_key        = "match_outcome_writer"
+    timeout_seconds = 1800
+    max_retries     = 0
+
+    depends_on {
+      task_key = "compute_spadl_vaep"
+    }
+
+    depends_on {
+      task_key = "compute_xg_shot_scores"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "match_outcome_writer"
+      parameters = [
+        "--catalog", var.catalog_name,
+      ]
+    }
+
+    environment_key = "analytics"
   }
 
   # ── Task: Action-context preflight — discover units + fill work-queue ──
@@ -1636,6 +1706,95 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
+  # ── Task: Score GK shot-stopping (ADR-013, sk4118 P1 Task B1) ──────────
+  # Reads bronze.spadl_actions + the gold Post-Shot xG fact fct_shot_psxg, derives the
+  # defending keeper's team from a per-match map, and computes Goals Prevented / GSAA per
+  # keeper via silly-kicks compute_shot_stopping -> bronze.shot_stopping. Event-only across
+  # ALL providers, dispatched per match via applyInPandas. Depends on the SPADL producer only.
+  # It READS fct_shot_psxg (an output mart) TODAY's-GOLD-tolerantly — like compute_xg_shot_scores
+  # reading fct_action_values — and its output bronze.shot_stopping is consumed by
+  # dbt_build_output_marts (which depends_on this task) to (re-)build fct_gk_shot_stopping. A
+  # depends_on dbt_build_output_marts here would CYCLE (that task depends on this one). Per-KEEPER
+  # evaluative. Governance: wf-shot-stopping. (Task blocks are alphabetical — this sits between
+  # run_staleness_monitor and team_metrics_writer per test_workflows_tf_ordering.)
+  task {
+    task_key        = "shot_stopping_writer"
+    timeout_seconds = 1800
+    max_retries     = 0
+
+    depends_on {
+      task_key = "compute_spadl_vaep"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "shot_stopping_writer"
+      parameters = [
+        "--catalog", var.catalog_name,
+      ]
+    }
+
+    environment_key = "analytics"
+  }
+
+  # ── Task: Score team-match KPIs (ADR-013, sk4118 P1 Task A1) ────────────
+  # Reads bronze.spadl_actions, computes the per-(match, team) 44-KPI team_metrics
+  # aggregate via silly-kicks compute_team_kpis, and writes bronze.team_metrics.
+  # Event-only across ALL providers, dispatched per match via applyInPandas.
+  # Depends only on the SPADL bronze producer (compute_spadl_vaep). Per-TEAM
+  # aggregate, NOT per-player-evaluative. Governance: wf-team-metrics. (Task blocks
+  # are alphabetical — this sits between run_staleness_monitor and
+  # verify_action_context_drain per test_workflows_tf_ordering.)
+  task {
+    task_key        = "team_metrics_writer"
+    timeout_seconds = 1800
+    max_retries     = 0
+
+    depends_on {
+      task_key = "compute_spadl_vaep"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "team_metrics_writer"
+      parameters = [
+        "--catalog", var.catalog_name,
+      ]
+    }
+
+    environment_key = "analytics"
+  }
+
+  # ── Task: Score territorial dominance (ADR-013, sk4118 P1 Task C1) ──────
+  # Reads bronze.spadl_actions, fits an ExpectedThreat once at the driver +
+  # constructs PassCompletionModel.bundled(), and computes the per-(match, player)
+  # territorial-dominance metric for BOTH methods (completed_failed + counterfactual)
+  # via silly-kicks compute_territorial_dominance, writing bronze.territory (the 20-col
+  # counterfactual union). Event-only across ALL providers, dispatched per match via
+  # applyInPandas. Depends only on the SPADL bronze producer (compute_spadl_vaep).
+  # Per-PLAYER evaluative (ranking-licensed). Governance: wf-territory. (Task blocks are
+  # alphabetical — this sits between team_metrics_writer and verify_action_context_drain
+  # per test_workflows_tf_ordering.)
+  task {
+    task_key        = "territory_writer"
+    timeout_seconds = 1800
+    max_retries     = 0
+
+    depends_on {
+      task_key = "compute_spadl_vaep"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "territory_writer"
+      parameters = [
+        "--catalog", var.catalog_name,
+      ]
+    }
+
+    environment_key = "analytics"
+  }
+
   # ── Task: D8 — action-context drain completeness gate ──────────────────
   # The FAN-IN over BOTH action-context producers: the 8-way `compute_action_context`
   # drain for_each AND `compute_action_context_statsbomb` (sb360 exits the per-match
@@ -1757,7 +1916,7 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path,
-        "silly-kicks[das,ghost-gk,parse-dfl]==4.120.0",
+        "silly-kicks[das,ghost-gk,parse-dfl]==4.121.0",
         "accessible-space==2.0.15",
         # numba: silly-kicks ships @njit kernels for pitch control + ball-carrier
         # (tracking/pitch_control/_{spearman,fernandez_bornn}.py, tracking/_ball_carrier.py)

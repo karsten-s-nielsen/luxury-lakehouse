@@ -293,7 +293,18 @@ def test_data_ingestion_parser_count_anchor() -> None:
     # 48 → 47 (B-ac elastic retirement, 2026-09-20): `compute_elastic_sync` removed — the standalone
     # ELASTIC producer is retired; elastic frame linkage now rides on the AC drain's action-grain
     # columns. See docs/superpowers/specs/2026-09-17-silly-kicks-4118-adoption-design.md §5.4.
-    assert len(task_keys) == 47, f"expected 47 task blocks on data_ingestion, parser found {len(task_keys)}"
+    # 47 → 49 (sk4118 P1 Phase A, 2026-09-20): added the two event-only team-match writer tasks —
+    # `team_metrics_writer` + `match_outcome_writer` — scheduling the silly-kicks 4.120.0 team_metrics
+    # (TF-52) + match_outcome (TF-53) families into the daily job (fct_team_metrics mart).
+    # 49 → 50 (sk4118 P1 Phase B, 2026-09-20): added the event-only `shot_stopping_writer` task
+    # (silly-kicks 4.120.0 shot_stopping / TF-59 — Goals Prevented / GSAA; re-sources the 3 GK marts).
+    # gk_decision (Phase B2) is TRACKING-consuming and rides the tracking-marts drain (P2 drain-wiring),
+    # so it adds NO data_ingestion task here.
+    # 50 → 52 (sk4118 P1 Phase C, 2026-09-20): added the two event-only player-match writer tasks —
+    # `territory_writer` (silly-kicks 4.120.0 territory / TF-54/TF-54b — per-defender territorial
+    # dominance, BOTH methods) + `duels_writer` (TF-55 — per-player Glicko-2 ground-duel rating, a
+    # single-driver ordered pass) — scheduling the two families into the daily job (fct_player_match_metrics mart).
+    assert len(task_keys) == 52, f"expected 52 task blocks on data_ingestion, parser found {len(task_keys)}"
 
 
 if __name__ == "__main__":

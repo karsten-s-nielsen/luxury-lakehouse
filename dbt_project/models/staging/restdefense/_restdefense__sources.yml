@@ -1,0 +1,31 @@
+version: 2
+
+sources:
+  - name: restdefense
+    description: >
+      Rest-defense L1 + L2 samples (silly-kicks 4.102/4.103 restdefense; sk4118 P1 Phase E). Written by
+      the ingestion.restdefense_writer ADR-013 writer: per tracking work unit it reuses the oriented
+      (actions, frames, xt) the AC drain builds and runs silly-kicks compute_rest_defense, landing one row
+      per in-possession on-ball action = the DEFENDING team's rest-defence geometry at that moment
+      (11 Layer-1 descriptive cols + 5 Layer-2 xT/space-control cols + rd_geometry_source). Layer 2 is NaN
+      without a fitted xt. Descriptive / team-structural — NOT per-player-evaluative (no governance card).
+      Scored per work unit by the tracking-marts drain (P1 Phase E wiring). The table is CREATE-IF-NOT-
+      EXISTS'd by scripts/migrations/2026-09-17-add-restdefense.sql so the staging view resolves (empty)
+      before the Part-B recompute (P2) populates it. Feeds fct_rest_defense.
+    database: soccer_analytics
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 336, period: hour}
+        error_after: {count: 720, period: hour}
+
+    tables:
+      - name: rest_defense
+        description: >
+          One row per (data_source, match_id, period_id, team_id, action_id) = the DEFENDING team's
+          rest-defence shape at that in-possession action. team_id is the sk-emitted (enrichment-mutated)
+          id; team_id_native is the mapped native id for the dim_teams join. Layer-2 cols (attacker space
+          control / danger-behind-line / gk coverage) are NaN without a fitted xt (ADR-033). access_tier
+          (ADR-064) stamped per-row.

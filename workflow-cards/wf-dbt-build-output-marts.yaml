@@ -40,9 +40,9 @@ inputs:
     - id: "{catalog}.bronze.defcon_results"
       source: delta-table
       description: "DEFCON defensive contribution results"
-    - id: "{catalog}.bronze.expected_threat_grids"
+    - id: "{catalog}.bronze.expected_threat_grid_zones"
       source: delta-table
-      description: "Expected threat grid values"
+      description: "Derived 16x12 physical xT zones (ADR-085 G-fix) — source()'d by fct_goalkeeper_stats + fct_action_values (the JSON expected_threat_grids is read by the AC drain, not dbt)"
     - id: "{catalog}.bronze.formation_labels"
       source: delta-table
       description: "Formation labels from formations pipeline"
@@ -180,6 +180,23 @@ outputs:
     - id: "{catalog}.dev_gold.fct_off_ball_runs"
       destination: delta-table
       dbt_model: fct_off_ball_runs
+    # sk4118 P1 Phase A: wide-by-granularity team-match mart (team_metrics + match_outcome).
+    # output_mart per its SQL config tag; ref()s stg_team_metrics / stg_match_outcome (new bronze
+    # staging) + dim_matches / dim_teams — same dependency depth as the other event-only marts.
+    - id: "{catalog}.dev_gold.fct_team_metrics"
+      destination: delta-table
+      dbt_model: fct_team_metrics
+    # sk4118 P1 Phase B/C/E: per-decision GK decision mart, wide player-match mart
+    # (territory + duels), and the rest-defense action-grid mart. All output_mart-tagged.
+    - id: "{catalog}.dev_gold.fct_gk_decision"
+      destination: delta-table
+      dbt_model: fct_gk_decision
+    - id: "{catalog}.dev_gold.fct_player_match_metrics"
+      destination: delta-table
+      dbt_model: fct_player_match_metrics
+    - id: "{catalog}.dev_gold.fct_rest_defense"
+      destination: delta-table
+      dbt_model: fct_rest_defense
 
 execution:
   ingestion:

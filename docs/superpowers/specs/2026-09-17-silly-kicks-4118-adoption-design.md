@@ -57,17 +57,17 @@ ghost-GK serving numba (4.98, bit-identical), CI wall-clock / scale-guard harnes
 
 ## 3. Mechanical bump surface
 
-> **Target pin RESOLVED (2026-09-20) — silly-kicks `4.120.0`.** The cycle pins **4.120.0** (owner: include both further releases). 4.120.0 is additive over the 4.118.0 metric tip and contains: SK-EXPORT `metric_contracts.METRIC_CONTRACTS` (4.119.0), the `secured_reception` robust-sort packing fix (4.119.1 — unblocks the AC `add_packing` on non-chronological persisted bronze), and TF-54b Path B (4.120.0) = the `territory` counterfactual "threat-prevented" method (a NEW metric surface — see P1: territory materializes both `completed_failed` + `counterfactual`; +4 cf cols; ranking-LICENSED per the sk census; `PassCompletionModel.bundled()` re-fit is transparent for the new gk_decision). The per-feature release numbers in §2 (match_outcome 4.118.0, elastic 4.114, …) are unchanged historical facts.
+> **Target pin RESOLVED — silly-kicks `4.121.0`.** The cycle pins **4.121.0** (P0 pinned 4.120.0; the ExT-v2 fold advanced it 4.120.0→4.121.0 — §5.5, re-pin DONE). 4.121.0 is additive over the 4.118.0 metric tip and contains: SK-EXPORT `metric_contracts.METRIC_CONTRACTS` (4.119.0), the `secured_reception` robust-sort packing fix (4.119.1 — unblocks the AC `add_packing` on non-chronological persisted bronze), TF-54b Path B (4.120.0) = the `territory` counterfactual "threat-prevented" method (a NEW metric surface — see P1: territory materializes both `completed_failed` + `counterfactual`; +4 cf cols; ranking-LICENSED per the sk census; `PassCompletionModel.bundled()` re-fit is transparent for the new gk_decision), and (4.121.0) the `ExpectedThreat` serialize seam `to_dict`/`from_dict` (ADR-100) that the ExT-v2 single-canonical-surface xT-leg consumes (§5.5). The per-feature release numbers in §2 (match_outcome 4.118.0, elastic 4.114, …) are unchanged historical facts.
 
-All must move 4.90.1 → 4.120.0 in lockstep (`[sk-bump-sentinels]`):
+All must move 4.90.1 → 4.121.0 in lockstep (`[sk-bump-sentinels]`) — P0 moved to 4.120.0, the ExT-v2 fold re-pinned to 4.121.0 (DONE):
 
 - **7 trainer `_REQUIRED_SK_MIN`**: `scripts/train_{football2vec,football2vec_360,football2vec_v2,scoutgpt_hf,vaep_model_hf,xg_v3_hf,xt_gk_v2_hf}.py`.
 - **6 ingestion `_REQUIRED_SK_MIN`**: `src/ingestion/{bravery_writer,defensive_credit_writer,exec_visibility,gkdv_writer,off_ball_runs_writer,xt_gk_v2_writer}.py`.
-- **Terraform env pin**: `terraform/modules/workflows/main.tf` `silly-kicks[das,ghost-gk,parse-dfl]==4.120.0` (ADR-046; via `scripts/sync_tf_env_pins.py`, never hand-edited).
-- **pyproject floor**: `silly-kicks[das,ghost-gk,parse-dfl]>=4.120.0,<5`.
+- **Terraform env pin**: `terraform/modules/workflows/main.tf` `silly-kicks[das,ghost-gk,parse-dfl]==4.121.0` (ADR-046; via `scripts/sync_tf_env_pins.py`, never hand-edited).
+- **pyproject floor**: `silly-kicks[das,ghost-gk,parse-dfl]>=4.121.0,<5`.
 - **uv.lock**: `uv lock --upgrade-package silly-kicks` (also pulls ruthless-efficiency 0.6.0 + any transitive moves).
-- **`scripts/submit_ac1_oneshot.py`** PEP 723 pin `silly-kicks[...]==4.120.0`.
-- **Hardcoded sentinel tuples** to update to `(4, 120, 0)`: `src/tests/test_sk3_mig_b_orchestrator_invariants.py` (`expected` + the `§2.10.5` header/comment) and `src/tests/test_train_xt_gk_v2.py`. `test_executor_env_guard.py` asserts equality to the pyproject floor (no literal to change, but must pass).
+- **`scripts/submit_ac1_oneshot.py`** PEP 723 pin `silly-kicks[...]==4.121.0`.
+- **Hardcoded sentinel tuples** to update to `(4, 121, 0)`: `src/tests/test_sk3_mig_b_orchestrator_invariants.py` (`expected` + the `§2.10.5` header/comment) and `src/tests/test_train_xt_gk_v2.py`. `test_executor_env_guard.py` asserts equality to the pyproject floor (no literal to change, but must pass).
 - Re-run `test_terraform_env_dep_parity`, `test_executor_env_guard`, `test_sk3_mig_b_orchestrator_invariants` after the sync.
 
 Follow the uv silent-downgrade guidance: no explicit sk pin in PEP 723 scripts beyond the wheel `[spadl]` extra where possible; `submit_ac1_oneshot.py`'s explicit pin keeps its runtime `_REQUIRED_SK_MIN`-style assert.
@@ -121,10 +121,19 @@ Scope (in-scope, this cycle):
 
 Coverage: IDSSE SPADL actions with a resolved elastic anchor (from the AC drain) — events with no SPADL action drop out, as accepted for action grain. No `wf-elastic-sync` re-run in §6; elastic ships with the AC drain re-materialize.
 
+### 5.5 xT surface — ExT-v2 single-canonical-surface migration (DECISION — owner 2026-09-21, option B, folded into P1)
+
+The `territory` counterfactual needs a **fitted** sk `ExpectedThreat` (`.xT` + `.transition_matrix`); the in-repo v1 `analytics/expected_threat.py` grid is value-only and a *different* surface from what the AC drain, off-ball-xt and GK consume. Two forks were surfaced with recommendations; the owner chose the gold-standard both times:
+
+- **xT source:** fold the parked **ExT-v2 promotion** into this cycle — retire v1 `analytics/expected_threat.py`; the ONE canonical xT surface everywhere is a fitted sk `ExpectedThreat` (sk **4.121.0**, ADR-100 `to_dict`/`from_dict` — a NEW sk cross-repo release this cycle drove: spec/plan/impl reviewed by the lakehouse session → APPROVE, `_reviews/2026-09-20-expectedthreat-serialize-seam-*`). Persist it once to bronze `expected_threat_grids` as `to_dict` JSON; every consumer reconstructs via `from_dict`.
+- **Fold vs own-cycle:** **fold into the P1 combined commit (option (ii)); nothing deferred.**
+
+Canonical grid **16×12** (sk default + `territory_writer._XT_L/_XT_W`). v1 was 12×8, so **every xt-derived AC value re-baselines** → AC golden re-baseline + **the forced AC re-materialize (§6 step 2) also carries the sk-xT re-baseline**. Consumers re-pointed: the bronze producer (`ingestion/expected_threat.py` + `scripts/compute_xt_grid_hf.py`), the AC drain loader (`ingestion/action_context.py`; `analytics/action_context/pipeline.py` ALREADY imports sk `ExpectedThreat`), `analytics/off_ball_xt.py`, `analytics/goalkeeper.py`, `territory_writer.py` (drops its driver-fit), VAEP xt-features, and the xt-grid dbt seed. `analytics/ext_v2/*` (a v1-`XTGrid`-dependent Optuna research harness — NOT the replacement) is retired with v1. **ADR-worthy** (retires a cross-cutting module + replaces the canonical xT surface with a downstream contract) → lakehouse **ADR-085** records it (created in Phase G Task G5). Full mechanics: **plan Phase G**. sk 4.121.0 re-pin is DONE (full sentinel set).
+
 ## 6. Recompute & re-fit sequencing (single ordered operator run)
 
 1. Land the bump + code adoptions (breaking APIs; the B1 elastic **B-ac** change — RETIRE `wf-elastic-sync`, delete `ingestion/elastic_sync.py` + `analytics/elastic_sync.py`, re-point PAUSA/OBSO/oracle/dbt to the AC drain's elastic columns, DROP `bronze.elastic_sync_results`) + new-metric writers/marts (code only; CI green).
-2. **AC drain re-materialize** (schema + values): wipe AC bronze → `run_now [preflight, compute_action_context, compute_action_context_statsbomb, verify_action_context_drain]` → rebuild AC staging → `rederive_synced_marts --rebuild` for AC-derived marts.
+2. **ExT-v2 canonical xT producer FIRST (§5.5 / Phase G)**: run the bronze `expected_threat_grids` sk-`ExpectedThreat().fit → to_dict` producer (16×12) — it is the AC drain's xT input, so it must land before the AC re-materialize. Apply the `expected_threat_grids` to-`to_dict` schema migration. THEN **AC drain re-materialize** (schema + values, now also re-baselining every xt-derived AC column on the 16×12 sk surface): wipe AC bronze → `run_now [preflight, compute_action_context, compute_action_context_statsbomb, verify_action_context_drain]` → rebuild AC staging → `rederive_synced_marts --rebuild` for AC-derived marts. off_ball_xt / GK / territory re-materialize on the same corpus.
 3. **B1 elastic-chain re-materialize (action grain, source-from-AC — §5.4 Option B-ac)**: NO separate `wf-elastic-sync` run — the action-grain elastic columns arrive with the AC drain re-materialize (step 2). Apply the `DROP TABLE IF EXISTS elastic_sync_results` migration → re-materialize the PAUSA/OBSO downstream (`fct_pausa_*`, OBSO) reading the AC drain's elastic columns → refresh the OBSO/PAUSA HF publish (`publish_obso_pausa_inputs_hf.py`, now action-grain, sourced from `fct_action_context`).
 4. **Tracking-marts drain**: re-enable gkdv (batched) + re-materialize off_ball_runs / defensive_credit / gkdv (+ `compute_gkdv_pool`).
 5. **xt_gk_v2 re-fit** (`train_xt_gk_v2_hf`) + re-materialize `xt_gk_v2_predictions`.

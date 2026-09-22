@@ -1,0 +1,97 @@
+---
+name: Team Metrics — Team-Match KPI Glossary
+id: wf-team-metrics
+version: "1.0"
+status: development
+type: heuristic
+domain: team-analytics
+owners:
+  - karsten
+tags:
+  - team-metrics
+  - team-analytics
+  - match-report
+  - deterministic
+
+governance:
+  eu_ai_act: not-high-risk-under-current-posture
+  annex_iii_category: "Not in scope — per-TEAM aggregate, not a per-player evaluation"
+  reference: AI_GOVERNANCE.md
+
+# team_metrics is a per-TEAM aggregate (44 KPIs describing team structure/tactics), NOT a
+# per-player-evaluative system — it is DELIBERATELY EXCLUDED from PER_PLAYER_EVALUATIVE_CARDS in
+# src/tests/test_ai_governance_md.py (no EU-AI-Act model card). The KPI glossary is Twelve
+# match-report practitioner vocabulary (Sumpter / Twelve.football), attributed in NOTICE +
+# ARCHITECTURE.md Appendix D; the KPIs themselves are deterministic event aggregates with no
+# published academic paper of their own, so this card carries no methodology `references`.
+references: []
+
+inputs:
+  datasets:
+    - id: "{catalog}.bronze.spadl_actions"
+      source: delta-table
+      description: "SPADL actions (canonical columns + shot_blocked / cross_blocked enrichments; event-only, all providers)"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.team_metrics"
+      destination: delta-table
+      description: "Per-(match, team) 44-KPI team-metrics aggregate written by team_metrics_writer (ADR-013), native ids"
+    - id: "{catalog}.dev_gold.fct_team_metrics"
+      destination: delta-table
+      description: "Wide-by-granularity team-match mart carrying the 44 team_metrics KPIs (+ match_outcome); dbt-built, contract-enforced (ADR-013)"
+
+execution:
+  # Deterministic-method card carrying its own scheduled compute phase (like wf-bravery). Event-only
+  # across all providers: reads bronze.spadl_actions and computes the per-(match, team) KPIs via
+  # applyInPandas. Needs silly-kicks -> environment: analytics.
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: team_metrics_writer
+    module: ingestion.team_metrics_writer
+    distribution: applyInPandas
+    partition_key: match_id_native
+    schedule: "daily 06:00 UTC"
+    timeout: "1800s"
+    environment: analytics
+
+depends_on:
+  - wf-vaep
+
+monitoring:
+  freshness_sla_hours: 168
+
+links:
+  source_code:
+    - "src/ingestion/team_metrics_writer.py"
+---
+
+## Overview
+
+Team Metrics is the per-`(match, team)` KPI glossary: 44 team-match measures spanning the Twelve
+match-report set (PPDA, field tilt, pass tempo, line heights, recoveries, the conversion chain) and
+the event-based practitioner set (counter-press windows, post-regain security, build-up taxonomy,
+breakout-by-channel, switch-conditioned press). It is an event-only metric covering every event
+provider (StatsBomb / Wyscout / IDSSE / Metrica / SkillCorner / GradientSports).
+
+This is a **methodology card** for the silly-kicks 4.120.0 `team_metrics.compute_team_kpis` family
+(TF-52). The materialising ADR-013 writer (`src/ingestion/team_metrics_writer.py`) reads
+`bronze.spadl_actions`, computes the KPIs per team, and lands them in bronze for dbt to join into the
+wide-by-granularity team-match mart `fct_team_metrics` (shared with `match_outcome`). It is scheduled
+into the daily job via the `inference` execution phase above (entry point `team_metrics_writer`,
+`analytics` environment), running after the SPADL/VAEP producer.
+
+## Algorithm
+
+`compute_team_kpis` rests on `spadl.add_possessions` (deriving possessions from the SPADL actions) and
+computes the 44 KPIs per `(game_id, team_id)`. Native `(match_id, team_id)` are emitted and resolved to
+Kimball surrogates (`match_key` / `team_key`) in dbt. The computation is deterministic — no trained
+weights.
+
+## Governance
+
+Team Metrics is **per-team**, not per-player-evaluative: every KPI describes the team's collective
+structure or tempo, never an individual player's performance. It is therefore excluded from the
+`PER_PLAYER_EVALUATIVE_CARDS` inventory and carries no EU-AI-Act model card
+(see [`AI_GOVERNANCE.md`](../AI_GOVERNANCE.md) §5/§6).

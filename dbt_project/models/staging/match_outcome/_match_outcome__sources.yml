@@ -1,0 +1,29 @@
+version: 2
+
+sources:
+  - name: match_outcome
+    description: >
+      Per-(match, team) match-outcome win probabilities (silly-kicks 4.120.0 TF-53; sk4118 P1 Task A2).
+      Written by the ingestion.match_outcome_writer ADR-013 writer: it reads bronze.spadl_actions
+      (event-only, all providers) LEFT-joined to per-shot xG from bronze.xg_shot_predictions and runs
+      silly-kicks compute_match_outcome — an exact Poisson-binomial simulation of win/draw/loss + xPoints
+      + expected_goals, with possession-collapse + Dixon-Coles corrections ON by default (sk:ADR-097).
+      Feeds the wide-by-granularity team-match mart fct_team_metrics. The table is CREATE-IF-NOT-EXISTS'd
+      by scripts/migrations/2026-09-17-add-match-outcome.sql so the staging view resolves (empty) before
+      the Part-B scoring run populates it.
+    database: soccer_analytics
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 168, period: hour}
+        error_after: {count: 336, period: hour}
+
+    tables:
+      - name: match_outcome
+        description: >
+          One row per (data_source, match_id, team_id). team_id + match_id are NATIVE (surrogates
+          resolve in stg_match_outcome / fct_team_metrics). access_tier (ADR-064) is stamped per-row at
+          write time from the match's SPADL-bronze access_tier. p_win + p_draw + p_loss sum to ~1;
+          xpoints = 3*p_win + p_draw.

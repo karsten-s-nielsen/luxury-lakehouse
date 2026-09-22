@@ -6,13 +6,12 @@ import pytest
 
 pytest.importorskip("jax")
 
-from collections import namedtuple
 from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
+from silly_kicks.xthreat import ExpectedThreat
 
-from analytics.expected_threat import XTGrid
 from analytics.off_ball_xt import (
     OffBallXtParams,
     compute_off_ball_xt_frame,
@@ -24,21 +23,20 @@ from analytics.pitch_control import PitchControlParams
 # Helpers
 # ---------------------------------------------------------------------------
 
-# Production xT grids are SPADL 105x68 — match that here so tests exercise
-# the cross-coordinate-system lookup path that production code takes
-# (StatsBomb 120x80 tracking input → SPADL grid lookup via XTGrid.lookup).
-_TEST_VALUES = np.zeros((12, 8), dtype=np.float64)
-for _zx in range(12):
-    for _zy in range(8):
-        _TEST_VALUES[_zx, _zy] = (_zx + 1) * 0.01  # 0.01 to 0.12
 
-_TEST_GRID = XTGrid(
-    values=_TEST_VALUES,
-    pitch_length=105.0,
-    pitch_width=68.0,
-    coord_system="spadl",
-    competition_id="test",
-)
+# Production xT is the canonical sk ExpectedThreat (16x12, ADR-085). Set its ``.xT`` directly
+# (off_ball_xt reads it via the ``values_at_points`` seam) to a surface increasing toward high physical
+# x, so the StatsBomb-120x80 -> SPADL-physical lookup path is exercised as in production.
+def _make_test_xt() -> ExpectedThreat:
+    xt = ExpectedThreat(l=16, w=12)
+    grid = np.zeros((12, 16), dtype=np.float64)  # (w, l) = (y, x)
+    for _x in range(16):
+        grid[:, _x] = (_x + 1) * 0.01  # 0.01..0.16, increasing toward the attacking goal
+    xt.xT = grid
+    return xt
+
+
+_TEST_GRID = _make_test_xt()
 
 
 def _make_frame(
@@ -140,10 +138,10 @@ class TestComputeOffBallXtFrame:
         assert all(result["xt_value"] > 0.1)
 
     def test_low_xt_zone(self) -> None:
-        # All players in own half (StatsBomb x≈5 → first grid zone)
+        # All players in own half (StatsBomb x=5/10/15 → SPADL physical ≤13.1 → first ~3 of 16 x-zones)
         frame = _make_frame(home_x=5.0, away_x=5.0)
         result = compute_off_ball_xt_frame(frame, _TEST_GRID)
-        assert all(result["xt_value"] <= 0.02)
+        assert all(result["xt_value"] <= 0.03)  # low end of the 0.01..0.16 (16-zone) surface
 
     def test_empty_frame(self) -> None:
         empty = pd.DataFrame(columns=pd.Index(["player_id", "team", "x", "y", "velocity_x", "velocity_y"]))
@@ -299,36 +297,49 @@ class TestEdgeCases:
 # ---------------------------------------------------------------------------
 
 
+def _fitted_model_json(n_x: int = 16, n_y: int = 12) -> str:
+    """A fitted sk ExpectedThreat's to_dict JSON — the ExT-v2 bronze `xt_model_json` payload (ADR-085)."""
+    import json
+
+    from silly_kicks.spadl import config as spadlconfig
+
+    rng = np.random.default_rng(0)
+    n = 800
+    acts = pd.DataFrame(
+        {
+            "type_id": rng.choice([spadlconfig.actiontype_id["pass"], spadlconfig.actiontype_id["shot"]], n),
+            "result_id": rng.choice([spadlconfig.result_id["success"], spadlconfig.result_id["fail"]], n),
+            "start_x": rng.uniform(0, 105, n),
+            "start_y": rng.uniform(0, 68, n),
+            "end_x": rng.uniform(0, 105, n),
+            "end_y": rng.uniform(0, 68, n),
+        }
+    )
+    return json.dumps(ExpectedThreat(l=n_x, w=n_y).fit(acts).to_dict())
+
+
 class TestLoadXtGridFromSpark:
-    """Tests for Delta table grid loading. Returns XTGrid (not raw ndarray)."""
+    """Tests for Delta table grid loading — returns a fitted sk ExpectedThreat via from_dict (ADR-085)."""
 
     def test_loads_from_delta_table(self) -> None:
         from ingestion.off_ball_xt import _load_xt_grid_from_spark
 
-        Row = namedtuple("Row", ["zone_x", "zone_y", "xt_value"])
-        mock_rows = [Row(x, y, 0.01 * (x + 1)) for x in range(12) for y in range(8)]
         mock_spark = MagicMock()
-        mock_spark.sql.return_value.collect.return_value = mock_rows
+        mock_spark.sql.return_value.collect.return_value = [{"xt_model_json": _fitted_model_json()}]
         grid = _load_xt_grid_from_spark(mock_spark, "soccer_analytics")
-        assert isinstance(grid, XTGrid)
-        assert grid.shape == (12, 8)
-        assert grid.coord_system == "spadl"
-        assert grid.competition_id == "global"
-        assert grid.values[0, 0] == pytest.approx(0.01)
-        assert grid.values[11, 7] == pytest.approx(0.12)
+        assert isinstance(grid, ExpectedThreat)
+        assert (grid.l, grid.w) == (16, 12)
+        assert np.any(np.asarray(grid.xT))
+        assert grid.transition_matrix is not None
 
     def test_loads_arbitrary_resolution(self) -> None:
-        """Bug 2 fix: loader derives shape from query results, not hardcoded 12x8."""
+        """from_dict derives l/w from the persisted model — supports any grid resolution."""
         from ingestion.off_ball_xt import _load_xt_grid_from_spark
 
-        Row = namedtuple("Row", ["zone_x", "zone_y", "xt_value"])
-        # Simulate a 24x16 grid (ExT v2 resolution) in the bronze table
-        mock_rows = [Row(x, y, 0.01 * (x + 1)) for x in range(24) for y in range(16)]
         mock_spark = MagicMock()
-        mock_spark.sql.return_value.collect.return_value = mock_rows
+        mock_spark.sql.return_value.collect.return_value = [{"xt_model_json": _fitted_model_json(n_x=24, n_y=16)}]
         grid = _load_xt_grid_from_spark(mock_spark, "soccer_analytics")
-        assert grid.shape == (24, 16)
-        assert grid.values[23, 15] == pytest.approx(0.24)
+        assert (grid.l, grid.w) == (24, 16)
 
     def test_raises_on_missing_table(self) -> None:
         from ingestion.off_ball_xt import _load_xt_grid_from_spark
@@ -339,10 +350,10 @@ class TestLoadXtGridFromSpark:
             _load_xt_grid_from_spark(mock_spark, "soccer_analytics")
 
     def test_raises_on_empty_global_grid(self) -> None:
-        """Bug 2 follow-on: explicit error when table exists but has no rows."""
+        """Explicit error when the table exists but has no global model row."""
         from ingestion.off_ball_xt import _load_xt_grid_from_spark
 
         mock_spark = MagicMock()
         mock_spark.sql.return_value.collect.return_value = []
-        with pytest.raises(RuntimeError, match="no rows for competition_id='global'"):
+        with pytest.raises(RuntimeError, match="no global model"):
             _load_xt_grid_from_spark(mock_spark, "soccer_analytics")

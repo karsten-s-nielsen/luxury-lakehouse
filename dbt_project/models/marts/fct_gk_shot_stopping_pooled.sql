@@ -33,12 +33,16 @@ pooled as (
         player_key,
         competition_key,
         season_id,
-        max(data_source)                  as data_source,
-        sum(shots_faced)                  as shots_faced,
-        sum(shots_faced_total)            as shots_faced_total,
-        sum(goals_conceded_on_shots)      as goals_conceded_on_shots,
-        sum(psxg_faced)                   as psxg_faced,
-        sum(psxg_variance_sum)            as psxg_variance_sum
+        max(data_source)                          as data_source,
+        sum(shots_faced)                          as shots_faced,
+        sum(shots_faced_total)                    as shots_faced_total,
+        sum(goals_conceded_on_shots)              as goals_conceded_on_shots,
+        sum(psxg_faced)                           as psxg_faced,
+        -- sk4118 P1 Task B1: the _excl_penalties companions (in-play penalties split out), additive.
+        sum(shots_faced_excl_penalties)           as shots_faced_excl_penalties,
+        sum(goals_conceded_excl_penalties)        as goals_conceded_excl_penalties,
+        sum(psxg_faced_excl_penalties)            as psxg_faced_excl_penalties,
+        sum(psxg_variance_sum)                    as psxg_variance_sum
     from gms
     group by player_key, competition_key, season_id
 
@@ -60,9 +64,10 @@ banded as (
 
     select
         p.*,
-        (p.psxg_faced - p.goals_conceded_on_shots)        as goals_prevented,
-        sqrt(p.psxg_variance_sum)                         as gp_sd,
-        (c.n_above_floor >= {{ ranking_min_gks }})        as ranking_enabled
+        (p.psxg_faced - p.goals_conceded_on_shots)                            as goals_prevented,
+        (p.psxg_faced_excl_penalties - p.goals_conceded_excl_penalties)       as goals_prevented_excl_penalties,
+        sqrt(p.psxg_variance_sum)                                             as gp_sd,
+        (c.n_above_floor >= {{ ranking_min_gks }})                           as ranking_enabled
     from pooled p
     inner join cohort c
         on p.competition_key = c.competition_key
@@ -91,6 +96,11 @@ select
     cast(goals_prevented as double)                             as goals_prevented,
     cast(goals_prevented - {{ z_score }} * gp_sd as double)     as goals_prevented_ci_low,
     cast(goals_prevented + {{ z_score }} * gp_sd as double)     as goals_prevented_ci_high,
+    -- sk4118 P1 Task B1: pooled _excl_penalties companions (in-play penalties split out), additive.
+    cast(shots_faced_excl_penalties as int)                     as shots_faced_excl_penalties,
+    cast(goals_conceded_excl_penalties as int)                  as goals_conceded_excl_penalties,
+    cast(psxg_faced_excl_penalties as double)                   as psxg_faced_excl_penalties,
+    cast(goals_prevented_excl_penalties as double)              as goals_prevented_excl_penalties,
     cast(shots_faced_total < {{ show_value_floor }} as boolean) as low_sample,
     cast(ranking_enabled as boolean)                            as ranking_enabled,
     -- Percentile is computed ONLY where ranking is enabled; NULL otherwise (deferred).

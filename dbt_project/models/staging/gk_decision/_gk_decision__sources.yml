@@ -1,0 +1,34 @@
+version: 2
+
+sources:
+  - name: gk_decision
+    description: >
+      Per-DECISION GK decision value (silly-kicks 4.120.0 TF-62; sk4118 P1 Task B2 / Phase E). Written by
+      the ingestion.gk_decision_writer ADR-013 writer, RECONSTRUCTION TIER ONLY: it reconstructs the keeper's
+      build-up option set from SB360 freeze-frames (+ full-tracking) with the bundled PassCompletionModel
+      and runs silly-kicks compute_gk_decision_value — chosen-vs-available distribution decision value. sk
+      returns one row per DECISION (decision_id == the SPADL action_id), so the grain is per-(match, keeper,
+      decision) (5 metric cols + n_options + option_set_source provenance). TRACKING-consuming, so it is
+      scored per work unit by the tracking-marts drain (P1 Phase E drain-wiring). The native SkillCorner
+      game-intelligence tier (option_set_source='native') is NOT-YET-SOURCED (no parse_passing_options
+      ingestion) — a tracked follow-up; only reconstruction-tier rows are written today. The table is
+      CREATE-IF-NOT-EXISTS'd by scripts/migrations/2026-09-17-add-gk-decision.sql so the staging view
+      resolves (empty) before the drain populates it.
+    database: soccer_analytics
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 336, period: hour}
+        error_after: {count: 720, period: hour}
+
+    tables:
+      - name: gk_decision
+        description: >
+          One row per (data_source, match_id, period_id, decision_id, keeper) — decision_id == the SPADL
+          action_id of the GK-distribution decision; keeper is the NATIVE goalkeeper id (surrogates resolve
+          in stg_gk_decision / fct_gk_decision). team_id is the native keeper team. access_tier (ADR-064) is
+          stamped per-row at write time. decision_pct / sel_efficiency are in [0,1]; decision_value =
+          chosen_ev - best-available framing. option_set_source is 'reconstructed' (the native GI tier is
+          not yet sourced).

@@ -47,6 +47,17 @@ PER_PLAYER_EVALUATIVE_CARDS: frozenset[str] = frozenset(
         "wf-press-commitment",
         "wf-bravery",
         "wf-xt-gk-v2",
+        # sk4118 P1 Phase B keeper-match evaluative families (silly-kicks 4.120.0).
+        # shot_stopping = Goals Prevented / GSAA per keeper; gk_decision = keeper distribution
+        # decision value (reconstruction tier). Both per-KEEPER evaluative.
+        "wf-shot-stopping",
+        "wf-gk-decision",
+        # sk4118 P1 Phase C player-match evaluative families (silly-kicks 4.120.0). territory =
+        # per-defender territorial-dominance (xT conceded/prevented in the action hull; RANKING-LICENSED
+        # per the sk defender-ranking census); duels = per-player Glicko-2 ground-duel rating. Both
+        # per-PLAYER evaluative.
+        "wf-territory",
+        "wf-duels",
         # ADR-082 (tracking-marts drain fan-out): the defensive-credit + gkdv writers were
         # CONSOLIDATED into the single wf-tracking-marts drain, which produces BOTH evaluative
         # models. So wf-tracking-marts is the member (ONE card, TWO model cards — see
@@ -82,6 +93,12 @@ WORKFLOW_TO_MODEL_CARD: dict[str, list[str]] = {
     "wf-press-commitment": ["press-commitment.md"],
     "wf-bravery": ["bravery.md"],
     "wf-xt-gk-v2": ["xt-gk-v2.md"],
+    # sk4118 P1 Phase B keeper-match evaluative families (silly-kicks 4.120.0).
+    "wf-shot-stopping": ["shot-stopping.md"],
+    "wf-gk-decision": ["gk-decision.md"],
+    # sk4118 P1 Phase C player-match evaluative families (silly-kicks 4.120.0).
+    "wf-territory": ["territory.md"],
+    "wf-duels": ["duels.md"],
     # ADR-082: ONE consolidated drain card, TWO evaluative model cards.
     "wf-tracking-marts": ["defensive-credit.md", "gkdv.md"],
 }

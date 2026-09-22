@@ -287,11 +287,28 @@ def _pull_sb360_snapshots(
 
 
 def _pull_xt_grid(*, catalog: str, bronze: str, warehouse_id: str) -> pd.DataFrame:
+    """Pull the global fitted sk ``ExpectedThreat`` (ADR-085 ``to_dict`` JSON) from bronze and emit
+    its ``.xT`` value surface as zone rows (``zone_x``, ``zone_y``, ``xt_value``) — the long format the
+    local ``ParquetXtSource`` fixture reads (``grid[zone_y, zone_x]`` reconstructs the sk ``(w, l)`` xT).
+    """
+    import json
+
+    import numpy as np
+    from silly_kicks.xthreat import ExpectedThreat
+
     sql = (
-        f"SELECT zone_x, zone_y, xt_value FROM {catalog}.{bronze}.expected_threat_grids "  # noqa: S608
+        f"SELECT xt_model_json FROM {catalog}.{bronze}.expected_threat_grids "  # noqa: S608
         f"WHERE competition_id = 'global'"
     )
-    return _execute_query_to_df(sql, warehouse_id)
+    df = _execute_query_to_df(sql, warehouse_id)
+    if df.empty or not df.iloc[0]["xt_model_json"]:
+        raise RuntimeError(f"No global xT model in {catalog}.{bronze}.expected_threat_grids")
+    model = ExpectedThreat.from_dict(json.loads(df.iloc[0]["xt_model_json"]))
+    xt = np.asarray(model.xT, dtype=float)  # (w, l)
+    w, length = xt.shape
+    return pd.DataFrame(
+        [{"zone_x": zx, "zone_y": zy, "xt_value": float(xt[zy, zx])} for zy in range(w) for zx in range(length)]
+    )
 
 
 # ── Meta resolution (mirrors ingestion.action_context._process_tracking_match) ──

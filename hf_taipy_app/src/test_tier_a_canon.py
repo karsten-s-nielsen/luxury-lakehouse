@@ -11,12 +11,16 @@ from __future__ import annotations
 from pages.action_values import page_config as player_impact_config
 from pages.conversion_funnel import page_config as conversion_funnel_config
 from pages.gk_analytics import page_config as goalkeeper_config  # route "Goalkeeper-Analytics", new page
+from pages.gk_decision_shot_stopping import page_config as gk_decision_config
 from pages.heat_map import page_config as heat_map_config
 from pages.match_summary import page_config as match_summary_config
 from pages.pass_map import page_config as pass_map_config
 from pages.pass_network import page_config as pass_network_config
 from pages.player_radar import page_config as player_comparison_config
+from pages.player_territory_duels import page_config as player_metrics_config
 from pages.shot_map import page_config as shot_map_config
+from pages.team_kpis import page_config as team_kpis_config
+from pages.vaep_adjusted import page_config as vaep_adjusted_config
 from template import GLOSSARY, PAGE_TERMS
 
 MIGRATED_TIER_A: dict[str, object] = {
@@ -29,6 +33,11 @@ MIGRATED_TIER_A: dict[str, object] = {
     "Player-Comparison": player_comparison_config,
     "Goalkeeper-Analytics": goalkeeper_config,
     "Conversion-Funnel": conversion_funnel_config,
+    # sk4118 P1 Phase F pages
+    "Team-KPIs": team_kpis_config,
+    "GK-Decisions": gk_decision_config,
+    "Player-Metrics": player_metrics_config,
+    "VAEP-Adjusted": vaep_adjusted_config,
 }
 
 

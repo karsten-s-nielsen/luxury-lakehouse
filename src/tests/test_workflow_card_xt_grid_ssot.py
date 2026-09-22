@@ -1,10 +1,14 @@
 """Parity test: workflow card prose must not contradict code constants.
 
 Bug 1 from the D66 ExT v2 spike (2026-04-25): `wf-xt-grids.yaml` claimed
-"16x12 grid" while the code default in `ExpectedThreatParams` was 12x8 —
-a single-source-of-truth violation. The fix scrubbed the YAML prose to
-defer to the code constant, and this test enforces that any future
-"NxM grid" claim in the workflow card matches the code default.
+"16x12 grid" while the code default was 12x8 — a single-source-of-truth
+violation. This test enforces that any "NxM grid" claim in the workflow
+card matches the canonical grid resolution.
+
+ExT-v2 (ADR-085): the canonical xT surface is a fitted sk ``ExpectedThreat``
+at ``ingestion.expected_threat._XT_L`` x ``_XT_W`` (16x12 — the sk default,
+matching ``territory_writer``). The SSOT reference moved off the retired v1
+``analytics.expected_threat.ExpectedThreatParams`` onto those constants.
 
 Pattern is general — extend to other workflow cards if similar
 prose-vs-code drift surfaces.
@@ -18,7 +22,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from analytics.expected_threat import ExpectedThreatParams
+from ingestion.expected_threat import _XT_L, _XT_W
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _CARD_PATH = _REPO_ROOT / "workflow-cards" / "wf-xt-grids.yaml"
@@ -62,9 +66,8 @@ class TestWorkflowCardXTGridSSOT:
         card_text = _load_card_text()
         matches = _GRID_CLAIM_PATTERN.findall(card_text)
 
-        defaults = ExpectedThreatParams()
-        expected_x = str(defaults.n_zones_x)
-        expected_y = str(defaults.n_zones_y)
+        expected_x = str(_XT_L)
+        expected_y = str(_XT_W)
 
         mismatches = [(x, y) for (x, y) in matches if not (x == expected_x and y == expected_y)]
 

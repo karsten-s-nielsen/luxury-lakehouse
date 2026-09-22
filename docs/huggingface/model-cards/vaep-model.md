@@ -165,9 +165,17 @@ import silly_kicks.vaep.labels as labels
 NB_PREV_ACTIONS = 3
 
 FEATURE_FNS = [
-    fs.actiontype_onehot, fs.result_onehot, fs.bodypart_onehot,
-    fs.time, fs.startlocation, fs.endlocation,
-    fs.startpolar, fs.endpolar, fs.movement, fs.team, fs.time_delta,
+    fs.actiontype_onehot,
+    fs.result_onehot,
+    fs.bodypart_onehot,
+    fs.time,
+    fs.startlocation,
+    fs.endlocation,
+    fs.startpolar,
+    fs.endpolar,
+    fs.movement,
+    fs.team,
+    fs.time_delta,
 ]
 
 # actions: pandas DataFrame in SPADL format
@@ -178,7 +186,7 @@ p_scores = model_scores.predict_proba(X)[:, 1]
 p_concedes = model_concedes.predict_proba(X)[:, 1]
 
 # Compute VAEP values (change in probabilities)
-vaep_offensive = p_scores[1:] - p_scores[:-1]   # delta P(scores)
+vaep_offensive = p_scores[1:] - p_scores[:-1]  # delta P(scores)
 vaep_defensive = p_concedes[:-1] - p_concedes[1:]  # delta P(concedes), note sign flip
 vaep_value = vaep_offensive + vaep_defensive
 ```
@@ -202,6 +210,21 @@ VAEP's two probability deltas map naturally to three cognitive axes for interpre
 - **Decision Value** — the composite VAEP score (`vaep_value = vaep_offensive + vaep_defensive`). Was the implicit risk worth it? Positive = the action's Progression gain exceeded its Survival cost. Negative = the risk outweighed the benefit.
 
 This is a labeling convention, not a new model. The underlying probabilities and computation are unchanged. The xR model itself (which introduces additional axes like xR-score) is not implemented here.
+
+## VAEP_adjusted (Outcome-Bias-Free Variant)
+
+The same two fitted boosters also power an **outcome-bias-free** variant, VAEP_adjusted (silly-kicks TF-61), surfaced on `fct_action_values` as `offensive_adjusted_value` / `defensive_adjusted_value` / `vaep_adjusted_value` plus the per-action completion probability `xsuccess`. **No retraining** — the fitted P(scores)/P(concedes) classifiers are re-scored on a *surgical result-feature counterfactual* (the current action forced to success, then to fail, holding locations and predecessors fixed), and the two counterfactual probabilities are weighted by the action's completion probability:
+
+```
+p_scores_adj  = xSuccess * P(scores | this action succeeds)
+p_concedes_adj = (1 - xSuccess) * P(concedes | this action fails)
+```
+
+The standard VAEP delta machinery then runs on the weighted probabilities. This values an action by its *intent × completion likelihood* rather than its realised outcome, removing the bias whereby a lucky/unlucky result inflates/deflates the score. `xsuccess` (0–1, higher = more likely to complete) comes from the bundled silly-kicks `XSuccessModel`. A non-finite `xSuccess` yields a NaN adjusted value (never fabricated). Both columns are additive — the raw `offensive_value`/`defensive_value`/`vaep_value` above are unchanged.
+
+> Paul, Y., Klemp, M. & Memmert, D. (2025). **Beyond Outcome Bias: Incorporating Action Completion Probability and Risk-Return into Soccer Evaluation Models.** *Machine Learning and Data Mining for Sports Analytics (MLSA 2025), paper 225.*
+>
+> The completion model generalises the expected-pass-completion idea of Anzer, G. & Bauer, P. (2022). **Expected Passes.** *Data Mining and Knowledge Discovery 36(1), 295–317.*
 
 ## EU AI Act — Intended Use and Non-Use
 

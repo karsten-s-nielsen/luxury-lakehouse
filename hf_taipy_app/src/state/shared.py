@@ -213,8 +213,12 @@ _LOADING_TEXTS: dict[str, str] = {
     "Defensive-Impact": "Loading defensive data...",
     "Tactical-Positions": "Loading tactical data...",
     "Goalkeeper-Analytics": "Loading goalkeeper data...",
+    "GK-Decisions": "Loading goalkeeper decisions...",
     "Conversion-Funnel": "Loading funnel data...",
     "AI-ML-Workflows": "Loading workflow data...",
+    "Team-KPIs": "Loading team KPIs...",
+    "Player-Metrics": "Loading player metrics...",
+    "VAEP-Adjusted": "Loading VAEP data...",
 }
 
 

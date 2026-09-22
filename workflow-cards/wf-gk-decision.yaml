@@ -1,0 +1,114 @@
+---
+name: GK Decision Value — Distribution Selection
+id: wf-gk-decision
+version: "1.0"
+status: development
+type: heuristic
+domain: goalkeeper-valuation
+owners:
+  - karsten
+tags:
+  - gk-decision
+  - goalkeeper-valuation
+  - distribution
+  - decision-value
+
+governance:
+  eu_ai_act: not-high-risk-under-current-posture
+  annex_iii_category: "4 (Employment) — conditional if deployed for employment decisions"
+  reference: AI_GOVERNANCE.md
+
+# GK Decision Value is per-KEEPER evaluative (chosen-vs-available distribution decision), so
+# wf-gk-decision IS a member of PER_PLAYER_EVALUATIVE_CARDS (src/tests/test_ai_governance_md.py) and
+# carries the EU-AI-Act model card docs/huggingface/model-cards/gk-decision.md. The HONEST LIMIT: this is
+# an INSTRUMENT, NOT a ranking — the reconstruction-tier correlation to ground truth is only moderate.
+#
+# This is a METHODOLOGY / GOVERNANCE card (no scheduled inference phase). The metric is TRACKING-consuming
+# (reconstruction tier reads frames) and its per-unit scoring runs inside the tracking-marts worker-drain
+# via TrackingMartsProcessor calling ingestion.gk_decision_writer.score_gk_decision_unit — so it has NO
+# standalone data_ingestion TF task of its own (mirroring the wf-xt-gk-v2 methodology-card pattern, whose
+# scheduled writer contract lives on a separate card). The drain REGISTRATION (adding this writer as a
+# tracking-marts drain per-unit step) is P1 CODE — landed in Phase E alongside restdefense, the other
+# tracking-consuming writer (one consolidated drain-wiring step). P2 only RUNS the drain (operator recompute).
+references:
+  - citation: "Eyestone, J. \"xT-GK: Expected Threat for Goalkeepers\" (course materials) — goalkeeper distribution-value collaboration."
+    role: methodology
+  - citation: "Power, P., Ruiz, H., Wei, X. & Lucey, P. (2017). Not All Passes Are Created Equal: Objectively Measuring the Risk and Reward of Passes. KDD '17."
+    role: algorithm
+
+inputs:
+  datasets:
+    - id: "{catalog}.bronze.spadl_actions"
+      source: delta-table
+      description: "SPADL actions (GK distribution actions — goalkick / keeper passes; event-only)"
+    - id: "{catalog}.bronze.spadl_action_context"
+      source: delta-table
+      description: "Tracking frames per action (SB360 freeze-frames + full-tracking) — the reconstruction-tier option-set input"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.gk_decision"
+      destination: delta-table
+      description: "Per-DECISION GK decision-value (one row per GK decision, decision_id == SPADL action_id) written by gk_decision_writer (ADR-013), native ids; scored per unit by the tracking-marts drain (P1 Phase E wiring)"
+    - id: "{catalog}.dev_gold.fct_gk_decision"
+      destination: delta-table
+      description: "Per-decision GK decision-value mart (reconstruction tier; keeper-match summary is downstream); dbt-built, contract-enforced (ADR-013)"
+
+depends_on:
+  - wf-vaep
+  - wf-goalkeeper
+  - wf-tracking-marts
+
+monitoring:
+  freshness_sla_hours: 336
+
+links:
+  source_code:
+    - "src/ingestion/gk_decision_writer.py"
+---
+
+## Overview
+
+GK Decision Value scores a goalkeeper's build-up DISTRIBUTION DECISIONS as chosen-vs-available: given a GK
+distribution action (goalkick / keeper pass), how good was the option the keeper chose versus the reachable
+alternatives (5 metric cols — `decision_value`, `chosen_ev`, `best_ev`, `sel_efficiency`, `decision_pct`).
+It is a per-`(match, keeper)` instrument.
+
+This is a **methodology / governance card** for the silly-kicks 4.120.0 `gk_decision.compute_gk_decision_value`
+family (TF-62). The materialising ADR-013 writer (`src/ingestion/gk_decision_writer.py`) is
+TRACKING-consuming (the reconstruction tier reads tracking frames), so its per-unit scoring
+(`score_gk_decision_unit`) runs inside the consolidated tracking-marts worker-drain — registered there as
+a drain per-unit step in P1 CODE (Phase E, with restdefense), and EXECUTED by the P2 operator drain run —
+NOT a standalone scheduled task. This card carries no scheduled `inference` phase for that reason
+(mirroring the `wf-xt-gk-v2` methodology card).
+
+## Scope — Reconstruction tier only (native GI tier not-yet-sourced)
+
+The metric has two tiers. Only the **reconstruction tier** is built this cycle:
+
+- **Reconstruction** (`ReconstructedOptionSet`): reconstructs the keeper's option set from SB360
+  freeze-frames (+ full-tracking) with the bundled `PassCompletionModel`. Emits `option_set_source =
+  'reconstructed'`.
+- **Native SkillCorner game-intelligence** (`SkillCornerGIOptionSet`): reads SkillCorner GI
+  `passing_option` rows via `silly_kicks.providers.skillcorner.parse_passing_options`. **That ingestion
+  does not exist in the lakehouse** (only a source-yml stub) — it is a separate data-acquisition feature,
+  a TRACKED NOT-YET-SOURCED FOLLOW-UP. When GI lands, its rows carry `option_set_source = 'native'`; the
+  column already distinguishes the tiers.
+
+## Algorithm
+
+Per work unit, `apply_actor_identities_to_frames` stamps the real keeper id onto the anonymous freeze-frame
+actor row; `gk_distribution_mask` selects the GK-distribution actions; `ReconstructedOptionSet(...,
+xpass=PassCompletionModel.bundled(), keeper_ids=roster)` builds the tier-agnostic option set;
+`compute_gk_decision_value(os, extra_drops=os.drop_counts())` scores each decision. Native `(match_id,
+keeper)` are emitted and resolved to Kimball surrogates (`match_key` / `player_key`) in dbt.
+
+## Governance
+
+GK Decision Value is **per-keeper evaluative**; per [`AI_GOVERNANCE.md`](../AI_GOVERNANCE.md) §5/§6 it is
+in scope as a goalkeeper-valuation family, not-high-risk under the current operating posture. The HONEST
+LIMIT: this is an **INSTRUMENT** (how good was this decision vs what was available), **NOT a ranking**. The
+reconstruction-tier correlation to ground truth is only moderate — any cited number (e.g. TF-62's ρ≈0.24–0.25
+on the WC2022 PassCompletion bundle, AUC 0.811) is a **PRE-4.120 measure**; the 4.120.0 full-open-data
+re-fit (all-comp AUC 0.794) is the bundle this cycle ships, so the correlation must be RE-MEASURED against
+it before any number is displayed on the model card or UI.

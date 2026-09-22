@@ -41,6 +41,11 @@ dbt_build_intermediate_marts,wf-dbt-build-intermediate-marts
 dbt_build_output_marts,wf-dbt-build-output-marts
 publish_spadl_vaep,wf-publish-spadl-vaep
 bravery_writer,wf-bravery
+team_metrics_writer,wf-team-metrics
+match_outcome_writer,wf-match-outcome
+shot_stopping_writer,wf-shot-stopping
+territory_writer,wf-territory
+duels_writer,wf-duels
 xt_gk_v2_writer,wf-xt-gk-v2-writer
 preflight_tracking_marts,wf-tracking-marts
 compute_tracking_marts,wf-tracking-marts

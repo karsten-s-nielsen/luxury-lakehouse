@@ -173,37 +173,38 @@ def _load_xt_grid_from_delta(
     schema: str,
     task_logger: logging.Logger,
 ) -> tuple[list[list[float]], int, int]:
-    """Load the pre-computed global xT grid from bronze.expected_threat_grids.
+    """Load the canonical global xT model from bronze.expected_threat_grids (ExT-v2 / ADR-085).
 
-    The grid is written by the ``compute_expected_threat`` pipeline (runs daily).
-    It's a tiny table (~192 rows for a 16x12 grid) -- reading it is instant.
+    The bronze row stores the fitted silly-kicks ``ExpectedThreat.to_dict()`` JSON (written by the
+    ``compute_expected_threat`` pipeline). The AC enrichment (off-ball-xt / xt-gk) consumes only the
+    ``.xT`` value surface, so this returns it as nested lists (unchanged interface); ``territory``
+    loads the full model (incl. ``transition_matrix``) separately. Reconstructed via ``from_dict``.
 
     Returns:
-        (xt_grid_data, xt_l, xt_w) -- the 2D grid as nested lists, plus dimensions.
+        (xt_grid_data, xt_l, xt_w) -- the (w, l) value surface as nested lists, plus dimensions.
 
     Raises:
-        RuntimeError: If the global grid does not exist (bootstrap case --
+        RuntimeError: If the global model does not exist (bootstrap case --
             ``compute_expected_threat`` must run first).
     """
+    import json as _json
+
+    from silly_kicks.xthreat import ExpectedThreat
+
     table = f"{catalog}.{schema}.expected_threat_grids"
     rows = list(
         spark.sql(
-            f"SELECT zone_x, zone_y, xt_value FROM {table} "  # noqa: S608
-            f"WHERE competition_id = 'global'"
+            f"SELECT xt_model_json FROM {table} WHERE competition_id = 'global'"  # noqa: S608
         ).collect()
     )
-    if not rows:
-        msg = f"No global xT grid found in {table}. Run compute_expected_threat before compute_action_context."
+    if not rows or not rows[0]["xt_model_json"]:
+        msg = f"No global xT model found in {table}. Run compute_expected_threat before compute_action_context."
         raise RuntimeError(msg)
 
-    n_x = max(int(r.zone_x) for r in rows) + 1
-    n_y = max(int(r.zone_y) for r in rows) + 1
-    grid = np.zeros((n_y, n_x))
-    for row in rows:
-        grid[int(row.zone_y), int(row.zone_x)] = float(row.xt_value)
-
-    task_logger.info("Loaded global xT grid from Delta (%dx%d, %d cells)", n_x, n_y, len(rows))
-    return grid.tolist(), n_x, n_y
+    model = ExpectedThreat.from_dict(_json.loads(rows[0]["xt_model_json"]))
+    grid = np.asarray(model.xT, dtype=np.float64)  # (w, l)
+    task_logger.info("Loaded global xT model from Delta (%dx%d)", int(model.l), int(model.w))
+    return grid.tolist(), int(model.l), int(model.w)
 
 
 # ── Column projection constants ──────────────────────────────────────

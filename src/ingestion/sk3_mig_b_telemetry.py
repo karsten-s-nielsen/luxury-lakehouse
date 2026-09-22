@@ -52,8 +52,6 @@ _TRAINED_MODEL_ITEMS: frozenset[str] = frozenset(
     {
         "vaep",
         "xg_v2",
-        "ext_v2_p0",
-        "ext_v2_p1",
         "f2v_v1",
         "f2v_v2",
         "f2v_360",

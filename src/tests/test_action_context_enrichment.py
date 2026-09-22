@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import logging
 import sys
-from collections import namedtuple
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -417,14 +417,43 @@ def test_provider_tier_classification() -> None:
 # ── _load_xt_grid_from_delta tests ───────────────────────────────────
 
 
-Row = namedtuple("Row", ["zone_x", "zone_y", "xt_value"])
+def _make_xt_model_json(value_fn=None) -> str:
+    """A valid ``xt_model_json`` payload — ``json.dumps`` of a fitted sk ``ExpectedThreat.to_dict()``.
+
+    Phase G retooled ``_load_xt_grid_from_delta`` to read the persisted sk model (``xt_model_json``)
+    and reconstruct it via ``from_dict``, replacing the old long-form ``zone_x/zone_y/xt_value`` rows.
+    Fits a 16x12 model on synthetic SPADL so the transition arrays populate (``to_dict`` serializes
+    them), then optionally overrides ``.xT`` (shape ``(w=12, l=16)``) with a known ramp for value
+    assertions."""
+    import json
+
+    from ingestion.expected_threat import _fit_sk_grid
+
+    rng = np.random.default_rng(3)
+    n = 400
+    actions = pd.DataFrame(
+        {
+            "type_name": rng.choice(
+                ["pass", "cross", "dribble", "shot", "clearance"], size=n, p=[0.55, 0.1, 0.2, 0.1, 0.05]
+            ),
+            "result_name": rng.choice(["success", "fail"], size=n, p=[0.75, 0.25]),
+            "start_x": rng.uniform(0, 105, n),
+            "start_y": rng.uniform(0, 68, n),
+            "end_x": rng.uniform(0, 105, n),
+            "end_y": rng.uniform(0, 68, n),
+        }
+    )
+    model = _fit_sk_grid(actions)
+    if value_fn is not None:
+        model.xT = np.array([[value_fn(x, y) for x in range(16)] for y in range(12)], dtype=float)
+    return json.dumps(model.to_dict())
 
 
 def test_load_xt_grid_from_delta_returns_correct_shape() -> None:
-    """Grid loaded from Delta must have correct dimensions and values."""
-    mock_rows = [Row(x, y, round(0.01 * (x + 1), 5)) for x in range(16) for y in range(12)]
+    """Grid loaded from the persisted sk model (xt_model_json) must have correct dims + values."""
+    payload = _make_xt_model_json(lambda x, y: round(0.01 * (x + 1), 5))
     mock_spark = MagicMock()
-    mock_spark.sql.return_value.collect.return_value = mock_rows
+    mock_spark.sql.return_value.collect.return_value = [{"xt_model_json": payload}]
     task_logger = logging.getLogger("test")
 
     grid_data, xt_l, xt_w = _load_xt_grid_from_delta(mock_spark, "soccer_analytics", "bronze", task_logger)
@@ -433,17 +462,16 @@ def test_load_xt_grid_from_delta_returns_correct_shape() -> None:
     assert xt_w == 12
     assert len(grid_data) == 12  # outer dimension is w (rows)
     assert len(grid_data[0]) == 16  # inner dimension is l (cols)
-    # zone_x=0, zone_y=0 should be 0.01
+    # zone_x=0 -> 0.01 (x-ramp overridden into .xT above)
     assert grid_data[0][0] == pytest.approx(0.01)
-    # zone_x=15, zone_y=11 should be 0.16
+    # zone_x=15 -> 0.16
     assert grid_data[11][15] == pytest.approx(0.16)
 
 
 def test_load_xt_grid_from_delta_queries_global_grid() -> None:
-    """Must query bronze.expected_threat_grids WHERE competition_id = 'global'."""
-    mock_rows = [Row(0, 0, 0.05)]
+    """Must query expected_threat_grids WHERE competition_id = 'global', selecting xt_model_json."""
     mock_spark = MagicMock()
-    mock_spark.sql.return_value.collect.return_value = mock_rows
+    mock_spark.sql.return_value.collect.return_value = [{"xt_model_json": _make_xt_model_json()}]
     task_logger = logging.getLogger("test")
 
     _load_xt_grid_from_delta(mock_spark, "cat", "sch", task_logger)
@@ -451,15 +479,16 @@ def test_load_xt_grid_from_delta_queries_global_grid() -> None:
     sql_arg = mock_spark.sql.call_args[0][0]
     assert "cat.sch.expected_threat_grids" in sql_arg
     assert "competition_id = 'global'" in sql_arg
+    assert "xt_model_json" in sql_arg
 
 
 def test_load_xt_grid_from_delta_raises_on_empty_result() -> None:
-    """Must raise RuntimeError when no global grid exists (bootstrap case)."""
+    """Must raise RuntimeError when no global model exists (bootstrap case)."""
     mock_spark = MagicMock()
     mock_spark.sql.return_value.collect.return_value = []
     task_logger = logging.getLogger("test")
 
-    with pytest.raises(RuntimeError, match="No global xT grid found"):
+    with pytest.raises(RuntimeError, match="No global xT model found"):
         _load_xt_grid_from_delta(mock_spark, "soccer_analytics", "bronze", task_logger)
 
 

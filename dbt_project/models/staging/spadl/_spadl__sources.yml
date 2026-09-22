@@ -19,18 +19,33 @@ sources:
     tables:
       - name: expected_threat_grids
         description: >
-          Expected Threat (xT) grid values produced by the Markov chain
-          compute_expected_threat pipeline. Each row is one zone (x, y) with
-          its xT value, partitioned by competition_id (plus a 'global' aggregate).
+          ExT-v2 single-canonical-surface (ADR-085): one row per competition (+ a 'global' row)
+          carrying the fitted silly-kicks ExpectedThreat (16x12) as its to_dict() JSON. Python
+          consumers reconstruct via ExpectedThreat.from_dict. Replaces the retired v1 long-form
+          zone rows (now in expected_threat_grid_zones for SQL consumers).
         columns:
-          - name: zone_x
-            description: Zone X index (0-11, 12-column grid over 105m pitch)
-          - name: zone_y
-            description: Zone Y index (0-7, 8-row grid over 68m pitch)
-          - name: xt_value
-            description: Expected Threat value for this zone (0-1 scale)
           - name: competition_id
             description: Competition identifier or 'global' for the aggregate grid
+          - name: xt_model_json
+            description: silly-kicks ExpectedThreat.to_dict() as a JSON string (values + matrices)
+          - name: format_version
+            description: Serialization format version of the to_dict payload
+      - name: expected_threat_grid_zones
+        description: >
+          ADR-085 G-fix: derived 16x12 physical-oriented long-form projection of the canonical
+          ExpectedThreat, written by the producer ALONGSIDE expected_threat_grids (same materiality
+          gate — never a second fit). Exists only for the dbt SQL zone-lookup consumers
+          (fct_action_values.gk_xt_delta = ADR-056; fct_goalkeeper_stats). One row per (competition_id,
+          zone_x, zone_y).
+        columns:
+          - name: competition_id
+            description: Competition identifier or 'global' for the aggregate grid
+          - name: zone_x
+            description: Zone X index (0-15, 16-column grid over the 105m pitch, rising toward the attacking goal)
+          - name: zone_y
+            description: Zone Y index (0-11, 12-row grid over the 68m pitch, physical bottom->top)
+          - name: xt_value
+            description: Expected Threat value for this zone (0-1 scale)
 
       - name: vaep_action_values
         description: >

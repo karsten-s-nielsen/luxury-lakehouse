@@ -1,0 +1,109 @@
+---
+name: Territorial Dominance — Per-Defender xT Conceded / Prevented
+id: wf-territory
+version: "1.0"
+status: development
+type: heuristic
+domain: player-valuation
+owners:
+  - karsten
+tags:
+  - territory
+  - territorial-dominance
+  - player-valuation
+  - defender-analytics
+
+governance:
+  eu_ai_act: not-high-risk-under-current-posture
+  annex_iii_category: "4 (Employment) — conditional if deployed for employment decisions"
+  reference: AI_GOVERNANCE.md
+
+# Territory is per-PLAYER evaluative (a per-defender territorial-dominance measure), so wf-territory IS a
+# member of PER_PLAYER_EVALUATIVE_CARDS (src/tests/test_ai_governance_md.py) and carries the EU-AI-Act model
+# card docs/huggingface/model-cards/territory.md. It is RANKING-LICENSED per the sk defender-ranking census
+# (ICC lo=0.121>0), so the card MAY present a per-defender ranking (distinct from gk_decision's
+# instrument-not-ranking limit). Any cited PassCompletion correlation is a PRE-4.120 measure [SPEC-R4-02].
+references:
+  - citation: "Sumpter, D. / Twelve.football. Territorial-dominance / defensive-hull practitioner framing ('Earpiece' match-report vocabulary)."
+    role: methodology
+
+inputs:
+  datasets:
+    - id: "{catalog}.bronze.spadl_actions"
+      source: delta-table
+      description: "SPADL actions (game_id / player_id / team_id / type_id / result_id / start+end coords; event-only, all providers)"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.territory"
+      destination: delta-table
+      description: "Per-(match, player) 20-col counterfactual-union territorial-dominance aggregate written by territory_writer (ADR-013), native ids"
+    - id: "{catalog}.dev_gold.fct_player_match_metrics"
+      destination: delta-table
+      description: "Wide-by-granularity player-match mart carrying the 20 territory cols (+ duels); dbt-built, contract-enforced (ADR-013)"
+
+execution:
+  # Deterministic-method card carrying its own scheduled compute phase (like wf-bravery / wf-team-metrics).
+  # Event-only across all providers + an injected FITTED ExpectedThreat (fit once at the driver) +
+  # PassCompletionModel.bundled() (counterfactual method): reads bronze.spadl_actions and computes the
+  # per-(match, player) territorial dominance for BOTH methods via applyInPandas. Needs silly-kicks ->
+  # environment: analytics.
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: territory_writer
+    module: ingestion.territory_writer
+    distribution: applyInPandas
+    partition_key: match_id_native
+    schedule: "daily 06:00 UTC"
+    timeout: "1800s"
+    environment: analytics
+
+depends_on:
+  - wf-vaep
+
+monitoring:
+  freshness_sla_hours: 168
+
+links:
+  source_code:
+    - "src/ingestion/territory_writer.py"
+---
+
+## Overview
+
+Territorial Dominance is the per-`(match, defender)` measure of how much expected threat (xT) a defender
+concedes vs prevents inside the convex hull of their defensive actions. It is an event-only metric covering
+every event provider (StatsBomb / Wyscout / IDSSE / Metrica / SkillCorner / GradientSports).
+
+This is a **methodology / governance card** for the silly-kicks 4.120.0
+`territory.compute_territorial_dominance` family (TF-54 / TF-54b). The materialising ADR-013 writer
+(`src/ingestion/territory_writer.py`) reads `bronze.spadl_actions`, fits an `ExpectedThreat` once at the
+driver, computes the metric per defender for BOTH methods, and lands the 20-column counterfactual union in
+`bronze.territory` for dbt to join into the wide-by-granularity player-match mart `fct_player_match_metrics`
+(shared with `duels`). It is scheduled into the daily job via the `inference` execution phase above (entry
+point `territory_writer`, `analytics` environment), running after the SPADL/VAEP producer.
+
+## Algorithm
+
+`compute_territorial_dominance` builds the convex hull of a defender's defensive actions (tackle /
+interception / clearance) and integrates the injected xT surface over opponent passes into that hull —
+`territory_xt_conceded` vs `territory_xt_prevented`, and their net. TWO methods materialise: **v1
+(completed_failed)** — the 12 `TERRITORY_METRIC_COLUMNS` + the `territory_hull_source` provenance; and
+**counterfactual (TF-54b)** — the v1 set + 5 counterfactual-only columns (expected-threat-faced /
+xt-prevented-above-expectation / passes-aimed-into-hull / mean-completion-faced + a `territory_target_source`
+provenance), which inject `PassCompletionModel.bundled()`. A `<3`-action defender is a
+`territory_hull_source='degenerate'` NaN row, counted. Native `(match_id, player_id, team_id)` are emitted
+and resolved to Kimball surrogates (`match_key` / `player_key`) in dbt. The computation is deterministic —
+no trained weights of its own (the xT surface + the completion model are injected).
+
+## Governance
+
+Territory is **per-player evaluative**; per [`AI_GOVERNANCE.md`](../AI_GOVERNANCE.md) §5/§6 it is in scope
+as a player-valuation family, not-high-risk under the current operating posture. It is **ranking-licensed**
+per the sk defender-ranking census (intraclass-correlation lower bound 0.121 > 0, power 1.0), so — unlike
+gk_decision's instrument-not-ranking limit — the model card MAY present a per-defender ranking. HONEST
+LIMIT: territory undercounts a defender's off-hull contribution (the hull is only their own defensive
+actions), and any cited PassCompletion correlation is a **pre-4.120** measure — the 4.120.0 full-open-data
+`PassCompletionModel.bundled()` re-fit shifts the counterfactual values, so re-measure against the shipped
+bundle before printing a correlation number on the card.

@@ -108,8 +108,6 @@ def test_struct_type_factory_produces_one_field_per_constant_entry() -> None:
     [
         ("vaep", "trained_model"),
         ("xg_v2", "trained_model"),
-        ("ext_v2_p0", "trained_model"),
-        ("ext_v2_p1", "trained_model"),
         ("f2v_v1", "trained_model"),
         ("f2v_v2", "trained_model"),
         ("f2v_360", "trained_model"),
