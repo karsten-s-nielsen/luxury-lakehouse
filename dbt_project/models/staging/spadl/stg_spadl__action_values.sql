@@ -123,6 +123,10 @@ cleaned as (
         defensive_adjusted_value,
         vaep_adjusted_value,
         xsuccess,
+        -- sk4123 (TF-63 xImpact ride-along): match-context-weighted action value + its win-prob leverage.
+        -- Additive; NULL on rows scored before the xImpact re-materialize, NaN where the WP state is unresolved.
+        ximpact,
+        win_prob_leverage,
 
         -- Provenance
         data_source,

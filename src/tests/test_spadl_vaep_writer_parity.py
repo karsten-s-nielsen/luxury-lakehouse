@@ -596,6 +596,10 @@ class TestSpadlVaepWriterDdlParity:
             "defensive_adjusted_value",
             "vaep_adjusted_value",
             "xsuccess",
+            # sk4123 (TF-63 xImpact ride-along): ximpact + win_prob_leverage computed during scoring,
+            # NOT carried through the per-game projection list (like the Phase D adjusted cols above).
+            "ximpact",
+            "win_prob_leverage",
             "competition_id",
             "season_id",
             "data_source",

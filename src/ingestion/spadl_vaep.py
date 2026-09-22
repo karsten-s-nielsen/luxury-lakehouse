@@ -139,6 +139,9 @@ _VAEP_SCHEMA = (
     # probability. Additive; NaN where xSuccess is non-finite (never fabricated).
     "offensive_adjusted_value DOUBLE, defensive_adjusted_value DOUBLE, "
     "vaep_adjusted_value DOUBLE, xsuccess DOUBLE, "
+    # sk4123 (TF-63 xImpact ride-along, ADR-101): ximpact = VAEP_adjusted x dP(win|goal) + the
+    # per-action win-prob leverage weight. Computed during scoring; NaN where the WP state is unresolved.
+    "ximpact DOUBLE, win_prob_leverage DOUBLE, "
     "competition_id BIGINT, season_id BIGINT, "
     "data_source STRING, "
     # Per-match HF redistribution tier (spec 2026-06-29) carried through from spadl_actions.
@@ -598,6 +601,37 @@ def _score_actions_adjusted(game_actions: pd.DataFrame, vaep_model: Any, xsucces
     return out
 
 
+def _score_ximpact(game_actions: pd.DataFrame, adjusted: pd.DataFrame, wp_model: Any) -> tuple[pd.Series, pd.Series]:
+    """win_prob_leverage (``goal_leverage``) + ximpact (``VAEP_adjusted * dP(win|goal)``) for one game.
+
+    Byte-consistent with ``VAEP.rate_ximpact`` — reuses ``adjusted`` (the :func:`_score_actions_adjusted`
+    output, which carries the ADJUSTED ``vaep_value`` index-aligned to ``game_actions``) so
+    ``rate_adjusted`` runs once, then applies the SAME ``ximpact_values(adjusted, leverage)`` sk core.
+
+    ``games.home_team_id`` MUST be in the SPADL ``team_id`` (BIGINT) space so ``goal_leverage``'s
+    ``same_id`` resolves the home flag. We resolve it PROVIDER-AGNOSTICALLY: the ``team_id`` whose
+    ``team_id_native`` equals ``home_team_id_native`` in the data itself — NOT by re-hashing the native id
+    (``team_id`` is ``hash_native_id_to_bigint`` for IDSSE/Metrica/SkillCorner/GS but the stringified
+    numeric for StatsBomb/Wyscout, ADR-016; a blanket hash would mis-resolve the open-data providers).
+    Honest-NaN: an unresolved home id / WP state → NaN leverage → NaN ximpact.
+
+    Returns ``(win_prob_leverage, ximpact)`` Series, both aligned to ``game_actions.index``.
+    """
+    from silly_kicks.vaep.ximpact import ximpact_values
+    from silly_kicks.win_probability import goal_leverage
+
+    htn = game_actions["home_team_id_native"].iloc[0] if "home_team_id_native" in game_actions else None
+    home_bigint = None
+    if htn is not None and not pd.isna(htn) and "team_id_native" in game_actions:
+        matched = game_actions[game_actions["team_id_native"] == htn]["team_id"].to_numpy()
+        if matched.size:
+            home_bigint = int(matched[0])
+    games = pd.DataFrame([{"game_id": game_actions["game_id"].iloc[0], "home_team_id": home_bigint}])
+    leverage = goal_leverage(game_actions, model=wp_model, games=games)
+    ximpact = ximpact_values(adjusted, leverage)
+    return leverage, ximpact
+
+
 def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
     """Build the ``applyInPandas`` UDF closure for VAEP scoring.
 
@@ -649,6 +683,10 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                 "defensive_adjusted_value",
                 "vaep_adjusted_value",
                 "xsuccess",
+                # sk4123 (TF-63 xImpact ride-along): computed during scoring (NOT carried from
+                # spadl_actions) — in _output_cols + StructType + DDL, but NOT the per-game projection.
+                "ximpact",
+                "win_prob_leverage",
                 "competition_id",
                 "season_id",
                 "data_source",
@@ -742,9 +780,17 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
 
             cache["xsuccess"] = XSuccessModel.bundled()
 
+        # sk4123 (TF-63 xImpact ride-along): the bundled in-game win-probability model (sk package data,
+        # SHA256-verified, no external I/O) cached once per executor for the goal-leverage weight.
+        if "win_prob" not in cache:
+            from silly_kicks.win_probability import WinProbabilityModel
+
+            cache["win_prob"] = WinProbabilityModel.bundled()
+
         model_scores = cache["scores"]
         model_concedes = cache["concedes"]
         xsuccess_model = cache["xsuccess"]
+        wp_model = cache["win_prob"]
 
         # sk4118 Phase D (TF-61): reconstruct a fitted VAEP around the cached boosters ONCE per pdf
         # for the outcome-bias-free rate_adjusted call (no retrain). rate() on it reproduces the raw
@@ -886,6 +932,12 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                 game_out["defensive_adjusted_value"] = _adj["defensive_value"].to_numpy()
                 game_out["vaep_adjusted_value"] = _adj["vaep_value"].to_numpy()
                 game_out["xsuccess"] = _adj["xsuccess"].to_numpy()
+
+                # sk4123 (TF-63 xImpact, ADR-101 ride-along): win_prob_leverage = dP(win | goal); ximpact
+                # = VAEP_adjusted x leverage (byte-consistent with VAEP.rate_ximpact). See _score_ximpact.
+                _leverage, _ximpact = _score_ximpact(game_actions, _adj, wp_model)
+                game_out["win_prob_leverage"] = _leverage.to_numpy()
+                game_out["ximpact"] = _ximpact.to_numpy()
 
                 # Carry through partition keys from the input
                 game_out["competition_id"] = pdf["competition_id"].iloc[0]
@@ -1086,6 +1138,9 @@ def _vaep_output_schema() -> Any:
             StructField("defensive_adjusted_value", DoubleType()),
             StructField("vaep_adjusted_value", DoubleType()),
             StructField("xsuccess", DoubleType()),
+            # sk4123 (TF-63 xImpact ride-along): ximpact + win_prob_leverage. Position mirrors _output_cols.
+            StructField("ximpact", DoubleType()),
+            StructField("win_prob_leverage", DoubleType()),
             StructField("competition_id", LongType()),
             StructField("season_id", LongType()),
             StructField("data_source", StringType()),

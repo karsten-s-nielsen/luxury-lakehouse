@@ -48,6 +48,8 @@ aggregated as (
         sum(vaep_value)                               as total_vaep,
         sum(offensive_value)                          as total_offensive,
         sum(defensive_value)                          as total_defensive,
+        -- sk4123 (TF-63 xImpact ride-along): per-player match-context-weighted total value.
+        sum(ximpact)                                  as total_ximpact,
         count(*)                                      as action_count
     from action_values
     group by competition_id, team_id, player_id, action_type
@@ -66,6 +68,7 @@ final as (
         cast(total_vaep as double)                    as total_vaep,
         cast(total_offensive as double)               as total_offensive,
         cast(total_defensive as double)               as total_defensive,
+        cast(total_ximpact as double)                 as total_ximpact,
         cast(action_count as bigint)                  as action_count,
         current_timestamp()                           as _loaded_at
 
