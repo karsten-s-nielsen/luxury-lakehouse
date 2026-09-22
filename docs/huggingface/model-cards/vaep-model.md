@@ -226,6 +226,12 @@ The standard VAEP delta machinery then runs on the weighted probabilities. This 
 >
 > The completion model generalises the expected-pass-completion idea of Anzer, G. & Bauer, P. (2022). **Expected Passes.** *Data Mining and Knowledge Discovery 36(1), 295–317.*
 
+## xImpact (Match-Context-Weighted Variant)
+
+The two fitted boosters additionally power **xImpact** (silly-kicks TF-63), surfaced on `fct_action_values` as `ximpact` plus its weight `win_prob_leverage`. **No retraining.** For each action, `ximpact = vaep_adjusted_value × ΔP(win | goal)`, where the goal-leverage `win_prob_leverage = P(win | score+1) − P(win | score)` is read from silly-kicks' bundled in-game `WinProbabilityModel` (public-corpus, SHA256-verified) at the action's pre-action game state. A late go-ahead goal scores high; a garbage-time goal ≈ 0. Both columns are additive — `vaep_value`/`vaep_adjusted_value` above are unchanged; an unresolved win-probability state yields a NaN `win_prob_leverage` and hence a NaN `ximpact` (never fabricated). A per-player `total_ximpact` rollup is available on `fct_vaep_breakdown_agg`.
+
+> Paul, Y., Klemp, M. & Memmert, D. (2025). **Beyond Outcome Bias …** *MLSA 2025, paper 225.* The in-game win-probability weight follows Dixon, M. J. & Robinson, M. E. (1998). **A birth process model for association football matches.** *JRSS: Series D 47(3)*, and Robberechts, P., Van Haaren, J. & Davis, J. (2019). **Who Will Win It? An In-game Win Probability Model for Football.** *arXiv:1906.05029.*
+
 ## EU AI Act — Intended Use and Non-Use
 
 This model is published for **research and reproducibility** purposes on public, open-licensed match data. It is **not intended for, not validated for, and not supplied to** any use that would fall within Annex III §4 (Employment, workers management and access to self-employment) of Regulation (EU) 2024/1689 — including recruitment or selection of natural persons, decisions affecting work-related contractual relationships, promotion, termination, task allocation based on individual traits, or the monitoring and evaluation of performance and behaviour of workers for employment decisions.

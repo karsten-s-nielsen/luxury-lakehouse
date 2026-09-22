@@ -70,6 +70,9 @@ with action_values as (
         defensive_adjusted_value,
         vaep_adjusted_value,
         xsuccess,
+        -- sk4123 (TF-63 xImpact ride-along): match-context-weighted action value + win-prob leverage.
+        ximpact,
+        win_prob_leverage,
         data_source,
         access_tier,
         competition_id,
@@ -205,6 +208,9 @@ actions_with_score as (
         av.defensive_adjusted_value,
         av.vaep_adjusted_value,
         av.xsuccess,
+        -- sk4123 (TF-63 xImpact ride-along): match-context-weighted action value + win-prob leverage.
+        av.ximpact,
+        av.win_prob_leverage,
 
         -- LL2 Path B: canonical possession_id sourced from silly-kicks's
         -- heuristic add_possessions output — populated for ALL sources.
@@ -385,6 +391,9 @@ final as (
         defensive_adjusted_value,
         vaep_adjusted_value,
         xsuccess,
+        -- sk4123 (TF-63 xImpact ride-along): match-context-weighted action value + win-prob leverage.
+        ximpact,
+        win_prob_leverage,
         -- LL2 Path B: canonical possession_id (heuristic, populated for ALL sources).
         possession_id,
         -- β-consistent: provider-namespaced StatsBomb-native passthroughs.

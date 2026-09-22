@@ -53,6 +53,12 @@ _ALLOWLIST: dict[str, str] = {
         "GK goal-kick coordinate resolver (native_origin_is_trusted, resolve_gk_geometry). "
         "Sanctioned — in _SK_GUARD_SUBMODULES; imported by action_context.enrich."
     ),
+    "silly_kicks.xthreat._grid": (
+        "TEST-ONLY oracle (src/tests/test_expected_threat_producer.py): the ExT count-aggregation "
+        "byte-identity gate compares the producer's _aggregate_counts / _zone_flat_index against sk's "
+        "real _count / _get_flat_indexes / _get_move_actions / _get_cell_indexes — those internals ARE "
+        "the oracle that proves the distributed count-agg reproduces fit(actions) (SK-XT-COUNTS, ADR-086)."
+    ),
     "silly_kicks.spadl.skillcorner._PERIOD_START_SECONDS": (
         "Per-period start-offset constant that rebases SkillCorner frame timestamps onto the "
         "SPADL dispatch time base — single-sourced from silly-kicks so both agree (regression: "

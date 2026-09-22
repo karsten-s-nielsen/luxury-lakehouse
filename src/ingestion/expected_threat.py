@@ -16,6 +16,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 from ingestion.guards import FilterResult, timed_check
@@ -54,6 +55,18 @@ _XT_W = 12
 # Canonical SPADL pitch dimensions (silly-kicks spadlconfig SSOT: 105 x 68).
 _PITCH_LENGTH = 105.0
 _PITCH_WIDTH = 68.0
+
+# sk4123 P2 (ADR-085 amendment, SK-XT-COUNTS): the daily producer fits from a DISTRIBUTED count
+# aggregation (fit_from_counts) instead of pulling the corpus to the driver. These are the ONLY types
+# the sk grid counts — _scoring_prob filters `shot`, _get_move_actions filters pass|dribble|cross; the
+# rest of _RELEVANT_TYPES are handed to .fit() but never counted. == ExpectedThreat.MOVE_TYPE_NAMES /
+# SHOT_TYPE_NAME (parity-tested); the count SQL restricts to these four so the grids stay byte-identical.
+_MOVE_TYPE_NAMES: tuple[str, str, str] = ("pass", "dribble", "cross")
+_SHOT_TYPE_NAME = "shot"
+
+# sk floor for fit_from_counts (SK-XT-COUNTS, ADR-102). Runtime-asserted in the fit path as defense in
+# depth; the serverless env is ADR-046 exact-pinned to this, so this only fires on a misbuilt env.
+_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 123, 0)
 
 # SPADL action types relevant to xT
 _RELEVANT_TYPES = (
@@ -139,6 +152,174 @@ def _fit_sk_grid(actions: pd.DataFrame) -> Any:
     from silly_kicks.xthreat import ExpectedThreat
 
     return ExpectedThreat(l=_XT_L, w=_XT_W).fit(_to_sk_actions(actions))
+
+
+# ── sk4123 P2: distributed counts-based fit (SK-XT-COUNTS, ADR-085 amendment) ──────────────────────
+_COUNT_KEYS = ("shot_counts", "goal_counts", "move_counts", "transition_start_counts", "transition_counts")
+
+
+def _assert_sk_version() -> None:
+    """Fail loud if the installed silly-kicks predates ``fit_from_counts`` (SK-XT-COUNTS)."""
+    import silly_kicks
+
+    actual = tuple(int(p) for p in silly_kicks.__version__.split(".")[:3])
+    if actual < _REQUIRED_SK_MIN:
+        required = ".".join(str(p) for p in _REQUIRED_SK_MIN)
+        raise RuntimeError(
+            f"silly-kicks {silly_kicks.__version__} < {required} — ExpectedThreat.fit_from_counts "
+            "unavailable; refusing to fit xT grids from counts."
+        )
+
+
+def _zone_flat_index(xs: npt.ArrayLike, ys: npt.ArrayLike, l: int = _XT_L, w: int = _XT_W) -> npt.NDArray[np.int64]:  # noqa: E741 — sk grid-dim convention (mirrors _get_cell_indexes)
+    """Pure-numpy mirror of sk ``_get_flat_indexes``: the y-inverted ``(w-1-yj)*l + xi`` flat index.
+
+    ``xi = clip(int(x / field_length * l), 0, l-1)`` (truncate-toward-zero, matching pandas
+    ``.astype("int64")``), ``yj`` analogously. The single binning primitive the count aggregation uses;
+    :func:`_sql_flat_index` is its Spark-SQL twin (same constants). Parity-gated vs sk.
+    """
+    x = np.asarray(xs, dtype=np.float64)
+    y = np.asarray(ys, dtype=np.float64)
+    xi = np.clip((x / _PITCH_LENGTH * l).astype(np.int64), 0, l - 1)
+    yj = np.clip((y / _PITCH_WIDTH * w).astype(np.int64), 0, w - 1)
+    return (w - 1 - yj) * l + xi
+
+
+def _sql_flat_index(x_expr: str, y_expr: str, l: int = _XT_L, w: int = _XT_W) -> str:  # noqa: E741 — sk grid-dim convention
+    """Spark-SQL twin of :func:`_zone_flat_index` (same formula/constants) — the distributed binning."""
+    xi = f"least(greatest(cast({x_expr} / ({_PITCH_LENGTH} / {l}) as int), 0), {l - 1})"
+    yj = f"least(greatest(cast({y_expr} / ({_PITCH_WIDTH} / {w}) as int), 0), {w - 1})"
+    return f"({w} - 1 - {yj}) * {l} + {xi}"
+
+
+def _aggregate_counts(actions: pd.DataFrame, l: int = _XT_L, w: int = _XT_W) -> dict[str, npt.NDArray[np.int64]]:  # noqa: E741 — sk grid-dim convention
+    """Pandas reference aggregator — the 5 ``fit_from_counts`` arrays from a gold action slice.
+
+    Mirrors the Spark SQL in :func:`_aggregate_counts_spark` EXACTLY (same type filters + binning) so the
+    Spark-free tests pin correctness. ``actions`` is gold-form (``action_type`` / ``action_result`` name
+    columns + ``start_x/y`` / ``end_x/y``). Only ``{pass,dribble,cross,shot}`` are counted (the sk grid
+    ignores the rest). ``move_counts`` = valid-START moves (feeds ``_action_prob``); ``transition_start_counts``
+    = valid-START-AND-END moves (the Singh row denominator — a DIFFERENT population, the D1-SPEC-01 crux);
+    ``transition_counts`` = SUCCESSFUL valid-start-and-end ``flat(from)→flat(to)`` (the Singh numerator).
+    NaN-start rows are dropped (matches sk ``_count``).
+    """
+    n = l * w
+    is_shot = actions["action_type"] == _SHOT_TYPE_NAME
+    is_move = actions["action_type"].isin(_MOVE_TYPE_NAMES)
+    is_success = actions["action_result"] == "success"
+    valid_start = actions["start_x"].notna() & actions["start_y"].notna()
+    valid_end = actions["end_x"].notna() & actions["end_y"].notna()
+
+    def _zone(mask: pd.Series) -> npt.NDArray[np.int64]:
+        m = mask & valid_start
+        vec = np.zeros(n, dtype=np.int64)
+        if bool(m.any()):
+            flat = _zone_flat_index(actions.loc[m, "start_x"], actions.loc[m, "start_y"], l, w)
+            np.add.at(vec, flat, 1)
+        return vec.reshape((w, l))
+
+    tmask = is_move & valid_start & valid_end & is_success
+    transition = np.zeros((n, n), dtype=np.int64)
+    if bool(tmask.any()):
+        flat_s = _zone_flat_index(actions.loc[tmask, "start_x"], actions.loc[tmask, "start_y"], l, w)
+        flat_e = _zone_flat_index(actions.loc[tmask, "end_x"], actions.loc[tmask, "end_y"], l, w)
+        np.add.at(transition, (flat_s, flat_e), 1)
+
+    return {
+        "shot_counts": _zone(is_shot),
+        "goal_counts": _zone(is_shot & is_success),
+        "move_counts": _zone(is_move),
+        "transition_start_counts": _zone(is_move & valid_end),
+        "transition_counts": transition,
+    }
+
+
+def _sum_counts(per_comp: list[dict[str, npt.NDArray[np.int64]]]) -> dict[str, npt.NDArray[np.int64]]:
+    """Element-wise sum of per-competition count dicts → the ``global`` counts (additivity, SK-XT-COUNTS)."""
+    if not per_comp:
+        raise ValueError("_sum_counts requires at least one competition's counts")
+    return {k: np.sum([c[k] for c in per_comp], axis=0) for k in _COUNT_KEYS}
+
+
+def _counts_n_actions(counts: dict[str, npt.NDArray[np.int64]]) -> int:
+    """Relevant action count (valid-start shots + moves) — the small/empty-grid gate input."""
+    return int(counts["shot_counts"].sum() + counts["move_counts"].sum())
+
+
+def _fit_grid_from_counts(counts: dict[str, npt.NDArray[np.int64]]) -> Any:
+    """Fit a canonical 16x12 sk ``ExpectedThreat`` from the 5 zone-count arrays (SK-XT-COUNTS)."""
+    from silly_kicks.xthreat import ExpectedThreat
+
+    _assert_sk_version()
+    return ExpectedThreat(l=_XT_L, w=_XT_W).fit_from_counts(
+        shot_counts=counts["shot_counts"],
+        goal_counts=counts["goal_counts"],
+        move_counts=counts["move_counts"],
+        transition_start_counts=counts["transition_start_counts"],
+        transition_counts=counts["transition_counts"],
+    )
+
+
+def _aggregate_counts_spark(spark: SparkSession, catalog: str) -> dict[str, dict[str, npt.NDArray[np.int64]]]:
+    """ONE distributed Spark pass → per-``competition_id`` 5-count arrays (no corpus pull to the driver).
+
+    Two ``groupBy`` reductions over ``fct_action_values`` restricted to ``{pass,dribble,cross,shot}``:
+    (A) per ``(competition_id, flat_start)`` conditional sums → shot/goal/move/transition_start;
+    (B) per ``(competition_id, flat_start, flat_end)`` successful-move counts → transition. Only the tiny
+    reduced tables (≤~192 and ≤~192² cells per comp) cross to the driver; arrays are built via
+    ``vector.reshape((w, l))`` (matching sk ``_count``). This restores the OPT-1 single-pass distributed
+    accumulation ADR-085 had to revert (sk lacked a counts fit). Returns ``{competition_id_str: counts}``.
+    """
+    n = _XT_L * _XT_W
+    gold = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.{_GOLD_TABLE}"
+    move_in = ", ".join(f"'{t}'" for t in _MOVE_TYPE_NAMES)
+    type_in = ", ".join(f"'{t}'" for t in (*_MOVE_TYPE_NAMES, _SHOT_TYPE_NAME))
+    flat_s = _sql_flat_index("start_x", "start_y")
+    flat_e = _sql_flat_index("end_x", "end_y")
+
+    zone_sql = f"""
+        SELECT CAST(competition_id AS STRING) AS comp, {flat_s} AS fs,
+            SUM(CASE WHEN action_type = '{_SHOT_TYPE_NAME}' THEN 1 ELSE 0 END) AS shot_c,
+            SUM(CASE WHEN action_type = '{_SHOT_TYPE_NAME}' AND action_result = 'success' THEN 1 ELSE 0 END)
+                AS goal_c,
+            SUM(CASE WHEN action_type IN ({move_in}) THEN 1 ELSE 0 END) AS move_c,
+            SUM(CASE WHEN action_type IN ({move_in}) AND end_x IS NOT NULL AND end_y IS NOT NULL THEN 1 ELSE 0 END)
+                AS tstart_c
+        FROM {gold}
+        WHERE action_type IN ({type_in}) AND competition_id IS NOT NULL
+            AND start_x IS NOT NULL AND start_y IS NOT NULL
+        GROUP BY CAST(competition_id AS STRING), {flat_s}
+    """  # noqa: S608 -- fixed identifiers + literal type names, no user input
+
+    trans_sql = f"""
+        SELECT CAST(competition_id AS STRING) AS comp, {flat_s} AS fs, {flat_e} AS fe, COUNT(*) AS tc
+        FROM {gold}
+        WHERE action_type IN ({move_in}) AND action_result = 'success' AND competition_id IS NOT NULL
+            AND start_x IS NOT NULL AND start_y IS NOT NULL AND end_x IS NOT NULL AND end_y IS NOT NULL
+        GROUP BY CAST(competition_id AS STRING), {flat_s}, {flat_e}
+    """  # noqa: S608 -- fixed identifiers + literal type names, no user input
+
+    def _blank() -> dict[str, npt.NDArray[np.int64]]:
+        return {
+            "shot_counts": np.zeros((_XT_W, _XT_L), dtype=np.int64),
+            "goal_counts": np.zeros((_XT_W, _XT_L), dtype=np.int64),
+            "move_counts": np.zeros((_XT_W, _XT_L), dtype=np.int64),
+            "transition_start_counts": np.zeros((_XT_W, _XT_L), dtype=np.int64),
+            "transition_counts": np.zeros((n, n), dtype=np.int64),
+        }
+
+    result: dict[str, dict[str, npt.NDArray[np.int64]]] = {}
+    for r in spark.sql(zone_sql).collect():
+        c = result.setdefault(str(r["comp"]), _blank())
+        f = int(r["fs"])
+        c["shot_counts"].reshape(-1)[f] = int(r["shot_c"])
+        c["goal_counts"].reshape(-1)[f] = int(r["goal_c"])
+        c["move_counts"].reshape(-1)[f] = int(r["move_c"])
+        c["transition_start_counts"].reshape(-1)[f] = int(r["tstart_c"])
+    for r in spark.sql(trans_sql).collect():
+        c = result.setdefault(str(r["comp"]), _blank())
+        c["transition_counts"][int(r["fs"]), int(r["fe"])] = int(r["tc"])
+    return result
 
 
 def _project_physical_zones(model: Any, *, n_x: int = _XT_L, n_y: int = _XT_W) -> pd.DataFrame:
@@ -363,36 +544,6 @@ def _list_relevant_competition_ids(spark: SparkSession, catalog: str) -> list[st
     return [str(row["competition_id"]) for row in rows]
 
 
-def _load_actions_for_competition(
-    spark: SparkSession,
-    catalog: str,
-    competition_id: str,
-) -> pd.DataFrame:
-    """Pull a single competition's xT-relevant actions to driver memory.
-
-    Bounded by per-competition row count — largest competition (a full league season's SPADL events)
-    is ~500K rows x 6 cols ≈ 24 MB, well below the 16 GB driver budget. The ``.filter`` on
-    ``competition_id`` is the toPandas bound.
-    """
-    from pyspark.sql.functions import col
-
-    return (
-        spark.table(f"{catalog}.{DEFAULT_GOLD_SCHEMA}.{_GOLD_TABLE}")
-        .filter(col("action_type").isin(list(_RELEVANT_TYPES)))
-        .filter(col("competition_id") == competition_id)
-        .selectExpr(
-            "CAST(competition_id AS STRING) AS competition_id",
-            "action_type AS type_name",
-            "action_result AS result_name",
-            "start_x",
-            "start_y",
-            "end_x",
-            "end_y",
-        )
-        .toPandas()  # type: ignore[union-attr]
-    )
-
-
 @workflow("wf-xt-grids", phase="grid_computation")
 def run_pipeline(
     spark: SparkSession,
@@ -405,12 +556,12 @@ def run_pipeline(
 ) -> int:
     """Fit per-competition and global sk ``ExpectedThreat`` models, persist ``to_dict`` to Delta.
 
-    Streams per-competition action slices (~24 MB each, ``competition_id``-filtered). The GLOBAL model
-    is fit on the union of the visited per-comp slices — sk ``ExpectedThreat`` has no additive
-    ``ZoneCounters`` equivalent (unlike the retired v1), so the single-canonical-surface global grid
-    requires the full corpus at the driver. This reverts the OPT-1 counter-accumulation for the global
-    grid (ADR-085); peak driver memory is the union of the visited slices (~≤1 GB, bounded << 16 GB),
-    and the per-comp ``.toPandas()`` calls stay individually ``competition_id``-filtered.
+    Fits from a SINGLE distributed count aggregation (``fit_from_counts``, SK-XT-COUNTS): one Spark
+    ``groupBy`` reduces the corpus to per-(competition, zone) counts, and every grid — including the
+    ``global`` grid (the element-wise sum of the per-competition counts, additive) — is fit from those.
+    No ``.toPandas()`` of action rows, no ``pd.concat`` of the corpus at the driver. This restores the
+    OPT-1 single-pass distributed accumulation that ADR-085 had to revert when sk exposed only
+    ``.fit(actions)``. Grids are byte-identical to the ``.fit`` path.
     """
     if filter_result.count == 0:
         raise WorkflowSkippedError("No new work")
@@ -432,60 +583,44 @@ def run_pipeline(
     )
 
     new_comp_set = {str(c) for c in new_comps}
-    if need_global:
-        all_comp_ids = _list_relevant_competition_ids(spark, catalog)
-        comps_to_visit = sorted(set(all_comp_ids) | new_comp_set)
-    else:
-        comps_to_visit = sorted(new_comp_set)
 
-    global_action_slices: list[pd.DataFrame] = []
+    # ONE distributed count aggregation over the whole corpus (SK-XT-COUNTS): the only data crossing to
+    # the driver is the tiny per-(competition, zone) reduced tables — never the ~9.5M action rows.
+    counts_by_comp = _aggregate_counts_spark(spark, catalog)
+
     competitions_written = 0
-    total_actions_accumulated = 0
-
-    for comp_id in comps_to_visit:
-        comp_actions = _load_actions_for_competition(spark, catalog, comp_id)
-        if comp_actions.empty:
+    for comp_id in sorted(new_comp_set):
+        counts = counts_by_comp.get(comp_id)
+        if counts is None:
             continue
-        n_events = len(comp_actions)
-        total_actions_accumulated += n_events
+        n_events = _counts_n_actions(counts)
+        if n_events < 100:
+            logger.warning("Competition %s has only %d relevant actions — skipping per-comp grid", comp_id, n_events)
+            continue
 
-        # Accumulate for the global fit (ADR-085 — no additive counters in sk).
-        if need_global:
-            global_action_slices.append(comp_actions)
+        model = _fit_grid_from_counts(counts)
 
-        # Per-comp grid only for competitions the guard flagged as new.
-        if comp_id in new_comp_set:
-            if n_events < 100:
-                logger.warning(
-                    "Competition %s has only %d events — skipping per-comp grid",
-                    comp_id,
-                    n_events,
-                )
-                continue
+        # Directionality gate for substantial competitions only (ADR-063 M5/M6): small/noisy per-comp
+        # grids are exempt to avoid false-fails; large ones must not be silently inverted.
+        if n_events >= _MIN_ACTIONS_DIRECTIONAL:
+            assert_directional(model, competition_id=comp_id, logger=logger)
 
-            model = _fit_sk_grid(comp_actions)
+        if _write_grid_if_material(spark, model, catalog=catalog, schema=schema, comp_id=comp_id, logger=logger):
+            competitions_written += 1
+            logger.info(
+                "Competition %s: %d relevant actions, max xT=%.5f",
+                comp_id,
+                n_events,
+                float(np.asarray(model.xT).max()),
+            )
 
-            # Directionality gate for substantial competitions only (ADR-063 M5/M6): small/noisy
-            # per-comp grids are exempt to avoid false-fails; large ones must not be silently inverted.
-            if n_events >= _MIN_ACTIONS_DIRECTIONAL:
-                assert_directional(model, competition_id=comp_id, logger=logger)
-
-            if _write_grid_if_material(spark, model, catalog=catalog, schema=schema, comp_id=comp_id, logger=logger):
-                competitions_written += 1
-                logger.info(
-                    "Competition %s: %d events, max xT=%.5f",
-                    comp_id,
-                    n_events,
-                    float(np.asarray(model.xT).max()),
-                )
-
-    # ── Global grid (fit on the union of visited per-comp slices) ─────
+    # ── Global grid (element-wise sum of EVERY competition's counts — additive, no second pass) ──────
     if need_global:
-        if not global_action_slices:
+        if not counts_by_comp:
             logger.warning("No relevant actions found across any competition — skipping global xT grid")
         else:
-            global_actions = pd.concat(global_action_slices, ignore_index=True)
-            global_model = _fit_sk_grid(global_actions)
+            global_counts = _sum_counts(list(counts_by_comp.values()))
+            global_model = _fit_grid_from_counts(global_counts)
 
             # HARD gate (ADR-063 R1): a non-directional / out-of-range global grid is a build FAILURE —
             # raises before any watermark is recorded, so a stale/broken grid forces a re-run rather
@@ -497,18 +632,17 @@ def run_pipeline(
                 spark, global_model, catalog=catalog, schema=schema, comp_id="global", logger=logger
             ):
                 logger.info(
-                    "Global grid: %d events accumulated across %d competitions, max xT=%.5f",
-                    len(global_actions),
-                    len(comps_to_visit),
+                    "Global grid: %d relevant actions across %d competitions, max xT=%.5f",
+                    _counts_n_actions(global_counts),
+                    len(counts_by_comp),
                     float(np.asarray(global_model.xT).max()),
                 )
 
     logger.info(
-        "Done — wrote %d competition grids%s (streamed %d total actions across %d competitions)",
+        "Done — wrote %d competition grids%s (%d competitions aggregated in one distributed pass)",
         competitions_written,
         " + global" if need_global else "",
-        total_actions_accumulated,
-        len(comps_to_visit),
+        len(counts_by_comp),
     )
 
     # Record the upstream watermark ONLY after a validated, successful run (ADR-063 H3). If the
