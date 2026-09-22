@@ -44,7 +44,9 @@ from analytics.action_context.drain_gate import (
 )
 from ingestion.defensive_credit_writer import AGG_TABLE, LONG_TABLE
 from ingestion.drain_adapters import _EVENT_SCHEMA, _QUEUE_SCHEMA
+from ingestion.gk_decision_writer import BRONZE_TABLE as GK_DECISION_TABLE
 from ingestion.off_ball_runs_writer import BRONZE_TABLE as OFF_BALL_TABLE
+from ingestion.restdefense_writer import BRONZE_TABLE as REST_DEFENSE_TABLE
 from ingestion.tracking_marts_drain import discover_open_units
 from ingestion.tracking_marts_processor import GKDV_ENABLED, GKDV_OBS_TABLE
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
@@ -63,7 +65,11 @@ _EVENT_VIEW = f"{_DRAIN_NAME}_unit_events"
 #: INCLUDING ``gkdv_observations`` while gkdv is gated off (GKDV_ENABLED, ADR-082 amendment) is the
 #: mirror-image bug: the write-landed alarm would cry wolf over an intentionally-empty table on every
 #: unit. So the gkdv table joins this set ONLY when gkdv actually scores.
-_OUTPUT_TABLES: tuple[str, ...] = (OFF_BALL_TABLE, AGG_TABLE, LONG_TABLE) + ((GKDV_OBS_TABLE,) if GKDV_ENABLED else ())
+#: sk4118 Phase E: rest_defense (per-action) + gk_decision (per-decision) are BOTH period-native — they
+#: share the (data_source, match_id, period_id) grain, so they join the write-landed set unconditionally.
+_OUTPUT_TABLES: tuple[str, ...] = (OFF_BALL_TABLE, AGG_TABLE, LONG_TABLE, REST_DEFENSE_TABLE, GK_DECISION_TABLE) + (
+    (GKDV_OBS_TABLE,) if GKDV_ENABLED else ()
+)
 
 
 def _read_queue(spark: SparkSession, catalog: str, run_id: str) -> list[QueueRow]:

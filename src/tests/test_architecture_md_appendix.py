@@ -54,6 +54,18 @@ def test_architecture_md_has_appendix_d_academic_references() -> None:
         "Le",  # GKDV ghost-substitution: Le, Yue, Carr & Lucey (2017) — short surname — wf-gkdv
         "Shaw",  # GKDV threat-suppression: Shaw & Sudarshan (2020) — wf-gkdv
         "Sudarshan",  # GKDV threat-suppression: Shaw & Sudarshan (2020) — wf-gkdv
+        # silly-kicks 4.120.0 sk4118 P1 Phase A team-match families (ADR-013 marts, fct_team_metrics).
+        "Dixon",  # match_outcome Dixon-Coles dependence correction: Dixon & Coles (1997) — wf-match-outcome
+        "Sumpter",  # team_metrics KPI glossary + territory 'Earpiece' framing — wf-team-metrics / wf-territory
+        # silly-kicks 4.120.0 sk4118 P1 Phase C player-match family (fct_player_match_metrics).
+        "Glickman",  # duels Glicko-2 rating: Glickman (2012) — wf-duels
+        # silly-kicks 4.116/4.121 sk4118 P1 Phase D VAEP_adjusted + xSuccess (fct_action_values).
+        "Klemp",  # VAEP_adjusted outcome-bias-free rating: Paul, Klemp & Memmert (2025) — wf-vaep (TF-61)
+        "Memmert",  # co-author on Paul, Klemp & Memmert (2025) VAEP_adjusted — wf-vaep (TF-61)
+        # silly-kicks 4.102/4.103 sk4118 P1 Phase E rest-defense (fct_rest_defense, tracking-marts drain).
+        "Forcher",  # rest-defense KPI battery: Forcher et al. (2023) — restdefense TF-60
+        "Dash",  # back-four line-height/compactness/spread: Dash et al. (2025) — restdefense TF-14/TF-60
+        "Peters",  # counterpressing/rest-defence framing: Peters et al. (2025) — restdefense TF-60
     ]
     appendix_idx = text.find("D. Academic References")
     appendix = text[appendix_idx:]

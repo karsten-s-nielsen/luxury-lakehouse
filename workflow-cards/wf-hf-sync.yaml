@@ -47,7 +47,6 @@ execution:
 depends_on:
   - wf-vaep
   - wf-entity-resolution
-  - wf-elastic-sync
 
 idempotency:
   strategy: none

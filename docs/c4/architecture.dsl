@@ -34,7 +34,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             auditResolutions = container "audit_resolutions.py" "Audits every uv.lock resolution minus the dev group, PLUS the DEPLOYED Spaces' requirements.txt. CLEAN / FINDINGS / UNKNOWN from pip-audit's JSON, never from its exit code." "Python, pip-audit"
         }
 
-        pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "47 workflow-card-registered workflows. Centralized hooks, lifecycle tracking, three-tier cost tracking." {
+        pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "48 workflow-card-registered workflows. Centralized hooks, lifecycle tracking, three-tier cost tracking." {
             workflowFramework = container "Workflow Framework" "Registry, @workflow decorator, lifecycle runner with hook dispatch" "Python"
             workflowCards = container "Workflow Cards" "55 YAML manifests: inputs, outputs, deps, cost estimates, provenance" "YAML" "Database"
             costEstimateHook = container "CostEstimateHook" "Writes run state, entity_count, row_count, cost to Delta via MERGE" "Python, PySpark"
@@ -43,15 +43,15 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             artifactDeploy = container "Artifact Deploy" "Training-to-production contract (ADR-012); M2M-OAuth-capable auth (ADR-079). MLflow + UC Volume helpers." "Python"
             hfPublish = container "HF Publish Helper" "README delivery (ADR-014) + ADR-072 publish seam: prepare_public_upload guards/splits/drops; GuardedFrame gates writes; upload_guarded derives repo privacy, sweep and HF token; refuses unaccounted files." "Python"
             databricksSqlFetch = container "Databricks SQL Fetch" "HTTP helper for HF Jobs trainers querying gold marts (no Spark)" "Python, requests"
-            ingestionPipelines = container "Compute Pipelines" "@workflow Databricks ingestion/compute pipelines, 6 providers. Stamps per-match visibility on bronze, threaded to SPADL (ADR-064). GS dedup (ADR-030), ET derivers (ADR-029), DFL via silly-kicks (ADR-055). Tracking-grain marts (off_ball_runs/defensive_credit/gkdv) run as a SECOND worker-drain reusing the ADR-037/068 fan-out (ADR-082)." "Python, PySpark, silly-kicks 4.90.1"
-            refreshSyncedTables = container "Synced Table Refresh" "Triggers refresh on 41 synced tables; detect-only for checkpoint-broken TRIGGERED tables — flags + dispatches the heal, never deletes (ADR-041)" "Python, databricks-sdk"
+            ingestionPipelines = container "Compute Pipelines" "@workflow Databricks ingestion/compute pipelines, 6 providers. Stamps per-match visibility on bronze, threaded to SPADL (ADR-064). GS dedup (ADR-030), ET derivers (ADR-029), DFL via silly-kicks (ADR-055). Tracking-grain marts (off_ball_runs/defensive_credit/gkdv) run as a SECOND worker-drain reusing the ADR-037/068 fan-out (ADR-082)." "Python, PySpark, silly-kicks 4.121.0"
+            refreshSyncedTables = container "Synced Table Refresh" "Triggers refresh on 44 synced tables; detect-only for checkpoint-broken TRIGGERED tables — flags + dispatches the heal, never deletes (ADR-041)" "Python, databricks-sdk"
             migrateSyncedTables = container "Synced Table Migration" "SDK-managed lifecycle: delete, CDF enable, create, wait (ADR-026). Replaces Terraform module." "Python, databricks-sdk"
             rederiveSyncedMarts = container "Strand-safe Re-derive" "Operator re-derive of TRIGGERED synced marts (ADR-043): D MERGE-reprocess / T plain-rebuild / B delete+full-refresh+recreate. Pure planner + thin executor." "Python, databricks-sdk"
             dbtRunner = container "dbt Runner" "python_wheel_task entry point. OAuth token exchange, warehouse start." "Python, dbt-core"
             evolveEngine = container "Evolve Engine" "LLM-guided architecture search. AST validation, restricted exec." "Python, OpenEvolve"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models: xG + canonical-SPADL pre-shot xG v3 (SB-360 freeze-frame builder, two-mode gate, OOF calibration; ADR-066), xT, VAEP, OBSO, pitch control, PSxG (ADR-059), embeddings" "Python, PyTorch"
             execVisibility = container "Executor Visibility (exec_visibility)" "Driver heartbeat + executor env-fingerprint/faulthandler markers + silly-kicks env-drift guard (ADR-044). Spark-Connect-safe applyInPandas progress + hang diagnostics (ADR-031)." "Python"
-            actionContextHexagon = container "Action Context Hexagon" "Pure-domain AC enrichment (ADR-028): ports + enrich_batch, one Spark+local UDF. Frames-required (ADR-057); sb360 cogroup (ADR-058); velocity via silly-kicks (ADR-067); drain gate (ADR-068)." "Python, pandas, silly-kicks 4.90.1"
+            actionContextHexagon = container "Action Context Hexagon" "Pure-domain AC enrichment (ADR-028): ports + enrich_batch, one Spark+local UDF. Frames-required (ADR-057); sb360 cogroup (ADR-058); velocity via silly-kicks (ADR-067); drain gate (ADR-068)." "Python, pandas, silly-kicks 4.121.0"
             sharedLibrary = container "Shared Library" "Cross-package constants, identifiers, and the per-match access_tier classifier — a fail-safe ALLOWLIST (ADR-064): open-data providers public, everything else restricted. Zero external deps." "Python"
         }
 
@@ -66,21 +66,21 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             telemetryTable = container "Telemetry Table" "Cycle log: items, smoke-gate pass/fail, cost tracking, heartbeat rows." "Delta Lake" "Database"
         }
 
-        dbtProject = softwareSystem "dbt Project" "Medallion transformation: 103 models (46 staging, 11 intermediate, 46 marts). Kimball dims, liquid clustering. on-run-start tripwire blocks --full-refresh of TRIGGERED synced marts (ADR-043)." {
+        dbtProject = softwareSystem "dbt Project" "Medallion transformation: 113 models (52 staging, 11 intermediate, 50 marts). Kimball dims, liquid clustering. on-run-start tripwire blocks --full-refresh of TRIGGERED synced marts (ADR-043)." {
             fctWorkflowCosts = container "fct_workflow_costs" "Gold-layer cost attribution with billing JOIN. 90-day rolling window." "SQL, dbt" "Database"
-            goldModels = container "Gold Models" "41 fact (+ fct_workflow_costs) + 4 dim tables, contracts, liquid clustering, per-row access_tier (ADR-064). Pre-shot xG fct_shot_xg (ADR-066); PSxG fct_shot_psxg (ADR-059); GK insight-views (ADR-061)." "SQL, dbt" "Database"
+            goldModels = container "Gold Models" "45 fact (+ fct_workflow_costs) + 4 dim tables, contracts, liquid clustering, per-row access_tier (ADR-064). Pre-shot xG fct_shot_xg (ADR-066); PSxG fct_shot_psxg (ADR-059); GK insight-views (ADR-061); sk4118 marts: fct_team_metrics, fct_gk_decision, fct_player_match_metrics, fct_rest_defense (sk 4.121.0)." "SQL, dbt" "Database"
         }
 
         # Data stores
         unityCatalog = softwareSystem "Unity Catalog" "Governed Delta Lake: bronze (raw), gold (analytics), observability (metadata)" "External" {
             bronzeSchema = container "Bronze Schema" "Raw events, tracking, SPADL actions, VAEP scores, PSxG + pre-shot xG predictions, shot freeze frames, compute results" "Delta Lake" "Database"
-            goldSchema = container "Gold Schema" "42 fact + 4 dim tables. Analytics-ready." "Delta Lake" "Database"
+            goldSchema = container "Gold Schema" "45 fact + 4 dim tables. Analytics-ready." "Delta Lake" "Database"
             observabilitySchema = container "Observability Schema" "workflow_cost_live, workflow_import_checksums, workflow_watermarks, action_context + tracking_marts unit_events + work_queue (per-worker tables + UNION view, ADR-068/082), definer's-rights views" "Delta Lake" "Database"
         }
 
-        lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL endpoint syncing 41 Delta tables (68 indexes: 62 btree + 6 HNSW). SDK-managed (ADR-026)." "External"
+        lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL endpoint syncing 44 Delta tables (68 indexes: 62 btree + 6 HNSW). SDK-managed (ADR-026)." "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth, synced table metadata, pipeline triggers, state polling" "External"
-        databricksWorkflows = softwareSystem "Databricks Workflows" "48-task daily DAG: 7 ingest, 16 compute (incl. compute_xg_shot_scores, compute_gkdv_pool), 5 preflight, 3 dbt_build, 2 backfill, tracking-marts worker-drain + gate (ADR-082), other (hf_sync, import, extract, refresh, resolve, validate, staleness monitor)" "External"
+        databricksWorkflows = softwareSystem "Databricks Workflows" "52-task daily DAG: 7 ingest, 17 compute (incl. compute_xg_shot_scores, compute_gkdv_pool), 5 metric writers (team_metrics/match_outcome/shot_stopping/territory/duels), 5 preflight, 3 dbt_build, 2 backfill, tracking-marts worker-drain + gate (ADR-082), other (hf_sync, import, extract, refresh, resolve, validate, staleness monitor)" "External"
         hfIdentity = softwareSystem "HuggingFace Identity API" "Token validation via /api/whoami-v2. Org membership check." "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds Dockerfile, serves port 7860." "External"
         hfHub = softwareSystem "HuggingFace Hub" "18 models (incl. xg_model_v3 pre-shot xG) + build-artifacts wheel, 23 public datasets + private -restricted companions split by per-match access_tier (ADR-064/049), 3 Spaces. READMEs via ADR-014." "External"
@@ -468,7 +468,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             databricksWorkflows -> ingestionPipelines "9 leaf computes run"
             databricksWorkflows -> dbtRunner "dbt_build after leaves"
             dbtRunner -> guardRegistry "Watermark check upstream tables"
-            dbtRunner -> dbtProject "Build 46 marts"
+            dbtRunner -> dbtProject "Build 50 marts"
             dbtRunner -> observabilitySchema "Record watermarks"
             databricksWorkflows -> refreshSyncedTables "Final task"
             refreshSyncedTables -> guardRegistry "Watermark check gold tables"

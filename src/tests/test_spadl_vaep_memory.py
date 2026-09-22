@@ -199,9 +199,14 @@ class TestSpadlVaepMemory:
         # Print so the executor can read the measured value for threshold tuning
         print(f"\n  VAEP UDF peak memory: {peak_mb:.1f} MB at 2,711 rows")
 
-        # Measured baseline: 8.7 MB (2026-05-20, p99=2711 rows, XGBClassifier n_est=5)
-        # Threshold: 2x baseline = 18 MB
-        threshold_mb = 18.0
+        # Measured baseline: 8.7 MB (2026-05-20, raw VAEP only, p99=2711 rows, XGBClassifier n_est=5).
+        # sk4118 P1 Phase D added the result-ADJUSTED path to the same UDF (reconstruct sk VAEP + inject
+        # boosters + XSuccessModel.bundled() + rate_adjusted). rate_adjusted's surgical result-flip
+        # re-featurizes each action twice (X_succ + X_fail) and loads the bundled xSuccess model, which
+        # raises the p99-group peak to a stable ~22.5 MB (measured 2026-09-22, full-suite + standalone).
+        # This is inherent to the adopted feature, not a leak, and remains tiny vs the 800 MB UDF cap.
+        # Threshold: 30 MB — ~33% headroom over the adjusted-path baseline, still catches a gross regression.
+        threshold_mb = 30.0
 
         assert peak_mb < threshold_mb, (
             f"VAEP scoring UDF peak memory {peak_mb:.1f} MB exceeds "

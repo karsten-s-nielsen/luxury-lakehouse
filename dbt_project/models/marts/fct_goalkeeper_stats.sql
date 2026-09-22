@@ -10,8 +10,9 @@
 -- Grain: one row per goalkeeper per match per data_source.
 -- Feature-gated: requires goalkeeper_enabled=true.
 --
--- xT distribution uses the global expected_threat_grids from bronze.
--- SPADL pitch is 105x68m, grid is 12x8 zones.
+-- xT distribution uses the global grid from bronze.expected_threat_grid_zones — the derived
+-- physical projection of the canonical sk ExpectedThreat (ADR-085 G-fix).
+-- SPADL pitch is 105x68m, grid is 16x12 zones.
 --
 -- D39 columns: psxg_faced, goals_conceded, goals_prevented from
 -- stg_psxg__predictions; avg_defensive_action_distance, actions_outside_box_per_90
@@ -71,13 +72,17 @@ gk_actions as (
 
 ),
 
+-- ExT-v2 single-canonical-surface migration (ADR-085 G-fix, sk4118): the canonical xT model is a
+-- fitted silly-kicks ExpectedThreat (16x12) stored as JSON; the producer also writes
+-- bronze.expected_threat_grid_zones — a deterministic 16x12 physical projection of THAT model (NOT a
+-- second fit) — for this per-zone SQL lookup. Grid moved 12x8 -> 16x12 (re-baselines in P2).
 xt_grid as (
 
     select
         zone_x,
         zone_y,
         xt_value
-    from {{ source('spadl', 'expected_threat_grids') }}
+    from {{ source('spadl', 'expected_threat_grid_zones') }}
     where competition_id = 'global'
 
 ),
@@ -100,11 +105,11 @@ gk_passes as (
 
     from gk_actions a
     left join xt_grid xt_start
-        on greatest(least(cast(a.start_x / (105.0 / 12) as int), 11), 0) = xt_start.zone_x
-        and greatest(least(cast(a.start_y / (68.0 / 8) as int), 7), 0) = xt_start.zone_y
+        on greatest(least(cast(a.start_x / (105.0 / 16) as int), 15), 0) = xt_start.zone_x
+        and greatest(least(cast(a.start_y / (68.0 / 12) as int), 11), 0) = xt_start.zone_y
     left join xt_grid xt_end
-        on greatest(least(cast(a.end_x / (105.0 / 12) as int), 11), 0) = xt_end.zone_x
-        and greatest(least(cast(a.end_y / (68.0 / 8) as int), 7), 0) = xt_end.zone_y
+        on greatest(least(cast(a.end_x / (105.0 / 16) as int), 15), 0) = xt_end.zone_x
+        and greatest(least(cast(a.end_y / (68.0 / 12) as int), 11), 0) = xt_end.zone_y
     where a.action_type in ('pass', 'cross', 'freekick_short', 'freekick_crossed', 'goalkick')
 
 ),

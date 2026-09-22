@@ -1,0 +1,99 @@
+---
+name: Match Outcome — Win Probability & xPoints
+id: wf-match-outcome
+version: "1.0"
+status: development
+type: heuristic
+domain: team-analytics
+owners:
+  - karsten
+tags:
+  - match-outcome
+  - team-analytics
+  - win-probability
+  - deterministic
+
+governance:
+  eu_ai_act: not-high-risk-under-current-posture
+  annex_iii_category: "Not in scope — per-TEAM win-probability aggregate, not a per-player evaluation"
+  reference: AI_GOVERNANCE.md
+
+# match_outcome is a per-TEAM win-probability aggregate (integrated from per-shot xG), NOT a
+# per-player-evaluative system — it is DELIBERATELY EXCLUDED from PER_PLAYER_EVALUATIVE_CARDS in
+# src/tests/test_ai_governance_md.py (no EU-AI-Act model card).
+references:
+  - citation: "Dixon & Coles (1997). Modelling Association Football Scores and Inefficiencies in the Football Betting Market. Journal of the Royal Statistical Society: Series C 46(2)."
+    role: methodology
+
+inputs:
+  datasets:
+    - id: "{catalog}.bronze.spadl_actions"
+      source: delta-table
+      description: "SPADL actions (event-only, all providers)"
+    - id: "{catalog}.bronze.xg_shot_predictions"
+      source: delta-table
+      description: "Per-shot pre-shot xG (xg_model_v3), native-keyed — LEFT-joined onto the actions per shot"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.match_outcome"
+      destination: delta-table
+      description: "Per-(match, team) win/draw/loss + xPoints + expected_goals written by match_outcome_writer (ADR-013), native ids"
+    - id: "{catalog}.dev_gold.fct_team_metrics"
+      destination: delta-table
+      description: "Wide-by-granularity team-match mart carrying the 5 match_outcome cols (+ team_metrics); dbt-built, contract-enforced (ADR-013)"
+
+execution:
+  # Deterministic-method card carrying its own scheduled compute phase (like wf-bravery). Event-only
+  # across all providers: reads bronze.spadl_actions + bronze.xg_shot_predictions and simulates the
+  # per-(match, team) win probabilities via applyInPandas. Needs silly-kicks -> environment: analytics.
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: match_outcome_writer
+    module: ingestion.match_outcome_writer
+    distribution: applyInPandas
+    partition_key: match_id_native
+    schedule: "daily 06:00 UTC"
+    timeout: "1800s"
+    environment: analytics
+
+depends_on:
+  - wf-vaep
+  - wf-xg-v2
+
+monitoring:
+  freshness_sla_hours: 168
+
+links:
+  source_code:
+    - "src/ingestion/match_outcome_writer.py"
+---
+
+## Overview
+
+Match Outcome is the per-`(match, team)` win-probability simulation: from the injected per-shot xG it
+computes `p_win` / `p_draw` / `p_loss`, `xpoints` (expected league points), and `expected_goals` via an
+exact Poisson-binomial core, with two orthogonal honesty corrections — possession-collapse and
+Dixon-Coles team dependence — both ON by default. It is event-only across every event provider.
+
+This is a **methodology card** for the silly-kicks 4.120.0 `match_outcome.compute_match_outcome` family
+(TF-53). The materialising ADR-013 writer (`src/ingestion/match_outcome_writer.py`) reads
+`bronze.spadl_actions`, LEFT-joins per-shot xG from `bronze.xg_shot_predictions`, simulates the outcome
+per team, and lands it in bronze for dbt to join into the wide-by-granularity team-match mart
+`fct_team_metrics`. It is scheduled into the daily job via the `inference` execution phase above (entry
+point `match_outcome_writer`, `analytics` environment), running after the SPADL/VAEP + xG producers.
+
+## Algorithm
+
+`compute_match_outcome` integrates the per-shot xG into a goal-count Poisson-binomial PMF per team, then
+computes the win/draw/loss simplex + xPoints. The Dixon-Coles dependence correction (Dixon & Coles 1997)
+adjusts low-scoreline joint probabilities. Native `(match_id, team_id)` are emitted and resolved to
+Kimball surrogates in dbt. Deterministic given the input xG — no trained weights of its own.
+
+## Governance
+
+Match Outcome is **per-team**, not per-player-evaluative: the win probabilities describe the team's
+match result, never an individual player. It is therefore excluded from the
+`PER_PLAYER_EVALUATIVE_CARDS` inventory and carries no EU-AI-Act model card
+(see [`AI_GOVERNANCE.md`](../AI_GOVERNANCE.md) §5/§6).

@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.5.109"
+version = "0.5.110"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -20,6 +20,11 @@ dependencies = [
     # PYSEC-2026-3545 (fixed 3.14.3) + PYSEC-2026-3546 / PYSEC-2026-3547 (fixed 3.14.2)
     # in one bump — 3.14.3 is the lowest version clearing all three.
     "aiohttp>=3.14.3",
+    # Transitive dep (httpx/starlette → anyio; pulled forward to 4.12.1 by the silly-kicks 4.120.0
+    # re-lock via ruthless-efficiency 0.6.0). Floored to >=4.14.2 to resolve CVE-2026-63374 +
+    # CVE-2026-64847 (anyio < 4.14.2). The lakehouse uses anyio only transitively (httpx async
+    # transport); 4.14.2 is the lowest version clearing both.
+    "anyio>=4.14.2",
     # Transitive dep (mlflow-skinny → fastapi). Floored to >=1.3.1 to resolve
     # CVE-2026-48818 + CVE-2026-48817 + CVE-2026-54283 + CVE-2026-54282 (starlette < 1.x
     # web-server vulnerabilities). fastapi (>=0.46.0, no ceiling) accepts the starlette 1.x
@@ -38,9 +43,6 @@ dependencies = [
     # in .pip-audit-ignores.yml). mlflow-skinny carries no cryptography pin, so the
     # floor now resolves and that ignore is REMOVED — a genuine fix, not a suppression.
     "cryptography>=50.0.0",
-    # Transitive dep (optuna → alembic; dbt-core). Floored to >=1.3.12 to resolve
-    # CVE-2026-41205 (mako < 1.3.11) and CVE-2026-44307 (mako < 1.3.12) in one bump.
-    "mako>=1.3.12",
     # Transitive dep (mlflow / databricks-sdk / distributed). Floored to >=1.2.1 to resolve
     # GHSA-6v7p-g79w-8964 (msgpack < 1.2.1).
     "msgpack>=1.2.1",
@@ -66,7 +68,7 @@ dependencies = [
 
 [project.optional-dependencies]
 spadl = [
-    "silly-kicks[das,ghost-gk,parse-dfl]>=4.90.1,<5",
+    "silly-kicks[das,ghost-gk,parse-dfl]>=4.121.0,<5",
 ]
 analytics = [
     "luxury-lakehouse[spadl]",
@@ -83,14 +85,10 @@ analytics = [
     "rapidfuzz>=3.14.5",
     "unidecode>=1.3.0",
     "sparse-dot-topn>=1.1.0",
-    # Optuna powers the ExT v2 reproduction harness (src/analytics/ext_v2/).
-    # Phase 0 uses a single-trial study with no axes active; Phases 1-4
-    # progressively activate KDE/KNN/contextual-feature suggests via TPE.
-    "optuna>=4.0",
     # PR-1.5 (SK3-MIG-B): Live Kimball contract tests require direct SQL
     # queries to dev_gold marts. The databricks-sql-connector provides the
-    # `databricks.sql` module used by tests/data_quality/ live tests and
-    # tests/smoke_gates/sk3_mig_b/ ext_v2 harnesses.
+    # `databricks.sql` module used by tests/data_quality/ live tests and the
+    # tests/smoke_gates/sk3_mig_b/ smoke gates.
     "databricks-sql-connector>=4.0.0",
     # Transitive dep (databricks-sql-connector). Pinned to >=2.13.0 to resolve
     # PYSEC-2026-175/177/178/179 (pyjwt < 2.13.0 JWT-verification vulnerabilities).
@@ -127,11 +125,6 @@ mlflow = [
     # registry aliases, log_*, artifacts.download_artifacts) is skinny-provided —
     # verified with a live log/load round-trip.
     "mlflow-skinny>=2.19.0",
-    # optuna-integration[mlflow] (Optuna's MLflowCallback) is DELIBERATELY DROPPED:
-    # its [mlflow] extra hard-requires full mlflow, which would reintroduce
-    # CVE-2026-71211. Its sole consumer (scripts/run_ext_v2_phase1.py) now uses a
-    # hand-rolled per-trial MLflow callback over skinny's tracking API. optuna core
-    # stays via the [analytics] extra.
 ]
 training = ["torch>=2.0", "pyarrow>=14.0", "datasets>=3.0", "safetensors>=0.4.0"]
 evolve = ["openevolve>=0.3.2"]
@@ -190,6 +183,27 @@ compute_xg_shot_scores = "ingestion.xg_shot_scorer:main"
 # writers keep their own scheduled tasks/cards (they were never part of the tracking-marts drain).
 bravery_writer = "ingestion.bravery_writer:main"
 xt_gk_v2_writer = "ingestion.xt_gk_v2_writer:main"
+# silly-kicks 4.120.0 P1 team-match writers (sk4118 cycle). Event-only, all providers; each lands its
+# family in the wide-by-granularity team-match mart fct_team_metrics (ADR-013). team-per-row, NOT
+# per-player-evaluative -> no governance model card.
+team_metrics_writer = "ingestion.team_metrics_writer:main"
+match_outcome_writer = "ingestion.match_outcome_writer:main"
+# silly-kicks 4.120.0 P1 Phase B keeper-match writer (sk4118 cycle). Event-only + injected Post-Shot xG
+# (fct_shot_psxg.psxg_recalibrated). Per-KEEPER evaluative (Goals Prevented / GSAA) -> wf-shot-stopping is
+# in PER_PLAYER_EVALUATIVE_CARDS; supersedes the inline GSAA rollup in the three GK marts.
+shot_stopping_writer = "ingestion.shot_stopping_writer:main"
+# silly-kicks 4.120.0 P1 Phase B keeper-match writer (gk_decision, reconstruction tier). TRACKING-consuming
+# -> its per-unit core (score_gk_decision_unit) is REGISTERED in the tracking-marts drain in THIS commit
+# (P1, tracking_marts_processor.py); only the drain RUN is P2.
+# this entry point is the sk-floor + bronze-ensure stub (no standalone data_ingestion task — see
+# wf-gk-decision.yaml). Per-KEEPER evaluative -> wf-gk-decision in PER_PLAYER_EVALUATIVE_CARDS.
+gk_decision_writer = "ingestion.gk_decision_writer:main"
+# silly-kicks 4.120.0 P1 Phase C player-match writers (sk4118 cycle). Event-only, all providers; each lands
+# its family in the wide-by-granularity player-match mart fct_player_match_metrics (ADR-013). Both
+# per-PLAYER evaluative -> wf-territory / wf-duels are in PER_PLAYER_EVALUATIVE_CARDS. territory injects a
+# fitted xT + PassCompletionModel (both methods); duels is a stateful Glicko-2 single-driver ordered pass.
+territory_writer = "ingestion.territory_writer:main"
+duels_writer = "ingestion.duels_writer:main"
 compute_pitch_control = "ingestion.pitch_control_batch:main"
 compute_action_context = "ingestion.action_context:main"
 compute_action_context_drain_worker = "ingestion.action_context:main_drain_worker"
@@ -203,7 +217,6 @@ compute_tracking_marts_drain_worker = "ingestion.tracking_marts_drain:main_track
 compute_gkdv_pool = "ingestion.tracking_marts_drain:main_gkdv_pool"
 verify_tracking_marts_drain = "ingestion.tracking_marts_gate:main"
 ingest_idsse_events = "ingestion.idsse_events:main"
-compute_elastic_sync = "ingestion.elastic_sync:main"
 compute_pausa = "ingestion.pausa:main"
 run_model_validation = "ingestion.model_validation:main"
 run_staleness_monitor = "ingestion.staleness_monitor:main"
@@ -340,10 +353,6 @@ exclude = [
     "scripts/compute_space_creation_hf_helpers.py",
     "scripts/compute_xt_grid_hf.py",
     "scripts/export_embedding_atlas_data.py",
-    # ExT v2 Phase 0 + Phase 1 runners — depend on `databricks-sql-connector`
-    # which is installed ad-hoc via `uv run --with` (not a project dep).
-    "scripts/run_ext_v2_phase0.py",
-    "scripts/run_ext_v2_phase1.py",
     "scripts/publish_freeze_frame_hf.py",
     "scripts/publish_spadl_vaep_hf.py",
     "scripts/publish_xg_shots_hf.py",

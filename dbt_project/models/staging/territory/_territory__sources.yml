@@ -1,0 +1,35 @@
+version: 2
+
+sources:
+  - name: territory
+    description: >
+      Per-(match, player) territorial-dominance metrics (silly-kicks 4.120.0 TF-54 / TF-54b; sk4118 P1
+      Task C1). Written by the ingestion.territory_writer ADR-013 writer: it reads bronze.spadl_actions
+      (event-only, all providers), fits an ExpectedThreat once at the driver, and runs silly-kicks
+      compute_territorial_dominance for BOTH methods — completed_failed (v1, the 12 TERRITORY_METRIC_COLUMNS
+      + territory_hull_source provenance) and counterfactual (TF-54b, +4 cf metric cols +
+      territory_target_source provenance, injecting PassCompletionModel.bundled()). It measures a defender's
+      xT conceded vs prevented inside the convex hull of their defensive actions. Feeds the
+      wide-by-granularity player-match mart fct_player_match_metrics (shared with duels). The table is
+      CREATE-IF-NOT-EXISTS'd by scripts/migrations/2026-09-17-add-territory.sql so the staging view resolves
+      (empty) before the Part-B scoring run populates it.
+    database: soccer_analytics
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 168, period: hour}
+        error_after: {count: 336, period: hour}
+
+    tables:
+      - name: territory
+        description: >
+          One row per (data_source, match_id, player_id). player_id + match_id are NATIVE (surrogates
+          resolve in stg_territory / fct_player_match_metrics). team_id is the player's native team
+          (resolved from a per-match player->team map at write time — territory keys on (game_id, player_id)
+          only and emits no team column). access_tier (ADR-064) is stamped per-row at write time from the
+          match's SPADL-bronze access_tier. The 20-col counterfactual union carries the v1 12 metric cols
+          (always populated) + territory_hull_source + the 5 cf-only cols (4 metric + territory_target_source,
+          populated by the counterfactual pass). A <3-action defender is a territory_hull_source='degenerate'
+          NaN row.

@@ -15,6 +15,13 @@ def test_ddl_matches_result_columns() -> None:
     assert ddl_cols == RESULT_COLUMNS  # DDL includes _ingested_at, same order
 
 
+def test_elastic_receive_columns_present() -> None:
+    """sk 4.119.0 TF-57 v2 add_elastic_sync emits reception columns (SK-EXPORT cycle P0 Task 2)."""
+    for col in ("elastic_receive_frame_id", "elastic_receive_confidence", "elastic_receive_error_seconds"):
+        assert col in RESULT_COLUMNS, f"{col} missing from RESULT_COLUMNS"
+        assert col in ACTION_CONTEXT_DDL, f"{col} missing from ACTION_CONTEXT_DDL"
+
+
 def test_build_output_fills_missing_and_selects() -> None:
     raw = pd.DataFrame({"action_id": [1], "start_x": [50.0]})
     out = build_output(raw, match_id_native="M", data_source="wyscout")

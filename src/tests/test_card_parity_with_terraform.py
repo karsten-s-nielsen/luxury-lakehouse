@@ -446,6 +446,14 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     # wf-defensive-credit / wf-gkdv cards deleted, and the run-values second phase dropped
     # from wf-off-ball-xt).
     "bravery_writer": "wf-bravery",
+    # sk4118 P1 Phase A team-match writers (per-TEAM, NOT per-player-evaluative).
+    "team_metrics_writer": "wf-team-metrics",
+    "match_outcome_writer": "wf-match-outcome",
+    # sk4118 P1 Phase B keeper-match writer (per-KEEPER evaluative — Goals Prevented / GSAA).
+    "shot_stopping_writer": "wf-shot-stopping",
+    # sk4118 P1 Phase C player-match writers (per-PLAYER evaluative).
+    "territory_writer": "wf-territory",
+    "duels_writer": "wf-duels",
     "xt_gk_v2_writer": "wf-xt-gk-v2-writer",
     # tracking-marts worker-drain (ADR-037/068 fan-out reuse), governed by wf-tracking-marts.
     # preflight is pure orchestration (writes task values + exits): no owning card, exactly
@@ -467,7 +475,6 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     # wf-football2vec.yaml stays on disk (status: deprecated) but is no
     # longer wired to any TF task or pyproject entry point.
     "compute_embeddings_360": "wf-football2vec-360",
-    "compute_elastic_sync": "wf-elastic-sync",
     "compute_pausa": "wf-obso-pausa",
     "compute_action_context": "wf-action-context",
     # ADR-058: statsbomb sb360 arm of action-context — a single distributed cogroup.applyInPandas

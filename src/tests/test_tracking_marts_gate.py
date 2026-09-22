@@ -147,9 +147,18 @@ def test_output_tables_exclude_gkdv_while_gated_off() -> None:
     gkdv_observations rows — including an intentionally-empty table would make the gate cry wolf on EVERY
     unit. Only the two shipping surfaces (off_ball_runs + defensive_credit) are checked."""
     from ingestion.defensive_credit_writer import AGG_TABLE, LONG_TABLE
+    from ingestion.gk_decision_writer import BRONZE_TABLE as GK_DECISION_TABLE
     from ingestion.off_ball_runs_writer import BRONZE_TABLE as OFF_BALL_TABLE
+    from ingestion.restdefense_writer import BRONZE_TABLE as REST_DEFENSE_TABLE
     from ingestion.tracking_marts_processor import GKDV_ENABLED, GKDV_OBS_TABLE
 
     assert GKDV_ENABLED is False  # shipped default
     assert GKDV_OBS_TABLE not in gate._OUTPUT_TABLES
-    assert set(gate._OUTPUT_TABLES) == {OFF_BALL_TABLE, AGG_TABLE, LONG_TABLE}
+    # rest_defense + gk_decision are period-native (sk4118 Phase E) so they join the set unconditionally.
+    assert set(gate._OUTPUT_TABLES) == {
+        OFF_BALL_TABLE,
+        AGG_TABLE,
+        LONG_TABLE,
+        REST_DEFENSE_TABLE,
+        GK_DECISION_TABLE,
+    }

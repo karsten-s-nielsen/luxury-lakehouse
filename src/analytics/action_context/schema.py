@@ -154,10 +154,13 @@ RESULT_COLUMNS: list[str] = [
     # retired upstream (removal-based LOO makes opponent-created mathematically 0). See ADR-026.
     "space_created_m2",
     "space_denied_m2_opponent",
-    # ELASTIC sync (3)
+    # ELASTIC sync (6) — event-start + reception (sk 4.119.0 TF-57 v2, sk:ADR-093)
     "elastic_frame_id",
     "elastic_confidence",
     "elastic_error_seconds",
+    "elastic_receive_frame_id",
+    "elastic_receive_confidence",
+    "elastic_receive_error_seconds",
     # Shape graph (6)
     "shape_graph_density_attacking",
     "shape_graph_n_edges_attacking",
@@ -322,6 +325,7 @@ ACTION_CONTEXT_DDL = (
     "pausa_temporal DOUBLE, pausa_spatial DOUBLE, pausa_composite DOUBLE, "
     "space_created_m2 DOUBLE, space_denied_m2_opponent DOUBLE, "
     "elastic_frame_id BIGINT, elastic_confidence DOUBLE, elastic_error_seconds DOUBLE, "
+    "elastic_receive_frame_id BIGINT, elastic_receive_confidence DOUBLE, elastic_receive_error_seconds DOUBLE, "
     "shape_graph_density_attacking DOUBLE, shape_graph_n_edges_attacking BIGINT, "
     "shape_graph_mean_stability_attacking DOUBLE, "
     "shape_graph_density_defending DOUBLE, shape_graph_n_edges_defending BIGINT, "

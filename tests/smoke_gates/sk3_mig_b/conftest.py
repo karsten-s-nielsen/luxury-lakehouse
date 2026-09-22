@@ -96,10 +96,9 @@ _MAX_POLL_SECONDS = 600  # 10 min walltime cap on a single smoke-gate fetch.
 def chunked_sql_to_pandas(host: str, token: str, sql: str, warehouse_id: str) -> pd.DataFrame:
     """Submit a SQL query, fetch all chunks via EXTERNAL_LINKS, return a pandas DataFrame.
 
-    Used by the ext_v2 post-retrain smoke gates which evaluate Singh / KDE-smoothed
-    Singh producers against the FULL fct_action_values fold (8.8M+ rows) — too
-    large for inline `data_array` (capped at ~25 MB). Mirrors the Arrow-stream
-    chunked-fetch pattern from `scripts/train_football2vec.py`.
+    A general chunked SQL fetch for smoke gates that query the FULL fct_action_values
+    fold (8.8M+ rows) — too large for inline `data_array` (capped at ~25 MB). Mirrors
+    the Arrow-stream chunked-fetch pattern from `scripts/train_football2vec.py`.
 
     Caller passes a pre-stripped host (no `https://` prefix). Honours the
     project's HTTPS-only + explicit-timeout + verify=True security posture, plus

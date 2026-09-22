@@ -1,33 +1,7 @@
 {
   "schema_version": "idsse_bronze_2026_08",
-  "snapshot_source": "DESCRIBE TABLE soccer_analytics.bronze.* for idsse on 2026-08-10. Table list = union of catalog-qualified soccer_analytics.information_schema.tables (cross-checked against SHOW TABLES, asserted equal) and the tables documented in _idsse__sources.yml (elastic_sync_results does not match the idsse% pattern). Refresh when ingestion adds cols. Excludes ['idsse_events_pre_close_out_backup', 'idsse_events_pre_ll2_backfill'] \u2014 classified NON-CONTRACT in scripts/_bronze_table_inventory.py (LL2 Path B migration backups), not silently dropped.",
+  "snapshot_source": "DESCRIBE TABLE soccer_analytics.bronze.* for idsse on 2026-08-10, refreshed 2026-09-20 for the B-ac elastic retirement (elastic_sync_results dropped \u2014 see scripts/migrations/2026-09-20-drop-elastic-sync-results.sql). Table list = union of catalog-qualified soccer_analytics.information_schema.tables (cross-checked against SHOW TABLES, asserted equal) and the tables documented in _idsse__sources.yml. Refresh when ingestion adds cols. Excludes ['idsse_events_pre_close_out_backup', 'idsse_events_pre_ll2_backfill'] \u2014 classified NON-CONTRACT in scripts/_bronze_table_inventory.py (LL2 Path B migration backups), not silently dropped.",
   "tables": {
-    "elastic_sync_results": [
-      {
-        "name": "match_id",
-        "type": "string"
-      },
-      {
-        "name": "event_id",
-        "type": "string"
-      },
-      {
-        "name": "frame_id",
-        "type": "int"
-      },
-      {
-        "name": "alignment_confidence",
-        "type": "double"
-      },
-      {
-        "name": "alignment_error_seconds",
-        "type": "double"
-      },
-      {
-        "name": "_ingested_at",
-        "type": "timestamp"
-      }
-    ],
     "idsse_events": [
       {
         "name": "match_id",

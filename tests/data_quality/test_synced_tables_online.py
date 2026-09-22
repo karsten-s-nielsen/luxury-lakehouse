@@ -37,8 +37,9 @@ def test_all_synced_tables_online() -> None:
     from databricks.sdk import WorkspaceClient
 
     from ingestion.refresh_synced_tables import (
-        SYNCED_TABLE_ONLINE_STATE,
+        HEALTHY_ONLINE_STATES,
         SYNCED_TABLES,
+        is_synced_table_healthy,
         is_synced_table_not_found,
     )
 
@@ -68,13 +69,14 @@ def test_all_synced_tables_online() -> None:
                 continue
             failures.append(f"{full_name}: SDK error — {exc}")
             continue
-        if detailed_state != SYNCED_TABLE_ONLINE_STATE:
+        if not is_synced_table_healthy(detailed_state):
             failures.append(
                 f"{full_name}: detailed_state={detailed_state!r} "
-                f"(expected {SYNCED_TABLE_ONLINE_STATE!r}). "
-                f"Investigate via Databricks UI or "
-                f"`python scripts/delete_synced_table.py {config.name}` "
-                f"followed by `python scripts/migrate_synced_tables.py`."
+                f"(expected one of {sorted(HEALTHY_ONLINE_STATES)}). "
+                f"A genuinely-degraded table (OFFLINE / *_FAILED / PROVISIONING / actively-*_UPDATE) is "
+                f"the real signal here — investigate the pipeline via the Databricks UI. Only if it is a "
+                f"broken checkpoint/strand does `python scripts/delete_synced_table.py {config.name}` + "
+                f"`python scripts/migrate_synced_tables.py` apply; do NOT churn a healthy idle table."
             )
         else:
             _LOGGER.info("OK %s — %s", full_name, detailed_state)

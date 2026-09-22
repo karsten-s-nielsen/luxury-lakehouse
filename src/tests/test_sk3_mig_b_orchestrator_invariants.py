@@ -228,7 +228,7 @@ def _extract_pep723_block(src: str) -> str:
 def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     """No trainer may pin `silly-kicks` in its PEP 723 deps.
 
-    The wheel's ``[spadl]`` extra (silly-kicks>=4.90.1,<5) is the single source
+    The wheel's ``[spadl]`` extra (silly-kicks>=4.121.0,<5) is the single source
     of truth. Trainers install ``luxury-lakehouse[spadl] @ ...wheel`` which
     resolves silly-kicks transitively. uv silently picks a conflicting
     top-level pin over the wheel's transitive pin (verified empirically
@@ -255,7 +255,7 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     )
 
 
-# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 90, 1) ──────────
+# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 121, 0) ──────────
 # Floor advanced 4.89.0 -> 4.90.1 (2026-08-23) for the silly-kicks 4.90.1 IDSSE set-piece team
 # resolution fix (ADR-078): freekick_team/goalkick_team/corner_team/penalty_team added to the sportec
 # parser's _TEAM_QUALIFIER_PRIORITY. A direct freekick's `team` is 'unknown' with the real team only in
@@ -353,11 +353,14 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
 # metrica/skillcorner bronze-frame LTR-orientation helper; ADR-029) plus the 4.21-4.26
 # adoptions already shipped (space-creation lean contract, GS null-actor NaN identifiers,
 # tracking-geometry action-LTR frame unification). See ADR-052 / 4.27.0 adoption.
-# Matches the pyproject [spadl] pin `silly-kicks>=4.90.1,<5`.
+# Floor advanced 4.120.0 -> 4.121.0 (2026-09-21) for silly-kicks 4.121.0's ExpectedThreat serialize
+# seam (ADR-100): to_dict/from_dict/save/load — the cross-process xT transport the ExT-v2 fold needs
+# (fit wf-xt-grids on HF Jobs, reconstruct in territory_writer). Additive; no retrain, no re-materialize.
+# Matches the pyproject [spadl] pin `silly-kicks>=4.121.0,<5`.
 
 
 def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
-    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 90, 1)`.
+    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 121, 0)`.
 
     Per spec §2.10.5: the runtime check inside `main()` is not directly
     introspectable post-hoc, so we assert the constant. Code review covers
@@ -375,11 +378,11 @@ def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
         if not hasattr(trainer, "_REQUIRED_SK_MIN"):
             missing.append(item)
             continue
-        expected = (4, 90, 1)
+        expected = (4, 121, 0)
         actual = trainer._REQUIRED_SK_MIN
         if actual != expected:
             wrong_value[item] = actual
     assert not missing, (
-        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 90, 1)`: {missing}"
+        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 121, 0)`: {missing}"
     )
-    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 90, 1): {wrong_value}"
+    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 121, 0): {wrong_value}"

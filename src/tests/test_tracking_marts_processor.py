@@ -1,13 +1,14 @@
 """Unit tests for ``ingestion.tracking_marts_processor.TrackingMartsProcessor`` (Task 4, ADR-037).
 
-The processor is orchestration: build one unit's inputs ONCE, run the four tracking-grain scorers, write
-each result with the per-unit ``replaceWhere``. These tests fake every Spark/pyspark seam (the xT-grid +
+The processor is orchestration: build one unit's inputs ONCE, run the tracking-grain scorers, write each
+result with the per-unit ``replaceWhere``. These tests fake every Spark/pyspark seam (the xT-grid +
 comp/season loads, the struct-type factories, ``read_and_build_unit_inputs``, ``_read_xg_preds``,
-``resolve_unit_meta``, and ``_write``) so NO Spark is touched, and assert the orchestration contract:
+``resolve_unit_meta``, ``compute_rest_defense_samples``, and ``_write``) so NO Spark is touched, and
+assert the orchestration contract:
 
-* all three scorers run on the SAME oriented ``(actions, frames, xt)``;
-* all four bronze tables are written with the identical per-unit ``replaceWhere``;
-* the returned count is the sum across the four writes;
+* the (actions, frames, xt) scorers run on the SAME oriented inputs;
+* every bronze table is written with the identical per-unit ``replaceWhere``;
+* the returned count is the sum across the writes;
 * a per-scorer exception is attributed and re-raised as a combined unit failure (drain rolls it forward),
   while the OTHER scorers still write (per-scorer isolation).
 
@@ -60,10 +61,25 @@ def _make_processor(monkeypatch, *, inputs, capture, gkdv_enabled: bool = True):
     monkeypatch.setattr(tmp, "_off_ball_struct_type", lambda: "OFF_SCHEMA")
     monkeypatch.setattr(tmp, "_dc_struct_type", lambda cols, types: ("DC_SCHEMA", tuple(cols)))
     monkeypatch.setattr(tmp, "_gkdv_obs_struct_type", lambda: "GKDV_SCHEMA")
+    monkeypatch.setattr(tmp, "_rd_struct_type", lambda: "RD_SCHEMA")
+    monkeypatch.setattr(tmp, "_gk_decision_struct_type", lambda: "GKD_SCHEMA")
+    monkeypatch.setattr(tmp, "_bundled_completion_model", lambda: object())
     monkeypatch.setattr(tmp, "resolve_unit_meta", lambda spark, catalog, provider, match_id: _Meta())
     monkeypatch.setattr(tmp, "read_and_build_unit_inputs", lambda spark, catalog, unit, **kw: inputs)
     monkeypatch.setattr(tmp, "_read_xg_preds", lambda spark, catalog, provider, match_id: pd.DataFrame())
     monkeypatch.setattr(tmp, "attach_xg", lambda actions, xg_preds: actions)  # passthrough (same actions object)
+
+    # rest_defense (sk4118 Phase E) — default fake returns 4 rows; count tests account for it.
+    def _fake_rd(a, f, xt, *, access_tier):
+        return pd.DataFrame({"x": range(4)})
+
+    monkeypatch.setattr(tmp, "compute_rest_defense_samples", _fake_rd)
+
+    # gk_decision (sk4118 Phase E) — default fake returns 2 rows; count tests account for it.
+    def _fake_gkd(actions, frames, completion_model, *, data_source, match_id, access_tier):
+        return pd.DataFrame({"x": range(2)})
+
+    monkeypatch.setattr(tmp, "score_gk_decision_unit", _fake_gkd)
 
     proc = TrackingMartsProcessor(spark=object(), catalog="cat", schema="bronze", gkdv_enabled=gkdv_enabled)
 
@@ -115,21 +131,23 @@ def test_process_runs_three_scorers_on_same_inputs_and_writes_four_tables(monkey
     # gkdv got home_team_id from resolve_unit_meta and (comp, season) from the lookup.
     assert seen["gkdv"][2:7] == ("idsse", "M1", "C1", "2023", "HOME")
 
-    # (b) four writes to the four bronze tables, each with the SAME per-unit replaceWhere.
+    # (b) six writes to the six bronze tables, each with the SAME per-unit replaceWhere.
     where = "data_source = 'idsse' AND match_id = 'M1' AND period_id = 2"
     assert [c["table"] for c in capture] == [
         "off_ball_runs",
         "action_defensive_credit",
         "defensive_credit_attributions",
         "gkdv_observations",
+        "gk_decision",
+        "rest_defense",
     ]
     assert {c["where"] for c in capture} == {where}
 
-    # (c) summed row count across all four writes.
-    assert total == 5 + 3 + 2 + 1
+    # (c) summed row count across all six writes (gk_decision fake -> 2, rest_defense fake -> 4).
+    assert total == 5 + 3 + 2 + 1 + 2 + 4
 
     # gkdv write carries the intermediate schema in the canonical column order.
-    gkdv_write = capture[-1]
+    gkdv_write = next(c for c in capture if c["table"] == "gkdv_observations")
     assert gkdv_write["schema"] == "GKDV_SCHEMA"
 
 
@@ -217,9 +235,9 @@ def test_gkdv_gated_off_is_the_shipped_default() -> None:
     assert default is tmp.GKDV_ENABLED
 
 
-def test_gkdv_gated_off_skips_scoring_and_writes_only_three_tables(monkeypatch) -> None:
+def test_gkdv_gated_off_skips_scoring_and_writes_only_non_gkdv_tables(monkeypatch) -> None:
     """With gkdv gated off, ``score_gkdv_unit`` is NEVER called, no gkdv_observations write happens, and
-    the unit still succeeds with the two shipping surfaces (off_ball_runs + defensive_credit)."""
+    the unit still succeeds with the shipping surfaces (off_ball_runs + defensive_credit + rest_defense)."""
     inputs = UnitInputs(actions=pd.DataFrame({"a": [1]}), frames=pd.DataFrame({"f": [1]}), xt="XT")
     capture: list[dict] = []
     proc = _make_processor(monkeypatch, inputs=inputs, capture=capture, gkdv_enabled=False)
@@ -238,9 +256,11 @@ def test_gkdv_gated_off_skips_scoring_and_writes_only_three_tables(monkeypatch) 
         "off_ball_runs",
         "action_defensive_credit",
         "defensive_credit_attributions",
+        "gk_decision",
+        "rest_defense",
     ]
     assert "gkdv_observations" not in [c["table"] for c in capture]
-    assert total == 5 + 3 + 2
+    assert total == 5 + 3 + 2 + 2 + 4  # + gk_decision fake (2) + rest_defense fake (4)
     # The gkdv-only (comp, season) warehouse lookup is skipped when gated off.
     assert proc._comp_season == {}
 
@@ -262,9 +282,11 @@ def test_gkdv_gated_off_cannot_fail_the_unit_even_if_scoring_would_raise(monkeyp
 
     # No RuntimeError: gkdv never runs, so it never contributes a combined-failure attribution.
     total = proc.process(WorkUnit(provider="idsse", match_id="M1", period=2))
-    assert total == 3
+    assert total == 3 + 2 + 4  # off_ball + defensive_credit (1 each) + gk_decision (2) + rest_defense (4)
     assert [c["table"] for c in capture] == [
         "off_ball_runs",
         "action_defensive_credit",
         "defensive_credit_attributions",
+        "gk_decision",
+        "rest_defense",
     ]

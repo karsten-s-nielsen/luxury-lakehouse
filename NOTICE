@@ -64,6 +64,36 @@ SPADL representation and VAEP framework described in: Decroos, T. et al.
 Soccer." Proceedings of the 25th ACM SIGKDD. Implementation via the
 silly-kicks library (see Third-Party Libraries above).
 
+The outcome-bias-free VAEP_adjusted decomposition
+(offensive_adjusted_value / defensive_adjusted_value / vaep_adjusted_value in
+fct_action_values) re-scores the already-fitted VAEP classifiers on a surgical
+result-feature counterfactual weighted by a per-action completion probability
+(no retrain), implementing: Paul, Y., Klemp, M. & Memmert, D. (2025). "Beyond
+Outcome Bias: Incorporating Action Completion Probability and Risk-Return into
+Soccer Evaluation Models." Machine Learning and Data Mining for Sports
+Analytics (MLSA 2025), paper 225. The per-action completion probability
+(xsuccess) comes from the bundled silly-kicks XSuccessModel, which generalises
+the expected-pass-completion model of Anzer, G. & Bauer, P. (2022). "Expected
+Passes." Data Mining and Knowledge Discovery 36(1), 295-317, to all on-ball
+action types. Consumed via silly_kicks.vaep.VAEP.rate_adjusted +
+silly_kicks.xsuccess.XSuccessModel (no in-repo training).
+
+The rest-defense L1 + L2 metrics (persisted as fct_rest_defense) implement the
+DESCRIPTIVE rest-defence KPI battery of: Forcher et al. (2023). "The Success
+Factors of Rest Defense in Soccer." Journal of Sports Science and Medicine
+(PMC10690503) — numerical superiority behind the ball + attacker space-control
+(the paper's weak success MODEL is NOT reproduced); the back-four line-height /
+compactness / lateral-spread indicators of Dash, S., Ide, K., Umemoto, R.,
+Amino, K. & Fujii, K. (2025). "Prediction-based evaluation of back-four defense
+with spatial control in soccer." arXiv:2511.06191; the counterpressing / rest-
+defence framing of Peters et al. (2025). "A rule-based approach to classify
+counterpressing situations and their relationship with rest defence."
+International Journal of Performance Analysis in Sport 26(1); and the
+practitioner GK line-height / GK-to-line-distance operationalisation of FIFA
+(2022) "Enhanced Football Intelligence, FIFA World Cup Qatar 2022." Computed by
+silly_kicks.restdefense.compute_rest_defense (no in-repo training). rest_defense
+is DESCRIPTIVE / team-structural — not a per-player-evaluative system.
+
 The xShotOccurrence (xS) shot-occurrence probability (persisted as
 fct_action_context.xshot_occurrence) implements the xS sub-model of:
 Pipping-Gamón, J., Feng, T. & Sabin, R.P. (2026). "Beyond Expected Goals:
@@ -171,6 +201,37 @@ progression, launch rate) references the taxonomy in: Lamberts (2025) —
 GK Distribution. The implementation is an independent SQL/Python translation,
 not derived from any source code.
 See: https://doi.org/10.1007/978-3-031-31772-9_19
+
+The team-match KPI glossary (persisted as fct_team_metrics — PPDA, field
+tilt, pass tempo, line heights, recoveries, conversion chain, build-up
+taxonomy) references the Twelve match-report practitioner vocabulary of
+David Sumpter / twelve.football. It is an independent implementation of a
+well-known practitioner KPI set (no single published paper), consumed via
+silly_kicks.team_metrics.compute_team_kpis (silly-kicks TF-52).
+
+The match-outcome win-probability simulation (persisted as fct_team_metrics
+— p_win / p_draw / p_loss / xpoints / expected_goals) applies the low-scoreline
+dependence correction described in: Dixon, M.J. & Coles, S.G. (1997).
+"Modelling Association Football Scores and Inefficiencies in the Football
+Betting Market." Journal of the Royal Statistical Society: Series C 46(2).
+The implementation is an independent Python computation of the exact
+Poisson-binomial outcome PMF from injected per-shot xG, consumed via
+silly_kicks.match_outcome.compute_match_outcome (silly-kicks TF-53).
+
+The territorial-dominance metric (persisted as fct_player_match_metrics —
+territory_xt_conceded / territory_xt_prevented / territory_xt_net and the
+counterfactual threat-prevented-above-expectation cols) references the
+territorial-dominance / defensive-hull practitioner framing of David Sumpter /
+twelve.football (the "Earpiece" match-report vocabulary; no single published
+paper). The Expected Threat surface it integrates references Singh, Karun (2018),
+"Introducing Expected Threat (xT)." It is an independent implementation, consumed
+via silly_kicks.territory.compute_territorial_dominance (silly-kicks TF-54/TF-54b).
+
+The ground-duel rating (persisted as fct_player_match_metrics — duel_rating /
+duel_rating_deviation / duel_volatility) applies the Glicko-2 rating system of:
+Glickman, M.E. (2012). "Example of the Glicko-2 system." Boston University. It is
+an independent Python implementation of the published algorithm, consumed via
+silly_kicks.duels.compute_duel_ratings (silly-kicks TF-55).
 
 The OBSO (Off-Ball Scoring Opportunity) value surface concept combines
 pitch control, ball transition probability, and expected possession value

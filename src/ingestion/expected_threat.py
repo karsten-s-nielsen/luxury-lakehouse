@@ -1,11 +1,17 @@
-"""Expected Threat batch pipeline — computes xT grids from SPADL action data.
+"""Expected Threat batch pipeline — fits per-competition + global xT models from SPADL actions.
 
-Reads SPADL actions from the gold mart (fct_action_values), computes per-competition
-xT grids via Markov chain value iteration, and writes results to Delta.
+ExT-v2 single-canonical-surface migration (lakehouse ADR-085): the canonical xT surface is a fitted
+silly-kicks ``ExpectedThreat`` (16x12), persisted to bronze ``expected_threat_grids`` as its
+``to_dict()`` JSON (values + transition_matrix + prob matrices), and reconstructed downstream via
+``ExpectedThreat.from_dict``. Replaces the retired in-repo ``analytics.expected_threat`` v1 grid.
+
+ADR-063 guards (directionality / structural / materiality-drift) are preserved via
+``analytics.xt_grid_guards`` (reimplemented against the sk model / its ``.xT``).
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -27,8 +33,27 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 _TABLE_NAME = "expected_threat_grids"
-_RESULTS_SCHEMA = "zone_x BIGINT, zone_y BIGINT, xt_value DOUBLE, competition_id STRING, _ingested_at TIMESTAMP"
+# ADR-085: one row per competition (+ a `global` row) carrying the fitted sk ExpectedThreat as JSON.
+_RESULTS_SCHEMA = "competition_id STRING, xt_model_json STRING, format_version INT, _ingested_at TIMESTAMP"
 _GOLD_TABLE = "fct_action_values"
+
+# ADR-085 G-fix (sk4118): derived long-form physical projection of the canonical model, written
+# alongside the JSON. It exists ONLY for the dbt SQL zone-lookup consumers (fct_action_values.gk_xt_delta
+# = ADR-056, fct_goalkeeper_stats) that cannot query a JSON `xt_model_json` blob per-zone. It is a
+# deterministic read-only projection of the SAME fitted model (NOT a second fit) — single-canonical-surface
+# invariant preserved. 16x12 (matches _XT_L/_XT_W), physical-oriented (ADR-041 via `physical_grid`).
+_ZONES_TABLE = "expected_threat_grid_zones"
+_ZONES_SCHEMA = (
+    "competition_id STRING, zone_x INT, zone_y INT, xt_value DOUBLE, format_version INT, _ingested_at TIMESTAMP"
+)
+
+# Canonical single-surface grid resolution (sk default; matches territory_writer._XT_L/_XT_W).
+_XT_L = 16
+_XT_W = 12
+
+# Canonical SPADL pitch dimensions (silly-kicks spadlconfig SSOT: 105 x 68).
+_PITCH_LENGTH = 105.0
+_PITCH_WIDTH = 68.0
 
 # SPADL action types relevant to xT
 _RELEVANT_TYPES = (
@@ -82,29 +107,75 @@ _MIN_ACTIONS_DIRECTIONAL = 5000
 # propagated only if the max relative change among above-floor cells (vs the last-PROPAGATED grid =
 # the current table contents) reaches the threshold. PROVISIONAL — tune after observing the drift
 # logged each run; gating vs the current table (only ever holds propagated grids) bounds cumulative drift.
-_MATERIALITY_VALUE_FLOOR = 0.005
 _MATERIALITY_REL_THRESHOLD = 0.10
 
 
-def _grid_drift(new_values: np.ndarray, previous_values: np.ndarray | None) -> float | None:
-    """Max relative per-cell change vs the last-propagated grid, among cells above the value floor.
+def _to_sk_actions(actions: pd.DataFrame) -> pd.DataFrame:
+    """Map the gold action slice to the sk ``ExpectedThreat.fit`` input contract.
 
-    Returns ``None`` when there is no comparable baseline (treat as material → write). ADR-063 R4(iv):
-    the baseline is the CURRENT table grid which — because we only write on material change — IS the
-    last-propagated grid, so slow sub-threshold drift cannot accumulate unbounded.
+    sk fit reads numeric ``type_id`` / ``result_id`` + ``start_x/y`` / ``end_x/y`` (no game/period/
+    action ids). We map the canonical SPADL name columns to sk's numeric ids via ``spadlconfig`` (total
+    over ``_RELEVANT_TYPES`` + the standard result names), keeping the pull schema-robust regardless of
+    whether the mart carries the numeric ids.
     """
-    if previous_values is None or previous_values.shape != new_values.shape:
-        return None
-    mask = previous_values >= _MATERIALITY_VALUE_FLOOR
-    if not bool(mask.any()):
-        return None
-    rel = np.abs(new_values[mask] - previous_values[mask]) / previous_values[mask]
-    return float(rel.max())
+    from silly_kicks.spadl import config as spadlconfig
+
+    out = pd.DataFrame(
+        {
+            "type_id": actions["type_name"].map(spadlconfig.actiontype_id).astype("Int64"),
+            "result_id": actions["result_name"].map(spadlconfig.result_id).astype("Int64"),
+            "start_x": actions["start_x"].astype(float),
+            "start_y": actions["start_y"].astype(float),
+            "end_x": actions["end_x"].astype(float),
+            "end_y": actions["end_y"].astype(float),
+        }
+    )
+    # Drop rows whose type/result name is not in the SPADL vocab (sk needs concrete ids).
+    return out.dropna(subset=["type_id", "result_id"]).astype({"type_id": "int64", "result_id": "int64"})
+
+
+def _fit_sk_grid(actions: pd.DataFrame) -> Any:
+    """Fit a canonical 16x12 sk ``ExpectedThreat`` on a gold action slice. Returns the fitted model."""
+    from silly_kicks.xthreat import ExpectedThreat
+
+    return ExpectedThreat(l=_XT_L, w=_XT_W).fit(_to_sk_actions(actions))
+
+
+def _project_physical_zones(model: Any, *, n_x: int = _XT_L, n_y: int = _XT_W) -> pd.DataFrame:
+    """Project a fitted sk ``ExpectedThreat`` to a physical-oriented long-form zone grid (ADR-085 G-fix).
+
+    Deterministic READ-ONLY projection of THE canonical model (never a second fit) for the dbt SQL zone
+    consumers. Sampled at cell centres through the sk ``physical_grid`` seam so the ``.xT`` y-inversion is
+    neutralised (ADR-041): ``zone_x`` rises toward the attacking goal (ascending physical x), ``zone_y``
+    is physical bottom->top. Returns one row per cell: ``(zone_x 0..n_x-1, zone_y 0..n_y-1, xt_value)``.
+    Matches the dbt binning ``floor(x / (105/n_x))`` / ``floor(y / (68/n_y))``.
+    """
+    import numpy as np
+    from silly_kicks.xthreat import physical_grid
+
+    cell_x = _PITCH_LENGTH / n_x
+    cell_y = _PITCH_WIDTH / n_y
+    xs = np.arange(n_x, dtype=np.float64) * cell_x + 0.5 * cell_x  # ascending physical x cell centres
+    ys = np.arange(n_y, dtype=np.float64) * cell_y + 0.5 * cell_y
+    grid = np.asarray(physical_grid(model, xs, ys), dtype=np.float64)  # (n_y, n_x) physically oriented
+    rows = [
+        {"zone_x": int(xi), "zone_y": int(yi), "xt_value": float(grid[yi, xi])}
+        for yi in range(n_y)
+        for xi in range(n_x)
+    ]
+    return pd.DataFrame(rows).astype({"zone_x": "int32", "zone_y": "int32", "xt_value": "float64"})
+
+
+def _grid_drift(new_values: np.ndarray, previous_values: np.ndarray | None) -> float | None:
+    """ADR-063 R4 materiality drift — delegates to the shared guard core (kept as a thin alias)."""
+    from analytics.xt_grid_guards import grid_drift
+
+    return grid_drift(new_values, previous_values)
 
 
 def _write_grid_if_material(
     spark: SparkSession,
-    grid: Any,
+    model: Any,
     *,
     catalog: str,
     schema: str,
@@ -113,18 +184,19 @@ def _write_grid_if_material(
 ) -> bool:
     """WARN-only differential + write-only-on-material-change (ADR-063 R4/H3). Returns True if written.
 
-    ``grid`` is an ``analytics.expected_threat.XTGrid`` (duck-typed here to keep this guard-adjacent
-    module free of module-level analytics imports).
+    ``model`` is a fitted sk ``ExpectedThreat``; the persisted payload is its ``to_dict()`` JSON.
     """
-    previous = _load_previous_grid(spark, catalog, schema, comp_id, logger)
-    # Differential is advisory only now (ADR-063 H3): never raise — the directionality assert is the
-    # hard gate, and a hard differential would deadlock the auto-rebuild on a legitimate large shift.
+    from analytics.xt_grid_guards import validate_differential
+
+    previous_values = _load_previous_grid(spark, catalog, schema, comp_id, logger)
+    new_values = np.asarray(model.xT, dtype=np.float64)
+    # Differential is advisory only (ADR-063 H3): never raise — the directionality assert is the hard
+    # gate, and a hard differential would deadlock the auto-rebuild on a legitimate large shift.
     try:
-        grid.validate_differential(previous)
+        validate_differential(new_values, previous_values)
     except ValueError as exc:
         logger.warning("xT grid '%s' differential WARN (not blocking, ADR-063 H3): %s", comp_id, exc)
-    prev_values = previous.values if previous is not None else None
-    drift = _grid_drift(grid.values, prev_values)
+    drift = _grid_drift(new_values, previous_values)
     logger.info(
         "xT grid '%s' drift vs last-propagated: %s",
         comp_id,
@@ -138,12 +210,33 @@ def _write_grid_if_material(
             _MATERIALITY_REL_THRESHOLD,
         )
         return False
-    spark_df = spark.createDataFrame(grid.to_dataframe())  # type: ignore[union-attr]
+    payload = pd.DataFrame(
+        {
+            "competition_id": [comp_id],
+            "xt_model_json": [json.dumps(model.to_dict())],
+            "format_version": [1],
+        }
+    )
     write_delta_table(
-        spark_df,
+        spark.createDataFrame(payload),
         catalog=catalog,
         schema=schema,
         table_name=_TABLE_NAME,
+        replace_where=f"competition_id = '{comp_id}'",
+        logger=logger,
+    )
+
+    # ADR-085 G-fix: write the derived long-form zone projection alongside the canonical JSON so the two
+    # never diverge (same materiality gate). Serves the dbt SQL zone-lookup consumers.
+    zones = _project_physical_zones(model)
+    zones.insert(0, "competition_id", comp_id)
+    zones["format_version"] = 1
+    zones = zones.astype({"format_version": "int32"})
+    write_delta_table(
+        spark.createDataFrame(zones),
+        catalog=catalog,
+        schema=schema,
+        table_name=_ZONES_TABLE,
         replace_where=f"competition_id = '{comp_id}'",
         logger=logger,
     )
@@ -172,6 +265,9 @@ class _ExpectedThreatGuard:
 
         results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
         ensure_table(spark, results_table, _RESULTS_SCHEMA)
+        # ADR-085 G-fix: the derived long-form zone projection (written by the producer alongside the
+        # JSON) for the dbt SQL zone consumers.
+        ensure_table(spark, f"{catalog}.{schema}.{_ZONES_TABLE}", _ZONES_SCHEMA)
         types_sql = ", ".join(f"'{t}'" for t in _RELEVANT_TYPES)
         new_comps = find_new_ids(
             spark,
@@ -218,17 +314,14 @@ def _load_previous_grid(
     schema: str,
     competition_id: str,
     logger: logging.Logger,
-):
-    """Load the previous run's xT grid for the given competition_id.
+) -> np.ndarray | None:
+    """Load the previous run's fitted-model ``.xT`` values for the given competition_id.
 
-    Returns ``None`` if no prior grid exists (first run for this
-    competition_id, or the bronze table is empty / missing). All grids
-    written by this pipeline are SPADL 105x68 — ``coord_system`` is
-    hardcoded as that's the established convention for this bronze table.
+    Returns ``None`` if no prior grid exists (first run for this competition_id, or the bronze table is
+    empty / missing). Reads the stored ``xt_model_json`` (ADR-085) and reconstructs via ``from_dict``.
     """
-    import numpy as np
+    from silly_kicks.xthreat import ExpectedThreat
 
-    from analytics.expected_threat import XTGrid
     from ingestion.utils import tolerate_missing_table
 
     table = f"{catalog}.{schema}.{_TABLE_NAME}"
@@ -239,27 +332,14 @@ def _load_previous_grid(
     ):
         rows = list(
             spark.sql(
-                f"SELECT zone_x, zone_y, xt_value FROM {table} "  # noqa: S608
-                f"WHERE competition_id = '{competition_id}'"
+                f"SELECT xt_model_json FROM {table} WHERE competition_id = '{competition_id}'"  # noqa: S608
             ).collect()
         )
 
-    if not rows:
+    if not rows or not rows[0]["xt_model_json"]:
         return None
-
-    n_x = max(int(r.zone_x) for r in rows) + 1
-    n_y = max(int(r.zone_y) for r in rows) + 1
-    values = np.zeros((n_x, n_y))
-    for row in rows:
-        values[int(row.zone_x), int(row.zone_y)] = float(row.xt_value)
-
-    return XTGrid(
-        values=values,
-        pitch_length=105.0,
-        pitch_width=68.0,
-        coord_system="spadl",
-        competition_id=competition_id,
-    )
+    model = ExpectedThreat.from_dict(json.loads(rows[0]["xt_model_json"]))
+    return np.asarray(model.xT, dtype=np.float64)
 
 
 def _list_relevant_competition_ids(spark: SparkSession, catalog: str) -> list[str]:
@@ -290,14 +370,9 @@ def _load_actions_for_competition(
 ) -> pd.DataFrame:
     """Pull a single competition's xT-relevant actions to driver memory.
 
-    Bounded by per-competition row count — largest competition (a full
-    league season's SPADL events) is ~500K rows x 6 cols ≈ 24 MB,
-    well below the 16 GB driver budget. Replaces the pre-OPT-1
-    full-fact-table pull (~9.5M x 6 cols ≈ 456 MB) that used to run
-    when the global grid needed rebuilding.
-
-    Returns the same column shape as the legacy ``_load_actions``:
-    ``competition_id, type_name, result_name, start_x/y, end_x/y``.
+    Bounded by per-competition row count — largest competition (a full league season's SPADL events)
+    is ~500K rows x 6 cols ≈ 24 MB, well below the 16 GB driver budget. The ``.filter`` on
+    ``competition_id`` is the toPandas bound.
     """
     from pyspark.sql.functions import col
 
@@ -328,27 +403,19 @@ def run_pipeline(
     filter_result: FilterResult,
     ctx=None,
 ) -> int:
-    """Compute per-competition and global xT grids, write to Delta.
+    """Fit per-competition and global sk ``ExpectedThreat`` models, persist ``to_dict`` to Delta.
 
-    Streams per-competition action slices (~24 MB each) instead of
-    pulling the full ``fct_action_values`` table to driver memory at
-    once (~456 MB peak under the legacy implementation). Exploits the
-    additivity of ``ZoneCounters`` to build the global grid by
-    accumulating per-comp counters across iterations — see
-    ``analytics.expected_threat.ZoneCounters`` docstring for the
-    primitive's contract. Refactored OPT-1 (2026-05-03).
+    Streams per-competition action slices (~24 MB each, ``competition_id``-filtered). The GLOBAL model
+    is fit on the union of the visited per-comp slices — sk ``ExpectedThreat`` has no additive
+    ``ZoneCounters`` equivalent (unlike the retired v1), so the single-canonical-surface global grid
+    requires the full corpus at the driver. This reverts the OPT-1 counter-accumulation for the global
+    grid (ADR-085); peak driver memory is the union of the visited slices (~≤1 GB, bounded << 16 GB),
+    and the per-comp ``.toPandas()`` calls stay individually ``competition_id``-filtered.
     """
     if filter_result.count == 0:
         raise WorkflowSkippedError("No new work")
 
-    from analytics.expected_threat import (
-        ExpectedThreatParams,
-        ZoneCounters,
-        bucket_actions_into_counters,
-        xt_grid_from_counters,
-    )
-
-    params = ExpectedThreatParams()
+    from analytics.xt_grid_guards import assert_directional, validate_structural
 
     # Use guard-provided metadata instead of inline re-computation
     new_comps = filter_result.metadata["new_competition_ids"]
@@ -364,11 +431,6 @@ def run_pipeline(
         " + global" if need_global else "",
     )
 
-    # ── Determine which competitions need to be visited this run ─────
-    # Per-comp grids: just `new_comps`. Global grid: every competition
-    # with relevant actions (so its counters can be folded into the
-    # global accumulator). Visiting each comp once and reusing its
-    # counters for both purposes is the streaming optimisation.
     new_comp_set = {str(c) for c in new_comps}
     if need_global:
         all_comp_ids = _list_relevant_competition_ids(spark, catalog)
@@ -376,7 +438,7 @@ def run_pipeline(
     else:
         comps_to_visit = sorted(new_comp_set)
 
-    global_counters = ZoneCounters.zero(params)
+    global_action_slices: list[pd.DataFrame] = []
     competitions_written = 0
     total_actions_accumulated = 0
 
@@ -387,9 +449,9 @@ def run_pipeline(
         n_events = len(comp_actions)
         total_actions_accumulated += n_events
 
-        comp_counters = bucket_actions_into_counters(comp_actions, params)
+        # Accumulate for the global fit (ADR-085 — no additive counters in sk).
         if need_global:
-            global_counters = global_counters + comp_counters
+            global_action_slices.append(comp_actions)
 
         # Per-comp grid only for competitions the guard flagged as new.
         if comp_id in new_comp_set:
@@ -401,39 +463,44 @@ def run_pipeline(
                 )
                 continue
 
-            xt_grid = xt_grid_from_counters(comp_counters, params, competition_id=comp_id)
+            model = _fit_sk_grid(comp_actions)
 
             # Directionality gate for substantial competitions only (ADR-063 M5/M6): small/noisy
             # per-comp grids are exempt to avoid false-fails; large ones must not be silently inverted.
             if n_events >= _MIN_ACTIONS_DIRECTIONAL:
-                xt_grid.assert_directional()
+                assert_directional(model, competition_id=comp_id, logger=logger)
 
-            # WARN-only differential + write-only-on-material-change (ADR-063 R4/H3).
-            if _write_grid_if_material(spark, xt_grid, catalog=catalog, schema=schema, comp_id=comp_id, logger=logger):
+            if _write_grid_if_material(spark, model, catalog=catalog, schema=schema, comp_id=comp_id, logger=logger):
                 competitions_written += 1
-                logger.info("Competition %s: %d events, max xT=%.5f", comp_id, n_events, float(xt_grid.values.max()))
+                logger.info(
+                    "Competition %s: %d events, max xT=%.5f",
+                    comp_id,
+                    n_events,
+                    float(np.asarray(model.xT).max()),
+                )
 
-    # ── Global grid (built from accumulated per-comp counters) ────────
+    # ── Global grid (fit on the union of visited per-comp slices) ─────
     if need_global:
-        if global_counters.total_actions == 0:
+        if not global_action_slices:
             logger.warning("No relevant actions found across any competition — skipping global xT grid")
         else:
-            global_xt_grid = xt_grid_from_counters(global_counters, params, competition_id="global")
+            global_actions = pd.concat(global_action_slices, ignore_index=True)
+            global_model = _fit_sk_grid(global_actions)
 
-            # HARD gate (ADR-063 R1): a non-directional global grid is a build FAILURE — raises before
-            # any watermark is recorded, so a stale/broken grid forces a re-run rather than silently
-            # propagating (the negative-DZV root cause). max_value=0.50 is the legacy v1 ceiling.
-            global_xt_grid.validate_structural(max_value=0.50, require_directional=True)
+            # HARD gate (ADR-063 R1): a non-directional / out-of-range global grid is a build FAILURE —
+            # raises before any watermark is recorded, so a stale/broken grid forces a re-run rather
+            # than silently propagating (the negative-DZV root cause). max_value=0.50 is the v1 ceiling.
+            validate_structural(np.asarray(global_model.xT, dtype=np.float64), max_value=0.50)
+            assert_directional(global_model, competition_id="global", logger=logger)
 
-            # WARN-only differential + write-only-on-material-change (ADR-063 R4/H3).
             if _write_grid_if_material(
-                spark, global_xt_grid, catalog=catalog, schema=schema, comp_id="global", logger=logger
+                spark, global_model, catalog=catalog, schema=schema, comp_id="global", logger=logger
             ):
                 logger.info(
                     "Global grid: %d events accumulated across %d competitions, max xT=%.5f",
-                    global_counters.total_actions,
+                    len(global_actions),
                     len(comps_to_visit),
-                    float(global_xt_grid.values.max()),
+                    float(np.asarray(global_model.xT).max()),
                 )
 
     logger.info(

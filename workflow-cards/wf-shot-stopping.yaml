@@ -1,0 +1,110 @@
+---
+name: Shot Stopping — Goals Prevented / GSAA per Keeper
+id: wf-shot-stopping
+version: "1.0"
+status: development
+type: heuristic
+domain: goalkeeper-valuation
+owners:
+  - karsten
+tags:
+  - shot-stopping
+  - goals-prevented
+  - gsaa
+  - goalkeeper-valuation
+
+governance:
+  eu_ai_act: not-high-risk-under-current-posture
+  annex_iii_category: "4 (Employment) — conditional if deployed for employment decisions"
+  reference: AI_GOVERNANCE.md
+
+# Shot Stopping is per-KEEPER evaluative (Goals Prevented / GSAA), so wf-shot-stopping IS a member of
+# PER_PLAYER_EVALUATIVE_CARDS (src/tests/test_ai_governance_md.py) and carries the EU-AI-Act model card
+# docs/huggingface/model-cards/shot-stopping.md. The honest limit: GSAA is low-sample per match; the
+# pooled layer (fct_gk_shot_stopping_pooled) is the evaluative surface.
+references:
+  - citation: "StatsBomb. Post-Shot Expected Goals (PSxG) — shot-stopping / Goals Saved Above Average (GSAA) lineage."
+    role: methodology
+
+inputs:
+  datasets:
+    - id: "{catalog}.bronze.spadl_actions"
+      source: delta-table
+      description: "SPADL actions (game_id / type_id / result_id / period_id / shot_blocked + defending_gk_player_id; event-only, all providers)"
+    - id: "{catalog}.dev_gold.fct_shot_psxg"
+      source: delta-table
+      description: "Atomic shot-grain Post-Shot xG fact (psxg_recalibrated) — injected per shot on the native (match_key, action_id)"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.shot_stopping"
+      destination: delta-table
+      description: "Per-(match, defending keeper) Goals Prevented / GSAA aggregate written by shot_stopping_writer (ADR-013), native ids"
+    - id: "{catalog}.dev_gold.fct_gk_shot_stopping"
+      destination: delta-table
+      description: "GK x match shot-stopping mart — GSAA columns re-sourced from stg_shot_stopping (+ _excl_penalties companions); dbt-built, contract-enforced (ADR-013)"
+    - id: "{catalog}.dev_gold.fct_gk_shot_stopping_pooled"
+      destination: delta-table
+      description: "Pooled GK x (competition, season) evaluative surface — additive rollup with a closed-form Poisson-binomial band"
+
+execution:
+  # Deterministic-method card carrying its own scheduled compute phase (like wf-bravery / wf-team-metrics).
+  # Event-only across all providers + an injected Post-Shot xG (fct_shot_psxg): reads bronze.spadl_actions,
+  # derives the defending keeper's team from a per-match map, and computes Goals Prevented / GSAA via
+  # applyInPandas. Needs silly-kicks -> environment: analytics.
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: shot_stopping_writer
+    module: ingestion.shot_stopping_writer
+    distribution: applyInPandas
+    partition_key: match_id_native
+    schedule: "daily 06:00 UTC"
+    timeout: "1800s"
+    environment: analytics
+
+depends_on:
+  - wf-vaep
+  - wf-goalkeeper
+
+monitoring:
+  freshness_sla_hours: 168
+
+links:
+  source_code:
+    - "src/ingestion/shot_stopping_writer.py"
+---
+
+## Overview
+
+Shot Stopping is the goalkeeper's Goals Prevented (== GSAA — Goals Saved Above Average): the sum of
+Post-Shot xG faced minus goals conceded, per `(match, defending keeper)`, reported with and without
+in-play penalties. It covers every provider whose shots carry a Post-Shot xG (the tracking providers via
+the trajectory model, StatsBomb via the freeze-frame model — both unified in `fct_shot_psxg`).
+
+This is a **methodology / governance card** for the silly-kicks 4.120.0 `shot_stopping.compute_shot_stopping`
+family (TF-59). The materialising ADR-013 writer (`src/ingestion/shot_stopping_writer.py`) reads
+`bronze.spadl_actions`, LEFT-joins the gold Post-Shot xG fact `fct_shot_psxg` per shot, derives the
+defending keeper's team from a per-match `player_id -> team_id_native` map, computes the metric per keeper,
+and lands it in `bronze.shot_stopping` for dbt to re-source the three GK marts. It is scheduled into the
+daily job via the `inference` execution phase above (entry point `shot_stopping_writer`, `analytics`
+environment), running after the SPADL/VAEP + PSxG producers.
+
+## Algorithm
+
+`compute_shot_stopping` gates shots on Post-Shot xG presence (the on-target gate), excludes own goals /
+blocked shots / the penalty shootout, and groups on the CANONICAL keeper id (fixing cross-provider
+keeper-id fragmentation where a keeper's id appears in mixed dtypes). Goals Prevented = `psxg_faced -
+goals_conceded`; the `_excl_penalties` companions re-run the aggregate excluding in-play penalties. Native
+`(match_id, player_id, team_id)` are emitted and resolved to Kimball surrogates (`match_key` / `player_key`)
+in dbt. The computation is deterministic — no trained weights of its own (the Post-Shot xG it consumes is
+governed under `wf-goalkeeper`).
+
+## Governance
+
+Shot Stopping is **per-keeper evaluative**; per [`AI_GOVERNANCE.md`](../AI_GOVERNANCE.md) §5/§6 it is in
+scope as a goalkeeper-valuation family, not-high-risk under the current operating posture. The HONEST
+LIMIT: GSAA is low-sample per match (avg ~1 on-target shot faced), so the per-match mart is a drill-down
+detail — the evaluative surface is the pooled layer (`fct_gk_shot_stopping_pooled`), which ships raw
+Goals Prevented with a closed-form Poisson-binomial band and DEFERS the percentile leaderboard until the
+cohort clears the ranking floor (currently false everywhere).

@@ -241,12 +241,38 @@ SYNCED_TABLES: list[SyncedTableConfig] = [
     # GK insight-views redesign: pooled shot-stopping (goals-prevented band) + per-GK defensive line.
     SyncedTableConfig("fct_gk_shot_stopping_pooled_synced", "fct_gk_shot_stopping_pooled", ("gk_pooled_id",)),
     SyncedTableConfig("fct_gk_defensive_line_synced", "fct_gk_defensive_line", ("gk_defensive_line_id",)),
+    # sk4118 P1 metric marts (Phases A/B-E/C). Match-aggregate grain (team-match / keeper-decision /
+    # player-match), well under the ~100K-row index threshold, so SNAPSHOT (full re-snapshot on refresh)
+    # like the sibling aggregate marts (fct_goalkeeper_stats, fct_match_summary, fct_player_stats). Not
+    # TRIGGERED → not in dbt_project.yml triggered_synced_marts (no CDF contract, no strand concern).
+    SyncedTableConfig("fct_team_metrics_synced", "fct_team_metrics", ("team_metrics_id",)),
+    SyncedTableConfig("fct_gk_decision_synced", "fct_gk_decision", ("gk_decision_id",)),
+    SyncedTableConfig("fct_player_match_metrics_synced", "fct_player_match_metrics", ("player_match_metrics_id",)),
 ]
 
 POLL_INTERVAL_S = 30
 MAX_POLL_ATTEMPTS = 60  # 30 min max wait
 
 SYNCED_TABLE_ONLINE_STATE = "SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE"
+
+# Healthy steady-states for a TRIGGERED synced table. A freshly (re)created table reports
+# ``SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE`` (message "creation succeeded"); once it has synced and
+# gone idle with no new source rows it DECAYS to ``SYNCED_TABLE_ONLINE`` (message "online but no
+# updates are found"). Both mean online-and-fully-synced. The narrower set was too strict: as tables
+# aged past creation they flipped to ``SYNCED_TABLE_ONLINE`` and the health check went green→red on
+# perfectly healthy tables (2026-09-20 diagnosis: 37/41 idle → ``SYNCED_TABLE_ONLINE``, 0 unhealthy).
+# OFFLINE / *_FAILED / PROVISIONING / actively-*_UPDATE are deliberately EXCLUDED — the guard stays
+# non-vacuous (it still fails those). Actively-updating is excluded to preserve the "fully synced"
+# intent, unchanged from the original check.
+HEALTHY_ONLINE_STATES = frozenset({SYNCED_TABLE_ONLINE_STATE, "SYNCED_TABLE_ONLINE"})
+
+
+def is_synced_table_healthy(detailed_state: str | None) -> bool:
+    """True iff ``detailed_state`` is a healthy, fully-synced online state (see HEALTHY_ONLINE_STATES).
+
+    Pure predicate (no I/O) so the health-check semantics are unit-testable without a live warehouse.
+    """
+    return detailed_state in HEALTHY_ONLINE_STATES
 
 
 # ---------------------------------------------------------------------------
@@ -601,7 +627,9 @@ def wait_until_online(
         detailed_state_str = raw_state.value if raw_state else "UNKNOWN"
         last_state = detailed_state_str
 
-        if detailed_state_str == SYNCED_TABLE_ONLINE_STATE:
+        # Accept EITHER healthy-online state: a refresh completes at _NO_PENDING_UPDATE, but a fast
+        # idle-decay can race the poll to SYNCED_TABLE_ONLINE ("no updates found") — both mean done.
+        if is_synced_table_healthy(detailed_state_str):
             return
 
         if detailed_state_str in _SYNCED_TABLE_TERMINAL_FAILURE_STATES:
@@ -610,7 +638,7 @@ def wait_until_online(
         elapsed = time.monotonic() - start
         if elapsed > timeout_s:
             raise TimeoutError(
-                f"Synced table {table_fqn} did not reach {SYNCED_TABLE_ONLINE_STATE} "
+                f"Synced table {table_fqn} did not reach a healthy online state {sorted(HEALTHY_ONLINE_STATES)} "
                 f"within {timeout_s}s (last detailed_state: {last_state!r}, elapsed: {elapsed:.1f}s)"
             )
 
