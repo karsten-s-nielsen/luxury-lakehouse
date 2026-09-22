@@ -49,7 +49,8 @@ execution:
     distribution: driver-bound
     schedule: "daily 06:00 UTC"
     timeout: "600s"
-    environment: default
+    # sk4118 ExT-v2 (ADR-085): fits a silly-kicks ExpectedThreat -> needs the analytics env.
+    environment: analytics
 
 depends_on:
   - wf-vaep

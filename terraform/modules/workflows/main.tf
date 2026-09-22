@@ -416,7 +416,10 @@ resource "databricks_job" "data_ingestion" {
       ]
     }
 
-    environment_key = "default"
+    # sk4118 ExT-v2 (ADR-085): the producer now fits a silly-kicks ExpectedThreat
+    # (from silly_kicks.xthreat) — requires the analytics env, not default (which
+    # has no silly-kicks). The v1 producer used the in-repo grid + ran on default.
+    environment_key = "analytics"
   }
 
   # ── Task: Detect team formations via EFPI template matching ──────────
@@ -590,7 +593,10 @@ resource "databricks_job" "data_ingestion" {
       ]
     }
 
-    environment_key = "default"
+    # sk4118 ExT-v2 (ADR-085): off-ball xT now reads the fitted silly-kicks
+    # ExpectedThreat (values_at_points seam) — requires the analytics env (has
+    # silly-kicks), not default. The v1 path used the in-repo grid on default.
+    environment_key = "analytics"
   }
 
   # ── Task: Compute PAUSA pass timing values ────────────────────────────
@@ -1225,7 +1231,9 @@ resource "databricks_job" "data_ingestion" {
           ]
         }
 
-        environment_key = "default"
+        # ingestion.idsse parses DFL XML via silly_kicks.providers.sportec (ADR-055) ->
+        # requires the analytics env (has silly-kicks), not default. (sk4118 env sweep.)
+        environment_key = "analytics"
       }
     }
   }

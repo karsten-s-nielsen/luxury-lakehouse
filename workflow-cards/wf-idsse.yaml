@@ -39,7 +39,8 @@ execution:
     module: ingestion.idsse
     distribution: driver-bound
     timeout: "900s"
-    environment: default
+    # DFL XML parse via silly_kicks.providers.sportec (ADR-055) -> needs the analytics env.
+    environment: analytics
 
 depends_on: []
 
