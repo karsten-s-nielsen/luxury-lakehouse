@@ -108,6 +108,45 @@ def test_home_team_id_resolved_from_native_mapping() -> None:
     assert leverage.notna().any()
 
 
+def test_sentinel_team_action_does_not_exclude_the_match() -> None:
+    """ADR-016 UNKNOWN_TEAM_SENTINEL actions (a NULL native team hashed to a stable sentinel) present a
+    spurious THIRD team_id. Without excluding them from the WP frame, compute_win_probability's
+    nteams==2 gate drops the ENTIRE match — the GS regression: all 64 GS matches carry two real teams
+    plus the sentinel, so every action came back NaN. _score_ximpact must feed goal_leverage only the
+    real-team actions: real-team leverage resolves, the sentinel row stays honest-NaN.
+    """
+    from silly_kicks.win_probability import goal_leverage
+
+    from ingestion.spadl_adapter import UNKNOWN_TEAM_SENTINEL, hash_native_id_to_bigint
+
+    a = _game_with_home()
+    # A non-shot sentinel action with an unresolvable native team → a 3rd team_id in the match.
+    sentinel = a.iloc[[len(a) // 2]].copy()
+    sentinel["action_id"] = int(a["action_id"].max()) + 1  # unique — WP maps state by (game_id, action_id)
+    sentinel["team_id_native"] = UNKNOWN_TEAM_SENTINEL
+    sentinel["team_id"] = hash_native_id_to_bigint(UNKNOWN_TEAM_SENTINEL)
+    if "type_id" in sentinel:
+        sentinel["type_id"] = 8  # foul — a non-scoring type (mirrors production sentinels: tackle/foul)
+    a3 = pd.concat([a, sentinel], ignore_index=True)
+
+    # Non-vacuity: bare goal_leverage over the 3-team frame excludes the whole match (all-NaN).
+    games = pd.DataFrame([{"game_id": a3["game_id"].iloc[0], "home_team_id": _HOME_TID}])
+    bare = goal_leverage(a3, model=_wp(), games=games)
+    assert bare.isna().all(), (
+        "expected the sk nteams==2 gate to exclude a 3-team match (guard would be vacuous otherwise)"
+    )
+
+    # The fix: excluding the sentinel presents two teams → real-team leverage resolves; sentinel stays NaN.
+    leverage, ximpact = _score_ximpact(a3, _adjusted_stub(np.zeros(len(a3))), _wp())
+    sentinel_mask = (a3["team_id_native"] == UNKNOWN_TEAM_SENTINEL).to_numpy()
+    assert leverage.to_numpy()[sentinel_mask].size == 1
+    assert np.isnan(leverage.to_numpy()[sentinel_mask]).all(), "sentinel action must be honest-NaN"
+    assert np.isnan(ximpact.to_numpy()[sentinel_mask]).all()
+    assert np.isfinite(leverage.to_numpy()[~sentinel_mask]).any(), (
+        "real-team leverage must resolve after excluding the sentinel"
+    )
+
+
 def test_writer_ximpact_matches_vaep_rate_ximpact() -> None:
     """XIMP-02 end-to-end: the writer's ximpact == VAEP.rate_ximpact(...) on the same game — pins the
     full args wiring + index alignment, not just the multiply."""
