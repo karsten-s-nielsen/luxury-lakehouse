@@ -613,12 +613,15 @@ def _score_ximpact(game_actions: pd.DataFrame, adjusted: pd.DataFrame, wp_model:
     ``team_id_native`` equals ``home_team_id_native`` in the data itself — NOT by re-hashing the native id
     (``team_id`` is ``hash_native_id_to_bigint`` for IDSSE/Metrica/SkillCorner/GS but the stringified
     numeric for StatsBomb/Wyscout, ADR-016; a blanket hash would mis-resolve the open-data providers).
-    Honest-NaN: an unresolved home id / WP state → NaN leverage → NaN ximpact.
+    Honest-NaN: an unresolved home id / WP state, or an UNKNOWN_TEAM_SENTINEL action,
+    yields NaN leverage and therefore NaN ximpact.
 
     Returns ``(win_prob_leverage, ximpact)`` Series, both aligned to ``game_actions.index``.
     """
     from silly_kicks.vaep.ximpact import ximpact_values
     from silly_kicks.win_probability import goal_leverage
+
+    from ingestion.spadl_adapter import UNKNOWN_TEAM_SENTINEL
 
     htn = game_actions["home_team_id_native"].iloc[0] if "home_team_id_native" in game_actions else None
     home_bigint = None
@@ -627,7 +630,19 @@ def _score_ximpact(game_actions: pd.DataFrame, adjusted: pd.DataFrame, wp_model:
         if matched.size:
             home_bigint = int(matched[0])
     games = pd.DataFrame([{"game_id": game_actions["game_id"].iloc[0], "home_team_id": home_bigint}])
-    leverage = goal_leverage(game_actions, model=wp_model, games=games)
+
+    # ADR-016 UNKNOWN_TEAM_SENTINEL actions (a NULL native team hashed to a stable
+    # sentinel — GS id-space gaps, IDSSE freekick_short) present as a spurious THIRD
+    # team_id. compute_win_probability's nteams==2 gate then excludes the ENTIRE match,
+    # yielding NaN leverage for every action (empirically: all 64 GS matches carry two
+    # real teams plus the sentinel). Feed goal_leverage only the real-team actions so the
+    # match presents exactly two teams. Sentinel actions carry no shots, so dropping them
+    # is goal-state-neutral for the WP score sequence, and they cannot be team-attributed
+    # anyway — they stay honest-NaN. reindex restores full-frame index alignment.
+    wp_actions = game_actions
+    if "team_id_native" in game_actions:
+        wp_actions = game_actions[game_actions["team_id_native"] != UNKNOWN_TEAM_SENTINEL]
+    leverage = goal_leverage(wp_actions, model=wp_model, games=games).reindex(game_actions.index)
     ximpact = ximpact_values(adjusted, leverage)
     return leverage, ximpact
 

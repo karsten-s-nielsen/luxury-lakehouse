@@ -87,6 +87,39 @@ guard over EVERY P2 first-materialization writer (the 6 P1 `_struct_type` writer
 the ExT grid/zones payloads vs `_RESULTS_SCHEMA`/`_ZONES_SCHEMA`; duels' inferred write asserted free of
 INT columns). The audit found the other writers dtype-correct; only the ExT grid write was affected.
 
+## Amendment (2026-09-22, wheel 0.5.114) — WP robustness to the UNKNOWN_TEAM_SENTINEL
+
+The P2 `compute_spadl_vaep` re-run populated `ximpact`/`win_prob_leverage` for **99.07%** of the corpus
+(StatsBomb/Wyscout/IDSSE/Metrica/SkillCorner correct — the only non-GS NULLs, 685 rows, trace to a
+pre-existing NULL `vaep_adjusted_value`, honest-NaN by design). **GradientSports came back 100% NULL**
+(90,831 rows, all 64 GS matches).
+
+**Mechanism.** GS carries 778 actions with a NULL native team, which ADR-016 hashes to the stable
+`UNKNOWN_TEAM_SENTINEL` (`"__UNKNOWN_TEAM__"`). That sentinel is a spurious THIRD `team_id` per match
+(every GS match: two real teams + the sentinel). `silly_kicks.win_probability.compute_win_probability`
+gates on `nteams == 2` — a legitimate defensive check — so a three-team match is `excluded_not_two_teams`
+and EVERY action in it gets NaN leverage, hence NaN ximpact. The home-id resolution was never the
+problem (GS `home_team_id_native` is present, 0 NULL, and resolves to the correct `team_id`); the NaN
+originates entirely inside the WP two-team gate. sk's gate is correct and stays untouched — the sentinel
+is a lakehouse ADR-016 construct, so the lakehouse must not feed it to sk as a real team.
+
+**Fix (lakehouse `_score_ximpact`).** Feed `goal_leverage` only the real-team actions
+(`team_id_native != UNKNOWN_TEAM_SENTINEL`) so the match presents exactly two teams; `reindex` the
+result back to the full frame. Sentinel actions carry **no shots** (empirically 588 tackle + 189 foul +
+1 bad_touch, 0 of type shot/shot_penalty/shot_freekick), so dropping them is goal-state-neutral for the
+WP score sequence, and they cannot be team-attributed anyway — they stay honest-NaN. This recovers
+ximpact for the ~90,053 real-team GS actions while leaving the 778 sentinel actions NaN.
+
+**Not fixed here (surfaced, pre-existing):** the *reason* GS emits 778 NULL-native-team actions is the
+GS id-space defect cluster (`project_gradientsports_player_id_space_bug`,
+`project_gs_home_team_id_orientation_bug`), which needs a GS re-ingest and is out of this cycle's scope.
+The WP-robustness fix is correct regardless of that data-quality gap and is required for any provider
+whose data can carry a sanctioned sentinel action.
+
+**Guard:** `src/tests/test_ximpact.py::test_sentinel_team_action_does_not_exclude_the_match` — asserts
+(non-vacuously) that bare `goal_leverage` over a three-team frame excludes the whole match (all-NaN),
+and that `_score_ximpact` recovers real-team leverage while the sentinel row stays NaN.
+
 ## Specs
 
 `docs/superpowers/specs/2026-09-22-ext-producer-fit-from-counts-design.md` +
