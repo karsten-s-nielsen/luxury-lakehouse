@@ -69,6 +69,24 @@ existing `wf-vaep` evaluative card (no new card).
 ### Neutral
 - No new mart, workflow card, C4 entity, or synced table. sk floor bumped 4.121.0 → 4.123.0 (ADR-046 exact pins). Governance folds under `wf-vaep` (AI_GOVERNANCE §5, `vaep-model.md`, ARCHITECTURE Appendix D: Dixon & Robinson 1998, Robberechts et al. 2019).
 
+## Amendment (2026-09-22, wheel 0.5.113) — grid-write dtype contract + a write→DDL parity guard
+
+The first P2 `compute_expected_threat` run fit the grids correctly but failed the WRITE with
+`[DELTA_FAILED_TO_MERGE_FIELDS] format_version`: `_write_grid_if_material` built the JSON-grid payload
+with `format_version=[1]`, which pandas infers to int64 → Spark LONG, and `replaceWhere` into the
+`format_version INT` column rejects the LONG↔INT merge (the zones write already cast int32; the grid
+write did not). A Phase-G (ADR-085) latent gap — the write path had no unit test ("exercised by the live
+drain, not here") and was never reached before (env-fail → timeout at 0/28).
+
+**Contract:** an inferred-schema Delta write (`spark.createDataFrame(pandas)`) must carry EXPLICIT dtypes
+matching the target column types — a bare Python int is int64/LONG and only matches BIGINT, never INT.
+The grid/zones payloads are now built by `_grids_payload`/`_zones_payload` with explicit int32.
+
+**Defense-in-depth:** `src/tests/test_writer_ddl_dtype_parity.py` — a pyspark-free write-dtype↔DDL parity
+guard over EVERY P2 first-materialization writer (the 6 P1 `_struct_type` writers vs their migration DDL;
+the ExT grid/zones payloads vs `_RESULTS_SCHEMA`/`_ZONES_SCHEMA`; duels' inferred write asserted free of
+INT columns). The audit found the other writers dtype-correct; only the ExT grid write was affected.
+
 ## Specs
 
 `docs/superpowers/specs/2026-09-22-ext-producer-fit-from-counts-design.md` +
