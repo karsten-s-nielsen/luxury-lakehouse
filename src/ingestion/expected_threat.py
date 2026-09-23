@@ -354,6 +354,31 @@ def _grid_drift(new_values: np.ndarray, previous_values: np.ndarray | None) -> f
     return grid_drift(new_values, previous_values)
 
 
+def _grids_payload(model: Any, comp_id: str) -> pd.DataFrame:
+    """The bronze ``expected_threat_grids`` write payload — dtypes pinned to ``_RESULTS_SCHEMA``.
+
+    ``format_version`` is cast to int32 to match the ``format_version INT`` column: a bare Python ``1``
+    infers to int64/LONG, and Delta ``replaceWhere`` rejects the LONG↔INT merge
+    (``DELTA_FAILED_TO_MERGE_FIELDS``). Guarded by ``test_writer_ddl_dtype_parity``.
+    """
+    return pd.DataFrame(
+        {
+            "competition_id": [comp_id],
+            "xt_model_json": [json.dumps(model.to_dict())],
+            "format_version": [1],
+        }
+    ).astype({"format_version": "int32"})
+
+
+def _zones_payload(model: Any, comp_id: str) -> pd.DataFrame:
+    """The bronze ``expected_threat_grid_zones`` write payload — dtypes pinned to ``_ZONES_SCHEMA``
+    (``zone_x``/``zone_y``/``format_version`` all INT → int32)."""
+    zones = _project_physical_zones(model)
+    zones.insert(0, "competition_id", comp_id)
+    zones["format_version"] = 1
+    return zones.astype({"zone_x": "int32", "zone_y": "int32", "format_version": "int32"})
+
+
 def _write_grid_if_material(
     spark: SparkSession,
     model: Any,
@@ -391,15 +416,8 @@ def _write_grid_if_material(
             _MATERIALITY_REL_THRESHOLD,
         )
         return False
-    payload = pd.DataFrame(
-        {
-            "competition_id": [comp_id],
-            "xt_model_json": [json.dumps(model.to_dict())],
-            "format_version": [1],
-        }
-    )
     write_delta_table(
-        spark.createDataFrame(payload),
+        spark.createDataFrame(_grids_payload(model, comp_id)),
         catalog=catalog,
         schema=schema,
         table_name=_TABLE_NAME,
@@ -409,12 +427,8 @@ def _write_grid_if_material(
 
     # ADR-085 G-fix: write the derived long-form zone projection alongside the canonical JSON so the two
     # never diverge (same materiality gate). Serves the dbt SQL zone-lookup consumers.
-    zones = _project_physical_zones(model)
-    zones.insert(0, "competition_id", comp_id)
-    zones["format_version"] = 1
-    zones = zones.astype({"format_version": "int32"})
     write_delta_table(
-        spark.createDataFrame(zones),
+        spark.createDataFrame(_zones_payload(model, comp_id)),
         catalog=catalog,
         schema=schema,
         table_name=_ZONES_TABLE,
