@@ -35,3 +35,19 @@ One cycle: fix Bug 1, and harden the shared drain machinery so a systemic failur
 **Negative** — preflight now builds the processor + loads its models/xT to run the canary (one model load, ≤4 dry-run units). A benign bad-data canary unit can block a provider's drain (mitigated: per-provider, error names the unit, scoped `--max-units` runs remain).
 
 **Neutral** — `DrainSummary` + `slice_completed` gain fields (additive; the `error` column already existed). sk unchanged — the fix is lakehouse-side (sk's own reconstruct path is already `is_actor`-guarded).
+
+## Amendment (2026-09-23, wheel 0.5.116) — the canary is a SINGLE unit; preflight timeout raised 600 -> 1200
+
+The first post-merge tracking-marts `--full` run (`575004868517163`) failed: `preflight_tracking_marts`
+timed out (600 s). The canary as first shipped dry-ran ONE unit PER PROVIDER through the full processor,
+and a full-processor dry-run costs ~one real drain unit (defcon / pitch-control dominate). On a HEALTHY
+run (gk_decision fixed) every provider's canary unit ran to completion, exceeding the 600 s preflight
+budget — a regression that would time out preflight on every non-empty run (both drains).
+
+**Fix:** the canary now dry-runs a SINGLE representative unit (`select_canary_units` returns `units[:1]`,
+the first discovered), and both preflight tasks' `timeout_seconds` was raised 600 -> 1200. One unit
+catches a GLOBAL systemic defect (the class this cycle targets — `is_actor` hit every provider) before
+the fan-out; a provider-specific defect the single canary unit does not exercise falls to the runtime
+circuit-breaker (the primary fast-fail). The cost/benefit that sank the per-provider fan: the canary's
+cost lands on EVERY full run, while its benefit only pays off on the RARE systemic-bug run — and the
+breaker already fast-fails those.

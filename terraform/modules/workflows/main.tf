@@ -1393,7 +1393,7 @@ resource "databricks_job" "data_ingestion" {
   # worker-id list + run_id task values this preflight writes (ADR-037 worker-drain).
   task {
     task_key        = "preflight_action_context"
-    timeout_seconds = 600
+    timeout_seconds = 1200
     max_retries     = 0
 
     # Needs SPADL + all provider data ingested before checking freshness.
@@ -1537,7 +1537,7 @@ resource "databricks_job" "data_ingestion" {
   # The downstream compute_tracking_marts for_each consumes the worker-id list + run_id it writes.
   task {
     task_key        = "preflight_tracking_marts"
-    timeout_seconds = 600
+    timeout_seconds = 1200
     max_retries     = 0
 
     depends_on { task_key = "compute_action_context" }

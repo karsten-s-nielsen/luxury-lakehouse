@@ -28,11 +28,14 @@ class _FailProcessor:
         raise ValueError(f"boom {unit.match_id}")
 
 
-def test_select_canary_units_one_per_provider() -> None:
-    units = [_u("skillcorner", "1", 1), _u("skillcorner", "2", 1), _u("gradientsports", "3", 1), _u("idsse", "J", 1)]
+def test_select_canary_units_single_first_unit() -> None:
+    """A single representative unit (the first discovered) — a full-processor dry-run per provider would
+    blow preflight's 600 s budget (ADR-087 amendment); one unit catches a global systemic defect."""
+    units = [_u("skillcorner", "1", 1), _u("skillcorner", "2", 1), _u("gradientsports", "3", 1)]
     got = select_canary_units(units)
-    assert [u.provider for u in got] == ["skillcorner", "gradientsports", "idsse"]  # first-seen, one each
-    assert [u.match_id for u in got] == ["1", "3", "J"]
+    assert len(got) == 1
+    assert (got[0].provider, got[0].match_id) == ("skillcorner", "1")  # first discovered
+    assert select_canary_units([]) == []
 
 
 def test_run_canary_passes_and_uses_dry_run() -> None:
