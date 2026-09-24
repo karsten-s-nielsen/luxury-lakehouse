@@ -16,12 +16,12 @@ from analytics.action_context.work_unit import WorkUnit
 
 
 def select_canary_units(units: list[WorkUnit]) -> list[WorkUnit]:
-    """One unit per distinct provider, first-seen order (deterministic) — a provider-specific defect is
-    caught while keeping the canary cheap (<= #providers dry-runs)."""
-    seen: dict[str, WorkUnit] = {}
-    for u in units:
-        seen.setdefault(u.provider, u)
-    return list(seen.values())
+    """A SINGLE representative canary unit (the first discovered). A full-processor dry-run costs ~one
+    real drain unit (defcon / pitch-control dominate), so a per-provider fan of dry-runs blows the
+    preflight task budget (600 s). One unit catches a GLOBAL systemic defect (e.g. the gk_decision
+    `is_actor` bug, which hit every provider) BEFORE the fan-out; provider-specific defects fall to the
+    runtime circuit-breaker (ADR-087 amendment 2026-09-23)."""
+    return units[:1]
 
 
 def run_canary(processor: GameProcessorPort, units: list[WorkUnit], logger: logging.Logger) -> None:
