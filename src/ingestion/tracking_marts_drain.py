@@ -30,7 +30,15 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from analytics.action_context.drain import WATCHDOG_BUDGET_S, assign_workers, drain_worker
+from analytics.action_context.drain import (
+    DEFAULT_MAX_CONSECUTIVE_FAILURES,
+    DEFAULT_SYSTEMIC_FAILURE_RATE,
+    DEFAULT_SYSTEMIC_MIN_SAMPLE,
+    WATCHDOG_BUDGET_S,
+    assign_workers,
+    drain_worker,
+    parse_breaker_config,
+)
 from ingestion.action_context import _resolve_run_id, _set_task_value, raise_on_failed_units
 from ingestion.drain_adapters import _EVENT_SCHEMA
 from ingestion.tracking_marts_driver import discover_tracking_units
@@ -189,6 +197,14 @@ def main_tracking_marts_preflight() -> None:
         _set_task_value("tracking_marts_worker_ids", [], task_logger)
         return
 
+    # ADR-087 canary: dry-run one unit per provider through the FULL processor BEFORE the fan-out, so a
+    # systemic compute-path defect fails THIS task (the dependent compute_* is skipped) instead of
+    # burning the 8-worker retry budget. units is non-empty here, so the processor build is not a no-op.
+    from analytics.action_context.canary import run_canary
+    from ingestion.tracking_marts_processor import TrackingMartsProcessor
+
+    run_canary(TrackingMartsProcessor(spark, args.catalog, args.schema), units, task_logger)
+
     assignments = assign_workers(units, _N_TRACKING_MARTS_WORKERS)
     run_id = _resolve_run_id(args)
     queue = DeltaWorkQueue(spark, args.catalog, drain_name=_DRAIN_NAME)
@@ -243,6 +259,10 @@ def _run_worker(
     run_id: str,
     budget_s: int,
     task_logger: logging.Logger,
+    *,
+    max_consecutive_failures: int = DEFAULT_MAX_CONSECUTIVE_FAILURES,
+    systemic_failure_rate: float = DEFAULT_SYSTEMIC_FAILURE_RATE,
+    systemic_min_sample: int = DEFAULT_SYSTEMIC_MIN_SAMPLE,
 ) -> None:
     """Drain one worker's slice (the testable core of ``main_tracking_marts_drain_worker``).
 
@@ -280,6 +300,9 @@ def _run_worker(
         sink=sink,
         units=units,
         budget_s=budget_s,
+        max_consecutive_failures=max_consecutive_failures,
+        systemic_failure_rate=systemic_failure_rate,
+        systemic_min_sample=systemic_min_sample,
     )
     task_logger.info(
         "Tracking-marts drain worker %d complete: processed=%d failed=%d timed_out=%d rows=%d",
@@ -312,6 +335,26 @@ def main_tracking_marts_drain_worker() -> None:
                     "help": "Per-game watchdog budget seconds (default/empty -> WATCHDOG_BUDGET_S=2700).",
                 },
             ),
+            (
+                "--max-consecutive-failures",
+                {"type": str, "default": None, "help": "Circuit-breaker: consecutive failures to abort (default 6)."},
+            ),
+            (
+                "--systemic-failure-rate",
+                {
+                    "type": str,
+                    "default": None,
+                    "help": "Circuit-breaker: failure rate to abort past the min-sample (default 0.5).",
+                },
+            ),
+            (
+                "--systemic-min-sample",
+                {
+                    "type": str,
+                    "default": None,
+                    "help": "Circuit-breaker: min attempted units before the rate check (default 20).",
+                },
+            ),
         ],
     )
     task_logger = configure_logging("tracking_marts_drain")
@@ -332,7 +375,23 @@ def main_tracking_marts_drain_worker() -> None:
     run_id = str(run_id).strip()
     budget_s = _parse_budget(getattr(args, "watchdog_budget_s", None))
 
-    _run_worker(spark, args.catalog, args.schema, worker_id, run_id, budget_s, task_logger)
+    max_consec, sys_rate, sys_min = parse_breaker_config(
+        getattr(args, "max_consecutive_failures", None),
+        getattr(args, "systemic_failure_rate", None),
+        getattr(args, "systemic_min_sample", None),
+    )
+    _run_worker(
+        spark,
+        args.catalog,
+        args.schema,
+        worker_id,
+        run_id,
+        budget_s,
+        task_logger,
+        max_consecutive_failures=max_consec,
+        systemic_failure_rate=sys_rate,
+        systemic_min_sample=sys_min,
+    )
 
 
 # ── gkdv pooling reduce (single-driver — pooling is cross-game, not per-unit) ──

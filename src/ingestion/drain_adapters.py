@@ -390,12 +390,16 @@ class DeltaUnitEventSink:
             rows = [r for r in pending if int(r["worker_id"]) == worker_id]
             self._write_fail_open(rows, worker_id, "flush_terminals")
 
-    def slice_completed(self, run_id: str, worker_id: int) -> None:
+    def slice_completed(self, run_id: str, worker_id: int, *, abort_reason: str | None = None) -> None:
         """FAIL-LOUD. The ONLY channel by which ``write_failures`` reaches the gate (a different
         task, reading persisted tables only). If it cannot land, the gate's evidence is unusable —
         so the worker task must fail rather than let the gate reason on a half-truth.
 
         Emitted by IDLE workers too (P4): a silent idle worker is indistinguishable from a DEAD one.
+
+        ``abort_reason`` (ADR-087): set when the circuit-breaker tripped, carried on the EXISTING
+        ``error`` column (no schema change) so the completeness gate + operators can tell a tripped
+        slice from a clean one.
         """
         row = _event_row(
             run_id=run_id,
@@ -407,7 +411,7 @@ class DeltaUnitEventSink:
             started_at=None,
             ended_at=_utcnow(),
             rows_written=None,
-            error=None,
+            error=abort_reason,
             write_failures=self._write_failures,
         )
         self._write([row], worker_id)
@@ -656,7 +660,7 @@ class SparkGameProcessor:
         self._logger = logging.getLogger("action_context_drain")
         self._xt_grid, self._xt_l, self._xt_w = _load_xt_grid_from_delta(spark, catalog, schema, self._logger)
 
-    def process(self, unit: WorkUnit) -> int:
+    def process(self, unit: WorkUnit, *, dry_run: bool = False) -> int:
         from ingestion.action_context import (
             _is_tracking_provider,
             _process_tracking_match,
@@ -675,6 +679,7 @@ class SparkGameProcessor:
                 self._xt_w,
                 self._logger,
                 kde_backend=unit.kde_backend,
+                dry_run=dry_run,
             )
         # statsbomb (ADR-058) EXITS the drain — processed as a single distributed cogroup job by
         # main_statsbomb, never enqueued here. A stray statsbomb unit (or wyscout / any non-AC

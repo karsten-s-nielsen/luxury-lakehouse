@@ -222,13 +222,16 @@ class TrackingMartsProcessor:
             logger=self._logger,
         )
 
-    def process(self, unit: WorkUnit) -> int:
+    def process(self, unit: WorkUnit, *, dry_run: bool = False) -> int:
         """Score the enabled tracking-grain outputs for one unit; return the summed rows written.
 
         Each scorer runs in isolation and attributes its own failure; if ANY failed, the unit fails as a
         whole (combined ``RuntimeError``) so the drain rolls it forward rather than shipping a partial unit.
         gkdv is skipped entirely when gated off (``GKDV_ENABLED`` / ``gkdv_enabled=False``) — it is then
         never scored, never written, and cannot contribute to the combined failure.
+
+        ``dry_run=True`` (the in-preflight canary, ADR-087): every scorer still RUNS — so a compute-path
+        defect surfaces exactly as it would in the drain — but no ``_write`` is issued and 0 is returned.
         """
         inputs = read_and_build_unit_inputs(
             self._spark, self._catalog, unit, xt_grid_data=self._xt_grid, xt_l=self._xt_l, xt_w=self._xt_w
@@ -242,6 +245,10 @@ class TrackingMartsProcessor:
         total = 0
         errors: list[str] = []
 
+        def _write_or_skip(pdf: pd.DataFrame, schema: Any, table: str) -> int:
+            # dry_run canary: compute already ran (the arg was evaluated); skip the persist only.
+            return 0 if dry_run else self._write(pdf, schema, table, where)
+
         # Per-match HF redistribution tier rides per-row on the actions (ADR-064); constant per match.
         _at = inputs.actions["access_tier"].iloc[0] if "access_tier" in inputs.actions.columns else None
         access_tier = None if _at is None or (isinstance(_at, float) and _at != _at) else str(_at)
@@ -249,7 +256,7 @@ class TrackingMartsProcessor:
         # off_ball_runs (fct_off_ball_runs).
         try:
             obr = compute_off_ball_runs(inputs.actions, inputs.frames, inputs.xt)
-            total += self._write(obr, self._off_ball_schema, OFF_BALL_TABLE, where)
+            total += _write_or_skip(obr, self._off_ball_schema, OFF_BALL_TABLE)
         except Exception as exc:  # noqa: BLE001 — attributed + re-raised as a combined unit failure below
             errors.append(f"off_ball_runs: {exc}")
 
@@ -257,11 +264,11 @@ class TrackingMartsProcessor:
         try:
             xg_preds = _read_xg_preds(self._spark, self._catalog, unit.provider, unit.match_id)
             actions = attach_xg(inputs.actions, xg_preds)
-            total += self._write(
-                compute_action_defensive_credit(actions, inputs.frames, inputs.xt), self._agg_schema, AGG_TABLE, where
+            total += _write_or_skip(
+                compute_action_defensive_credit(actions, inputs.frames, inputs.xt), self._agg_schema, AGG_TABLE
             )
-            total += self._write(
-                compute_defensive_credit_long(actions, inputs.frames, inputs.xt), self._long_schema, LONG_TABLE, where
+            total += _write_or_skip(
+                compute_defensive_credit_long(actions, inputs.frames, inputs.xt), self._long_schema, LONG_TABLE
             )
         except Exception as exc:  # noqa: BLE001 — attributed + re-raised as a combined unit failure below
             errors.append(f"defensive_credit: {exc}")
@@ -285,7 +292,7 @@ class TrackingMartsProcessor:
                 )
                 obs = obs.copy()
                 obs["match_id"] = unit.match_id  # for the per-unit replaceWhere (game_id carries the same value)
-                total += self._write(obs[list(_GKDV_OBS_COLUMNS)], self._gkdv_obs_schema, GKDV_OBS_TABLE, where)
+                total += _write_or_skip(obs[list(_GKDV_OBS_COLUMNS)], self._gkdv_obs_schema, GKDV_OBS_TABLE)
             except Exception as exc:  # noqa: BLE001 — attributed + re-raised as a combined unit failure below
                 errors.append(f"gkdv: {exc}")
 
@@ -301,7 +308,7 @@ class TrackingMartsProcessor:
                 match_id=unit.match_id,
                 access_tier=access_tier,
             )
-            total += self._write(gk, self._gk_decision_schema, GK_DECISION_TABLE, where)
+            total += _write_or_skip(gk, self._gk_decision_schema, GK_DECISION_TABLE)
         except Exception as exc:  # noqa: BLE001 — attributed + re-raised as a combined unit failure below
             errors.append(f"gk_decision: {exc}")
 
@@ -309,7 +316,7 @@ class TrackingMartsProcessor:
         # so the per-unit replaceWhere is disjoint across periods. L1 always; L2 finite via the fitted xt.
         try:
             rd = compute_rest_defense_samples(inputs.actions, inputs.frames, inputs.xt, access_tier=access_tier)
-            total += self._write(rd, self._rd_schema, REST_DEFENSE_TABLE, where)
+            total += _write_or_skip(rd, self._rd_schema, REST_DEFENSE_TABLE)
         except Exception as exc:  # noqa: BLE001 — attributed + re-raised as a combined unit failure below
             errors.append(f"rest_defense: {exc}")
 
