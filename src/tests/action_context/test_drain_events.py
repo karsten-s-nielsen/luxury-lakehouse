@@ -47,7 +47,7 @@ class _FakeProcessor:
         self.fail = fail
         self.processed: list[str] = []
 
-    def process(self, unit: WorkUnit) -> int:
+    def process(self, unit: WorkUnit, *, dry_run: bool = False) -> int:
         if unit.match_id in self.fail:
             raise ValueError(f"boom {unit.match_id}")
         self.processed.append(unit.match_id)
@@ -127,7 +127,7 @@ class _RecordingSink:
             self._write_failures += len(self.terminals)
             raise RuntimeError("flush blew up")
 
-    def slice_completed(self, run_id: str, worker_id: int) -> None:
+    def slice_completed(self, run_id: str, worker_id: int, *, abort_reason: str | None = None) -> None:
         self.calls.append(("slice_completed", worker_id))
         if self._explode_slice:
             raise RuntimeError("slice_completed write blew up")
@@ -360,7 +360,7 @@ def test_idle_worker_STILL_emits_slice_completed(monkeypatch: pytest.MonkeyPatch
         def ensure_own_table(self, worker_id: int) -> None:
             ensured.append(True)
 
-        def slice_completed(self, run_id: str, worker_id: int) -> None:
+        def slice_completed(self, run_id: str, worker_id: int, *, abort_reason: str | None = None) -> None:
             sink.slice_completed(run_id, worker_id)
 
     def _boom(*a: object, **k: object) -> object:

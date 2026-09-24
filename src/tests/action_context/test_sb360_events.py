@@ -88,7 +88,7 @@ class _RecordingSink:
     def flush_terminals(self) -> None:
         self.calls.append(("flush",))
 
-    def slice_completed(self, run_id: str, worker_id: int) -> None:
+    def slice_completed(self, run_id: str, worker_id: int, *, abort_reason: str | None = None) -> None:
         self.calls.append(("slice_completed", run_id, worker_id))
 
 

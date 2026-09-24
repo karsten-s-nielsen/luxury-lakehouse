@@ -20,6 +20,12 @@ from analytics.action_context.work_unit import WorkUnit, provider_tier
 WATCHDOG_BUDGET_S = 2700
 MAX_ABANDONED_THREADS = 3
 
+# Circuit-breaker defaults (ADR-087): fast-fail a SYSTEMIC per-unit failure without tripping on one bad
+# unit. min-sample 20 + rate 0.5 ignore isolated failures; a 100%-systemic bug trips in ~6 consecutive.
+DEFAULT_MAX_CONSECUTIVE_FAILURES = 6
+DEFAULT_SYSTEMIC_FAILURE_RATE = 0.5
+DEFAULT_SYSTEMIC_MIN_SAMPLE = 20
+
 # D9 — flush the buffered terminals every N units, not once at the very end of the slice.
 #
 # A single end-of-slice flush means ANY exception out of ``drain_worker`` -- including its OWN
@@ -54,6 +60,16 @@ class GameTimeoutError(RuntimeError):
     """Raised by a WatchdogPort when a unit exceeds its per-game budget."""
 
 
+class DrainCircuitBreakerError(RuntimeError):
+    """Raised when a worker aborts its slice early because failures are SYSTEMIC (not one bad unit).
+
+    The abandon-ceiling (``MAX_ABANDONED_THREADS``) fast-fails a TIMEOUT storm; this is the equivalent
+    fast-fail for per-unit FAILURES — a corpus-wide code bug (e.g. gk_decision on tracking frames)
+    would otherwise burn the whole retry budget before ``raise_on_failed_units`` fires at slice end
+    (ADR-087). The raise bypasses ``raise_on_failed_units`` — it IS the fast failure.
+    """
+
+
 @dataclass(frozen=True)
 class WorkAssignment:
     """One queue row: a unit bound to a worker with a drain order + cost estimate."""
@@ -75,6 +91,8 @@ class DrainSummary:
     total_rows: int = 0
     failed_units: list[str] = field(default_factory=list)
     timed_out_units: list[str] = field(default_factory=list)
+    circuit_broken: bool = False  # slice aborted early on systemic failure (ADR-087)
+    abort_reason: str | None = None
 
 
 def tier_cost_fn(unit: WorkUnit) -> float:
@@ -126,7 +144,7 @@ class WorkQueuePort(Protocol):
 
 
 class GameProcessorPort(Protocol):
-    def process(self, unit: WorkUnit) -> int: ...
+    def process(self, unit: WorkUnit, *, dry_run: bool = False) -> int: ...
 
 
 class WatchdogPort(Protocol):
@@ -184,10 +202,46 @@ class UnitEventSink(Protocol):
 
     def flush_terminals(self) -> None: ...
 
-    def slice_completed(self, run_id: str, worker_id: int) -> None: ...
+    def slice_completed(self, run_id: str, worker_id: int, *, abort_reason: str | None = None) -> None: ...
 
     @property
     def write_failures(self) -> int: ...
+
+
+def parse_breaker_config(raw_consecutive: object, raw_rate: object, raw_min_sample: object) -> tuple[int, float, int]:
+    """Resolve the circuit-breaker knobs from CLI strings (empty -> defaults). Fail-loud on garbage.
+
+    Returns ``(max_consecutive_failures, systemic_failure_rate, systemic_min_sample)`` for ``drain_worker``.
+    Shared by both worker entry points (AC + tracking-marts) so the parsing lives in ONE place.
+    """
+
+    def _pos_int(raw: object, name: str, default: int) -> int:
+        v = str(raw or "").strip()
+        if not v:
+            return default
+        try:
+            iv = int(v)
+        except ValueError as exc:
+            raise SystemExit(f"{name} must be an integer, got {v!r}") from exc
+        if iv <= 0:
+            raise SystemExit(f"{name} must be > 0, got {iv}")
+        return iv
+
+    rate_raw = str(raw_rate or "").strip()
+    if rate_raw:
+        try:
+            rate = float(rate_raw)
+        except ValueError as exc:
+            raise SystemExit(f"--systemic-failure-rate must be a float, got {rate_raw!r}") from exc
+        if not 0.0 < rate <= 1.0:
+            raise SystemExit(f"--systemic-failure-rate must be in (0, 1], got {rate}")
+    else:
+        rate = DEFAULT_SYSTEMIC_FAILURE_RATE
+    return (
+        _pos_int(raw_consecutive, "--max-consecutive-failures", DEFAULT_MAX_CONSECUTIVE_FAILURES),
+        rate,
+        _pos_int(raw_min_sample, "--systemic-min-sample", DEFAULT_SYSTEMIC_MIN_SAMPLE),
+    )
 
 
 def unit_label(unit: WorkUnit) -> str:
@@ -236,8 +290,11 @@ def drain_worker(
     max_abandoned: int = MAX_ABANDONED_THREADS,
     units: list[WorkUnit] | None = None,
     flush_every: int = TERMINAL_FLUSH_EVERY,
+    max_consecutive_failures: int = DEFAULT_MAX_CONSECUTIVE_FAILURES,
+    systemic_failure_rate: float = DEFAULT_SYSTEMIC_FAILURE_RATE,
+    systemic_min_sample: int = DEFAULT_SYSTEMIC_MIN_SAMPLE,
 ) -> DrainSummary:
-    """Drain one worker's queue slice; per-unit isolation; bounded abandonment.
+    """Drain one worker's queue slice; per-unit isolation; bounded abandonment; systemic-failure breaker.
 
     ``units`` may be pre-fetched by the caller (e.g. the entry point's empty-slice
     short-circuit) to avoid re-reading the queue; otherwise it is fetched here.
@@ -245,8 +302,16 @@ def drain_worker(
     ``sink`` is a MANDATORY injection (no default -- same shape as the guard injection in
     ``run_pipeline()``): a drain that silently forgets to persist its unit events is exactly the
     invisibility D9 exists to kill, and a default would let a caller acquire it by omission.
+
+    Circuit-breaker (ADR-087): per-unit failure is fail-soft (roll one bad unit forward), but a SYSTEMIC
+    failure aborts the slice fast — when ``max_consecutive_failures`` units fail in a row, OR the failure
+    rate exceeds ``systemic_failure_rate`` after at least ``systemic_min_sample`` attempts. It flushes
+    terminals + emits ``slice_completed(abort_reason=...)`` (so the gate can tell a tripped slice from a
+    clean one), then raises ``DrainCircuitBreakerError`` — bypassing ``raise_on_failed_units``. Timeouts
+    do not count toward it (the abandon-ceiling owns timeout storms).
     """
     summary = DrainSummary(worker_id=worker_id)
+    consecutive_failures = 0
     if units is None:
         units = queue.units_for_worker(run_id, worker_id)
     logger.info("ac1_drain_start run_id=%s worker_id=%d units=%d", run_id, worker_id, len(units))
@@ -324,6 +389,25 @@ def drain_worker(
                 exc,
                 exc_info=True,
             )
+            # CIRCUIT-BREAKER (ADR-087): fast-fail a SYSTEMIC failure (a corpus-wide bug), not one bad
+            # unit. Consecutive OR rate-after-min-sample; timeouts excluded (attempted counts only
+            # processed + failed). FLUSH BEFORE THE RAISE + emit slice_completed(abort_reason) so the
+            # gate sees WHY (same evidence contract as the abandon-ceiling). This raise IS the failure —
+            # it bypasses raise_on_failed_units.
+            consecutive_failures += 1
+            attempted = summary.processed + summary.failed
+            rate_trip = attempted >= systemic_min_sample and summary.failed / attempted > systemic_failure_rate
+            if consecutive_failures >= max_consecutive_failures or rate_trip:
+                reason = (
+                    f"circuit-breaker: worker {worker_id} {summary.failed}/{attempted} units failed "
+                    f"(consecutive={consecutive_failures}); last error: {exc}"
+                )
+                summary.circuit_broken = True
+                summary.abort_reason = reason
+                _flush()
+                sink.slice_completed(run_id, worker_id, abort_reason=reason)
+                logger.error("ac1_drain_circuit_broken run_id=%s worker_id=%d %s", run_id, worker_id, reason)
+                raise DrainCircuitBreakerError(reason) from exc
             continue
         _emit_fail_open(
             lambda u=unit, r=rows: sink.unit_finished(
@@ -336,6 +420,7 @@ def drain_worker(
         )
         summary.processed += 1
         summary.total_rows += rows
+        consecutive_failures = 0  # a success breaks a failure run (breaker tracks CONSECUTIVE failures)
     # FAIL-OPEN (M1): were this loud, the gate's UNVERIFIABLE verdict -- whose entire purpose is
     # *lost unit events* -- could never be reached, because a lossy worker would have DIED instead
     # of reporting its loss (and read as a dead worker, not a lossy one).
