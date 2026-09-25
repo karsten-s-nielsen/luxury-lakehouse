@@ -138,7 +138,7 @@ def _extract_warehouse_id_from_http_path(http_path: str) -> str:
     """Extract and validate the Databricks SQL warehouse ID from an HTTP path.
 
     Accepts the canonical ``/sql/1.0/warehouses/<id>`` form and the
-    ``//sql/...`` MSYS-safe form (per CLAUDE.md DATABRICKS_HTTP_PATH rule).
+    ``//sql/...`` MSYS-safe form (per AGENTS.md DATABRICKS_HTTP_PATH rule).
     Rejects anything that doesn't end in a hex-looking warehouse ID so that
     downstream ``WorkspaceClient.warehouses.get(id=...)`` doesn't blow up
     with a cryptic 404 when the env var was set to a cluster path or

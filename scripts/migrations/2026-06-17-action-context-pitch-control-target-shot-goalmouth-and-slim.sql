@@ -9,7 +9,7 @@
 --   3. DROP the 4 columns the Kimball slimming (ADR-056) removed from the AC contract — game_state +
 --      the GK action-sequence flags — now served by fct_action_values (actions-level, frame-independent).
 --
--- Operator-applied (there is NO CI auto-apply — see CLAUDE.md / reference_bronze_migration_autoapply_gap).
+-- Operator-applied (there is NO CI auto-apply — see AGENTS.md / reference_bronze_migration_autoapply_gap).
 -- RUN-ONCE (NOT idempotent): the RENAME fails on re-run (at_ball no longer exists) and the DROP fails if
 -- the columns were already removed. Column-mapping mode is ON (since 4.19.2) so RENAME/DROP are supported.
 -- Before applying, VERIFY the current live schema:

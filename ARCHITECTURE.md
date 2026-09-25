@@ -445,7 +445,8 @@ docs/c4/
 luxury-lakehouse/
 │
 ├── ARCHITECTURE.md                    # This document
-├── CLAUDE.md                         # AI assistant instructions
+├── AGENTS.md                         # AI assistant instructions (canonical)
+├── CLAUDE.md                          # → @AGENTS.md import shim (Claude Code auto-load)
 ├── README.md                         # Project overview
 ├── ROADMAP.md                       # Research directions and future ideas
 ├── SECURITY.md                       # Security audit report
@@ -815,7 +816,7 @@ All code must pass these gates before merge:
 
 ### 6.6 — Database Performance
 
-Lakebase and Databricks performance standards are codified in [CLAUDE.md § Database Performance](CLAUDE.md#database-performance). Key rules:
+Lakebase and Databricks performance standards are codified in [AGENTS.md § Database Performance](AGENTS.md#database-performance). Key rules:
 
 - **Lakebase (PG):** Index every filtered column on fact tables >100K rows. No `ON ONLY` indexes (partitioned tables). Avoid `SELECT DISTINCT` on large tables — use recursive CTE. Re-run `scripts/create_indexes.py` after every synced table recreation.
 - **Databricks (Spark/dbt):** `validate_dataframe()` returns row count to `write_delta_table()` (no double `df.count()`), all writes use `replaceWhere` for idempotency, don't `.toPandas()` unbounded tables, extract repeated window functions into CTEs. 37 mart models use `liquid_clustered_by` for automatic data layout (replaced static Z-ordering). Predictive Optimization enabled at catalog level. Auto-compaction and `optimizeWrite` enabled via `+tblproperties` on all mart tables. 43 of 43 mart models enforce dbt model contracts (`contract: {enforced: true}`, `on_schema_change: fail`).

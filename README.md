@@ -185,7 +185,7 @@ See the [Getting Started guide](docs/getting-started.md) for local setup (clone,
 
 ### [mad-scientist-skills](https://github.com/karsten-s-nielsen/mad-scientist-skills)
 
-Quality gates invoked at key project milestones — architecture visualization, security hardening, and (in beta) observability and optimization reviews. These skills align directly with the engineering standards codified in [CLAUDE.md](CLAUDE.md).
+Quality gates invoked at key project milestones — architecture visualization, security hardening, and (in beta) observability and optimization reviews. These skills align directly with the engineering standards codified in [AGENTS.md](AGENTS.md).
 
 | Skill | Purpose | Invoke |
 |-------|---------|--------|
