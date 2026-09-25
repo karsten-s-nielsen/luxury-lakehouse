@@ -6,6 +6,7 @@ import random
 import pytest
 
 from analytics.action_context.drain import (
+    DrainCircuitBreakerError,
     GameTimeoutError,
     WorkAssignment,
     assign_workers,
@@ -108,7 +109,7 @@ class _FakeProcessor:
         self.fail = fail
         self.processed: list[str] = []
 
-    def process(self, unit: WorkUnit) -> int:
+    def process(self, unit: WorkUnit, *, dry_run: bool = False) -> int:
         if unit.match_id in self.fail:
             raise ValueError(f"boom {unit.match_id}")
         self.processed.append(unit.match_id)
@@ -139,7 +140,31 @@ class _NullSink:
 
     def flush_terminals(self) -> None: ...
 
-    def slice_completed(self, run_id: str, worker_id: int) -> None: ...
+    def slice_completed(self, run_id: str, worker_id: int, *, abort_reason: str | None = None) -> None: ...
+
+
+class _RecordingSink:
+    """Records terminal states, flush order, and the slice_completed abort_reason (breaker tests)."""
+
+    write_failures = 0
+
+    def __init__(self) -> None:
+        self.states: list[str] = []
+        self.flushed = 0
+        self.slice_completed_called = False
+        self.slice_abort_reason: str | None = None
+
+    def unit_started(self, run_id: str, worker_id: int, unit: WorkUnit) -> None: ...
+
+    def unit_finished(self, run_id, worker_id, unit, *, state, rows_written, error) -> None:
+        self.states.append(state)
+
+    def flush_terminals(self) -> None:
+        self.flushed += 1
+
+    def slice_completed(self, run_id: str, worker_id: int, *, abort_reason: str | None = None) -> None:
+        self.slice_completed_called = True
+        self.slice_abort_reason = abort_reason
 
 
 class _TimeoutWatchdog:
@@ -221,6 +246,83 @@ def test_drain_worker_abandonment_ceiling_fails_fast() -> None:
         )
 
 
+# ── circuit-breaker (ADR-087): systemic-failure fast-fail ──────────────
+
+
+def test_breaker_trips_on_consecutive_failures() -> None:
+    """A 100%-systemic bug (every unit fails) trips at ~max_consecutive_failures, NOT at slice end —
+    and flushes terminals + emits slice_completed(abort_reason) BEFORE the raise (evidence preserved)."""
+    units = [WorkUnit(provider="wyscout", match_id=f"f{i}") for i in range(50)]
+    q = _FakeQueue({("R", 0): units})
+    proc = _FakeProcessor(fail=frozenset(u.match_id for u in units))
+    sink = _RecordingSink()
+    with pytest.raises(DrainCircuitBreakerError):
+        drain_worker(
+            q,
+            proc,
+            _InlineWatchdog(),
+            run_id="R",
+            worker_id=0,
+            logger=logging.getLogger("t"),
+            sink=sink,
+            max_consecutive_failures=6,
+            systemic_min_sample=20,
+            systemic_failure_rate=0.5,
+        )
+    assert sink.states.count("failed") == 6  # tripped at K, far below 50 (not slice-end)
+    assert sink.flushed >= 1  # flush BEFORE the raise
+    assert sink.slice_completed_called and sink.slice_abort_reason and "circuit-breaker" in sink.slice_abort_reason
+
+
+def test_breaker_trips_on_rate_after_min_sample() -> None:
+    """A partial-systemic bug (3-fail : 1-ok) keeps consecutive below the K threshold, but the failure
+    RATE trips once at least systemic_min_sample units have been attempted."""
+    units = [WorkUnit(provider="wyscout", match_id=f"u{i}") for i in range(24)]
+    fail = frozenset(u.match_id for i, u in enumerate(units) if i % 4 != 3)  # 3 of every 4 fail
+    q = _FakeQueue({("R", 0): units})
+    proc = _FakeProcessor(fail=fail)
+    sink = _RecordingSink()
+    with pytest.raises(DrainCircuitBreakerError):
+        drain_worker(
+            q,
+            proc,
+            _InlineWatchdog(),
+            run_id="R",
+            worker_id=0,
+            logger=logging.getLogger("t"),
+            sink=sink,
+            max_consecutive_failures=6,
+            systemic_min_sample=20,
+            systemic_failure_rate=0.5,
+        )
+    assert sink.states.count("succeeded") >= 4  # got past successes (consecutive reset) -> rate trip, not consecutive
+
+
+def test_breaker_does_not_trip_below_thresholds() -> None:
+    """NON-VACUOUS: a handful of scattered failures among successes must NOT trip (neither
+    consecutive>=K nor rate>threshold after the min-sample) — the drain completes normally."""
+    units = [WorkUnit(provider="wyscout", match_id=f"u{i}") for i in range(30)]
+    fail = frozenset(u.match_id for i, u in enumerate(units) if i in (5, 15, 25))  # 3 of 30
+    q = _FakeQueue({("R", 0): units})
+    proc = _FakeProcessor(fail=fail)
+    sink = _RecordingSink()
+    s = drain_worker(
+        q,
+        proc,
+        _InlineWatchdog(),
+        run_id="R",
+        worker_id=0,
+        logger=logging.getLogger("t"),
+        sink=sink,
+        max_consecutive_failures=6,
+        systemic_min_sample=20,
+        systemic_failure_rate=0.5,
+    )
+    assert s.failed == 3 and s.processed == 27
+    assert s.circuit_broken is False
+    assert sink.slice_abort_reason is None  # clean slice_completed carries no abort_reason
+
+
 def test_drain_worker_uses_prefetched_units() -> None:
     """When the caller pre-fetches units (entry-point short-circuit), drain_worker must
     NOT re-read the queue."""
@@ -248,3 +350,27 @@ def test_drain_worker_uses_prefetched_units() -> None:
 def test_unit_label_includes_period() -> None:
     assert unit_label(WorkUnit(provider="idsse", match_id="m", period=2)) == "idsse:m:2"
     assert unit_label(WorkUnit(provider="wyscout", match_id="w")) == "wyscout:w"
+
+
+def test_parse_breaker_config_defaults_and_overrides() -> None:
+    from analytics.action_context.drain import (
+        DEFAULT_MAX_CONSECUTIVE_FAILURES,
+        DEFAULT_SYSTEMIC_FAILURE_RATE,
+        DEFAULT_SYSTEMIC_MIN_SAMPLE,
+        parse_breaker_config,
+    )
+
+    assert parse_breaker_config(None, None, None) == (
+        DEFAULT_MAX_CONSECUTIVE_FAILURES,
+        DEFAULT_SYSTEMIC_FAILURE_RATE,
+        DEFAULT_SYSTEMIC_MIN_SAMPLE,
+    )
+    assert parse_breaker_config("10", "0.75", "5") == (10, 0.75, 5)
+    for bad in (
+        lambda: parse_breaker_config("nope", None, None),  # non-int
+        lambda: parse_breaker_config("0", None, None),  # must be > 0
+        lambda: parse_breaker_config(None, "1.5", None),  # rate must be in (0, 1]
+        lambda: parse_breaker_config(None, "x", None),  # non-float rate
+    ):
+        with pytest.raises(SystemExit):
+            bad()

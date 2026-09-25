@@ -907,6 +907,98 @@ models:
                 row_condition: "vaep_value is not null"
               config:
                 severity: warn
+      - name: offensive_adjusted_value
+        data_type: double
+        description: >
+          sk4118 Phase D (TF-61 VAEP_adjusted, Paul/Klemp/Memmert 2025): outcome-bias-free offensive
+          value — the fitted P_scores classifier re-scored on the surgical all-success result-feature
+          counterfactual, weighted by the per-action xSuccess (no retrain). Additive; the raw
+          offensive_value above is unchanged. NULL on rows scored before the Phase D re-materialize;
+          NaN where xSuccess is non-finite (never fabricated).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -1
+                max_value: 1
+                row_condition: "offensive_adjusted_value is not null"
+              config:
+                severity: warn
+      - name: defensive_adjusted_value
+        data_type: double
+        description: >
+          sk4118 Phase D (TF-61): outcome-bias-free defensive value — the fitted P_concedes classifier
+          re-scored on the all-fail result-feature counterfactual, weighted by (1 - xSuccess). Additive;
+          the raw defensive_value is unchanged. NULL pre-re-materialize; NaN where xSuccess is non-finite.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -1
+                max_value: 1
+                row_condition: "defensive_adjusted_value is not null"
+              config:
+                severity: warn
+      - name: vaep_adjusted_value
+        data_type: double
+        description: >
+          sk4118 Phase D (TF-61): net outcome-bias-free VAEP (offensive_adjusted + defensive_adjusted).
+          Removes the completion-outcome bias from the standard vaep_value by valuing the action's
+          intent × its completion probability. Additive; vaep_value is unchanged. NULL pre-re-materialize;
+          NaN where xSuccess is non-finite. Formula range [-2, 2] (each split in [-1, 1]).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -2
+                max_value: 2
+                row_condition: "vaep_adjusted_value is not null"
+              config:
+                severity: warn
+      - name: xsuccess
+        data_type: double
+        description: >
+          sk4118 Phase D: per-action completion probability P(success) from silly-kicks
+          ``XSuccessModel.bundled()`` (Anzer & Bauer expected-pass-completion lineage). The weight in
+          VAEP_adjusted. 0-1, higher = more likely to succeed. NULL pre-re-materialize; NaN on
+          non-finite (never fabricated).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+                row_condition: "xsuccess is not null"
+              config:
+                severity: warn
+      - name: win_prob_leverage
+        data_type: double
+        description: >
+          sk4123 (TF-63 xImpact ride-along): goal leverage ΔP(win | goal) = P(win | score+1) − P(win | score)
+          at the action's pre-action game state, from silly-kicks ``win_probability.goal_leverage``
+          (bundled ``WinProbabilityModel``; Dixon & Robinson 1998 / Robberechts 2019 chain). High for a late
+          equalizer, ≈ 0 in a decided state. -1..1, higher = more decisive. NULL pre-re-materialize; NaN where
+          the WP state is unresolved (never fabricated).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -1
+                max_value: 1
+                row_condition: "win_prob_leverage is not null"
+              config:
+                severity: warn
+      - name: ximpact
+        data_type: double
+        description: >
+          sk4123 (TF-63, Paul/Klemp/Memmert 2025): match-context-weighted action value =
+          vaep_adjusted_value × win_prob_leverage. Weights an action's outcome-bias-free value by how much a
+          goal at the pre-action state would swing the result — a late go-ahead scores high, a garbage-time
+          goal ≈ 0. Additive; vaep_adjusted_value unchanged. NULL pre-re-materialize; NaN where either factor
+          is NaN. Range [-2, 2].
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -2
+                max_value: 2
+                row_condition: "ximpact is not null"
+              config:
+                severity: warn
       - name: data_source
         data_type: string
         description: Data provider (statsbomb, wyscout, idsse, metrica, skillcorner, gradientsports) — LL2 Path B expanded to 6 sources.
@@ -1028,11 +1120,11 @@ models:
       - name: gk_xt_delta
         data_type: double
         description: >
-          xT delta (end zone - start zone) for SUCCESSFUL GK distribution passes,
-          computed from the lakehouse CANONICAL 12x8 xT grid
-          (``bronze.expected_threat_grids``, competition_id='global') — the single xT
-          source of truth, NOT silly-kicks' own grid (ADR-056). NULL on non-distribution
-          or unsuccessful rows.
+          xT delta (end zone - start zone) for SUCCESSFUL GK distribution passes, via a zone lookup on
+          the CANONICAL xT surface (ADR-056). ExT-v2 single-canonical-surface (ADR-085 G-fix): read from
+          ``bronze.expected_threat_grid_zones`` (competition_id='global') — the 16x12 physical projection
+          of the fitted sk ExpectedThreat, NOT a second grid. Grid moved 12x8 -> 16x12 (re-baselines in
+          P2). NULL on non-distribution or unsuccessful rows.
       - name: gk_was_distributing
         data_type: boolean
         description: >
@@ -1410,6 +1502,339 @@ models:
       - name: away_bravery_n_blocks_known
         data_type: bigint
         description: Blocks the away team made over the known-block-status domain. NULL when no known signal.
+
+  - name: fct_team_metrics
+    config:
+      contract:
+        enforced: true
+    meta:
+      data_sensitivity: public
+      contains_pii: false
+    description: >
+      Wide-by-granularity team-match mart (silly-kicks 4.120.0 TF-52 team_metrics + TF-53
+      match_outcome; sk4118 P1 Phase A). One row per (match_key, team_key). team_metrics = 44 Twelve
+      match-report + practitioner KPIs (compute_team_kpis); match_outcome = 5 win-probability cols
+      (compute_match_outcome, per-shot xG integration). Written by ingestion.team_metrics_writer /
+      ingestion.match_outcome_writer (ADR-013 native-id writers); surrogates resolve here via
+      dim_matches / dim_teams. Per-TEAM, NOT per-player-evaluative (no governance model card).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - match_key
+              - team_key
+    columns:
+      - name: team_metrics_id
+        data_type: string
+        description: Deterministic surrogate PK = hash(data_source, native_match_id, team_id_native).
+        data_tests:
+          - not_null
+          - unique
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches.
+        data_tests:
+          - not_null
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams (may be NULL when a team has no dim_teams row).
+      - name: competition_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_competitions (NULL for Metrica open-data).
+      - name: season_id
+        data_type: string
+        description: Native season id (NULL for idsse / metrica).
+      - name: data_source
+        data_type: string
+        description: Provider (statsbomb / wyscout / idsse / metrica / skillcorner / gradientsports).
+      - name: access_tier
+        data_type: string
+        description: HF redistribution tier ('public'/'restricted'), stamped per-row at write time (ADR-064).
+      - name: ppda
+        data_type: double
+        description: Passes allowed per defensive action (lower = more intense press).
+      - name: defensive_intensity
+        data_type: double
+        description: Defensive-action rate in the pressing zone (higher = more intense).
+      - name: time_to_defensive_action_s
+        data_type: double
+        description: Mean seconds to the first defensive action after losing the ball (lower = quicker).
+      - name: time_to_recovery_s
+        data_type: double
+        description: Mean seconds to regain possession after losing it (lower = quicker).
+      - name: recoveries
+        data_type: bigint
+        description: Count of ball recoveries.
+      - name: recoveries_within_ns_pct
+        data_type: double
+        description: Share of recoveries within N seconds of loss (0-1, higher = quicker regains).
+      - name: counterpress_regains
+        data_type: bigint
+        description: Count of counter-press regains within the counterpress window.
+      - name: counterpress_regain_pct
+        data_type: double
+        description: Share of losses regained by counter-press (0-1, higher = better).
+      - name: field_tilt_pct
+        data_type: double
+        description: Share of final-third possession vs opponent (0-1, higher = more territorial dominance).
+      - name: pass_tempo
+        data_type: double
+        description: Passes per minute in possession (higher = quicker circulation).
+      - name: long_ball_pct
+        data_type: double
+        description: Share of passes that are long balls (0-1).
+      - name: defensive_action_height_m
+        data_type: double
+        description: Mean pitch-x of defensive actions in metres (higher = higher line).
+      - name: recovery_line_height_m
+        data_type: double
+        description: Mean pitch-x of recoveries in metres (higher = higher regains).
+      - name: turnover_line_height_m
+        data_type: double
+        description: Mean pitch-x of turnovers in metres.
+      - name: poss_to_final_third_pct
+        data_type: double
+        description: Share of possessions reaching the final third (0-1, higher = better progression).
+      - name: final_third_entries
+        data_type: bigint
+        description: Count of final-third entries.
+      - name: final_third_to_box_pct
+        data_type: double
+        description: Share of final-third entries reaching the box (0-1, higher = better).
+      - name: box_touches
+        data_type: bigint
+        description: Count of touches in the opponent box.
+      - name: box_to_shot_pct
+        data_type: double
+        description: Share of box touches producing a shot (0-1, higher = better).
+      - name: shots
+        data_type: bigint
+        description: Count of shots.
+      - name: high_opportunity_shots
+        data_type: bigint
+        description: Count of shots above the high-opportunity xG threshold.
+      - name: breakout_left
+        data_type: bigint
+        description: Count of breakouts through the left channel.
+      - name: breakout_center
+        data_type: bigint
+        description: Count of breakouts through the central channel.
+      - name: breakout_right
+        data_type: bigint
+        description: Count of breakouts through the right channel.
+      - name: breakout_left_pct
+        data_type: double
+        description: Share of breakouts through the left channel (0-1).
+      - name: breakout_center_pct
+        data_type: double
+        description: Share of breakouts through the central channel (0-1).
+      - name: breakout_right_pct
+        data_type: double
+        description: Share of breakouts through the right channel (0-1).
+      - name: possessions_retained_after_ns_pct
+        data_type: double
+        description: Share of possessions retained N seconds after a regain (0-1, higher = better).
+      - name: buildup_final_quarter
+        data_type: bigint
+        description: Count of build-ups reaching the final quarter of the pitch.
+      - name: buildup_next_phase
+        data_type: bigint
+        description: Count of build-ups advancing to the next phase.
+      - name: buildup_opp_int_own_half
+        data_type: bigint
+        description: Count of build-ups intercepted by the opponent in own half.
+      - name: buildup_stayed_phase_one
+        data_type: bigint
+        description: Count of build-ups that stayed in phase one.
+      - name: buildup_opp_won_own_half
+        data_type: bigint
+        description: Count of build-ups where the opponent won the ball in own half.
+      - name: buildup_led_opp_shot
+        data_type: bigint
+        description: Count of build-ups that led to an opponent shot.
+      - name: buildup_success_pct
+        data_type: double
+        description: Share of build-ups classed successful (0-1, higher = better).
+      - name: post_regain_second_pass_pct
+        data_type: double
+        description: Share of post-regain sequences completing a second pass (0-1, higher = better).
+      - name: post_regain_failed_first_passes
+        data_type: bigint
+        description: Count of failed first passes after a regain.
+      - name: post_regain_forward_first_pct
+        data_type: double
+        description: Share of post-regain first passes played forward (0-1, higher = more progressive).
+      - name: switch_press_success_pct
+        data_type: double
+        description: Share of switch-conditioned presses that succeed (0-1, higher = better).
+      - name: switch_press_n
+        data_type: bigint
+        description: Count of switch-conditioned press events.
+      - name: final_third_entries_post_recovery
+        data_type: bigint
+        description: Count of final-third entries within the post-recovery window.
+      - name: box_touches_post_recovery
+        data_type: bigint
+        description: Count of box touches within the post-recovery window.
+      - name: shots_post_recovery
+        data_type: bigint
+        description: Count of shots within the post-recovery window.
+      - name: high_opportunity_shots_post_recovery
+        data_type: bigint
+        description: Count of high-opportunity shots within the post-recovery window.
+      - name: p_win
+        data_type: double
+        description: Simulated win probability (0-1, higher = better). p_win+p_draw+p_loss=1.
+      - name: p_draw
+        data_type: double
+        description: Simulated draw probability (0-1).
+      - name: p_loss
+        data_type: double
+        description: Simulated loss probability (0-1, lower = better).
+      - name: xpoints
+        data_type: double
+        description: Expected league points (0-3, higher = better) = 3*p_win + p_draw.
+      - name: expected_goals
+        data_type: double
+        description: Team expected goals summed over its shots (>=0, higher = better).
+
+  - name: fct_player_match_metrics
+    config:
+      contract:
+        enforced: true
+    meta:
+      data_sensitivity: public
+      contains_pii: false
+    description: >
+      Wide-by-granularity player-match mart (silly-kicks 4.120.0 TF-54/TF-54b territory + TF-55 duels;
+      sk4118 P1 Phase C). One row per (match_key, player_key). territory = the 20-col counterfactual union
+      (12 v1 metric + territory_hull_source + 4 cf metric + territory_target_source;
+      compute_territorial_dominance BOTH methods, injected fitted xT + PassCompletionModel); duels = 6
+      Glicko-2 cols + duel_winner_source (compute_duel_ratings, stateful single-driver ordered pass).
+      Written by ingestion.territory_writer / ingestion.duels_writer (ADR-013 native-id writers); surrogates
+      resolve here via dim_matches / dim_players. Both per-PLAYER evaluative (wf-territory / wf-duels in
+      PER_PLAYER_EVALUATIVE_CARDS). TWO-CONTRACT parity [SPEC-R5-01]: v1 territory 12 via
+      METRIC_CONTRACTS['territory']; the 5 cf-only via columns_for_method set-diff; duels 6 via
+      METRIC_CONTRACTS['duels'].
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - match_key
+              - player_key
+    columns:
+      - name: player_match_metrics_id
+        data_type: string
+        description: Deterministic surrogate PK = hash(data_source, native_match_id, player_id_native).
+        data_tests:
+          - not_null
+          - unique
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches.
+        data_tests:
+          - not_null
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players (may be NULL when a player has no dim_players row).
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams (may be NULL when a team has no dim_teams row).
+      - name: competition_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_competitions (NULL for Metrica open-data).
+      - name: season_id
+        data_type: string
+        description: Native season id (NULL for idsse / metrica).
+      - name: data_source
+        data_type: string
+        description: Provider (statsbomb / wyscout / idsse / metrica / skillcorner / gradientsports).
+      - name: access_tier
+        data_type: string
+        description: HF redistribution tier ('public'/'restricted'), stamped per-row at write time (ADR-064).
+      - name: territory_xt_conceded
+        data_type: double
+        description: xT conceded to opponents inside the defender's action hull (>=0, lower = better defence).
+      - name: territory_xt_prevented
+        data_type: double
+        description: xT prevented inside the defender's action hull (>=0, higher = better defence).
+      - name: territory_xt_net
+        data_type: double
+        description: Net territorial xT = prevented - conceded (higher = better territorial dominance).
+      - name: territory_xt_conceded_forward
+        data_type: double
+        description: xT conceded via forward opponent passes into the hull (>=0, lower = better).
+      - name: territory_xt_prevented_forward
+        data_type: double
+        description: xT prevented on forward passes into the hull (>=0, higher = better).
+      - name: territory_passes_into_hull
+        data_type: bigint
+        description: Count of opponent passes into the defender's action hull.
+      - name: territory_xt_conceded_rate
+        data_type: double
+        description: xT conceded per pass into the hull (>=0, lower = better).
+      - name: territory_xt_prevented_rate
+        data_type: double
+        description: xT prevented per pass into the hull (>=0, higher = better).
+      - name: territory_hull_area_m2
+        data_type: double
+        description: Convex-hull area of the defender's defensive actions in square metres.
+      - name: territory_hull_centroid_x
+        data_type: double
+        description: Hull centroid pitch-x in metres (0-105).
+      - name: territory_hull_centroid_y
+        data_type: double
+        description: Hull centroid pitch-y in metres (0-68).
+      - name: territory_defensive_actions_in_hull
+        data_type: bigint
+        description: Count of defensive actions forming the hull.
+      - name: territory_hull_source
+        data_type: string
+        description: >
+          v1 provenance — hull construction source ('convex_hull' etc; 'degenerate' when <3 actions yield a
+          NaN metric row).
+      - name: territory_expected_threat_faced
+        data_type: double
+        description: >
+          Counterfactual — expected xT the defender faced given opponent pass targeting into the hull
+          (>=0). cf-only col [SPEC-R5-01].
+      - name: territory_xt_prevented_above_expectation
+        data_type: double
+        description: >
+          Counterfactual — xT prevented above the completion-model expectation (higher = better than a
+          baseline defender). cf-only col.
+      - name: territory_passes_aimed_into_hull
+        data_type: bigint
+        description: Counterfactual — count of passes aimed into the hull (cf-only col).
+      - name: territory_mean_completion_faced
+        data_type: double
+        description: >
+          Counterfactual — mean pass-completion probability of passes aimed into the hull (0-1). cf-only col.
+      - name: territory_target_source
+        data_type: string
+        description: Counterfactual — provenance of the target/aim reconstruction (cf-only provenance col).
+      - name: duel_rating
+        data_type: double
+        description: Glicko-2 ground-duel rating (default seed 1500; higher = wins more duels).
+      - name: duel_rating_deviation
+        data_type: double
+        description: Glicko-2 rating deviation (uncertainty; lower = more confident estimate).
+      - name: duel_volatility
+        data_type: double
+        description: Glicko-2 volatility (expected rating fluctuation; default seed 0.06).
+      - name: duels_contested
+        data_type: bigint
+        description: Count of ground duels contested this match (= duels_won + duels_lost).
+      - name: duels_won
+        data_type: bigint
+        description: Count of ground duels won this match.
+      - name: duels_lost
+        data_type: bigint
+        description: Count of ground duels lost this match.
+      - name: duel_winner_source
+        data_type: string
+        description: >
+          Duel-labeling provenance ('native' sportec winner/loser vs 'derived' tackle/take_on adjacency).
 
   - name: fct_tracking_frames
     config:
@@ -4833,6 +5258,15 @@ models:
         data_type: double
       - name: elastic_error_seconds
         data_type: double
+      - name: elastic_receive_frame_id
+        data_type: bigint
+        description: "Receiving-touch frame anchored by silly-kicks 4.114 TF-57 ELASTIC v2 add_elastic_sync; NULL when no resolvable receive frame."
+      - name: elastic_receive_confidence
+        data_type: double
+        description: "Confidence (0–1) of the elastic receive-frame anchor (silly-kicks 4.114 TF-57 v2). NULL when no receive frame resolved."
+      - name: elastic_receive_error_seconds
+        data_type: double
+        description: "Absolute time error (s) between the action's event time and the anchored receive frame (silly-kicks 4.114 TF-57 v2). NULL when no receive frame resolved."
       - name: shape_graph_density_attacking
         data_type: double
       - name: shape_graph_n_edges_attacking
@@ -5469,6 +5903,20 @@ models:
       - name: goals_prevented
         data_type: double
         description: psxg_faced - goals_conceded_on_shots (additive); +ve = better than expected.
+      # sk4118 P1 Task B1: silly-kicks compute_shot_stopping _excl_penalties companions (in-play
+      # penalties split out; own goals / blocked shots / shootout already excluded). Additive.
+      - name: shots_faced_excl_penalties
+        data_type: int
+        description: On-target shots faced excluding in-play penalties (additive).
+      - name: goals_conceded_excl_penalties
+        data_type: int
+        description: Goals conceded excluding in-play penalties (additive).
+      - name: psxg_faced_excl_penalties
+        data_type: double
+        description: Sum of PSxG faced excluding in-play penalties (additive).
+      - name: goals_prevented_excl_penalties
+        data_type: double
+        description: psxg_faced_excl_penalties - goals_conceded_excl_penalties (additive).
       - name: psxg_variance_sum
         data_type: double
         description: Sum psxg*(1-psxg) over gate-passed shots — Poisson-binomial variance (additive).
@@ -5527,6 +5975,19 @@ models:
         description: goals_prevented - 1.96*sqrt(psxg_variance_sum) (Poisson-binomial, not bootstrap).
       - name: goals_prevented_ci_high
         data_type: double
+      # sk4118 P1 Task B1: pooled _excl_penalties companions (in-play penalties split out). Additive.
+      - name: shots_faced_excl_penalties
+        data_type: int
+        description: Pooled on-target shots faced excluding in-play penalties (additive).
+      - name: goals_conceded_excl_penalties
+        data_type: int
+        description: Pooled goals conceded excluding in-play penalties (additive).
+      - name: psxg_faced_excl_penalties
+        data_type: double
+        description: Pooled PSxG faced excluding in-play penalties (additive).
+      - name: goals_prevented_excl_penalties
+        data_type: double
+        description: Pooled Goals Prevented excluding in-play penalties (additive).
       - name: low_sample
         data_type: boolean
         description: shots_faced_total < 5 (the norm at current volume).
@@ -5579,6 +6040,203 @@ models:
       - name: gkdv_delta_threat_gate_eligible
         data_type: boolean
         description: True when n_nonzero >= 20 AND n_games >= 2 (registered clustering floors).
+
+  - name: fct_gk_decision
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Per-DECISION GK decision-value mart (silly-kicks 4.120.0 TF-62; sk4118 P1 Task B2 / Phase E). One row
+      per (match_key, player_key, decision_id) = a single goalkeeper build-up distribution DECISION
+      (chosen-vs-available); decision_id == the SPADL action_id of the GK-distribution action. sk
+      compute_gk_decision_value returns per-DECISION samples, so this fact is per-decision — a
+      per-keeper-match summary is a downstream aggregate (silly_kicks.gk_decision.summarize_gk_decision).
+      RECONSTRUCTION TIER: reconstructs the option set from SB360 freeze-frames (+ full-tracking) with the
+      bundled PassCompletionModel. Written by ingestion.gk_decision_writer (ADR-013), scored per unit by the
+      tracking-marts drain (P1 Phase E wiring). Per-KEEPER evaluative — an INSTRUMENT (how good was this
+      decision vs available), NOT a ranking; the native SkillCorner GI tier (option_set_source='native') is
+      not-yet-sourced. See docs/huggingface/model-cards/gk-decision.md.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - match_key
+              - player_key
+              - decision_id
+    columns:
+      - name: gk_decision_id
+        data_type: string
+        description: Deterministic surrogate PK = hash(data_source, native_match_id, decision_id) — unique per decision.
+        data_tests:
+          - not_null
+          - unique
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches.
+        data_tests:
+          - not_null
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players (the goalkeeper).
+        data_tests:
+          - not_null
+      - name: competition_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_competitions (NULL for Metrica open-data).
+      - name: season_id
+        data_type: string
+        description: Native season id (NULL for idsse / metrica).
+      - name: data_source
+        data_type: string
+        description: Provider (tracking providers — idsse / metrica / skillcorner / gradientsports).
+      - name: access_tier
+        data_type: string
+        description: HF redistribution tier ('public'/'restricted'), stamped per-row at write time (ADR-064).
+      - name: period_id
+        data_type: bigint
+        description: Match period of the GK-distribution decision (1/2 regulation, 3/4 extra time).
+        data_tests:
+          - not_null
+      - name: decision_id
+        data_type: bigint
+        description: The SPADL action_id of the GK-distribution decision — the per-decision key within the match.
+        data_tests:
+          - not_null
+      - name: decision_value
+        data_type: double
+        description: Chosen option EV minus the counterfactual mean available EV (higher = better decision).
+      - name: chosen_ev
+        data_type: double
+        description: Expected value of the option the keeper actually chose.
+      - name: best_ev
+        data_type: double
+        description: Expected value of the best available (reachable) option.
+      - name: sel_efficiency
+        data_type: double
+        description: chosen_ev / best_ev selection efficiency (0-1, higher = closer to optimal).
+      - name: decision_pct
+        data_type: double
+        description: Percentile of the chosen option among available options (0-1, higher = better; ~0.5 = random).
+      - name: n_options
+        data_type: bigint
+        description: Count of reachable options considered for this decision.
+      - name: option_set_source
+        data_type: string
+        description: "'reconstructed' (SB360/full-tracking tier). The native SkillCorner GI tier ('native') is not-yet-sourced."
+
+  - name: fct_rest_defense
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Rest-defense mart (silly-kicks 4.102/4.103 restdefense L1 + L2; sk4118 P1 Phase E). One row per
+      (match_key, period_id, team_key, action_id) = the DEFENDING team's rest-defence geometry at a single
+      in-possession on-ball action. Layer 1 (11 descriptive cols) always present; Layer 2 (5 xT/space-control
+      cols) NaN without a fitted xt (ADR-033). Written by ingestion.restdefense_writer (ADR-013), scored per
+      unit by the tracking-marts drain (P1 Phase E wiring). DESCRIPTIVE / team-structural — NOT
+      per-player-evaluative (measures team shape, not an individual rating); no EU-AI-Act model card.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - rest_defense_id
+    columns:
+      - name: rest_defense_id
+        data_type: string
+        description: Deterministic surrogate PK = hash(data_source, native_match_id, period_id, team_id_native, action_id).
+        data_tests:
+          - not_null
+          - unique
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches.
+        data_tests:
+          - not_null
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams — the DEFENDING team (out of possession). NULL if unresolved.
+      - name: competition_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_competitions (NULL for Metrica open-data).
+      - name: data_source
+        data_type: string
+        description: Provider (tracking providers — idsse / metrica / skillcorner / gradientsports).
+      - name: access_tier
+        data_type: string
+        description: HF redistribution tier ('public'/'restricted'), stamped per-row at write time (ADR-064).
+      - name: period_id
+        data_type: bigint
+        description: Match period (1/2 regulation, 3/4 extra time).
+        data_tests:
+          - not_null
+      - name: action_id
+        data_type: bigint
+        description: The SPADL action_id of the in-possession action the rest-defence sample is anchored to.
+        data_tests:
+          - not_null
+      - name: possession_id
+        data_type: bigint
+        description: silly-kicks possession sequence id the action belongs to.
+      - name: is_possession_loss
+        data_type: boolean
+        description: True iff the sampled action ends the possession (a turnover).
+      - name: rd_num_superiority
+        data_type: bigint
+        description: Outfield numerical (dis)advantage behind the ball for the defending team (higher = more defenders back).
+      - name: rd_num_superiority_gk
+        data_type: bigint
+        description: Numerical (dis)advantage behind the ball counting the goalkeeper.
+      - name: rd_zone_occupancy
+        data_type: bigint
+        description: Count of defenders in the rest-defence zone behind the ball.
+      - name: rd_line_height
+        data_type: double
+        description: Defensive back-line height in metres from own goal (0-105; higher = higher line).
+      - name: rd_line_height_relative
+        data_type: double
+        description: Back-line height relative to the ball (metres; positive = line ahead of the ball line).
+      - name: rd_compactness_x
+        data_type: double
+        description: Longitudinal spread of the rest-defence block (metres; lower = more compact).
+      - name: rd_width
+        data_type: double
+        description: Lateral spread of the rest-defence block (metres).
+      - name: rd_depth
+        data_type: double
+        description: Depth of the rest-defence block (metres).
+      - name: rd_shape_2_3_vs_3_2
+        data_type: string
+        description: Staggered-shape classification of the rearguard (categorical provenance flag).
+      - name: rd_gk_line_height
+        data_type: double
+        description: Goalkeeper height from own goal in metres (0-105).
+      - name: rd_gk_to_line_distance
+        data_type: double
+        description: Distance from the goalkeeper to the back line (metres; the sweeper gap).
+      - name: rd_attacker_space_control
+        data_type: double
+        description: Layer 2 — attacker share of controlled space behind the defensive line (0-1). NaN without a fitted xt.
+      - name: rd_danger_behind_line
+        data_type: double
+        description: Layer 2 — xT-weighted danger of the space behind the line (higher = more dangerous). NaN without xt.
+      - name: rd_danger_behind_line_gk
+        data_type: double
+        description: Layer 2 — danger-behind-line accounting for the goalkeeper's coverage. NaN without a fitted xt.
+      - name: rd_gk_coverage_behind_line
+        data_type: double
+        description: Layer 2 — fraction of the behind-line danger the goalkeeper covers (0-1). NaN without a fitted xt.
+      - name: rd_gk_reachable_coverage_m2
+        data_type: double
+        description: Layer 2 — area (m²) behind the line the goalkeeper can reach first. NaN without a fitted xt.
+      - name: rd_geometry_source
+        data_type: string
+        description: Provenance of the rest-defence geometry ('resolved'/'guessed'/'unresolved').
 
   - name: fct_gk_defensive_line
     config:

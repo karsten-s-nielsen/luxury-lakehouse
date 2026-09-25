@@ -14,10 +14,14 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+from silly_kicks.xthreat import ExpectedThreat, values_at_points
 
 from analytics.array_utils import _col_f64
-from analytics.expected_threat import XTGrid
 from analytics.pitch_control import PitchControlParams, compute_pitch_control_at_points
+
+# StatsBomb (120x80) -> canonical SPADL physical (105x68) scale factors for the sk value seam.
+_SB_TO_SPADL_X = 105.0 / 120.0
+_SB_TO_SPADL_Y = 68.0 / 80.0
 
 
 @dataclass(frozen=True)
@@ -33,7 +37,7 @@ class OffBallXtParams:
 
 def compute_off_ball_xt_frame(
     players_df: pd.DataFrame,
-    xt_grid: XTGrid,
+    xt_grid: ExpectedThreat,
     pitch_control_params: PitchControlParams | None = None,
 ) -> pd.DataFrame:
     """Compute per-player Off-Ball xT for a single frame.
@@ -63,8 +67,9 @@ def compute_off_ball_xt_frame(
     # Single batched call — one matrix setup for all players
     pc_values = compute_pitch_control_at_points(players_df, target_points, pitch_control_params)
 
-    # xT lookup per player (positions are StatsBomb; grid handles conversion)
-    xt_values = np.array([xt_grid.lookup(x, y, input_coord_system="statsbomb") for x, y in zip(xs, ys, strict=True)])
+    # xT lookup per player: StatsBomb 120x80 positions -> SPADL physical (105x68) -> the sk value seam
+    # (values_at_points neutralises the .xT y-inversion, ADR-041). Batched (one call for all players).
+    xt_values = np.asarray(values_at_points(xt_grid, xs * _SB_TO_SPADL_X, ys * _SB_TO_SPADL_Y), dtype=float)
 
     # Adjust PC for away team (pitch control is from home perspective)
     teams = np.asarray(players_df["team"].values)
@@ -85,7 +90,7 @@ def compute_off_ball_xt_frame(
 
 def compute_off_ball_xt_match(
     tracking_df: pd.DataFrame,
-    xt_grid: XTGrid,
+    xt_grid: ExpectedThreat,
     params: OffBallXtParams | None = None,
     pitch_control_params: PitchControlParams | None = None,
 ) -> pd.DataFrame:
@@ -127,7 +132,7 @@ def compute_off_ball_xt_match(
     all_frame_results: list[pd.DataFrame] = []
     frames_sampled = 0
 
-    # Pre-build frame index (CLAUDE.md: no boolean mask filter inside loops)
+    # Pre-build frame index (AGENTS.md: no boolean mask filter inside loops)
     _frame_groups = dict(iter(tracking_df.groupby(["period", "frame"])))
 
     for _, pf_row in sampled_pf.iterrows():

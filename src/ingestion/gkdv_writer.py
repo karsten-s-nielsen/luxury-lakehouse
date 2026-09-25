@@ -49,8 +49,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 logger = logging.getLogger(__name__)
 
-# Keep in lockstep with the other silly-kicks-consuming entry points (CLAUDE.md sec serverless env pins).
-_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 90, 1)
+# Keep in lockstep with the other silly-kicks-consuming entry points (AGENTS.md sec serverless env pins).
+_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 123, 0)
 
 CATALOG = "soccer_analytics"
 BRONZE_TABLE = "gkdv_keeper_pooled"
@@ -117,7 +117,7 @@ def _index_frames_by_key(frames: pd.DataFrame) -> dict[tuple[Any, ...], pd.DataF
     """Pre-build a ``(game_id, period_id, frame_id) -> slice`` index ONCE per unit.
 
     Replaces a per-scored-frame boolean-mask scan (``frames[frames.col == v]`` inside the loop), which on
-    tracking-scale data is the O(n x m) hidden-nested-loop pattern CLAUDE.md forbids (always Critical, never
+    tracking-scale data is the O(n x m) hidden-nested-loop pattern AGENTS.md forbids (always Critical, never
     Minor). A single ``groupby`` builds every slice up front; the loop then does O(1) dict lookups.
     ``sort=False`` preserves original row order WITHIN each group, so a looked-up slice is byte-identical
     (rows AND order) to what the mask returned -- which the DAS arm's positional actual/ghost alignment
@@ -183,7 +183,7 @@ def build_keeper_observations(
     goal_map: Any = resolve_defended_goals(frames) if want_threat else None
     arm_kwargs = {"params": params} if params is not None else {}
 
-    # Pre-index BOTH legs ONCE per unit (no boolean-mask scan inside the per-frame loop -- CLAUDE.md
+    # Pre-index BOTH legs ONCE per unit (no boolean-mask scan inside the per-frame loop -- AGENTS.md
     # O(n x m) prohibition, Critical on tracking data). The empty same-schema fallback reproduces the
     # old mask's empty result for a key the index does not carry.
     actual_index = _index_frames_by_key(frames)

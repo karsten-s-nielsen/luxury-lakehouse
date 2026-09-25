@@ -141,3 +141,6 @@ hf_taipy_app/requirements.txt
 
 # GK-redesign prototype data snapshots — raw provider-derived rows (GS license; ADR-049 logic)
 docs/ui-cycles/gk-redesign/data/
+
+# Serena MCP local project data (regenerable; keep local, do not track)
+.serena/

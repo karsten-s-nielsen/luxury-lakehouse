@@ -25,7 +25,7 @@ const { sep } = require("path");
 // therefore has zero attacker surface. spawnSync with array args was tried
 // but Node 22+ rejects `spawnSync("npm.cmd", ...)` on Windows with EINVAL,
 // so execSync is kept here for cross-platform parity. The nosemgrep
-// pragma is the sanctioned bypass for CI (see CLAUDE.md memory on Semgrep
+// pragma is the sanctioned bypass for CI (see AGENTS.md memory on Semgrep
 // patterns).
 
 function locatePackage(pkg) {

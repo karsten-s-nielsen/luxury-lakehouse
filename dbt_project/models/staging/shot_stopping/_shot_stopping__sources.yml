@@ -1,0 +1,34 @@
+version: 2
+
+sources:
+  - name: shot_stopping
+    description: >
+      Per-(match, defending keeper) shot-stopping (silly-kicks 4.120.0 TF-59; sk4118 P1 Task B1).
+      Written by the ingestion.shot_stopping_writer ADR-013 writer: it reads bronze.spadl_actions
+      (event-only, all providers) LEFT-joined to the gold PSxG fact fct_shot_psxg (Post-Shot xG per
+      shot), derives the defending keeper's team from a per-match player_id -> team_id_native map, and
+      runs silly-kicks compute_shot_stopping — Goals Prevented / GSAA per (game_id, defending keeper),
+      reported with and without in-play penalties (8 metric cols). SUPERSEDES the inline GSAA rollup in
+      fct_gk_shot_stopping / fct_gk_shot_stopping_pooled / fct_goalkeeper_stats (canonical-id keeper
+      grouping fixes cross-provider keeper-id fragmentation; the _excl_penalties split + honest
+      attribution census are the gains). The table is CREATE-IF-NOT-EXISTS'd by
+      scripts/migrations/2026-09-17-add-shot-stopping.sql so the staging view resolves (empty) before
+      the Part-B scoring run populates it.
+    database: soccer_analytics
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 168, period: hour}
+        error_after: {count: 336, period: hour}
+
+    tables:
+      - name: shot_stopping
+        description: >
+          One row per (data_source, match_id, player_id) = the NATIVE defending keeper id (surrogates
+          resolve in stg_shot_stopping / fct_gk_shot_stopping). team_id is the native keeper team.
+          access_tier (ADR-064) is stamped per-row at write time from the match's SPADL-bronze
+          access_tier. goals_prevented == psxg_faced - goals_conceded (GSAA); the _excl_penalties
+          companions exclude in-play penalties (own goals / blocked shots / the shootout are already
+          excluded upstream).

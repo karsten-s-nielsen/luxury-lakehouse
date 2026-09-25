@@ -48,7 +48,7 @@
 -- in `grant_event_log`, sibling pruning under correlation). Time-based
 -- retention is simpler, has no edge cases, and matches post-hook 2's pattern.
 -- Post-hook 2: orphaned RUNNING rows >24h. This window is aligned to the
--- 2h compute task budget (CLAUDE.md) — a 24h-old RUNNING row is certainly orphaned.
+-- 2h compute task budget (AGENTS.md) — a 24h-old RUNNING row is certainly orphaned.
 
 WITH billing AS (
     SELECT

@@ -30,6 +30,7 @@ from analytics.action_context.drain import (
     DrainSummary,
     assign_workers,
     drain_worker,
+    parse_breaker_config,
 )
 from analytics.action_context.ghost_gk_backend import resolve_ghost_gk_backend
 from analytics.action_context.pipeline import _reconstruct_xt
@@ -173,37 +174,38 @@ def _load_xt_grid_from_delta(
     schema: str,
     task_logger: logging.Logger,
 ) -> tuple[list[list[float]], int, int]:
-    """Load the pre-computed global xT grid from bronze.expected_threat_grids.
+    """Load the canonical global xT model from bronze.expected_threat_grids (ExT-v2 / ADR-085).
 
-    The grid is written by the ``compute_expected_threat`` pipeline (runs daily).
-    It's a tiny table (~192 rows for a 16x12 grid) -- reading it is instant.
+    The bronze row stores the fitted silly-kicks ``ExpectedThreat.to_dict()`` JSON (written by the
+    ``compute_expected_threat`` pipeline). The AC enrichment (off-ball-xt / xt-gk) consumes only the
+    ``.xT`` value surface, so this returns it as nested lists (unchanged interface); ``territory``
+    loads the full model (incl. ``transition_matrix``) separately. Reconstructed via ``from_dict``.
 
     Returns:
-        (xt_grid_data, xt_l, xt_w) -- the 2D grid as nested lists, plus dimensions.
+        (xt_grid_data, xt_l, xt_w) -- the (w, l) value surface as nested lists, plus dimensions.
 
     Raises:
-        RuntimeError: If the global grid does not exist (bootstrap case --
+        RuntimeError: If the global model does not exist (bootstrap case --
             ``compute_expected_threat`` must run first).
     """
+    import json as _json
+
+    from silly_kicks.xthreat import ExpectedThreat
+
     table = f"{catalog}.{schema}.expected_threat_grids"
     rows = list(
         spark.sql(
-            f"SELECT zone_x, zone_y, xt_value FROM {table} "  # noqa: S608
-            f"WHERE competition_id = 'global'"
+            f"SELECT xt_model_json FROM {table} WHERE competition_id = 'global'"  # noqa: S608
         ).collect()
     )
-    if not rows:
-        msg = f"No global xT grid found in {table}. Run compute_expected_threat before compute_action_context."
+    if not rows or not rows[0]["xt_model_json"]:
+        msg = f"No global xT model found in {table}. Run compute_expected_threat before compute_action_context."
         raise RuntimeError(msg)
 
-    n_x = max(int(r.zone_x) for r in rows) + 1
-    n_y = max(int(r.zone_y) for r in rows) + 1
-    grid = np.zeros((n_y, n_x))
-    for row in rows:
-        grid[int(row.zone_y), int(row.zone_x)] = float(row.xt_value)
-
-    task_logger.info("Loaded global xT grid from Delta (%dx%d, %d cells)", n_x, n_y, len(rows))
-    return grid.tolist(), n_x, n_y
+    model = ExpectedThreat.from_dict(_json.loads(rows[0]["xt_model_json"]))
+    grid = np.asarray(model.xT, dtype=np.float64)  # (w, l)
+    task_logger.info("Loaded global xT model from Delta (%dx%d)", int(model.l), int(model.w))
+    return grid.tolist(), int(model.l), int(model.w)
 
 
 # ── Column projection constants ──────────────────────────────────────
@@ -1055,6 +1057,15 @@ def main_preflight() -> None:
     units = [replace(u, kde_backend=kde_backend) for u in guard.discover_units(spark, args.catalog, args.schema)]
     if kde_backend != "fft-cic":
         task_logger.info("Action context preflight: ghost-GK backend = %s (non-default)", kde_backend)
+
+    # ADR-087 canary: dry-run one unit per provider through the FULL processor BEFORE the fan-out, so a
+    # systemic compute-path defect fails THIS task (compute_* skipped) instead of burning the retry
+    # budget. Runs after the nothing-to-do return above, so a quiet run never builds the processor.
+    from analytics.action_context.canary import run_canary
+    from ingestion.drain_adapters import SparkGameProcessor
+
+    run_canary(SparkGameProcessor(spark, args.catalog, args.schema), units, task_logger)
+
     assignments = assign_workers(units, _ActionContextGuard._N_DRAIN_WORKERS)
     run_id = _resolve_run_id(args)
     queue = DeltaWorkQueue(spark, args.catalog)
@@ -1449,6 +1460,26 @@ def main_drain_worker() -> None:
                     "in analytics.action_context.batching). Set for memory-envelope A/Bs without a release.",
                 },
             ),
+            (
+                "--max-consecutive-failures",
+                {"type": str, "default": None, "help": "Circuit-breaker: consecutive failures to abort (default 6)."},
+            ),
+            (
+                "--systemic-failure-rate",
+                {
+                    "type": str,
+                    "default": None,
+                    "help": "Circuit-breaker: failure rate to abort past the min-sample (default 0.5).",
+                },
+            ),
+            (
+                "--systemic-min-sample",
+                {
+                    "type": str,
+                    "default": None,
+                    "help": "Circuit-breaker: min attempted units before the rate check (default 20).",
+                },
+            ),
         ],
     )
     task_logger = configure_logging("action_context_drain")
@@ -1478,6 +1509,12 @@ def main_drain_worker() -> None:
             raise SystemExit(f"--watchdog-budget-s must be > 0, got {budget_s}")
     else:
         budget_s = WATCHDOG_BUDGET_S
+
+    max_consec, sys_rate, sys_min = parse_breaker_config(
+        getattr(args, "max_consecutive_failures", None),
+        getattr(args, "systemic_failure_rate", None),
+        getattr(args, "systemic_min_sample", None),
+    )
 
     # Run-scoped frame-batch-size override (ADR-047 amendment 2): validate loud at
     # startup, then publish via the driver env hook resolve_frame_batch_size reads —
@@ -1536,6 +1573,9 @@ def main_drain_worker() -> None:
         sink=sink,
         units=units,
         budget_s=budget_s,
+        max_consecutive_failures=max_consec,
+        systemic_failure_rate=sys_rate,
+        systemic_min_sample=sys_min,
     )
     task_logger.info(
         "Drain worker %d complete: processed=%d failed=%d timed_out=%d rows=%d",
@@ -1663,6 +1703,7 @@ def _process_tracking_match(
     profile: bool = False,
     profile_max_batches: int = 0,
     kde_backend: str = "fft-cic",
+    dry_run: bool = False,
 ) -> int:
     """Process a single tracking-provider match via applyInPandas.
 
@@ -2036,6 +2077,24 @@ def _process_tracking_match(
             schema=_get_result_schema(),
         )
     )
+
+    if dry_run:
+        # In-preflight canary (ADR-087): force the mapInPandas UDF to run so a compute-path defect
+        # surfaces exactly as it would in the drain, but persist NOTHING and return 0. count() cannot be
+        # optimized past the opaque per-group Python UDF, so it materializes every group.
+        hb.set_phase("dry_run_materialize")
+        try:
+            n = int(result_sdf.count())
+        finally:
+            hb.stop()
+        task_logger.info(
+            "action_context dry-run canary %s:%s:%s materialized %d rows (not written)",
+            provider,
+            match_id,
+            period_filter,
+            n,
+        )
+        return 0
 
     rw = _period_replace_where(match_id, period_filter)
 

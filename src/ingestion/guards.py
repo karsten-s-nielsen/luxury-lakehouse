@@ -325,7 +325,6 @@ _GUARD_MODULES: list[str] = [
     "ingestion.off_ball_xt",
     "ingestion.defcon_lite_360",
     "ingestion.defcon_lite_tracking",
-    "ingestion.elastic_sync",
     "ingestion.pausa",
     "ingestion.line_breaking",
     "ingestion.formations_efpi",

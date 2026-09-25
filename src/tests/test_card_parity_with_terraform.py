@@ -390,7 +390,7 @@ def _parse_pyproject_entry_points() -> dict[str, str]:
 
 # TF task_key -> expected card id. `None` = intentionally no owning card
 # (documented governance gap). Every `None` must carry a justification
-# comment explaining why CLAUDE.md:253 ("AI/ML workflows ... academic
+# comment explaining why AGENTS.md:253 ("AI/ML workflows ... academic
 # provenance, cost estimates, monitoring thresholds") does not apply to
 # this entry point. Keep the right-hand side stable; update when TF
 # tasks are renamed.
@@ -403,7 +403,7 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     "ingest_skillcorner": "wf-skillcorner",
     # Separate XML schema (DFL_03_02 events) subordinate to the IDSSE source
     # bundle already governed by wf-idsse. Pure data-relay helper with no
-    # ML methodology and no per-player evaluation — falls outside CLAUDE.md:253.
+    # ML methodology and no per-player evaluation — falls outside AGENTS.md:253.
     "ingest_idsse_events": None,
     # PR-Cycle-A (2026-04-30): Runtime chunk-discovery preflight feeding the
     # `ingest_idsse` for_each_task fan-out. Pure orchestration helper —
@@ -446,6 +446,14 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     # wf-defensive-credit / wf-gkdv cards deleted, and the run-values second phase dropped
     # from wf-off-ball-xt).
     "bravery_writer": "wf-bravery",
+    # sk4118 P1 Phase A team-match writers (per-TEAM, NOT per-player-evaluative).
+    "team_metrics_writer": "wf-team-metrics",
+    "match_outcome_writer": "wf-match-outcome",
+    # sk4118 P1 Phase B keeper-match writer (per-KEEPER evaluative — Goals Prevented / GSAA).
+    "shot_stopping_writer": "wf-shot-stopping",
+    # sk4118 P1 Phase C player-match writers (per-PLAYER evaluative).
+    "territory_writer": "wf-territory",
+    "duels_writer": "wf-duels",
     "xt_gk_v2_writer": "wf-xt-gk-v2-writer",
     # tracking-marts worker-drain (ADR-037/068 fan-out reuse), governed by wf-tracking-marts.
     # preflight is pure orchestration (writes task values + exits): no owning card, exactly
@@ -467,7 +475,6 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     # wf-football2vec.yaml stays on disk (status: deprecated) but is no
     # longer wired to any TF task or pyproject entry point.
     "compute_embeddings_360": "wf-football2vec-360",
-    "compute_elastic_sync": "wf-elastic-sync",
     "compute_pausa": "wf-obso-pausa",
     "compute_action_context": "wf-action-context",
     # ADR-058: statsbomb sb360 arm of action-context — a single distributed cogroup.applyInPandas
@@ -504,7 +511,7 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     "dbt_build_intermediate_marts": "wf-dbt-build-intermediate-marts",
     "dbt_build_output_marts": "wf-dbt-build-output-marts",
     # Infrastructure plumbing — triggers Lakebase SNAPSHOT refresh via the
-    # Databricks REST API. Not an AI/ML workflow under CLAUDE.md:253.
+    # Databricks REST API. Not an AI/ML workflow under AGENTS.md:253.
     "refresh_synced_tables": None,
 }
 

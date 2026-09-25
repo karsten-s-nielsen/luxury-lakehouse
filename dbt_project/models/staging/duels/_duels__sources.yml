@@ -1,0 +1,33 @@
+version: 2
+
+sources:
+  - name: duels
+    description: >
+      Per-(match, player) ground-duel Glicko-2 ratings (silly-kicks 4.120.0 TF-55; sk4118 P1 Task C2).
+      Written by the ingestion.duels_writer ADR-013 writer: it reads bronze.spadl_actions (event-only, all
+      providers) and runs silly-kicks compute_duel_ratings as a STATEFUL single-driver ORDERED pass —
+      ratings carry forward across matches in ascending game_id (each match is one Glicko rating period),
+      so it is NOT a per-match applyInPandas. Ground duels only, extracted from the native sportec
+      winner/loser columns where present else the derived tackle/take_on adjacency (recorded in
+      duel_winner_source). Feeds the wide-by-granularity player-match mart fct_player_match_metrics (shared
+      with territory). The table is CREATE-IF-NOT-EXISTS'd by scripts/migrations/2026-09-17-add-duels.sql
+      so the staging view resolves (empty) before the Part-B scoring run populates it.
+    database: soccer_analytics
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 168, period: hour}
+        error_after: {count: 336, period: hour}
+
+    tables:
+      - name: duels
+        description: >
+          One row per (data_source, match_id, player_id). player_id + match_id are NATIVE (surrogates
+          resolve in stg_duels / fct_player_match_metrics). team_id is the player's native team (resolved
+          from a per-corpus player->team map at write time — duels keys on (game_id, player_id) only).
+          access_tier (ADR-064) is stamped per-row at write time from the match's SPADL-bronze access_tier.
+          duel_rating / duel_rating_deviation / duel_volatility are the carried-forward Glicko-2 state;
+          duels_contested / duels_won / duels_lost are the per-match counts; duel_winner_source is the
+          labeling provenance (native vs derived).

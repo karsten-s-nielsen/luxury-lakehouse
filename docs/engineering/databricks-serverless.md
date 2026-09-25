@@ -1,6 +1,6 @@
 # Databricks Serverless — Performance and Architecture Reference
 
-Full detail for the performance rules summarised in `CLAUDE.md` under `## Database Performance`. `CLAUDE.md` carries the short-form rules and budgets; the explanatory detail, decision hierarchies, and pattern rationale live here.
+Full detail for the performance rules summarised in `AGENTS.md` under `## Database Performance`. `AGENTS.md` carries the short-form rules and budgets; the explanatory detail, decision hierarchies, and pattern rationale live here.
 
 Related:
 - `docs/performance-baselines.md` — concrete benchmark numbers for critical-path functions
@@ -20,7 +20,7 @@ The platform's architecture maps to classic EIP patterns (Hohpe & Woolf 2003). C
 
 ## Databricks (PySpark / Delta Lake) — Extended
 
-Short-form rules live in `CLAUDE.md`. Detailed mechanics below.
+Short-form rules live in `AGENTS.md`. Detailed mechanics below.
 
 - **Prefer Spark executors over driver-bound processing**: Always exhaust executor-side options before resorting to `.toPandas()` chunk-and-release on the driver. Decision hierarchy: (1) `applyInPandas` / `mapInPandas` for per-group compute, (2) `df.write.parquet()` to UC Volume for file exports (Spark writes to cloud storage, driver reads for upload), (3) per-partition `.toPandas()` with `del` + `gc.collect()` only as last resort when Spark cannot write to the target. On serverless, Spark can write to UC Volumes and Delta tables but NOT to local filesystem (`file://` forbidden, DBFS disabled).
 - **Prefer `applyInPandas` over driver-bound loops**: Never use `for match_id in ...: spark.sql(...).toPandas()` loops for compute pipelines. Use `spark.groupBy(key).applyInPandas(func, schema)` to distribute computation across executors. The driver should only handle metadata (match IDs, config), never raw data.

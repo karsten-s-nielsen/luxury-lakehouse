@@ -23,7 +23,7 @@ HF Jobs invocations + runs steps 5-11 against existing Champions.
 Per spec §5.2.1: orchestrator runs as background process. Status streams every
 60-120s to stdout AND bronze.sk3_mig_b_runs Delta table.
 
-Per CLAUDE.md "Never disappear into long-running commands": invoke this script
+Per AGENTS.md "Never disappear into long-running commands": invoke this script
 via run_in_background=true; poll output file via tail -f.
 
 Cost cap (§9.5): _COST_CAP_USD = 80.0 — orchestrator halts on cumulative
@@ -71,7 +71,7 @@ _STATUS_INTERVAL_SECONDS = 60
 # xg_v2 removed 2026-07-10: the v2 xG model + trainer were retired with the v2
 # producer chain (ADR-066). This completed-migration orchestrator can no longer
 # process it (task/trainer gone); the remaining items are the audit trail.
-_GROUP_1_TRAINED = ("vaep", "ext_v2_p0", "ext_v2_p1")
+_GROUP_1_TRAINED = ("vaep",)  # ext_v2_p0/p1 removed — ExT-v2 retirement (ADR-085)
 _GROUP_1_COMPUTE_ONLY = ("defcon_lite", "obso", "pausa")
 _GROUP_2_TRAINED = ("f2v_v1", "f2v_v2", "f2v_360", "scoutgpt")
 # Group 0 (Step 0a, spec §2.4): input-dataset publishes that gate Group 1
@@ -127,15 +127,13 @@ _TASK_KEY_MAP: dict[str, str] = {
 # Trained-model items whose "training" + validation happens entirely on the
 # orchestrator host (no HF Job, no mega-job task). _run_cycle_item skips
 # _trigger_mega_job_task for these — the smoke gate is the validator.
-_LOCAL_TRAINED_MODELS: frozenset[str] = frozenset({"ext_v2_p0", "ext_v2_p1"})
+_LOCAL_TRAINED_MODELS: frozenset[str] = frozenset()  # empty since ExT-v2 retirement (ADR-085)
 
 # PEP 723 trainer script paths keyed by orchestrator cycle item. Module-level for
 # symmetry with _FLAVOR_MAP and _TASK_KEY_MAP. None entries are local-only items
 # (must also appear in _LOCAL_TRAINED_MODELS).
 _TRAINER_SCRIPT_MAP: dict[str, str | None] = {
     "vaep": "scripts/train_vaep_model_hf.py",
-    "ext_v2_p0": None,
-    "ext_v2_p1": None,
     "f2v_v1": "scripts/train_football2vec.py",
     "f2v_v2": "scripts/train_football2vec_v2.py",
     "f2v_360": "scripts/train_football2vec_360.py",
@@ -145,8 +143,6 @@ _TRAINER_SCRIPT_MAP: dict[str, str | None] = {
 # Per-item cost estimates (USD) — empirical from prior cycles. Drives state.cumulative_cost_usd.
 _ITEM_COST_USD: dict[str, float] = {
     "vaep": 0.50,
-    "ext_v2_p0": 0.05,
-    "ext_v2_p1": 0.05,
     "defcon_lite": 0.50,
     "obso": 1.50,
     "pausa": 0.20,
@@ -657,25 +653,6 @@ def _estimate_item_cost(cycle_item: str) -> float:
 def _dispatch_trained_model(state: CycleState, cycle_item: str) -> str:
     """Invoke HF Jobs (or local) for trained-model cycle items. Returns job_id."""
     script = _TRAINER_SCRIPT_MAP[cycle_item]
-    if script is None:
-        # ext_v2_p0 / ext_v2_p1 are local-only (no HF Job, no mart write). The
-        # NLL threshold validation is the smoke gate — see
-        # tests/smoke_gates/sk3_mig_b/test_ext_v2_p{0,1}_post_retrain_smoke.py — which
-        # fetches fct_action_values and calls run_phase{0,1}_harness directly.
-        # Dispatch only smoke-imports the harness module to fail fast on import
-        # drift; _run_cycle_item skips _trigger_mega_job_task for these (they
-        # have no mega-job task_key — would hang in the polling loop).
-        cmd = [
-            "uv",
-            "run",
-            "python",
-            "-c",
-            "from analytics.ext_v2.harness import run_phase0_harness, run_phase1_harness; "
-            "print('ext_v2 harness import OK')",
-        ]
-        subprocess.run(cmd, check=True)
-        return f"local-{cycle_item}-{int(time.time())}"
-
     flavor = _FLAVOR_MAP[cycle_item]
 
     from huggingface_hub import HfApi

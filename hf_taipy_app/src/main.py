@@ -19,6 +19,8 @@ from pages.defensive_valuation import page_config as defensive_impact_config
 from pages.defensive_valuation import page_md as defensive_impact_page
 from pages.gk_analytics import page_config as goalkeeper_config
 from pages.gk_analytics import page_md as goalkeeper_page
+from pages.gk_decision_shot_stopping import page_config as gk_decision_config
+from pages.gk_decision_shot_stopping import page_md as gk_decision_page
 from pages.heat_map import page_config as heat_map_config
 from pages.heat_map import page_md as heat_map_page
 from pages.match_summary import page_config as match_summary_config
@@ -37,20 +39,27 @@ from pages.player_radar import page_config as player_radar_config
 from pages.player_radar import page_md as player_radar_page
 from pages.player_similarity import page_config as player_similarity_config
 from pages.player_similarity import page_md as player_similarity_page
+from pages.player_territory_duels import page_config as player_metrics_config
+from pages.player_territory_duels import page_md as player_metrics_page
 
 # --- Page layouts ---
 from pages.shot_map import page_config as shot_map_config
 from pages.shot_map import page_md as shot_map_page
 from pages.tactical_positions import page_config as tactical_positions_config
 from pages.tactical_positions import page_md as tactical_positions_page
+from pages.team_kpis import page_config as team_kpis_config
+from pages.team_kpis import page_md as team_kpis_page
 from pages.team_shape import page_config as team_shape_config
 from pages.team_shape import page_md as team_shape_page
+from pages.vaep_adjusted import page_config as vaep_adjusted_config
+from pages.vaep_adjusted import page_md as vaep_adjusted_page
 from pages.workflows import page_config as workflows_config
 from pages.workflows import page_md as workflows_page
 from state.action_values import *  # noqa: F403
 from state.conversion_funnel import *  # noqa: F403
 from state.defensive_valuation import *  # noqa: F403
 from state.gk_analytics import *  # noqa: F403
+from state.gk_decision_shot_stopping import *  # noqa: F403
 from state.heat_map import *  # noqa: F403
 from state.match_summary import *  # noqa: F403
 from state.movement_analysis import *  # noqa: F403
@@ -60,12 +69,15 @@ from state.pass_timing import *  # noqa: F403
 from state.pitch_control import *  # noqa: F403
 from state.player_radar import *  # noqa: F403
 from state.player_similarity import *  # noqa: F403
+from state.player_territory_duels import *  # noqa: F403
 
 # --- State imports (star import required for Taipy module-level binding) ---
 from state.shared import *  # noqa: F403
 from state.shot_map import *  # noqa: F403
 from state.tactical_positions import *  # noqa: F403
+from state.team_kpis import *  # noqa: F403
 from state.team_shape import *  # noqa: F403
+from state.vaep_adjusted import *  # noqa: F403
 from state.workflows import *  # noqa: F403
 from state.workflows import RawHtml
 from taipy.gui import Gui
@@ -113,11 +125,15 @@ PAGE_REGISTRY: list[PageEntry] = [
     PageEntry("Pass-Map", pass_map_config, pass_map_page),
     PageEntry("Pass-Network", pass_network_config, pass_network_page),
     PageEntry("Shot-Map", shot_map_config, shot_map_page),
+    PageEntry("Team-KPIs", team_kpis_config, team_kpis_page),
     # Player Analysis
     PageEntry("Goalkeeper-Analytics", goalkeeper_config, goalkeeper_page),
+    PageEntry("GK-Decisions", gk_decision_config, gk_decision_page),
     PageEntry("Player-Comparison", player_radar_config, player_radar_page),
     PageEntry("Player-Impact", action_values_config, action_values_page),
+    PageEntry("Player-Metrics", player_metrics_config, player_metrics_page),
     PageEntry("Player-Similarity", player_similarity_config, player_similarity_page),
+    PageEntry("VAEP-Adjusted", vaep_adjusted_config, vaep_adjusted_page),
     # Advanced (Defensive Impact last per user preference)
     PageEntry("Movement-Pressing", movement_config, movement_page),
     PageEntry("Pass-Timing", pass_timing_config, pass_timing_page),

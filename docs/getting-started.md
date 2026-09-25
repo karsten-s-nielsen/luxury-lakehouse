@@ -54,7 +54,7 @@ Now that your environment works, explore the codebase:
 | Resource | What It Covers |
 |----------|---------------|
 | [README.md](../README.md) | Platform overview, architecture, data sources, analytics |
-| [CLAUDE.md](../CLAUDE.md) | Engineering standards — **read this before contributing** |
+| [AGENTS.md](../AGENTS.md) | Engineering standards — **read this before contributing** |
 | [ARCHITECTURE.md](../ARCHITECTURE.md) | Deep platform architecture with C4 diagrams |
 | [Glossary](glossary.md) | Domain terminology (xG, VAEP, OBSO, etc.) |
 | [C4 Diagrams](c4/architecture.html) | Interactive architecture diagrams (open in a browser) |

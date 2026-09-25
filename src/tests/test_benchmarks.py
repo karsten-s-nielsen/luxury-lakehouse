@@ -4,7 +4,7 @@ Uses pytest-benchmark to measure execution time of the hot-path functions
 that run inside ``applyInPandas`` on Databricks serverless executors, where the
 1 GB UDF memory cap makes per-call efficiency critical.
 
-Performance budgets (from CLAUDE.md):
+Performance budgets (from AGENTS.md):
     - Batched pitch control: <=5 ms per frame for 22 targets
     - Line-breaking detection: <=2 ms per pass
     - Shape graph construction: <=2 ms for 10 outfield players
@@ -18,10 +18,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+from silly_kicks.xthreat import ExpectedThreat
 
 from analytics.augmentation import PerturbationConfig, perturb_positions
 from analytics.defcon_lite import DefconLiteParams, assign_defensive_credits
-from analytics.expected_threat import XTGrid
 from analytics.line_breaking import LineBreakingParams, detect_line_breaking
 from analytics.obso import compute_obso_surface
 from analytics.off_ball_xt import compute_off_ball_xt_frame
@@ -100,26 +100,14 @@ def pitch_control_params():  # type: ignore[no-untyped-def]
 
 
 @pytest.fixture
-def xt_grid() -> XTGrid:
-    """Synthetic 12x8 expected-threat grid (Karun Singh dimensions).
-
-    Wrapped in XTGrid so it works with the post-XTGrid-migration
-    ``compute_off_ball_xt_frame`` signature. Coord system matches the
-    StatsBomb 120x80 ``players_df`` fixture for direct (no-conversion)
-    lookup.
-    """
+def xt_grid() -> ExpectedThreat:
+    """Synthetic sk ExpectedThreat (16x12) with a set ``.xT`` increasing toward the attacking goal —
+    exercises compute_off_ball_xt_frame's StatsBomb->SPADL ``values_at_points`` path (ADR-085)."""
     rng = np.random.default_rng(7)
-    # Values should increase toward the opponent goal (left-to-right in StatsBomb coords)
-    base = np.linspace(0.0, 0.15, 12).reshape(12, 1) * np.ones((1, 8))
-    noise = rng.uniform(-0.01, 0.01, (12, 8))
-    values = base + noise
-    return XTGrid(
-        values=values,
-        pitch_length=120.0,
-        pitch_width=80.0,
-        coord_system="statsbomb",
-        competition_id="test",
-    )
+    xt = ExpectedThreat(l=16, w=12)
+    base = np.linspace(0.0, 0.15, 16).reshape(1, 16) * np.ones((12, 1))  # (w=12, l=16), rising in x
+    xt.xT = base + rng.uniform(-0.01, 0.01, (12, 16))
+    return xt
 
 
 @pytest.fixture
@@ -263,7 +251,7 @@ class TestBenchmarks:
         self,
         benchmark: Any,
         players_df: pd.DataFrame,
-        xt_grid: XTGrid,
+        xt_grid: ExpectedThreat,
         pitch_control_params: Any,
     ) -> None:
         """Off-ball xT for a single 22-player frame.

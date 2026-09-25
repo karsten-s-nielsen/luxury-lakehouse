@@ -86,7 +86,10 @@ def test_terraform_old_writer_tasks_removed() -> None:
 
 def test_terraform_dbt_output_marts_depends_on_drain_not_writers() -> None:
     """dbt_build_output_marts now waits on the drain gate + gkdv pool, not the removed writers."""
-    block = _block(_tf(), 'task_key        = "dbt_build_output_marts"', size=3000)
+    # size=4000: the depends_on list is alphabetical, so "verify_tracking_marts_drain" lands last
+    # (offset ~3327); the sk4118 Phase-C fct_player_match_metrics comment pushed it past the old
+    # 3000-char window. The task block runs to ~4736 chars, so 4000 stays inside it (no spill).
+    block = _block(_tf(), 'task_key        = "dbt_build_output_marts"', size=4000)
     assert 'task_key = "verify_tracking_marts_drain"' in block
     assert 'task_key = "compute_gkdv_pool"' in block
     for writer in ("defensive_credit_writer", "gkdv_writer", "off_ball_runs_writer"):

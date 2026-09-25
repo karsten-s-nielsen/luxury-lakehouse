@@ -1,0 +1,106 @@
+---
+name: Ground Duels — Per-Player Glicko-2 Rating
+id: wf-duels
+version: "1.0"
+status: development
+type: heuristic
+domain: player-valuation
+owners:
+  - karsten
+tags:
+  - duels
+  - ground-duels
+  - glicko-2
+  - player-valuation
+
+governance:
+  eu_ai_act: not-high-risk-under-current-posture
+  annex_iii_category: "4 (Employment) — conditional if deployed for employment decisions"
+  reference: AI_GOVERNANCE.md
+
+# Duels is per-PLAYER evaluative (a per-player ground-duel rating), so wf-duels IS a member of
+# PER_PLAYER_EVALUATIVE_CARDS (src/tests/test_ai_governance_md.py) and carries the EU-AI-Act model card
+# docs/huggingface/model-cards/duels.md. The honest limit: GROUND duels only (no SPADL aerial type) +
+# derived tackle/take_on adjacency (~11 candidate duels per match).
+references:
+  - citation: "Glickman, M.E. (2012). Example of the Glicko-2 system. Boston University."
+    role: methodology
+
+inputs:
+  datasets:
+    - id: "{catalog}.bronze.spadl_actions"
+      source: delta-table
+      description: "SPADL actions (game_id / period_id / time_seconds / action_id / type_id / result_id / player_id / team_id; event-only, all providers)"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.duels"
+      destination: delta-table
+      description: "Per-(match, player) Glicko-2 ground-duel rating aggregate written by duels_writer (ADR-013), native ids"
+    - id: "{catalog}.dev_gold.fct_player_match_metrics"
+      destination: delta-table
+      description: "Wide-by-granularity player-match mart carrying the 6 duel cols (+ territory); dbt-built, contract-enforced (ADR-013)"
+
+execution:
+  # Deterministic-method card carrying its own scheduled compute phase. STATEFUL Glicko-2 — ratings carry
+  # forward across matches in ascending game_id, so the writer is a SINGLE-DRIVER ORDERED PASS
+  # (compute_duel_ratings once over each provider's whole corpus), NOT applyInPandas (its groups are
+  # unordered). Needs silly-kicks -> environment: analytics.
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: duels_writer
+    module: ingestion.duels_writer
+    # Stateful Glicko-2: a single-driver ORDERED pass (rating carries forward across matches by
+    # game_id), NOT applyInPandas — runs on the driver, so distribution=driver-bound.
+    distribution: driver-bound
+    partition_key: data_source
+    schedule: "daily 06:00 UTC"
+    timeout: "1800s"
+    environment: analytics
+
+depends_on:
+  - wf-vaep
+
+monitoring:
+  freshness_sla_hours: 168
+
+links:
+  source_code:
+    - "src/ingestion/duels_writer.py"
+---
+
+## Overview
+
+Ground Duels is the per-`(match, player)` Glicko-2 rating of a player's ground-duel win/loss record. It is
+an event-only metric covering every event provider (StatsBomb / Wyscout / IDSSE / Metrica / SkillCorner /
+GradientSports).
+
+This is a **methodology / governance card** for the silly-kicks 4.120.0 `duels.compute_duel_ratings` family
+(TF-55). The materialising ADR-013 writer (`src/ingestion/duels_writer.py`) reads `bronze.spadl_actions`
+and runs `compute_duel_ratings` as a **stateful single-driver ordered pass** — ratings carry forward across
+matches in ascending `game_id` (each match is one Glicko rating period), so it is deliberately NOT a
+per-match `applyInPandas` (whose groups are unordered and would reset the seed each match). It lands the
+per-`(match, player)` ratings in `bronze.duels` for dbt to join into the wide-by-granularity player-match
+mart `fct_player_match_metrics` (shared with `territory`). It is scheduled into the daily job via the
+`inference` execution phase above (entry point `duels_writer`, `analytics` environment), running after the
+SPADL/VAEP producer.
+
+## Algorithm
+
+`compute_duel_ratings` extracts ground duels — from the native sportec `tackle_winner/loser` columns where
+present, else the derived `tackle`/`take_on` adjacency (a cross-team pair within 5s where exactly one action
+succeeds; both-succeed / both-fail is indeterminate and excluded) — and runs the Glicko-2 rating system over
+them in `game_id` order. Each match is one rating period: `duel_rating` / `duel_rating_deviation` /
+`duel_volatility` carry forward, while `duels_contested` / `duels_won` / `duels_lost` are the per-match
+counts; `duel_winner_source` records the labeling provenance. Native `(match_id, player_id, team_id)` are
+emitted and resolved to Kimball surrogates (`match_key` / `player_key`) in dbt. The computation is
+deterministic — no trained weights.
+
+## Governance
+
+Duels is **per-player evaluative**; per [`AI_GOVERNANCE.md`](../AI_GOVERNANCE.md) §5/§6 it is in scope as a
+player-valuation family, not-high-risk under the current operating posture. HONEST LIMIT: it rates GROUND
+duels only (the SPADL taxonomy has no aerial-duel type), and where native winner/loser labels are absent it
+falls back to the derived tackle/take_on adjacency (~11 candidate duels per match) — a lower-signal proxy
+than a native duel outcome, recorded in `duel_winner_source` so consumers can filter on labeling provenance.

@@ -660,24 +660,3 @@ sources:
           - name: team_id_native
             description: >
               string — auto-documented from DESCRIBE TABLE; refine description when a staging model first reads this col.
-
-      - name: elastic_sync_results
-        description: >
-          ELASTIC event-tracking synchronization results. Maps each event
-          to its best-matching tracking frame via ball acceleration and
-          player-ball proximity features. Reference: Kim et al. (2025),
-          ECML-PKDD MLSA 2025, arXiv:2508.09238.
-        columns:
-          - name: match_id
-            description: Match identifier prefixed with 'idsse_'
-          - name: event_id
-            description: Event identifier linked to idsse_events
-          - name: frame_id
-            description: Best-matching tracking frame number
-          - name: alignment_confidence
-            description: Confidence score of the alignment (0 to 1)
-          - name: alignment_error_seconds
-            description: Time difference between event timestamp and aligned frame
-          - name: _ingested_at
-            description: >
-              UTC timestamp when the row was written to bronze (audit col).

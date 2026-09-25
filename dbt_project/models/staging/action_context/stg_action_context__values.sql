@@ -161,6 +161,12 @@ cleaned as (
         cast(elastic_frame_id as bigint)    as elastic_frame_id,
         cast(elastic_confidence as double)  as elastic_confidence,
         cast(elastic_error_seconds as double) as elastic_error_seconds,
+        -- Elastic receive-touch linkage (silly-kicks 4.114 TF-57 ELASTIC v2). The v2
+        -- add_elastic_sync additionally anchors the receiving touch of each pass; NULL for
+        -- actions with no resolvable receive frame. NULL on pre-cycle rows until AC recompute.
+        cast(elastic_receive_frame_id as bigint)     as elastic_receive_frame_id,
+        cast(elastic_receive_confidence as double)   as elastic_receive_confidence,
+        cast(elastic_receive_error_seconds as double) as elastic_receive_error_seconds,
         -- Shape graph
         cast(shape_graph_density_attacking as double) as shape_graph_density_attacking,
         cast(shape_graph_n_edges_attacking as bigint) as shape_graph_n_edges_attacking,

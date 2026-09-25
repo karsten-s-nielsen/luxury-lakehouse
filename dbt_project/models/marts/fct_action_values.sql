@@ -65,6 +65,14 @@ with action_values as (
         offensive_value,
         defensive_value,
         vaep_value,
+        -- sk4118 Phase D (TF-61): outcome-bias-free adjusted VAEP splits + xSuccess.
+        offensive_adjusted_value,
+        defensive_adjusted_value,
+        vaep_adjusted_value,
+        xsuccess,
+        -- sk4123 (TF-63 xImpact ride-along): match-context-weighted action value + win-prob leverage.
+        ximpact,
+        win_prob_leverage,
         data_source,
         access_tier,
         competition_id,
@@ -195,6 +203,14 @@ actions_with_score as (
         av.offensive_value,
         av.defensive_value,
         av.vaep_value,
+        -- sk4118 Phase D (TF-61): outcome-bias-free adjusted VAEP splits + xSuccess.
+        av.offensive_adjusted_value,
+        av.defensive_adjusted_value,
+        av.vaep_adjusted_value,
+        av.xsuccess,
+        -- sk4123 (TF-63 xImpact ride-along): match-context-weighted action value + win-prob leverage.
+        av.ximpact,
+        av.win_prob_leverage,
 
         -- LL2 Path B: canonical possession_id sourced from silly-kicks's
         -- heuristic add_possessions output — populated for ALL sources.
@@ -301,15 +317,18 @@ actions_with_score as (
 
 ),
 
--- gk_xt_delta (ADR-056): GVM distribution xT delta computed from the lakehouse's
--- CANONICAL 12x8 xT grid (bronze.expected_threat_grids, competition_id='global') —
--- the single xT source of truth, NOT a second silly-kicks-fitted grid. Same zone
--- lookup as fct_goalkeeper_stats. Non-NULL only for SUCCESSFUL GK-distribution passes
+-- gk_xt_delta (ADR-056): GVM distribution xT delta via a zone lookup on the CANONICAL xT surface.
+-- ExT-v2 single-canonical-surface migration (ADR-085 G-fix, sk4118): the canonical model is now a
+-- fitted silly-kicks ExpectedThreat (16x12) stored as JSON in bronze.expected_threat_grids, which SQL
+-- cannot query per-zone. The producer therefore also writes bronze.expected_threat_grid_zones — a
+-- deterministic 16x12 physical-oriented projection of THAT SAME model (NOT a second fit) — read here.
+-- Grid moved 12x8 -> 16x12, so gk_xt_delta re-baselines with the rest of the AC xT recompute in P2.
+-- Same zone lookup as fct_goalkeeper_stats. Non-NULL only for SUCCESSFUL GK-distribution passes
 -- (matching silly-kicks add_gk_distribution_metrics GVM semantics); NULL elsewhere.
 xt_grid as (
 
     select zone_x, zone_y, xt_value
-    from {{ source('spadl', 'expected_threat_grids') }}
+    from {{ source('spadl', 'expected_threat_grid_zones') }}
     where competition_id = 'global'
 
 ),
@@ -324,11 +343,11 @@ gk_xt as (
         end as gk_xt_delta
     from actions_with_score aws
     left join xt_grid xt_start
-        on  greatest(least(cast(aws.start_x / (105.0 / 12) as int), 11), 0) = xt_start.zone_x
-        and greatest(least(cast(aws.start_y / (68.0 / 8) as int), 7), 0) = xt_start.zone_y
+        on  greatest(least(cast(aws.start_x / (105.0 / 16) as int), 15), 0) = xt_start.zone_x
+        and greatest(least(cast(aws.start_y / (68.0 / 12) as int), 11), 0) = xt_start.zone_y
     left join xt_grid xt_end
-        on  greatest(least(cast(aws.end_x / (105.0 / 12) as int), 11), 0) = xt_end.zone_x
-        and greatest(least(cast(aws.end_y / (68.0 / 8) as int), 7), 0) = xt_end.zone_y
+        on  greatest(least(cast(aws.end_x / (105.0 / 16) as int), 15), 0) = xt_end.zone_x
+        and greatest(least(cast(aws.end_y / (68.0 / 12) as int), 11), 0) = xt_end.zone_y
     where aws._score_rn = 1
 
 ),
@@ -366,6 +385,15 @@ final as (
         offensive_value,
         defensive_value,
         vaep_value,
+        -- sk4118 Phase D (TF-61 VAEP_adjusted + xSuccess): outcome-bias-free VAEP decomposition +
+        -- per-action completion probability (additive; raw offensive/defensive/vaep unchanged).
+        offensive_adjusted_value,
+        defensive_adjusted_value,
+        vaep_adjusted_value,
+        xsuccess,
+        -- sk4123 (TF-63 xImpact ride-along): match-context-weighted action value + win-prob leverage.
+        ximpact,
+        win_prob_leverage,
         -- LL2 Path B: canonical possession_id (heuristic, populated for ALL sources).
         possession_id,
         -- β-consistent: provider-namespaced StatsBomb-native passthroughs.

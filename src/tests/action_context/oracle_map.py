@@ -19,14 +19,16 @@ action-level join key:
   - ``pausa`` (``fct_pausa_values``): OBSO + PAUSA, renamed; action-join on
     ``pass_id``; IDSSE only.
   - ``elastic`` (``elastic_sync_results``): NOT a usable oracle. The legacy
-    ``analytics.elastic_sync`` that produced it has an IDSSE frame-origin bug: it
-    aligns events to ``frame ~= 25*ts`` (0-based) instead of ``10000 + 25*ts``
-    (IDSSE period-1 frames start at 10000). Verified on J03WMX: oracle
-    ``frame_id = 25.000*ts - 0.9`` (intercept ~0, should be 10000), so it yields NO
-    results for the first ~400s (25*ts below the 10000 frame floor) and
-    ~400s-misaligned results after. silly-kicks 3.25.0 fixes exactly this; AC-1's
-    elastic is correct. Validating the fix against the buggy oracle is meaningless,
-    so elastic is INVARIANT_ONLY (range-checked).
+    ``analytics.elastic_sync`` that produced it was DELETED with the B-ac elastic
+    retirement (2026-09-20) — the standalone producer + its bronze table are gone;
+    elastic frame linkage now rides on the AC drain's ELASTIC v2 columns
+    (``elastic_frame_id``/``elastic_receive_*``). The legacy oracle had an IDSSE
+    frame-origin bug: it aligned events to ``frame ~= 25*ts`` (0-based) instead of
+    ``10000 + 25*ts`` (IDSSE period-1 frames start at 10000), yielding NO results
+    for the first ~400s and ~400s-misaligned results after. AC-1's elastic (via
+    silly-kicks ≥3.25.0, now TF-57 v2) is correct. The committed
+    ``oracle_elastic_sync_results.parquet`` remains only as historical evidence, so
+    elastic is INVARIANT_ONLY (range-checked), never oracle-compared.
 
 Columns with no usable action-grain oracle (``game_state``, ``shape_graph_*``,
 ``space_created_m2``, ``space_denied_m2_opponent``, ``ghost_gk_*``, ``elastic_*``) are
@@ -140,6 +142,21 @@ INVARIANT_ONLY: dict[str, tuple[str, float | None, float | None]] = {
     "gk_completion": ("float", 0.0, 1.0),
     # Pitch-control provenance (ADR-039): categorical {spearman, voronoi}; NULL on event-only rows.
     "pitch_control_method": ("categorical", None, None),
+    # sk4118 (silly-kicks 4.90.1 -> 4.120.0): two tracking-context features whose ALGORITHM changed,
+    # so the frozen legacy `oracle_fct_tracking_context.parquet` (from the RETIRED TC-1 pipeline —
+    # can never be re-extracted) is stale for them. Reclassified oracle-compare -> INVARIANT_ONLY
+    # with durable, algorithm-independent range checks (gold-standard per owner 2026-09-20: keep a
+    # non-vacuous guard, do NOT drop the column to `known_divergence` which asserts nothing).
+    #  - pressure_on_actor__bekkers_pi: away-team defect FIX + honest-NaN tiering on velocity-unavailable
+    #    frames (sk CHANGELOG "bekkers_pi values change (home byte-identical)"). Non-negative pressure.
+    #  - n_blocked_receivers: cover-shadow sigma/lambda discrimination RE-TUNE (sk ADR-066 / PR-S162).
+    #    Non-negative count (a stronger `<= n_potential_receivers` invariant is a possible future tightening).
+    # SYSTEMIC (owner-flagged, separate cycle): the legacy TC-1 oracle manufactures a fresh divergence
+    # on every sk metric change; current-sk regression is already covered by the regenerable mini/full
+    # golden. An ADR-tracked decision to retire the legacy-oracle differential (or re-freeze its oracle
+    # onto a reviewed current-sk AC-1 output) is recommended — NOT part of this P0.
+    "pressure_on_actor__bekkers_pi": ("float", 0.0, None),
+    "n_blocked_receivers": ("int", 0.0, None),
 }
 
 # Identity + linkage passthrough columns — not differential features (skip).
@@ -171,7 +188,8 @@ _WINDOW_DEPENDENT_COLS = frozenset({
     "mean_off_ball_run_speed_pre_window",
     "actor_arc_length_pre_window",
     "actor_displacement_pre_window",
-    "pressure_on_actor__bekkers_pi",
+    # pressure_on_actor__bekkers_pi was here (batch-window-sensitive) but moved to INVARIANT_ONLY
+    # at sk 4.120.0 — its algorithm changed (away-team fix), so it is no longer oracle-compared.
     "n_candidate_frames",
 })  # fmt: skip
 
@@ -192,7 +210,9 @@ _XT_DEPENDENT_COLS = frozenset({
 _INT_COLS = frozenset({
     "n_candidate_frames", "back_n_count", "n_attackers_behind_line",
     "n_off_ball_runners_pre_window", "n_off_ball_runners_toward_goal_pre_window",
-    "lines_broken__ward", "n_blocked_receivers", "n_potential_receivers",
+    # n_blocked_receivers moved to INVARIANT_ONLY at sk 4.120.0 (cover-shadow re-tune) — no longer
+    # oracle-compared. n_potential_receivers stays oracle-compared (within tolerance).
+    "lines_broken__ward", "n_potential_receivers",
     "team_shape_n_outfield_players_attacking", "team_shape_n_outfield_players_defending",
 })  # fmt: skip
 _BOOL_COLS = frozenset({"gk_was_distributing", "gk_was_engaged", "line_break", "line_break__ward"})

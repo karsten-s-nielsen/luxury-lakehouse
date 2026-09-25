@@ -13,6 +13,10 @@ that absence IS the cross-run property.
 
 from __future__ import annotations
 
+import logging
+
+import pytest
+
 from analytics.action_context.work_unit import WorkUnit
 from ingestion.tracking_marts_drain import (
     _N_TRACKING_MARTS_WORKERS,
@@ -75,3 +79,125 @@ def test_running_events_do_not_mark_a_unit_done() -> None:
     done = succeeded_keys_from_events([("idsse", "A", 1, "running")])
     assert done == frozenset()
     assert _key(_A) in {_key(u) for u in open_units(_UNIVERSE, done, full=False)}
+
+
+# ── ADR-087 canary wiring: a systemic compute defect fails preflight BEFORE the enqueue/fan-out ──
+
+
+def test_preflight_canary_failure_aborts_before_enqueue(monkeypatch) -> None:
+    """A broken processor makes the in-preflight canary raise, so main_tracking_marts_preflight raises
+    (the dependent compute_* is skipped) and NEVER reaches the work-queue enqueue."""
+    import ingestion.bootstrap as boot
+    import ingestion.drain_adapters as da
+    import ingestion.tracking_marts_drain as tmd
+    import ingestion.tracking_marts_processor as tmp
+
+    class _Args:
+        catalog = "cat"
+        schema = "bronze"
+        full = None
+        run_id = None
+
+    monkeypatch.setattr(tmd, "parse_ingestion_args", lambda *a, **k: _Args())
+    monkeypatch.setattr(tmd, "configure_logging", lambda name: logging.getLogger("t"))
+    monkeypatch.setattr(tmd, "get_spark_session", lambda: object())
+    monkeypatch.setattr(boot, "bootstrap_hooks", lambda *a, **k: None)
+
+    class _Sink:
+        def __init__(self, *a, **k) -> None: ...
+
+        def ensure_tables(self) -> None: ...
+
+    monkeypatch.setattr(da, "DeltaUnitEventSink", _Sink)
+
+    class _NoQueue:
+        def __init__(self, *a, **k) -> None:
+            raise AssertionError("enqueue path reached despite a failing canary")
+
+    monkeypatch.setattr(da, "DeltaWorkQueue", _NoQueue)
+    monkeypatch.setattr(
+        tmd,
+        "discover_open_units",
+        lambda spark, catalog, *, full: [WorkUnit(provider="idsse", match_id="J", period=1)],
+    )
+
+    class _BoomProcessor:
+        def __init__(self, *a, **k) -> None: ...
+
+        def process(self, unit: WorkUnit, *, dry_run: bool = False) -> int:
+            raise ValueError("compute boom")
+
+    monkeypatch.setattr(tmp, "TrackingMartsProcessor", _BoomProcessor)
+
+    with pytest.raises(RuntimeError, match="canary FAILED"):
+        tmd.main_tracking_marts_preflight()
+
+
+def test_preflight_canary_passes_then_enqueues(monkeypatch) -> None:
+    """Healthy path (symmetric with the AC preflight test): the canary passes (dry_run), so preflight
+    proceeds to enqueue and set the run-id + worker-id task values."""
+    import ingestion.bootstrap as boot
+    import ingestion.drain_adapters as da
+    import ingestion.tracking_marts_drain as tmd
+    import ingestion.tracking_marts_processor as tmp
+
+    class _Args:
+        catalog = "cat"
+        schema = "bronze"
+        full = None
+        run_id = "JOBRUN42"
+
+    monkeypatch.setattr(tmd, "parse_ingestion_args", lambda *a, **k: _Args())
+    monkeypatch.setattr(tmd, "configure_logging", lambda name: logging.getLogger("t"))
+    monkeypatch.setattr(tmd, "get_spark_session", lambda: object())
+    monkeypatch.setattr(boot, "bootstrap_hooks", lambda *a, **k: None)
+    monkeypatch.setattr(tmd, "_resolve_run_id", lambda args: "JOBRUN42")
+
+    captured: dict[str, object] = {}
+
+    class _Sink:
+        def __init__(self, *a, **k) -> None: ...
+
+        def ensure_tables(self) -> None: ...
+
+    monkeypatch.setattr(da, "DeltaUnitEventSink", _Sink)
+
+    class _Queue:
+        def __init__(self, *a, **k) -> None:
+            self._n = 0
+
+        def ensure_table(self) -> None: ...
+
+        def prune(self, *a, **k) -> int:
+            return 0
+
+        def enqueue(self, run_id: str, assignments: list) -> None:
+            captured["run_id"] = run_id
+            self._n = len(assignments)
+
+        def count_for_run(self, run_id: str) -> int:
+            return self._n
+
+    monkeypatch.setattr(da, "DeltaWorkQueue", _Queue)
+    monkeypatch.setattr(
+        tmd,
+        "discover_open_units",
+        lambda spark, catalog, *, full: [WorkUnit(provider="idsse", match_id="J", period=1)],
+    )
+
+    class _OkProcessor:
+        def __init__(self, *a, **k) -> None: ...
+
+        def process(self, unit: WorkUnit, *, dry_run: bool = False) -> int:
+            captured["canary_dry_run"] = dry_run
+            return 0
+
+    monkeypatch.setattr(tmp, "TrackingMartsProcessor", _OkProcessor)
+    set_values: dict[str, object] = {}
+    monkeypatch.setattr(tmd, "_set_task_value", lambda key, value, log: set_values.__setitem__(key, value))
+
+    tmd.main_tracking_marts_preflight()
+
+    assert captured["canary_dry_run"] is True  # canary ran (dry_run) before enqueue
+    assert captured["run_id"] == "JOBRUN42"  # enqueue reached (canary passed)
+    assert set_values["tracking_marts_run_id"] == "JOBRUN42"

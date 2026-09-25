@@ -293,6 +293,59 @@ GLOSSARY: dict[str, str] = {
         "An edge in the pass network between two teammates. Filtered to connections with "
         "at least min_passes (default 3) to avoid clutter."
     ),
+    "Field Tilt": (
+        "Share of a team's final-third possession relative to both teams' final-third possession "
+        "(%). Higher = more territorial dominance in the attacking third."
+    ),
+    "xPoints": (
+        "Expected league points from the modelled win/draw/loss probabilities (3·p_win + 1·p_draw). "
+        "0-3 per match; higher = a better expected result."
+    ),
+    "Win Probability": (
+        "Model probability that the team wins the match (match_outcome family, per-shot xG integrated). "
+        "0-100%; win/draw/loss sum to 1. Higher = better."
+    ),
+    "Selection Efficiency": (
+        "Goalkeeper decision quality: the chosen distribution option's expected value divided by the best "
+        "available option's expected value, averaged. 0-1 (0-100%); higher = closer to optimal choices."
+    ),
+    "Optimal-Choice Rate": (
+        "Average percentile of the goalkeeper's chosen option among the available options. 0-1; ~0.5 = no "
+        "better than random, higher = consistently selects stronger options."
+    ),
+    "GK Decision Value": (
+        "The chosen option's expected value minus the mean expected value of the available options "
+        "(threat units). Positive = the choice beat the average alternative. Reconstruction tier — "
+        "positioning, not a ranking."
+    ),
+    "Territorial Dominance": (
+        "Expected threat (xT) a defender concedes vs prevents within their defensive territory (convex "
+        "hull). Net xT and xT prevented are in goal-probability units; higher = better."
+    ),
+    "Counterfactual xT Prevented": (
+        "xT prevented above expectation — how much less threat the defender allowed into their hull than an "
+        "average defender would in the same situations (counterfactual method). Higher = better."
+    ),
+    "Glicko-2 Rating": (
+        "A chess-style skill rating (≈1500 baseline) for ground duels, updated match to match and carried "
+        "forward (Glickman 2012). Higher = a stronger duel record. The latest value is the stabilised one."
+    ),
+    "Rating Deviation": (
+        "The uncertainty band around a Glicko-2 rating. Lower = a more reliable, better-sampled rating; "
+        "high deviation means the rating is still provisional."
+    ),
+    "Defensive Hull": (
+        "The convex hull of a player's defensive actions — the pitch region they patrol. Hull area (m²) "
+        "measures the size of the territory covered."
+    ),
+    "Adjusted VAEP": (
+        "VAEP re-scored with silly-kicks' result-flip weighted by pass-success probability (xSuccess), so a "
+        "good decision that failed by chance is valued nearer its intent. Same goals-added units as VAEP."
+    ),
+    "xSuccess": (
+        "Modelled probability that a pass/action succeeds given its context (0-1). Used to weight the "
+        "adjusted-VAEP result-flip; higher = a higher-percentage action."
+    ),
 }
 
 PAGE_TERMS: dict[str, list[str]] = {
@@ -397,6 +450,23 @@ PAGE_TERMS: dict[str, list[str]] = {
         "Entities",
     ],
     "Conversion-Funnel": ["A3 Entry", "Conversion Rate", "Possession"],
+    "Team-KPIs": ["Field Tilt", "xPoints", "Win Probability", "PPDA", "xG (Expected Goals)"],
+    "GK-Decisions": [
+        "Selection Efficiency",
+        "Optimal-Choice Rate",
+        "GK Decision Value",
+        "Goals Prevented",
+        "PSxG (Post-Shot Expected Goals)",
+    ],
+    "Player-Metrics": [
+        "Territorial Dominance",
+        "Counterfactual xT Prevented",
+        "xT (Expected Threat)",
+        "Glicko-2 Rating",
+        "Rating Deviation",
+        "Defensive Hull",
+    ],
+    "VAEP-Adjusted": ["VAEP", "Adjusted VAEP", "xSuccess", "Survival", "Progression"],
 }
 
 
@@ -425,23 +495,24 @@ def _build_glossary_panels() -> str:
 _glossary_panels = _build_glossary_panels()
 
 # fmt: off
-_COMP_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary", "Player-Impact", "Player-Comparison", "Conversion-Funnel")
+_COMP_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary", "Player-Impact", "Player-Comparison", "Conversion-Funnel", "Team-KPIs", "Player-Metrics", "VAEP-Adjusted")
 # Team: required on pages that cannot display data without a specific team;
 # optional on pages that work with "All" (competition-wide view).
 _TEAM_REQUIRED_PAGES = ("Conversion-Funnel", "Pass-Map", "Pass-Network")
-_TEAM_OPTIONAL_PAGES = ("Shot-Map", "Heat-Map", "Match-Summary", "Player-Impact", "Player-Comparison")
+_TEAM_OPTIONAL_PAGES = ("Shot-Map", "Heat-Map", "Match-Summary", "Player-Impact", "Player-Comparison", "Team-KPIs", "Player-Metrics", "VAEP-Adjusted")
 # Match: required on pages that need a single match to render;
 # optional on pages that aggregate across matches.
 _MATCH_REQUIRED_PAGES = ("Pass-Map", "Pass-Network", "Match-Summary")
-_MATCH_OPTIONAL_PAGES = ("Player-Impact", "Conversion-Funnel")
+_MATCH_OPTIONAL_PAGES = ("Player-Impact", "Conversion-Funnel", "Team-KPIs")
 _PLAYER_PAGES = ("Shot-Map", "Heat-Map", "Player-Impact")
 _PLAYER_MULTI_PAGES = ("Player-Comparison",)
 _XG_MODEL_PAGES = ("Shot-Map",)
 _MIN_PASSES_PAGES = ("Pass-Network",)
 _MIN_MINUTES_PAGES = ("Player-Impact", "Player-Comparison")
 _GKA_PAGES = ("Goalkeeper-Analytics",)  # insight-views redesign (replaces legacy GK + gkt pages)
+_GKD_PAGES = ("GK-Decisions",)  # sk4118 P1 Phase B/E: GK decision-making + shot-stopping (own comp/keeper widgets)
 _TRACKING_PROVIDER_PAGES = ("Pitch-Control",)
-_SUB_VIEW_PAGES = ("Player-Impact", "Movement-Pressing", "Team-Shape", "Goalkeeper-Analytics", "Tactical-Positions")
+_SUB_VIEW_PAGES = ("Player-Impact", "Movement-Pressing", "Team-Shape", "Goalkeeper-Analytics", "Tactical-Positions", "GK-Decisions", "Player-Metrics")
 _PASS_OVERLAY_PAGES = ("Pass-Map",)
 _SIMILARITY_PAGES = ("Player-Similarity",)
 _PASS_TIMING_PAGES = ("Pass-Timing",)
@@ -455,6 +526,10 @@ _FILTER_HEADER_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Mat
                         "Player-Impact", "Player-Comparison", "Movement-Pressing",
                         "Pitch-Control", "Team-Shape", "Tactical-Positions", "Pass-Timing",
                         "Defensive-Impact", "AI-ML-Workflows", "Conversion-Funnel",
+                        # sk4118 P1 pages: Team KPIs / Player Territory & Duels / VAEP Adjusted
+                        # reuse the shared comp/team(/match) cascade; GK-Decisions has its own
+                        # comp/keeper widgets (like Goalkeeper-Analytics).
+                        "Team-KPIs", "Player-Metrics", "VAEP-Adjusted", "GK-Decisions",
                         # GK Analytics: filter SECTION must render (holds the sub-view selector +
                         # Provider/Keeper widgets). Global comp/team/match widgets are individually
                         # gated out (not in _COMP_PAGES etc.), so only GK controls show.
@@ -632,6 +707,29 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         depends_on="gka_selected_competition",
         help="Select a goalkeeper within the chosen competition. Both views (Distribution Value, "
         "Shot Review) update to this keeper.",
+    ),
+    # GK Decisions & Shot-Stopping (sk4118 P1 Phase B/E): competition-first -> keeper, own LOVs
+    # (event-based, all providers — not restricted to the tracking cohort like Goalkeeper Analytics).
+    SidebarWidget(
+        "dropdown",
+        "gkd_selected_competition",
+        "Competition",
+        "gkd_on_competition_change",
+        condition=f"current_page in {_GKD_PAGES}",
+        lov="gkd_competition_lov",
+        help="Competition with goalkeeper decision + shot-stopping data. The keeper list and both views "
+        "(Decision-Making, Shot-Stopping) are within the selected competition.",
+    ),
+    SidebarWidget(
+        "dropdown",
+        "gkd_selected_keeper",
+        "Keeper",
+        "gkd_on_keeper_change",
+        condition=f"current_page in {_GKD_PAGES}",
+        lov="gkd_keeper_lov",
+        depends_on="gkd_selected_competition",
+        help="Select a goalkeeper within the chosen competition. Both views (Decision-Making, "
+        "Shot-Stopping) update to this keeper.",
     ),
     SidebarWidget(
         "toggle",

@@ -5,7 +5,7 @@
 -- 4.36.0 changes NO existing xt_gk_* value (CHANGELOG); audit-only, NOT VAEP features. NULL until
 -- the next xt_gk recompute (the AC re-materialize wipes + repopulates this table anyway).
 --
--- Operator-applied (there is NO CI auto-apply — see CLAUDE.md / reference_bronze_migration_autoapply_gap).
+-- Operator-applied (there is NO CI auto-apply — see AGENTS.md / reference_bronze_migration_autoapply_gap).
 -- Idempotent: the runner skips ADD COLUMNS when the leading column (xt_gk_origin_x) already exists
 -- (DESCRIBE pre-check); Delta applies the column list atomically.
 --

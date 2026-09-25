@@ -15,7 +15,7 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 
-WHEEL_VERSION = "0.5.109"
+WHEEL_VERSION = "0.5.116"
 """Must match the version in pyproject.toml. Enforced by test_wheel_constants.py."""
 
 WHEEL_REPO = "luxury-lakehouse/build-artifacts"
@@ -28,7 +28,7 @@ WHEEL_BASE_URL = f"https://huggingface.co/{WHEEL_REPO}/resolve/main/{WHEEL_FILEN
 """Direct download URL for the wheel on HF Hub (no hash pinning)."""
 
 # ---------------------------------------------------------------------------
-# Compiled patterns (module-level per CLAUDE.md)
+# Compiled patterns (module-level per AGENTS.md)
 # ---------------------------------------------------------------------------
 
 WHEEL_URL_RE: re.Pattern[str] = re.compile(

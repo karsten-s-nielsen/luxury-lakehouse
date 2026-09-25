@@ -141,7 +141,6 @@ def test_every_mart_has_classification_tag() -> None:
 _COMPUTE_OUTPUT_BRONZE_TABLES: frozenset[str] = frozenset(
     {
         "defcon_results",  # compute_defcon_lite
-        "elastic_event_match",  # compute_elastic_sync
         "expected_threat_grids",  # compute_expected_threat
         "formation_labels",  # compute_formations_efpi
         "line_breaking_results",  # compute_line_breaking

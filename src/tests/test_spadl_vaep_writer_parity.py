@@ -590,6 +590,16 @@ class TestSpadlVaepWriterDdlParity:
             "offensive_value",
             "defensive_value",
             "vaep_value",
+            # sk4118 Phase D (TF-61): adjusted VAEP splits + xSuccess are computed during scoring,
+            # NOT carried through the per-game projection list.
+            "offensive_adjusted_value",
+            "defensive_adjusted_value",
+            "vaep_adjusted_value",
+            "xsuccess",
+            # sk4123 (TF-63 xImpact ride-along): ximpact + win_prob_leverage computed during scoring,
+            # NOT carried through the per-game projection list (like the Phase D adjusted cols above).
+            "ximpact",
+            "win_prob_leverage",
             "competition_id",
             "season_id",
             "data_source",
@@ -760,6 +770,11 @@ def _build_vaep_scoring_struct():  # type: ignore[no-untyped-def]
             StructField("offensive_value", DoubleType()),
             StructField("defensive_value", DoubleType()),
             StructField("vaep_value", DoubleType()),
+            # sk4118 Phase D (TF-61): adjusted VAEP splits + xSuccess (computed during scoring).
+            StructField("offensive_adjusted_value", DoubleType()),
+            StructField("defensive_adjusted_value", DoubleType()),
+            StructField("vaep_adjusted_value", DoubleType()),
+            StructField("xsuccess", DoubleType()),
             StructField("competition_id", LongType()),
             StructField("season_id", LongType()),
             StructField("data_source", StringType()),

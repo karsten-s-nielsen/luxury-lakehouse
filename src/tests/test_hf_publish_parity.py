@@ -108,6 +108,15 @@ _MODEL_CARD_ORPHAN_EXEMPT: frozenset[str] = frozenset(
         "bravery",
         "gkdv",
         "xt-gk-v2",
+        # sk4118 full-adoption (silly-kicks 4.121.0, P1 Phases B/C): the new per-player-evaluative
+        # governance cards for the shot-stopping / GK-decision / territory / duels metric families.
+        # These are dbt-mart metric families (not HF-published ML models); the cards satisfy the
+        # EU-AI-Act governance chain (AI_GOVERNANCE.md §5). No HF method-model repo is published for
+        # them — same posture as the deterministic method cards above. Remove any if/when a repo lands.
+        "shot-stopping",
+        "gk-decision",
+        "territory",
+        "duels",
     }
 )
 

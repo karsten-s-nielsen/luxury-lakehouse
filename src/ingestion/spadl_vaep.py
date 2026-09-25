@@ -133,7 +133,16 @@ _VAEP_SCHEMA = (
     "time_seconds DOUBLE, team_id BIGINT, player_id BIGINT, start_x DOUBLE, start_y DOUBLE, "
     "end_x DOUBLE, end_y DOUBLE, type_id BIGINT, action_type STRING, result_id BIGINT, "
     "action_result STRING, bodypart_id BIGINT, bodypart STRING, offensive_value DOUBLE, "
-    "defensive_value DOUBLE, vaep_value DOUBLE, competition_id BIGINT, season_id BIGINT, "
+    "defensive_value DOUBLE, vaep_value DOUBLE, "
+    # sk4118 Phase D (TF-61 VAEP_adjusted + xSuccess, Paul/Klemp/Memmert 2025): outcome-bias-free
+    # adjusted VAEP decomposition (mirrors offensive/defensive/vaep_value) + per-action completion
+    # probability. Additive; NaN where xSuccess is non-finite (never fabricated).
+    "offensive_adjusted_value DOUBLE, defensive_adjusted_value DOUBLE, "
+    "vaep_adjusted_value DOUBLE, xsuccess DOUBLE, "
+    # sk4123 (TF-63 xImpact ride-along, ADR-101): ximpact = VAEP_adjusted x dP(win|goal) + the
+    # per-action win-prob leverage weight. Computed during scoring; NaN where the WP state is unresolved.
+    "ximpact DOUBLE, win_prob_leverage DOUBLE, "
+    "competition_id BIGINT, season_id BIGINT, "
     "data_source STRING, "
     # Per-match HF redistribution tier (spec 2026-06-29) carried through from spadl_actions.
     "access_tier STRING, _ingested_at TIMESTAMP, "
@@ -517,6 +526,127 @@ def _load_models(
 # ---------------------------------------------------------------------------
 
 
+def _vaep_feature_fns() -> list:
+    """Return the canonical ordered VAEP feature functions used to train + score.
+
+    This EXACT list (with ``_NB_PREV_ACTIONS``) defines the feature columns the shipped XGBoost
+    boosters were fitted on, so it is the single source of truth shared by the scoring UDF's raw
+    path AND the ``rate_adjusted`` reconstruction (sk4118 Phase D). A mismatch here silently
+    corrupts both the raw and the adjusted values.
+    """
+    import silly_kicks.vaep.features as fs
+
+    return [
+        fs.actiontype_onehot,
+        fs.result_onehot,
+        fs.bodypart_onehot,
+        fs.time,
+        fs.startlocation,
+        fs.endlocation,
+        fs.startpolar,
+        fs.endpolar,
+        fs.movement,
+        fs.team,
+        fs.time_delta,
+    ]
+
+
+def _reconstruct_fitted_vaep(
+    model_scores: XGBClassifier,
+    model_concedes: XGBClassifier,
+    feature_fns: list,
+    nb_prev_actions: int,
+) -> Any:
+    """Rebuild a silly-kicks ``VAEP`` around already-fitted score/concede boosters (no retrain).
+
+    VAEP is trained externally (HF Jobs) and the two boosters are shipped as raw bytes, but
+    ``VAEP.rate_adjusted`` (TF-61, Paul/Klemp/Memmert 2025) is an INSTANCE method that reuses the
+    fitted classifiers via the canonical surgical-result-flip counterfactual. To call it we wrap the
+    boosters back into a ``VAEP`` built with the EXACT ``feature_fns`` + ``nb_prev_actions`` they were
+    trained on -- so ``compute_features`` reproduces the same feature columns and ``rate()`` reproduces
+    the manual raw scoring path byte-identical (asserted by ``test_vaep_adjusted_writer``).
+
+    silly-kicks stores the fitted classifiers in the name-mangled private dict ``VAEP.__models``
+    (-> ``_VAEP__models``); there is no public "from fitted models" constructor, so injection is the
+    sanctioned reconstruction. Insertion order MUST be scores-then-concedes (``rate`` / ``rate_adjusted``
+    read ``iloc[:, 0]`` / ``iloc[:, 1]``). If sk renames the store, ``rate()`` raises ``NotFittedError``
+    and the parity test fails loud (Hyrum's-law guard).
+    """
+    from silly_kicks.vaep import VAEP
+
+    v = VAEP(xfns=list(feature_fns), nb_prev_actions=nb_prev_actions)
+    # Sanctioned injection into sk's name-mangled fitted-model store (see docstring — Hyrum guard).
+    # sk ships no public setter and no stub for the private attr, so pyright cannot type this.
+    v._VAEP__models = {"scores": model_scores, "concedes": model_concedes}  # pyright: ignore[reportAttributeAccessIssue]
+    return v
+
+
+def _score_actions_adjusted(game_actions: pd.DataFrame, vaep_model: Any, xsuccess_model: Any) -> pd.DataFrame:
+    """xSuccess + outcome-bias-free (adjusted) VAEP for one game's actions (sk ``rate_adjusted``).
+
+    Returns a DataFrame with columns ``xsuccess`` / ``offensive_value`` / ``defensive_value`` /
+    ``vaep_value`` (the last three ADJUSTED), aligned to ``game_actions`` positional order. A NaN
+    xSuccess propagates to NaN adjusted values (never fabricated); a result-free VAEP raises inside
+    ``rate_adjusted`` (the non-vacuity guard).
+    """
+    import numpy as np
+
+    # ``game`` is only read by compute_features when tracking frames are supplied; the VAEP scoring
+    # path is frame-free, so an empty Series is safe and avoids threading match metadata through.
+    game = pd.Series(dtype="object")
+    adjusted = vaep_model.rate_adjusted(game, game_actions, xsuccess_model).reset_index(drop=True)
+    xs = np.asarray(xsuccess_model.predict_success(game_actions), dtype=float)
+    out = adjusted[["offensive_value", "defensive_value", "vaep_value"]].copy()
+    out.insert(0, "xsuccess", xs)
+    return out
+
+
+def _score_ximpact(game_actions: pd.DataFrame, adjusted: pd.DataFrame, wp_model: Any) -> tuple[pd.Series, pd.Series]:
+    """win_prob_leverage (``goal_leverage``) + ximpact (``VAEP_adjusted * dP(win|goal)``) for one game.
+
+    Byte-consistent with ``VAEP.rate_ximpact`` — reuses ``adjusted`` (the :func:`_score_actions_adjusted`
+    output, which carries the ADJUSTED ``vaep_value`` index-aligned to ``game_actions``) so
+    ``rate_adjusted`` runs once, then applies the SAME ``ximpact_values(adjusted, leverage)`` sk core.
+
+    ``games.home_team_id`` MUST be in the SPADL ``team_id`` (BIGINT) space so ``goal_leverage``'s
+    ``same_id`` resolves the home flag. We resolve it PROVIDER-AGNOSTICALLY: the ``team_id`` whose
+    ``team_id_native`` equals ``home_team_id_native`` in the data itself — NOT by re-hashing the native id
+    (``team_id`` is ``hash_native_id_to_bigint`` for IDSSE/Metrica/SkillCorner/GS but the stringified
+    numeric for StatsBomb/Wyscout, ADR-016; a blanket hash would mis-resolve the open-data providers).
+    Honest-NaN: an unresolved home id / WP state, or an UNKNOWN_TEAM_SENTINEL action,
+    yields NaN leverage and therefore NaN ximpact.
+
+    Returns ``(win_prob_leverage, ximpact)`` Series, both aligned to ``game_actions.index``.
+    """
+    from silly_kicks.vaep.ximpact import ximpact_values
+    from silly_kicks.win_probability import goal_leverage
+
+    from ingestion.spadl_adapter import UNKNOWN_TEAM_SENTINEL
+
+    htn = game_actions["home_team_id_native"].iloc[0] if "home_team_id_native" in game_actions else None
+    home_bigint = None
+    if htn is not None and not pd.isna(htn) and "team_id_native" in game_actions:
+        matched = game_actions[game_actions["team_id_native"] == htn]["team_id"].to_numpy()
+        if matched.size:
+            home_bigint = int(matched[0])
+    games = pd.DataFrame([{"game_id": game_actions["game_id"].iloc[0], "home_team_id": home_bigint}])
+
+    # ADR-016 UNKNOWN_TEAM_SENTINEL actions (a NULL native team hashed to a stable
+    # sentinel — GS id-space gaps, IDSSE freekick_short) present as a spurious THIRD
+    # team_id. compute_win_probability's nteams==2 gate then excludes the ENTIRE match,
+    # yielding NaN leverage for every action (empirically: all 64 GS matches carry two
+    # real teams plus the sentinel). Feed goal_leverage only the real-team actions so the
+    # match presents exactly two teams. Sentinel actions carry no shots, so dropping them
+    # is goal-state-neutral for the WP score sequence, and they cannot be team-attributed
+    # anyway — they stay honest-NaN. reindex restores full-frame index alignment.
+    wp_actions = game_actions
+    if "team_id_native" in game_actions:
+        wp_actions = game_actions[game_actions["team_id_native"] != UNKNOWN_TEAM_SENTINEL]
+    leverage = goal_leverage(wp_actions, model=wp_model, games=games).reindex(game_actions.index)
+    ximpact = ximpact_values(adjusted, leverage)
+    return leverage, ximpact
+
+
 def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
     """Build the ``applyInPandas`` UDF closure for VAEP scoring.
 
@@ -561,6 +691,17 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                 "offensive_value",
                 "defensive_value",
                 "vaep_value",
+                # sk4118 Phase D (TF-61 VAEP_adjusted + xSuccess): outcome-bias-free VAEP splits +
+                # the per-action completion probability. Computed during scoring (see _score_actions_adjusted),
+                # NOT carried from spadl_actions -- so they sit in _output_cols but NOT the per-game projection.
+                "offensive_adjusted_value",
+                "defensive_adjusted_value",
+                "vaep_adjusted_value",
+                "xsuccess",
+                # sk4123 (TF-63 xImpact ride-along): computed during scoring (NOT carried from
+                # spadl_actions) — in _output_cols + StructType + DDL, but NOT the per-game projection.
+                "ximpact",
+                "win_prob_leverage",
                 "competition_id",
                 "season_id",
                 "data_source",
@@ -627,19 +768,9 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
         import silly_kicks.vaep.features as _fs
         import silly_kicks.vaep.formula as _vaepformula
 
-        _feature_fns: list = [
-            _fs.actiontype_onehot,
-            _fs.result_onehot,
-            _fs.bodypart_onehot,
-            _fs.time,
-            _fs.startlocation,
-            _fs.endlocation,
-            _fs.startpolar,
-            _fs.endpolar,
-            _fs.movement,
-            _fs.team,
-            _fs.time_delta,
-        ]
+        # Single source of truth (module-level) — shared with the rate_adjusted reconstruction so the
+        # raw and adjusted values are guaranteed to score against the same feature columns.
+        _feature_fns: list = _vaep_feature_fns()
 
         # Load models with executor-level caching (deserialize from bytes)
         if not hasattr(_udf, "_model_cache"):
@@ -657,13 +788,34 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
             m_concedes.load_model(bytearray(concedes_raw))
             cache["concedes"] = m_concedes
 
+        # sk4118 Phase D: the bundled xSuccess model (sk package data — no external I/O) cached once
+        # per executor alongside the boosters.
+        if "xsuccess" not in cache:
+            from silly_kicks.xsuccess import XSuccessModel
+
+            cache["xsuccess"] = XSuccessModel.bundled()
+
+        # sk4123 (TF-63 xImpact ride-along): the bundled in-game win-probability model (sk package data,
+        # SHA256-verified, no external I/O) cached once per executor for the goal-leverage weight.
+        if "win_prob" not in cache:
+            from silly_kicks.win_probability import WinProbabilityModel
+
+            cache["win_prob"] = WinProbabilityModel.bundled()
+
         model_scores = cache["scores"]
         model_concedes = cache["concedes"]
+        xsuccess_model = cache["xsuccess"]
+        wp_model = cache["win_prob"]
+
+        # sk4118 Phase D (TF-61): reconstruct a fitted VAEP around the cached boosters ONCE per pdf
+        # for the outcome-bias-free rate_adjusted call (no retrain). rate() on it reproduces the raw
+        # path byte-identical; rate_adjusted adds ~2 extra feature builds per game (X_succ / X_fail).
+        vaep_adjusted_model = _reconstruct_fitted_vaep(model_scores, model_concedes, _feature_fns, _nb_prev)
 
         named = _spadl.add_names(pdf)  # type: ignore[arg-type]
         game_ids = named["game_id"].unique()
 
-        # Pre-build game index (CLAUDE.md: no boolean mask filter inside loops)
+        # Pre-build game index (AGENTS.md: no boolean mask filter inside loops)
         _game_groups = dict(iter(named.groupby("game_id")))
 
         all_scored: list[_pd.DataFrame] = []
@@ -786,6 +938,21 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                 game_out["offensive_value"] = values["offensive_value"].values
                 game_out["defensive_value"] = values["defensive_value"].values
                 game_out["vaep_value"] = values["vaep_value"].values
+
+                # sk4118 Phase D (TF-61, Paul/Klemp/Memmert 2025): outcome-bias-free adjusted VAEP
+                # splits + per-action xSuccess. Additive — the raw offensive/defensive/vaep values
+                # above are untouched (byte-identical to pre-Phase-D). A NaN xSuccess -> NaN adjusted.
+                _adj = _score_actions_adjusted(game_actions, vaep_adjusted_model, xsuccess_model)
+                game_out["offensive_adjusted_value"] = _adj["offensive_value"].to_numpy()
+                game_out["defensive_adjusted_value"] = _adj["defensive_value"].to_numpy()
+                game_out["vaep_adjusted_value"] = _adj["vaep_value"].to_numpy()
+                game_out["xsuccess"] = _adj["xsuccess"].to_numpy()
+
+                # sk4123 (TF-63 xImpact, ADR-101 ride-along): win_prob_leverage = dP(win | goal); ximpact
+                # = VAEP_adjusted x leverage (byte-consistent with VAEP.rate_ximpact). See _score_ximpact.
+                _leverage, _ximpact = _score_ximpact(game_actions, _adj, wp_model)
+                game_out["win_prob_leverage"] = _leverage.to_numpy()
+                game_out["ximpact"] = _ximpact.to_numpy()
 
                 # Carry through partition keys from the input
                 game_out["competition_id"] = pdf["competition_id"].iloc[0]
@@ -981,6 +1148,14 @@ def _vaep_output_schema() -> Any:
             StructField("offensive_value", DoubleType()),
             StructField("defensive_value", DoubleType()),
             StructField("vaep_value", DoubleType()),
+            # sk4118 Phase D (TF-61): adjusted VAEP splits + xSuccess. Position mirrors _output_cols.
+            StructField("offensive_adjusted_value", DoubleType()),
+            StructField("defensive_adjusted_value", DoubleType()),
+            StructField("vaep_adjusted_value", DoubleType()),
+            StructField("xsuccess", DoubleType()),
+            # sk4123 (TF-63 xImpact ride-along): ximpact + win_prob_leverage. Position mirrors _output_cols.
+            StructField("ximpact", DoubleType()),
+            StructField("win_prob_leverage", DoubleType()),
             StructField("competition_id", LongType()),
             StructField("season_id", LongType()),
             StructField("data_source", StringType()),

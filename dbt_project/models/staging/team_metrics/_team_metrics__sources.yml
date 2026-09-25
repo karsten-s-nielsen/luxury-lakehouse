@@ -1,0 +1,30 @@
+version: 2
+
+sources:
+  - name: team_metrics
+    description: >
+      Per-(match, team) team-match KPIs (silly-kicks 4.120.0 TF-52; sk4118 P1 Task A1). Written by the
+      ingestion.team_metrics_writer ADR-013 writer: it reads bronze.spadl_actions (event-only, all
+      providers) and runs silly-kicks compute_team_kpis — the 44-metric Twelve match-report glossary
+      (PPDA, field tilt, pass tempo, line heights, recoveries, conversion chain) plus the event-based
+      practitioner set (counter-press windows, post-regain security, build-up taxonomy, breakout-by-
+      channel, switch-conditioned press). Feeds the wide-by-granularity team-match mart
+      fct_team_metrics. The table is CREATE-IF-NOT-EXISTS'd by
+      scripts/migrations/2026-09-17-add-team-metrics.sql so the staging view resolves (empty) before
+      the Part-B scoring run populates it.
+    database: soccer_analytics
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 168, period: hour}
+        error_after: {count: 336, period: hour}
+
+    tables:
+      - name: team_metrics
+        description: >
+          One row per (data_source, match_id, team_id). team_id + match_id are NATIVE (surrogates
+          resolve in stg_team_metrics / fct_team_metrics). access_tier (ADR-064) is stamped per-row at
+          write time from the match's SPADL-bronze access_tier. Metric columns are NaN where the match
+          lacks the signal for that KPI (e.g. no defensive actions for the line-height metrics).

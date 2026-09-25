@@ -74,7 +74,6 @@ _BRONZE_READ_REQUIREMENTS: list[tuple[str, str, str]] = [
     # gold marts get built from yesterday's bronze for the named source
     # (1-day lag class).
     ("dbt_build_output_marts", "pausa_values", "compute_pausa"),
-    ("dbt_build_output_marts", "elastic_event_match", "compute_elastic_sync"),
     # ADR-074 / SEC7 (2026-08-08): stg_psxg__predictions reads bronze.psxg_predictions,
     # written by import_psxg_predictions. That import used to be an hf_sync sub-operation,
     # so this stage depended on hf_sync — coupling the daily dbt build to eight HF Hub

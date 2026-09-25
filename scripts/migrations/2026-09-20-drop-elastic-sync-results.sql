@@ -1,0 +1,22 @@
+-- 2026-09-20-drop-elastic-sync-results.sql
+-- B-ac elastic retirement (sk4118 cycle, spec §5.4 Option B-ac).
+--
+-- Retires the standalone ELASTIC producer chain. The `wf-elastic-sync` task, its
+-- entry point, workflow card, seed mapping and guard registration are removed in
+-- the same PR; the bronze table it produced has no remaining reader (the dbt
+-- `stg_idsse__elastic_sync` staging view + source decl are deleted, and the
+-- OBSO/PAUSA HF publisher + AC oracle fixture now source elastic frame linkage
+-- from the AC drain's action-grain columns in `fct_action_context` /
+-- `stg_action_context__values`).
+--
+-- Idempotent by construction (DROP TABLE IF EXISTS). Destructive: operator-applied
+-- WITH the merge per the bronze-migration convention (no CI auto-apply). No
+-- re-create — the table is gone for good.
+--
+-- Apply:
+--   uv run --extra sdk python scripts/migrations/_runner.py \
+--     scripts/migrations/2026-09-20-drop-elastic-sync-results.sql
+-- Verify (post-apply): the table no longer resolves —
+--   SELECT 1 FROM soccer_analytics.bronze.elastic_sync_results LIMIT 1;  -- expect TABLE_OR_VIEW_NOT_FOUND
+
+DROP TABLE IF EXISTS soccer_analytics.bronze.elastic_sync_results;

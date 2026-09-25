@@ -115,6 +115,19 @@ cleaned as (
         defensive_value,
         vaep_value,
 
+        -- sk4118 Phase D (TF-61 VAEP_adjusted + xSuccess, Paul/Klemp/Memmert 2025): outcome-bias-free
+        -- adjusted VAEP decomposition + per-action completion probability, carried from
+        -- bronze.vaep_action_values. Additive; NULL on rows scored before the Phase D re-materialize,
+        -- NaN where xSuccess is non-finite (never fabricated).
+        offensive_adjusted_value,
+        defensive_adjusted_value,
+        vaep_adjusted_value,
+        xsuccess,
+        -- sk4123 (TF-63 xImpact ride-along): match-context-weighted action value + its win-prob leverage.
+        -- Additive; NULL on rows scored before the xImpact re-materialize, NaN where the WP state is unresolved.
+        ximpact,
+        win_prob_leverage,
+
         -- Provenance
         data_source,
         cast(competition_id as int)                      as competition_id,
