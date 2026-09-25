@@ -6,7 +6,7 @@
 -- it is derived in fct_action_values via a JOIN to the canonical bronze.expected_threat_grids
 -- (single xT source of truth, ADR-056).
 --
--- Operator-applied (there is NO CI auto-apply — see CLAUDE.md / reference_bronze_migration_autoapply_gap).
+-- Operator-applied (there is NO CI auto-apply — see AGENTS.md / reference_bronze_migration_autoapply_gap).
 -- Idempotent: the runner DESCRIBE-skips each ADD COLUMNS when the leading column (gk_pass_length_m)
 -- already exists; Delta applies the column list atomically. NULL until the next SPADL re-conversion
 -- repopulates the rows.

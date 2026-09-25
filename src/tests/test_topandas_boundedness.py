@@ -47,7 +47,7 @@ When this test fails on a new call site, the engineer has two options:
   documenting the bound (`per-match filter`, `dim-table size`,
   `upstream applyInPandas-bounded`, etc.).
 
-The CLAUDE.md `.toPandas()` rule line is intentionally a one-line
+The AGENTS.md `.toPandas()` rule line is intentionally a one-line
 pointer to this test — the test is the authoritative source of truth
 because documentation rules drift while CI gates do not.
 """

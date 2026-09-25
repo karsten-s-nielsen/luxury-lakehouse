@@ -845,7 +845,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Validate identifiers per CLAUDE.md security rule (regex prevents SQL injection
+    # Validate identifiers per AGENTS.md security rule (regex prevents SQL injection
     # via the catalog.schema.table string interpolated into the synced-table URL).
     if not IDENTIFIER_RE.match(args.catalog):
         print(

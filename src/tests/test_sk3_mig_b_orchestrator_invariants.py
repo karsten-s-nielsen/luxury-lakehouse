@@ -255,7 +255,11 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     )
 
 
-# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 121, 0) ──────────
+# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 123, 0) ──────────
+# Floor advanced 4.121.0 -> 4.123.0 (2026-09-22) for silly-kicks 4.123.0's ExpectedThreat.fit_from_counts
+# (SK-XT-COUNTS, ADR-102) — the distributed counts-based xT fit the ExT-grid producer rewrite needs (P2).
+# Carries 4.122.0's TF-63 xImpact ride-along (VAEP.rate_ximpact + win_probability; adopted for the
+# ximpact/win_prob_leverage fct_action_values columns). Both additive; fit/rate/rate_adjusted byte-identical.
 # Floor advanced 4.89.0 -> 4.90.1 (2026-08-23) for the silly-kicks 4.90.1 IDSSE set-piece team
 # resolution fix (ADR-078): freekick_team/goalkick_team/corner_team/penalty_team added to the sportec
 # parser's _TEAM_QUALIFIER_PRIORITY. A direct freekick's `team` is 'unknown' with the real team only in
@@ -378,11 +382,11 @@ def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
         if not hasattr(trainer, "_REQUIRED_SK_MIN"):
             missing.append(item)
             continue
-        expected = (4, 121, 0)
+        expected = (4, 123, 0)
         actual = trainer._REQUIRED_SK_MIN
         if actual != expected:
             wrong_value[item] = actual
     assert not missing, (
-        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 121, 0)`: {missing}"
+        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 123, 0)`: {missing}"
     )
-    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 121, 0): {wrong_value}"
+    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 123, 0): {wrong_value}"

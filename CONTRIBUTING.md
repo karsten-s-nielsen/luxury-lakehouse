@@ -4,7 +4,7 @@ Thank you for your interest in contributing! The engineering standards are stric
 
 ## Engineering Standards
 
-All contributions follow the standards in [CLAUDE.md](CLAUDE.md). The key constraints:
+All contributions follow the standards in [AGENTS.md](AGENTS.md). The key constraints:
 
 - **Python 3.10** (strict: >=3.10, <3.11 — Databricks serverless constraint)
 - **Line length**: 120 characters maximum

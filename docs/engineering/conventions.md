@@ -1,8 +1,8 @@
 # Project Conventions — Full Catalogue
 
-This file is the source of truth that the `## Project Conventions` section of `CLAUDE.md` points to. `CLAUDE.md` carries the short-form rules; the explanatory detail, enforcement-test references, and script interfaces live here.
+This file is the source of truth that the `## Project Conventions` section of `AGENTS.md` points to. `AGENTS.md` carries the short-form rules; the explanatory detail, enforcement-test references, and script interfaces live here.
 
-When `CLAUDE.md` points to this file for a convention, locate the matching subsection below.
+When `AGENTS.md` points to this file for a convention, locate the matching subsection below.
 
 ## Databricks Dev Flow
 

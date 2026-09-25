@@ -299,6 +299,16 @@ def _preflight_with_queue(monkeypatch: pytest.MonkeyPatch, queue_cls: type) -> N
 
     monkeypatch.setattr(q, "DeltaUnitEventSink", _FakeSink)
     monkeypatch.setattr(q, "DeltaWorkQueue", queue_cls)  # patched at SOURCE (function-local import)
+
+    class _FakeProc:
+        # ADR-087 canary: preflight dry-runs one unit/provider through the processor before enqueue.
+        def __init__(self, *a: object, **k: object) -> None:
+            pass
+
+        def process(self, unit: WorkUnit, *, dry_run: bool = False) -> int:
+            return 0
+
+    monkeypatch.setattr(q, "SparkGameProcessor", _FakeProc)  # patched at SOURCE (function-local import)
     ac.main_preflight()
 
 

@@ -2,7 +2,7 @@
 -- bronze.spadl_action_context. Emitted by add_structural_pass (4.16.0) / add_player_influence /
 -- add_xcross_attempt (4.18.0) in the enrichment chain; NULL until the next compute run.
 --
--- Operator-applied (there is NO CI auto-apply — see CLAUDE.md / reference_bronze_migration_autoapply_gap).
+-- Operator-applied (there is NO CI auto-apply — see AGENTS.md / reference_bronze_migration_autoapply_gap).
 -- Idempotent: the runner skips ADD COLUMNS when the leading column (structural_lbs) already exists
 -- (DESCRIBE pre-check); Delta applies the column list atomically.
 --

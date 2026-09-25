@@ -9,7 +9,7 @@ This is the safety net that would have caught the 2-month-stale xT grid (the neg
 in week 1. It covers all tiers, including the deferred Tier B (expensive retrains) and the Tier C
 per-id pipelines that otherwise rely on humans remembering a wipe checklist after a re-derivation.
 
-ERROR-level logging is the alert sink per CLAUDE.md (warning-level telemetry is invisible to
+ERROR-level logging is the alert sink per AGENTS.md (warning-level telemetry is invisible to
 error-log queries — the 2026-04-12 warm-tier blocker class).
 """
 

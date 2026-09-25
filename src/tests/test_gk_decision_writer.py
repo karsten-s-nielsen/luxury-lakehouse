@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 from silly_kicks.gk_decision import GK_DECISION_KEYS, GkDecisionParams
 from silly_kicks.metric_contracts import METRIC_CONTRACTS
 
@@ -162,6 +163,79 @@ def test_gk_decision_unit_empty_returns_full_schema() -> None:
     )
     assert list(out.columns) == list(OUTPUT_COLUMNS)
     assert out.empty
+
+
+# --- Tracking-frame reconstruction (sk4118 drain-fold; ADR-087) --------------------------------------
+# gk_decision folded onto the tracking-marts drain runs on RAW tracking frames (no is_actor), NOT SB360
+# snapshots. score_gk_decision_* must skip the SB360 actor-bridge AND infer frame_convention="match_ltr"
+# (link_actions_to_frames + resolve_defended_goals) from the absence of is_actor. Uses the real
+# build_unit_inputs seam (identical to what the drain builds) — the idsse J03WMX_p1 anchor carries a
+# GK-distribution decision whose frame is inside the fixture's frame window.
+
+
+def _tracking_inputs():
+    from analytics.action_context.local.parquet_sources import (
+        ParquetActionsSource,
+        ParquetFrameSource,
+        ParquetMatchMetadataSource,
+        ParquetXtSource,
+    )
+    from analytics.action_context.unit_inputs import build_unit_inputs
+    from analytics.action_context.work_unit import WorkUnit
+
+    root = "src/tests/fixtures/action_context"
+    wu = WorkUnit(provider="idsse", match_id="J03WMX", period=1)
+    grid, xt_l, xt_w = ParquetXtSource(root).grid()
+    return build_unit_inputs(
+        wu,
+        frame_bundle=ParquetFrameSource(root).frames(wu),
+        actions_df=ParquetActionsSource(root).actions(wu),
+        meta=ParquetMatchMetadataSource(root).metadata(wu),
+        xt_grid_data=grid,
+        xt_l=xt_l,
+        xt_w=xt_w,
+    )
+
+
+def test_gk_decision_unit_tracking_frames_produces_rows() -> None:
+    """Raw tracking frames (no is_actor) score via inferred match_ltr — NON-EMPTY output (proves the
+    link + orientation actually work on real oriented tracking frames, not merely that the crash is
+    gone). Pre-fix the unconditional SB360 actor-bridge raised KeyError('is_actor')."""
+    from silly_kicks.tracking import gk_distribution_mask
+
+    inp = _tracking_inputs()
+    assert "is_actor" not in inp.frames.columns
+    gk_action_ids = set(
+        inp.actions[gk_distribution_mask(inp.actions, inp.frames, resolve_gk="robust").to_numpy()]["action_id"].tolist()
+    )
+    assert len(gk_action_ids) >= 2  # the fixture has GK-distribution decisions to score (else the test is vacuous)
+
+    out = score_gk_decision_unit(
+        inp.actions,
+        inp.frames,
+        _bundled_completion_model(),
+        data_source="idsse",
+        match_id="J03WMX",
+        access_tier="restricted",
+    )
+    assert list(out.columns) == list(OUTPUT_COLUMNS)
+    # Coverage, not just presence (D1-IMPL-06): match_ltr must LINK + SCORE the in-window GK-distribution
+    # decisions. A row floor (the fixture links >=2) catches a coverage regression that `not empty` would
+    # let through; every row must be a real reconstructed GK-distribution decision carrying a finite value
+    # (not a silent no-value / mislinked artifact).
+    assert len(out) >= 2
+    assert (out["option_set_source"] == "reconstructed").all()
+    assert set(out["decision_id"].tolist()).issubset(gk_action_ids)  # rows ARE linked GK-distribution decisions
+    assert out["decision_value"].notna().all()  # scored, not silently unvalued
+
+
+def test_actor_bridge_raises_on_frames_without_is_actor() -> None:
+    """Pins the pre-fix mechanism (non-vacuous): the SB360 actor-bridge on tracking frames raises."""
+    from silly_kicks.keeper_identity import apply_actor_identities_to_frames
+
+    inp = _tracking_inputs()
+    with pytest.raises(KeyError):
+        apply_actor_identities_to_frames(inp.frames, inp.actions)
 
 
 def test_gk_decision_mart_matches_sk_columns() -> None:

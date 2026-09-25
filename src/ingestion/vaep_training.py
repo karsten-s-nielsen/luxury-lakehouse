@@ -59,7 +59,7 @@ def extract_features_for_games(
     all_y_scores: list[pd.DataFrame] = []
     all_y_concedes: list[pd.DataFrame] = []
 
-    # Pre-build game index (CLAUDE.md: no boolean mask filter inside loops)
+    # Pre-build game index (AGENTS.md: no boolean mask filter inside loops)
     _game_groups: dict[Any, pd.DataFrame] = dict(iter(named.groupby("game_id")))
 
     for game_id in game_ids:

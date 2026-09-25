@@ -502,6 +502,27 @@ def test_load_xt_grid_from_delta_raises_on_missing_table() -> None:
         _load_xt_grid_from_delta(mock_spark, "soccer_analytics", "bronze", task_logger)
 
 
+def test_spark_game_processor_forwards_dry_run(monkeypatch) -> None:
+    """SparkGameProcessor.process(dry_run=...) forwards it to _process_tracking_match (ADR-087 canary).
+
+    The _process_tracking_match dry_run BRANCH (materialize via count(), skip write) needs Spark and is
+    exercised at operator runtime; this pins the offline wiring — the flag is threaded, not dropped."""
+    import ingestion.action_context as ac
+    from analytics.action_context.work_unit import WorkUnit
+    from ingestion.drain_adapters import SparkGameProcessor
+
+    monkeypatch.setattr(ac, "_load_xt_grid_from_delta", lambda *a, **k: ([[0.0]], 1, 1))
+    monkeypatch.setattr(ac, "_is_tracking_provider", lambda p: True)
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(ac, "_process_tracking_match", lambda *a, **k: captured.update(dry_run=k.get("dry_run")) or 0)
+
+    proc = SparkGameProcessor(spark=object(), catalog="cat", schema="bronze")
+    proc.process(WorkUnit(provider="idsse", match_id="M1", period=1), dry_run=True)
+    assert captured["dry_run"] is True
+    proc.process(WorkUnit(provider="idsse", match_id="M1", period=1))
+    assert captured["dry_run"] is False
+
+
 # ── Guard query functions tests ───────────────────────────────────────
 # These verify the Spark-native join logic used by the preflight guard.
 # Mock DataFrames simulate the join/filter/collect chain.
@@ -1025,11 +1046,23 @@ def test_main_preflight_builds_queue_and_task_values(monkeypatch: pytest.MonkeyP
 
     monkeypatch.setattr(q, "DeltaUnitEventSink", _FakeSink)
 
+    class _FakeProc:
+        # ADR-087 canary: preflight builds SparkGameProcessor + dry-runs one unit/provider before enqueue.
+        def __init__(self, *a: object, **k: object) -> None:
+            pass
+
+        def process(self, unit: WorkUnit, *, dry_run: bool = False) -> int:
+            captured["canary_dry_run"] = dry_run
+            return 0
+
+    monkeypatch.setattr(q, "SparkGameProcessor", _FakeProc)  # canary processor (function-local import)
+
     set_values: dict[str, object] = {}
     monkeypatch.setattr(ac, "_set_task_value", lambda key, value, log: set_values.__setitem__(key, value))
 
     ac.main_preflight()
 
+    assert captured["canary_dry_run"] is True  # ADR-087: the canary ran (dry_run) before enqueue
     assert captured["events_ensured"] is True  # D9: preflight is the SINGLE writer that creates them
     assert captured["ensured"] is True
     assert captured["pruned"] is True  # preflight self-prunes stale work-queue rows before enqueue
@@ -1097,7 +1130,7 @@ class _FakeUnitEventSink:
 
     def flush_terminals(self) -> None: ...
 
-    def slice_completed(self, run_id: str, worker_id: int) -> None:
+    def slice_completed(self, run_id: str, worker_id: int, *, abort_reason: str | None = None) -> None:
         self.slices.append((run_id, worker_id))
 
 

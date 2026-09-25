@@ -326,7 +326,7 @@ New `embeddings` environment with gensim + huggingface_hub. New `compute_embeddi
 - `docs/huggingface-setup.md`: Fork-friendly HF setup guide
 - `README.md`: HF in tech stack, Player Similarity in analytics list
 - `PLAN.md`: Phase 15+16 completion
-- `CLAUDE.md`: HF conventions
+- `AGENTS.md`: HF conventions
 
 ---
 
@@ -779,7 +779,7 @@ No changes needed — the existing `ALTER DEFAULT PRIVILEGES ... GRANT SELECT ON
 - Create: `docs/huggingface-setup.md`
 - Modify: `README.md`
 - Modify: `PLAN.md`
-- Modify: `CLAUDE.md`
+- Modify: `AGENTS.md`
 
 **Step 1: Create HF setup guide**
 
@@ -803,7 +803,7 @@ Create `docs/huggingface-setup.md` with sections:
 - Add synced table entries
 - Add Streamlit page entry
 
-**Step 4: Update CLAUDE.md**
+**Step 4: Update AGENTS.md**
 
 Add HF conventions to project conventions section:
 - HF org: `luxury-lakehouse`
@@ -1136,7 +1136,7 @@ git add src/analytics/football2vec.py \
         pyproject.toml uv.lock \
         docs/plans/2026-03-08-player-embeddings-hf.md \
         docs/huggingface-setup.md \
-        README.md PLAN.md CLAUDE.md TODO.md ROADMAP.md
+        README.md PLAN.md AGENTS.md TODO.md ROADMAP.md
 ```
 
 Commit message:

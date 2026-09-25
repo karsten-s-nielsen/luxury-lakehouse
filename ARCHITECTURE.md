@@ -445,7 +445,8 @@ docs/c4/
 luxury-lakehouse/
 │
 ├── ARCHITECTURE.md                    # This document
-├── CLAUDE.md                         # AI assistant instructions
+├── AGENTS.md                         # AI assistant instructions (canonical)
+├── CLAUDE.md                          # → @AGENTS.md import shim (Claude Code auto-load)
 ├── README.md                         # Project overview
 ├── ROADMAP.md                       # Research directions and future ideas
 ├── SECURITY.md                       # Security audit report
@@ -815,7 +816,7 @@ All code must pass these gates before merge:
 
 ### 6.6 — Database Performance
 
-Lakebase and Databricks performance standards are codified in [CLAUDE.md § Database Performance](CLAUDE.md#database-performance). Key rules:
+Lakebase and Databricks performance standards are codified in [AGENTS.md § Database Performance](AGENTS.md#database-performance). Key rules:
 
 - **Lakebase (PG):** Index every filtered column on fact tables >100K rows. No `ON ONLY` indexes (partitioned tables). Avoid `SELECT DISTINCT` on large tables — use recursive CTE. Re-run `scripts/create_indexes.py` after every synced table recreation.
 - **Databricks (Spark/dbt):** `validate_dataframe()` returns row count to `write_delta_table()` (no double `df.count()`), all writes use `replaceWhere` for idempotency, don't `.toPandas()` unbounded tables, extract repeated window functions into CTEs. 37 mart models use `liquid_clustered_by` for automatic data layout (replaced static Z-ordering). Predictive Optimization enabled at catalog level. Auto-compaction and `optimizeWrite` enabled via `+tblproperties` on all mart tables. 43 of 43 mart models enforce dbt model contracts (`contract: {enforced: true}`, `on_schema_change: fail`).
@@ -927,7 +928,9 @@ Consolidated list of academic citations referenced across UI pages and analytics
 | Lamberts (2025) | Goalkeeper Distribution Value Model. DOI: 10.1007/978-3-031-31772-9_19 | Goalkeeper Analytics |
 | Le, Yue, Carr & Lucey (2017) | "Data-Driven Ghosting Using Deep Imitation Learning." *MIT Sloan Sports Analytics Conference* | GKDV ghost-substitution counterfactual (`gkdv_*`) in `fct_gk_shot_stopping_pooled`, `wf-gkdv` (silly-kicks TF-18/TF-19) |
 | Lee, Jo, Hong, Bauer & Ko (2026) | "Valuing La Pausa" (PAUSA). *MIT Sloan Sports Analytics Conference 2026* | Pass Timing page, `wf-obso-pausa` |
-| Paul, Klemp & Memmert (2025) | "Beyond Outcome Bias: Incorporating Action Completion Probability and Risk-Return into Soccer Evaluation Models." *Machine Learning and Data Mining for Sports Analytics (MLSA 2025), paper 225* | Outcome-bias-free VAEP_adjusted (`vaep_adjusted_value`/`offensive_adjusted_value`/`defensive_adjusted_value`) + `xsuccess` in `fct_action_values`, `wf-vaep` (silly-kicks TF-61; re-scores the fitted VAEP on a surgical result-feature counterfactual weighted by action-completion probability — no retrain) |
+| Paul, Klemp & Memmert (2025) | "Beyond Outcome Bias: Incorporating Action Completion Probability and Risk-Return into Soccer Evaluation Models." *Machine Learning and Data Mining for Sports Analytics (MLSA 2025), paper 225* | Outcome-bias-free VAEP_adjusted (`vaep_adjusted_value`/`offensive_adjusted_value`/`defensive_adjusted_value`) + `xsuccess` in `fct_action_values`, `wf-vaep` (silly-kicks TF-61; re-scores the fitted VAEP on a surgical result-feature counterfactual weighted by action-completion probability — no retrain). Also the xImpact weighting `ximpact = VAEP_adjusted × ΔP(win\|goal)` in `fct_action_values` (silly-kicks TF-63, ADR-101) |
+| Dixon & Robinson (1998) | "A birth process model for association football matches." *Journal of the Royal Statistical Society: Series D 47(3)*. DOI 10.1111/1467-9884.00141 | In-game score-process lineage for the `win_prob_leverage` (goal-leverage) weight of `ximpact` in `fct_action_values`, `wf-vaep` (silly-kicks TF-63 forward Markov chain on score difference) |
+| Robberechts, Van Haaren & Davis (2019) | "Who Will Win It? An In-game Win Probability Model for Football." *arXiv:1906.05029* | In-game win-probability application underpinning the `win_prob_leverage`/`ximpact` goal-leverage weight in `fct_action_values`, `wf-vaep` (silly-kicks TF-63) |
 | Pena & Touchette (2012) | "A network theory analysis of football strategies." *arXiv:1206.6904* | Pass Network page |
 | Peters et al. (2025) | "A rule-based approach to classify counterpressing situations and their relationship with rest defence." *International Journal of Performance Analysis in Sport 26(1)*. DOI 10.1080/24748668.2025.2473799 | Rest-defense counterpressing/rest-defence framing — `fct_rest_defense`, tracking-marts drain (silly-kicks TF-60; framing) |
 | Pipping-Gamón, Feng & Sabin (2026) | "Beyond Expected Goals: A Probabilistic Framework for Shot Occurrences in Soccer." *arXiv:2512.00203* | xShotOccurrence (xS) in `fct_action_context`, `wf-action-context` |

@@ -23,7 +23,7 @@ HF Jobs invocations + runs steps 5-11 against existing Champions.
 Per spec §5.2.1: orchestrator runs as background process. Status streams every
 60-120s to stdout AND bronze.sk3_mig_b_runs Delta table.
 
-Per CLAUDE.md "Never disappear into long-running commands": invoke this script
+Per AGENTS.md "Never disappear into long-running commands": invoke this script
 via run_in_background=true; poll output file via tail -f.
 
 Cost cap (§9.5): _COST_CAP_USD = 80.0 — orchestrator halts on cumulative

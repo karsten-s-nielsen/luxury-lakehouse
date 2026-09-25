@@ -62,6 +62,10 @@ def test_architecture_md_has_appendix_d_academic_references() -> None:
         # silly-kicks 4.116/4.121 sk4118 P1 Phase D VAEP_adjusted + xSuccess (fct_action_values).
         "Klemp",  # VAEP_adjusted outcome-bias-free rating: Paul, Klemp & Memmert (2025) — wf-vaep (TF-61)
         "Memmert",  # co-author on Paul, Klemp & Memmert (2025) VAEP_adjusted — wf-vaep (TF-61)
+        # silly-kicks 4.123 sk4123 xImpact ride-along (TF-63, ADR-101): ximpact + win_prob_leverage in
+        # fct_action_values. Paul/Klemp/Memmert (xImpact) + Robberechts already listed; Dixon (Dixon &
+        # Robinson 1998) already listed for match_outcome — only Robinson is a genuinely-new surname.
+        "Robinson",  # in-game score-process chain: Dixon & Robinson (1998) — wf-vaep xImpact (TF-63)
         # silly-kicks 4.102/4.103 sk4118 P1 Phase E rest-defense (fct_rest_defense, tracking-marts drain).
         "Forcher",  # rest-defense KPI battery: Forcher et al. (2023) — restdefense TF-60
         "Dash",  # back-four line-height/compactness/spread: Dash et al. (2025) — restdefense TF-14/TF-60

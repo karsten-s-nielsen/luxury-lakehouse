@@ -68,8 +68,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 logger = logging.getLogger(__name__)
 
-# Keep in lockstep with the other silly-kicks-consuming entry points (CLAUDE.md sec serverless env pins).
-_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 121, 0)
+# Keep in lockstep with the other silly-kicks-consuming entry points (AGENTS.md sec serverless env pins).
+_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 123, 0)
 
 CATALOG = "soccer_analytics"
 BRONZE_TABLE = "gk_decision"
@@ -155,7 +155,7 @@ def score_gk_decision_reconstructed(
     completion_model: Any,
     params: Any = None,
     visible_area: pd.DataFrame | None = None,
-    frame_convention: Literal["per_action_ltr", "match_ltr"] = "per_action_ltr",
+    frame_convention: Literal["per_action_ltr", "match_ltr"] | None = None,
 ) -> tuple[pd.DataFrame, Any]:
     """One unit's ``(actions, frames)`` -> reconstruction-tier ``(samples, GkDecisionReport)``.
 
@@ -169,7 +169,14 @@ def score_gk_decision_reconstructed(
     from silly_kicks.tracking import gk_distribution_mask
 
     resolved_params = params if params is not None else GkDecisionParams()
-    frames_with_ids = apply_actor_identities_to_frames(frames, actions)
+    # SB360 snapshots carry an anonymous actor row (is_actor) bridged to the real keeper id and use the
+    # per_action_ltr convention (frame_id == action_id). Raw tracking frames already carry real player_ids
+    # (no is_actor) and link via match_ltr (link_actions_to_frames + resolve_defended_goals, sk-internal).
+    # Both derive from the SAME signal — the presence of an is_actor column — so infer the convention +
+    # skip the SB360 bridge when the caller does not force a convention (drain-hardening 2026-09-23, ADR-087).
+    is_snapshot = "is_actor" in frames.columns
+    conv = frame_convention if frame_convention is not None else ("per_action_ltr" if is_snapshot else "match_ltr")
+    frames_with_ids = apply_actor_identities_to_frames(frames, actions) if is_snapshot else frames
     gk_actions = actions[gk_distribution_mask(actions, frames_with_ids, resolve_gk="robust").to_numpy()]
 
     option_set = ReconstructedOptionSet(
@@ -178,7 +185,7 @@ def score_gk_decision_reconstructed(
         xpass=completion_model,
         params=resolved_params,
         keeper_ids=keeper_ids,
-        frame_convention=frame_convention,
+        frame_convention=conv,
         visible_area=visible_area,
     )
     return compute_gk_decision_value(option_set, extra_drops=option_set.drop_counts())
@@ -195,7 +202,7 @@ def score_gk_decision_unit(
     keeper_ids: list[Any] | None = None,
     params: Any = None,
     visible_area: pd.DataFrame | None = None,
-    frame_convention: Literal["per_action_ltr", "match_ltr"] = "per_action_ltr",
+    frame_convention: Literal["per_action_ltr", "match_ltr"] | None = None,
 ) -> pd.DataFrame:
     """One unit's oriented ``(actions, frames)`` -> stamped per-DECISION gk_decision rows (ADR-037 drain body).
 
