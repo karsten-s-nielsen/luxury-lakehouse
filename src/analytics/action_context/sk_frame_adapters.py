@@ -181,7 +181,7 @@ def convert_skillcorner_bronze_to_frames(
     # `bronze.skillcorner_matches.pitch_length/width` (ingestion/action_context.py, alongside
     # team_id/is_goalkeeper), and the fixtures carry them. Only when they are GENUINELY absent do we
     # fall back to `assume_standard_pitch=True` — a LAST RESORT that reintroduces the goal-line error
-    # on non-standard pitches, so it is logged at ERROR (never a silent 105x68 default; CLAUDE.md
+    # on non-standard pitches, so it is logged at ERROR (never a silent 105x68 default; AGENTS.md
     # telemetry rule). `.notna().any()` (not iloc[0]) is the has-dims signal: the join denormalises a
     # single non-null value across every row, so an unmapped-roster edge cannot fake presence.
     has_pitch_dims = (

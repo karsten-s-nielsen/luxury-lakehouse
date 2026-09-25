@@ -4,7 +4,7 @@ Measures the CPU-bound portion of wf_refresh() — DAG building, table
 construction, stats computation — with mocked I/O (Lakebase queries,
 Databricks SDK, YAML files).
 
-Performance budget (from CLAUDE.md):
+Performance budget (from AGENTS.md):
     - App page load: <=3 seconds (first load), <=500ms (cached interaction)
     - This benchmark covers the CPU-bound portion, which should be well
       under 500ms for 16 workflow cards.

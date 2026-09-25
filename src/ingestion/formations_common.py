@@ -210,7 +210,7 @@ def prepare_tracking_data(
     # Materialize filtered tracking data to a temp table so both detector
     # passes read from it without re-scanning the full 38M-row source.
     # (OPT-AUDIT: .cache() is forbidden on serverless; temp Delta table
-    # is the CLAUDE.md-sanctioned alternative for re-read avoidance.)
+    # is the AGENTS.md-sanctioned alternative for re-read avoidance.)
     temp_table = f"{catalog}.{schema}.{TEMP_TABLE_SUFFIX}"
     (
         spark.table(gold_table)

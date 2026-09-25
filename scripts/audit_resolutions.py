@@ -423,7 +423,7 @@ def fetch_space_requirements(repo_id: str) -> str:
 
     Deliberately NOT ``ingestion.utils.resolve_hf_token()``: it is declared ``-> str`` and returns
     the EMPTY STRING when nothing is found, which reaches ``hf_hub_download`` as ``token=""`` and
-    builds a bare ``Bearer`` header — the ``httpx.LocalProtocolError`` footgun CLAUDE.md's
+    builds a bare ``Bearer`` header — the ``httpx.LocalProtocolError`` footgun AGENTS.md's
     Orchestration Discipline documents. Passing nothing lets the library decide. It also cannot be
     imported here: this script runs under ``uv run --no-project``, so the wheel is not on
     ``sys.path`` on a clean runner.

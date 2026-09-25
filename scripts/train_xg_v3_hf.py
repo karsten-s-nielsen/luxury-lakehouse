@@ -140,7 +140,7 @@ except ModuleNotFoundError:  # pragma: no cover - exercised only in torch-free C
 # Validated HF Jobs flavor — single source of truth.
 VALIDATED_HF_FLAVOR: str = "l40sx1"
 
-# uv silent-downgrade footgun (CLAUDE.md): a top-level silly-kicks pin in PEP 723
+# uv silent-downgrade footgun (AGENTS.md): a top-level silly-kicks pin in PEP 723
 # deps silently overrides the wheel's transitive pin — so we do NOT pin it here and
 # instead assert the runtime minimum. Keep in lockstep with the other trainers.
 _REQUIRED_SK_MIN: tuple[int, int, int] = (4, 123, 0)

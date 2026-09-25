@@ -166,7 +166,7 @@ def publish_to_hf_hub(guarded: GuardedFrame, hf_token: str) -> str:
             )
 
         # Sweep stale siblings: delete_patterns are matched RELATIVE to path_in_repo ("data"),
-        # so the only correct whole-path pattern is ["**"] (CLAUDE.md). Matches the src/ingestion
+        # so the only correct whole-path pattern is ["**"] (AGENTS.md). Matches the src/ingestion
         # twin, which publishes the SAME repo from the same source — divergent sweep behaviour
         # between the twins would make the winner depend on run order.
         dataset_url = upload_guarded(
