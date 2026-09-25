@@ -848,7 +848,7 @@ wheels = [
 
 [[package]]
 name = "dbt-databricks"
-version = "1.12.4"
+version = "1.12.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -861,9 +861,9 @@ dependencies = [
     { name = "packaging", version = "25.0", source = { registry = "https://pypi.org/simple" } },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/49/aa/e90532b62bdbf173613b5ffb1eab795491c4337bdc27a40a9d4f1d14b386/dbt_databricks-1.12.4.tar.gz", hash = "sha256:55cf7fe840bf8f59c96ce2bed3f9ccb3c416d33e745e0c4e6c732726ef74396c", size = 121051, upload-time = "2026-08-12T05:35:32.88Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/68/33/6c00b73a1c1c072bfcbc846a036cf0cdfb5ec19c0acc53c967f4eef2ce78/dbt_databricks-1.12.5.tar.gz", hash = "sha256:7ba466542197b8a52192dd066e8998c2fc69361677d485ec07753b9808a5ba1d", size = 121067, upload-time = "2026-09-01T13:50:04.215Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/69/bb/8b7db00f8998df1bdd5f25d00cb6972e01e8066550dc950f6f4735f83664/dbt_databricks-1.12.4-py3-none-any.whl", hash = "sha256:c200d901394cec48972e73319ca41e8fbc3346f93c6d403f6c638ccf8ddf5a2d", size = 179086, upload-time = "2026-08-12T05:35:31.369Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/65/5170aa522bb1707ed56d078fc097ad605da91ad492f08244c5a39d321912/dbt_databricks-1.12.5-py3-none-any.whl", hash = "sha256:e1bdeec85b9cb95ce8e33f376888f3dc7d457d3acffc0b685101f666bf304de4", size = 179066, upload-time = "2026-09-01T13:50:02.856Z" },
 ]
 
 [[package]]
