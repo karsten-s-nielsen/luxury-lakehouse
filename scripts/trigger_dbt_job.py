@@ -113,7 +113,7 @@ def build_runs_submit_payload(
                     "environment_version": "2",
                     "dependencies": [
                         "dbt-core==1.11.14",
-                        "dbt-databricks==1.12.4",
+                        "dbt-databricks==1.12.5",
                     ],
                 },
             }
