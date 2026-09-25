@@ -397,7 +397,7 @@ def _convert_statsbomb_from_bronze(
     # No `if "visibility" in columns` guard: the projection above makes its presence a hard
     # precondition. A tolerant guard here would convert a missing column into an empty map and
     # thread None for EVERY match — silently restricting the whole open corpus after the PR-2b
-    # flip. Fail loud instead (CLAUDE.md: no silent degradation).
+    # flip. Fail loud instead (AGENTS.md: no silent degradation).
     visibility_map: dict[int, str | None] = dict(
         zip(all_matches_pdf["match_id"], all_matches_pdf["visibility"], strict=True)
     )

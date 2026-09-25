@@ -6,7 +6,7 @@
 --   * duels (6 Glicko-2 cols + provenance) — ingestion.duels_writer / compute_duel_ratings (event-only,
 --     stateful single-driver ordered pass).
 --
--- Wide-by-granularity (CLAUDE.md "metric marts = WIDE by GRANULARITY not per-feature"): the two families
+-- Wide-by-granularity (AGENTS.md "metric marts = WIDE by GRANULARITY not per-feature"): the two families
 -- share the (match, player) grain, so they land in ONE mart, not two per-feature marts. A player-match may
 -- carry territory but not duels (a defender with a hull but no ground duel) or vice versa, so the two
 -- staging views are FULL-OUTER-JOINed on the native grain, then the native ids are resolved to Kimball

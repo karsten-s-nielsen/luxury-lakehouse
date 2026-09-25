@@ -76,7 +76,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 # Validated HF Jobs flavor — single source of truth.
 VALIDATED_HF_FLAVOR: str = "cpu-basic"
 
-# uv silent-downgrade footgun (CLAUDE.md): a top-level silly-kicks pin in PEP 723 deps silently
+# uv silent-downgrade footgun (AGENTS.md): a top-level silly-kicks pin in PEP 723 deps silently
 # overrides the wheel's transitive pin, so we do NOT pin it and assert the runtime minimum instead.
 _REQUIRED_SK_MIN: tuple[int, int, int] = (4, 123, 0)
 

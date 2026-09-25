@@ -4,7 +4,7 @@ Uses pytest-benchmark to measure execution time of the hot-path functions
 that run inside ``applyInPandas`` on Databricks serverless executors, where the
 1 GB UDF memory cap makes per-call efficiency critical.
 
-Performance budgets (from CLAUDE.md):
+Performance budgets (from AGENTS.md):
     - Batched pitch control: <=5 ms per frame for 22 targets
     - Line-breaking detection: <=2 ms per pass
     - Shape graph construction: <=2 ms for 10 outfield players

@@ -6,7 +6,7 @@
 -- NULL until each provider's next SPADL re-conversion (SkillCorner + IDSSE re-conversions are
 -- the scheduled follow-up; see PLAN task #14 / project memory).
 --
--- Operator-applied (there is NO CI auto-apply — see CLAUDE.md / reference_bronze_migration_autoapply_gap).
+-- Operator-applied (there is NO CI auto-apply — see AGENTS.md / reference_bronze_migration_autoapply_gap).
 -- Idempotent: the runner skips each ADD COLUMNS when its leading column (result_source) already
 -- exists (DESCRIBE pre-check); Delta applies each column list atomically.
 --

@@ -5,7 +5,7 @@
 --   * match_outcome (5 win-prob cols) — ingestion.match_outcome_writer / compute_match_outcome
 --     (event-only, per-shot xG integration).
 --
--- Wide-by-granularity (CLAUDE.md "metric marts = WIDE by GRANULARITY not per-feature"): the two
+-- Wide-by-granularity (AGENTS.md "metric marts = WIDE by GRANULARITY not per-feature"): the two
 -- families share the (match, team) grain, so they land in ONE mart, not two per-feature marts. A
 -- team-match may carry one family but not the other (match_outcome needs per-shot xG), so the two
 -- staging views are FULL-OUTER-JOINed on the native grain, then the native ids are resolved to Kimball

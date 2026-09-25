@@ -28,7 +28,7 @@ WHEEL_BASE_URL = f"https://huggingface.co/{WHEEL_REPO}/resolve/main/{WHEEL_FILEN
 """Direct download URL for the wheel on HF Hub (no hash pinning)."""
 
 # ---------------------------------------------------------------------------
-# Compiled patterns (module-level per CLAUDE.md)
+# Compiled patterns (module-level per AGENTS.md)
 # ---------------------------------------------------------------------------
 
 WHEEL_URL_RE: re.Pattern[str] = re.compile(

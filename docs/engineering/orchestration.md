@@ -4,7 +4,7 @@ Rules and debugging patterns for scripts that dispatch training across multiple 
 
 These rules were derived from the EV2 Phase 1 cycle (2026-04-23), where a six-variant harvest on three backends produced five false silent-inf failures before the real root cause surfaced. The cycle cost roughly 4 hours of active debugging across 5 sequential re-fires (Phase 1a → 1e). Every rule below maps to a concrete failure mode from that debugging session — they're not speculative; they're sutures.
 
-Short-form statement of each rule is in the project `CLAUDE.md` § Orchestration Discipline; the full rationale and failure-mode narrative live here.
+Short-form statement of each rule is in the project `AGENTS.md` § Orchestration Discipline; the full rationale and failure-mode narrative live here.
 
 ## Rule 1 — HF tokens via `huggingface_hub.get_token()`
 
