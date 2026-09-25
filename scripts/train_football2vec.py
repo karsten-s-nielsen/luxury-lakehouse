@@ -74,7 +74,7 @@ from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 # invocation.
 VALIDATED_HF_FLAVOR: str = "cpu-xl"
 
-# uv silent-downgrade footgun (CLAUDE.md): a top-level silly-kicks pin in PEP
+# uv silent-downgrade footgun (AGENTS.md): a top-level silly-kicks pin in PEP
 # 723 deps silently overrides the wheel's transitive pin; explicit pins are an
 # active footgun, not a safety net (verified empirically 2026-05-04).
 _REQUIRED_SK_MIN: tuple[int, int, int] = (4, 123, 0)

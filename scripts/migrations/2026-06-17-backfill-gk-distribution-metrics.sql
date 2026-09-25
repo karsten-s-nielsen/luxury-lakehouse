@@ -15,7 +15,7 @@
 --                                freekick_short=4, goalkick=22} AND length > 60.0   (False elsewhere,
 --                                never NULL — matches the helper's full boolean column)
 --
--- Operator-applied (NO CI auto-apply — see CLAUDE.md / reference_bronze_migration_autoapply_gap).
+-- Operator-applied (NO CI auto-apply — see AGENTS.md / reference_bronze_migration_autoapply_gap).
 -- Idempotent by construction: every column is recomputed from immutable source columns
 -- (gk_role, start_x/y, end_x/y, type_id), so re-running yields identical values.
 --

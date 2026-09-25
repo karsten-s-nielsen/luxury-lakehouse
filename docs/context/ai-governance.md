@@ -1,0 +1,13 @@
+# Context — AI Governance & External Research Tracking
+
+On-demand detail for the AI Governance rules in `AGENTS.md`. These are living-record disciplines enforced by tests; the history below is why each exists.
+
+## AI Governance
+
+- **`AI_GOVERNANCE.md` is the living record of EU AI Act posture**: When adding, modifying, renaming, or removing a per-player evaluative ML system (any workflow card listed in `PER_PLAYER_EVALUATIVE_CARDS` in `src/tests/test_ai_governance_md.py`), update `AI_GOVERNANCE.md` §5 (Scope), create or update the matching HuggingFace model card under `docs/huggingface/model-cards/`, add the `governance:` YAML block to the workflow card, and re-run `uv run pytest src/tests/test_ai_governance_md.py -v` before merging. The test enforces: required sections present, workflow-card inventory parity, model-card inventory parity, `governance:` YAML block presence, `EU AI Act — Intended Use and Non-Use` stanza presence on every model card, `SEC-AUDIT-v1.12.0 REG-01` provenance tag, and a 30-day grace-period check on the **Next review** date. Non-negotiable.
+- **`ARCHITECTURE.md` Appendix D is the living record of academic references**: When introducing a new published methodology — new `Citation(...)` in a `PageConfig`, new `references:` entry in a workflow card, new methodology cited in `NOTICE` — add the author to `ARCHITECTURE.md` § 8 "D. Academic References" and extend the `expected_authors` list in `src/tests/test_architecture_md_appendix.py`. That test is the reason the appendix exists; it ran the D56 cycle and it still runs today. This rule was forgotten between March and April 2026 and caused the D56 academic-reference audit; the rule exists so that gap does not reopen.
+
+## External Research Tracking
+
+- **`docs/research/external-research-tracking.md` is the durable record of external research sources being monitored** — specific pre-publication papers, academic labs (DTAI Sports Analytics Lab / KU Leuven), conferences (MLSA), and actively-developed libraries (UnravelSports) whose output could change a lakehouse decision. Add a tracker entry (What / Why / Mechanism / Last reviewed / Next review) when a LinkedIn post, paper, or release surfaces an *ongoing* research stream — not when a one-shot conversion to TODO suffices (e.g. D60-D64 from single LinkedIn posts went directly to TODO without a tracker entry).
+- **Quarterly review cadence**: first week of Jan / Apr / Jul / Oct. Check each active tracker's mechanism, update "Last reviewed," promote anything ready to TODO/ROADMAP/ADR via the Promotion log, archive anything that went stale. Next scheduled review: 2026-07-24.

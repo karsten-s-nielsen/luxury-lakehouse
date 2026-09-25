@@ -815,7 +815,7 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
         named = _spadl.add_names(pdf)  # type: ignore[arg-type]
         game_ids = named["game_id"].unique()
 
-        # Pre-build game index (CLAUDE.md: no boolean mask filter inside loops)
+        # Pre-build game index (AGENTS.md: no boolean mask filter inside loops)
         _game_groups = dict(iter(named.groupby("game_id")))
 
         all_scored: list[_pd.DataFrame] = []

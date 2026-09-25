@@ -1,0 +1,11 @@
+# Context — Orchestration Discipline
+
+On-demand detail for the Orchestration rules in `AGENTS.md`. Multi-backend training orchestration (`scripts/evaluate_*`, `src/evolve/backends/`). Governing ADR: [ADR-072](../superpowers/adrs/ADR-072-publish-seam-guarded-frame.md). Full rationale + failure-mode catalog in `docs/engineering/orchestration.md`. Partially enforced by `src/tests/test_evolve_football2vec_l2.py`.
+
+- **HF tokens: `ingestion.utils.resolve_hf_token()` is the ONLY sanctioned resolver for anything under `src/` (ADR-072 amendment 2026-08-07)** — it tries `HF_TOKEN` env → Databricks secret scope `hf`/`token` → cached CLI login. On Databricks serverless the secret scope is the ONLY source, so a hand-rolled `os.environ.get("HF_TOKEN", "") or get_token()` raises before doing any work — three `src/ingestion/` publishers carried that exact copy-paste and failed silently on every job run while `hf_sync` swallowed the error and reported SUCCESS. Enforced by an AST gate over `src/ingestion/` (`test_publisher_upload_contract.py`). For *orchestration* scripts prefer `huggingface_hub.get_token()` over a bare `os.environ.get("HF_TOKEN", "")`, whose empty default triggers `httpx.LocalProtocolError` on a `Bearer ` header when non-interactive SSH has HF_TOKEN unset. `resolve_hf_token()` subsumes both and is safe everywhere.
+- **Smoke tests must exercise `HfApi().whoami()` auth**, not just imports — unauthenticated remotes pass import checks then silently burn every dispatched variant.
+- **Post-deploy entrypoint verify is mandatory** — re-run the exact import chain the worker will execute (`from evolve.evaluator import EvolveEvaluator; from evolve.remote_worker import main`) after `_deploy_to_remote`.
+- **Per-backend timeout = measured per-epoch × max epochs × 2** — global 900s default kills slow backends (GB10 at ~0.5× RTX 5070 Ti) mid-Epoch-1 with elapsed ≈ 904s.
+- **Evaluator `except Exception`**, not a narrow tuple — narrow tuples miss `httpx.HTTPError`, `HfHubHTTPError`, `OSError`, and any class added by library bumps.
+- **Remote shell probes: double quotes inside, ASCII only** — single quotes close the outer `python -c '<probe>'` wrapper; em-dashes get mangled by mismatched remote locale.
+- **Silent-inf metrics are always a bug**, never "variant failed" — investigate via `_error_text` in uploaded `metrics.json` before re-firing.

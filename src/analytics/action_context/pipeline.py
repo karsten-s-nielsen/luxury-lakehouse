@@ -164,7 +164,7 @@ def _convert_tracking_batch(
             pdf, game_id=game_id, home_team_id=meta.home_team_id, period_relative_time=_prt
         )
         # M2 observability (silly-kicks 4.37.0 S1): surface the within-pitch gross-off-pitch count at ERROR
-        # (CLAUDE.md telemetry rule — alerts are ERROR, never warning) so a transform regression is visible.
+        # (AGENTS.md telemetry rule — alerts are ERROR, never warning) so a transform regression is visible.
         if getattr(_sc_report, "n_gross_off_pitch", 0):
             logger.error(
                 "AC observability: skillcorner convert_to_frames flagged %d gross-off-pitch row(s) (S1 "

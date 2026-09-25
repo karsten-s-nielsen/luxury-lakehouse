@@ -83,4 +83,4 @@ recompute after an upstream re-derivation.
 Read-only: scans the watermarks table, reads `DESCRIBE HISTORY` for each distinct upstream, and logs
 one ERROR per stale `(workflow, upstream)` pair. No table is written and nothing is rebuilt —
 alerting is orthogonal to any auto-rebuild trigger. ERROR-level logging is the alert sink per
-CLAUDE.md (warning-level telemetry is invisible to error-log queries).
+AGENTS.md (warning-level telemetry is invisible to error-log queries).

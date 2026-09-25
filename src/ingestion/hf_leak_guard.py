@@ -4,7 +4,7 @@ Every public-HF publisher calls ``assert_no_private_leak(public_df, publisher=<n
 before uploading its PUBLIC artifact. The registry enumerates every publisher + its tier-handling mode,
 so a new publisher with no entry fails ``test_registry_covers_every_publisher_module`` (it cannot be
 silently omitted) and the guard refuses to run for it. ERROR-level + raise on any non-public row
-(spec C3 / the CLAUDE.md telemetry rule — alerts are ERROR, never warning).
+(spec C3 / the AGENTS.md telemetry rule — alerts are ERROR, never warning).
 """
 
 from __future__ import annotations

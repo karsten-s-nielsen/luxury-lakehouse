@@ -5,7 +5,7 @@
 -- Composites are stored per philosophy preset (xt_gk = library default) because delta enters the
 -- stored rav term and eta the unstored temporal factor — presets are NOT client-side derivable.
 --
--- Operator-applied (there is NO CI auto-apply — see CLAUDE.md / reference_bronze_migration_autoapply_gap).
+-- Operator-applied (there is NO CI auto-apply — see AGENTS.md / reference_bronze_migration_autoapply_gap).
 -- Idempotent: the runner skips ADD COLUMNS when the leading column (xt_gk) already exists
 -- (DESCRIBE pre-check); Delta applies the column list atomically.
 --

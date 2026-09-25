@@ -132,7 +132,7 @@ def compute_off_ball_xt_match(
     all_frame_results: list[pd.DataFrame] = []
     frames_sampled = 0
 
-    # Pre-build frame index (CLAUDE.md: no boolean mask filter inside loops)
+    # Pre-build frame index (AGENTS.md: no boolean mask filter inside loops)
     _frame_groups = dict(iter(tracking_df.groupby(["period", "frame"])))
 
     for _, pf_row in sampled_pf.iterrows():
