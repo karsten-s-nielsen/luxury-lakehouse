@@ -25,7 +25,7 @@ class TestExtractWarehouseIdFromHttpPath:
         assert _extract_warehouse_id_from_http_path("/sql/1.0/warehouses/6c3b36ca64d183fe") == "6c3b36ca64d183fe"
 
     def test_accepts_msys_double_slash_form(self) -> None:
-        """CLAUDE.md requires the ``//sql/...`` prefix to survive Git Bash path
+        """AGENTS.md requires the ``//sql/...`` prefix to survive Git Bash path
         mangling on Windows. ``rsplit`` extracts the same trailing segment
         either way.
         """

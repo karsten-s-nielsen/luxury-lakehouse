@@ -416,7 +416,10 @@ resource "databricks_job" "data_ingestion" {
       ]
     }
 
-    environment_key = "default"
+    # sk4118 ExT-v2 (ADR-085): the producer now fits a silly-kicks ExpectedThreat
+    # (from silly_kicks.xthreat) — requires the analytics env, not default (which
+    # has no silly-kicks). The v1 producer used the in-repo grid + ran on default.
+    environment_key = "analytics"
   }
 
   # ── Task: Detect team formations via EFPI template matching ──────────
@@ -590,7 +593,10 @@ resource "databricks_job" "data_ingestion" {
       ]
     }
 
-    environment_key = "default"
+    # sk4118 ExT-v2 (ADR-085): off-ball xT now reads the fitted silly-kicks
+    # ExpectedThreat (values_at_points seam) — requires the analytics env (has
+    # silly-kicks), not default. The v1 path used the in-repo grid on default.
+    environment_key = "analytics"
   }
 
   # ── Task: Compute PAUSA pass timing values ────────────────────────────
@@ -1225,7 +1231,9 @@ resource "databricks_job" "data_ingestion" {
           ]
         }
 
-        environment_key = "default"
+        # ingestion.idsse parses DFL XML via silly_kicks.providers.sportec (ADR-055) ->
+        # requires the analytics env (has silly-kicks), not default. (sk4118 env sweep.)
+        environment_key = "analytics"
       }
     }
   }
@@ -1385,7 +1393,7 @@ resource "databricks_job" "data_ingestion" {
   # worker-id list + run_id task values this preflight writes (ADR-037 worker-drain).
   task {
     task_key        = "preflight_action_context"
-    timeout_seconds = 600
+    timeout_seconds = 1200
     max_retries     = 0
 
     # Needs SPADL + all provider data ingested before checking freshness.
@@ -1529,7 +1537,7 @@ resource "databricks_job" "data_ingestion" {
   # The downstream compute_tracking_marts for_each consumes the worker-id list + run_id it writes.
   task {
     task_key        = "preflight_tracking_marts"
-    timeout_seconds = 600
+    timeout_seconds = 1200
     max_retries     = 0
 
     depends_on { task_key = "compute_action_context" }
@@ -1916,7 +1924,7 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path,
-        "silly-kicks[das,ghost-gk,parse-dfl]==4.121.0",
+        "silly-kicks[das,ghost-gk,parse-dfl]==4.123.0",
         "accessible-space==2.0.15",
         # numba: silly-kicks ships @njit kernels for pitch control + ball-carrier
         # (tracking/pitch_control/_{spearman,fernandez_bornn}.py, tracking/_ball_carrier.py)

@@ -32,7 +32,7 @@ _HF_WHOAMI_URL: Final = "https://huggingface.co/api/whoami-v2"
 _REQUIRED_ORG: Final = "luxury-lakehouse"
 _ALLOWED_ROLES: Final = frozenset({"admin", "write"})
 _HF_TOKEN_RE: Final = re.compile(r"^hf_[A-Za-z0-9]{20,}$")
-_REQUEST_TIMEOUT: Final = (5, 15)  # (connect, read) per CLAUDE.md security standard
+_REQUEST_TIMEOUT: Final = (5, 15)  # (connect, read) per AGENTS.md security standard
 
 
 def _validate_hf_admin(auth_header: str | None) -> tuple[bool, int, str]:

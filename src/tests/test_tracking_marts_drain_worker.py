@@ -36,7 +36,7 @@ class _FakeProcessor:
     def __init__(self, *a: object, **k: object) -> None:
         self.processed: list[str] = []
 
-    def process(self, unit: WorkUnit) -> int:
+    def process(self, unit: WorkUnit, *, dry_run: bool = False) -> int:
         if unit.match_id == "M2":
             raise ValueError(f"boom {unit.match_id}")
         self.processed.append(unit.match_id)
@@ -75,7 +75,7 @@ class _RecordingSink:
     def flush_terminals(self) -> None:
         self.calls.append(("flush", None))
 
-    def slice_completed(self, run_id: str, worker_id: int) -> None:
+    def slice_completed(self, run_id: str, worker_id: int, *, abort_reason: str | None = None) -> None:
         self.calls.append(("slice_completed", worker_id))
 
 

@@ -390,7 +390,7 @@ def _parse_pyproject_entry_points() -> dict[str, str]:
 
 # TF task_key -> expected card id. `None` = intentionally no owning card
 # (documented governance gap). Every `None` must carry a justification
-# comment explaining why CLAUDE.md:253 ("AI/ML workflows ... academic
+# comment explaining why AGENTS.md:253 ("AI/ML workflows ... academic
 # provenance, cost estimates, monitoring thresholds") does not apply to
 # this entry point. Keep the right-hand side stable; update when TF
 # tasks are renamed.
@@ -403,7 +403,7 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     "ingest_skillcorner": "wf-skillcorner",
     # Separate XML schema (DFL_03_02 events) subordinate to the IDSSE source
     # bundle already governed by wf-idsse. Pure data-relay helper with no
-    # ML methodology and no per-player evaluation — falls outside CLAUDE.md:253.
+    # ML methodology and no per-player evaluation — falls outside AGENTS.md:253.
     "ingest_idsse_events": None,
     # PR-Cycle-A (2026-04-30): Runtime chunk-discovery preflight feeding the
     # `ingest_idsse` for_each_task fan-out. Pure orchestration helper —
@@ -511,7 +511,7 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     "dbt_build_intermediate_marts": "wf-dbt-build-intermediate-marts",
     "dbt_build_output_marts": "wf-dbt-build-output-marts",
     # Infrastructure plumbing — triggers Lakebase SNAPSHOT refresh via the
-    # Databricks REST API. Not an AI/ML workflow under CLAUDE.md:253.
+    # Databricks REST API. Not an AI/ML workflow under AGENTS.md:253.
     "refresh_synced_tables": None,
 }
 

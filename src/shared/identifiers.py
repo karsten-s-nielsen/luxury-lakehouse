@@ -274,7 +274,7 @@ def gradientsports_native_competition_id(raw_competition_id: str | int) -> str:
 # ---------------------------------------------------------------------------
 # Non-breaking additions — existing bare-string functions remain. These
 # wrappers carry (provider, value) together for downstream type safety.
-# No Pydantic — src/shared/ is stdlib-only per CLAUDE.md.
+# No Pydantic — src/shared/ is stdlib-only per AGENTS.md.
 
 
 class NativeMatchId(NamedTuple):

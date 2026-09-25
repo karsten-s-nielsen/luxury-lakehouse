@@ -38,7 +38,7 @@ from tests._delta_write_ast import write_delta_table_calls, writes_without_appen
 
 _MAIN_TF = Path(__file__).resolve().parents[3] / "terraform" / "modules" / "workflows" / "main.tf"
 
-# Pre-compiled at MODULE level (CLAUDE.md: never `re.compile`/`re.findall` with a raw pattern string
+# Pre-compiled at MODULE level (AGENTS.md: never `re.compile`/`re.findall` with a raw pattern string
 # inside a function body).
 _DEPENDS_ON_RE = re.compile(r'depends_on\s*\{\s*task_key\s*=\s*"([^"]+)"')
 _TF_FLAG_RE = re.compile(r'"(--[a-z0-9-]+)"')
@@ -88,7 +88,7 @@ class _RecordingSink:
     def flush_terminals(self) -> None:
         self.calls.append(("flush",))
 
-    def slice_completed(self, run_id: str, worker_id: int) -> None:
+    def slice_completed(self, run_id: str, worker_id: int, *, abort_reason: str | None = None) -> None:
         self.calls.append(("slice_completed", run_id, worker_id))
 
 

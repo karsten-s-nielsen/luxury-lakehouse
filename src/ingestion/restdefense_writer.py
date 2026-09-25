@@ -37,8 +37,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 logger = logging.getLogger(__name__)
 
-# Keep in lockstep with the other silly-kicks-consuming entry points (CLAUDE.md serverless env pins).
-_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 121, 0)
+# Keep in lockstep with the other silly-kicks-consuming entry points (AGENTS.md serverless env pins).
+_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 123, 0)
 
 CATALOG = "soccer_analytics"
 MODEL_NAME = "rest_defense"

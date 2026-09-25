@@ -98,7 +98,7 @@ def publish_to_hf_hub(guarded: GuardedFrame, hf_token: str) -> str:
     ``delete_patterns`` are matched RELATIVE to ``path_in_repo`` ("data"), so the only correct
     whole-path sweep is ``["**"]`` — this call previously passed ``["data/*"]``, which matches
     NOTHING and had silently no-opped since it was written (the ADR-049 stale-part-file class;
-    CLAUDE.md mandates ``["**"]``). Re-uploaded files are pruned from the delete set by
+    AGENTS.md mandates ``["**"]``). Re-uploaded files are pruned from the delete set by
     ``upload_folder`` itself, so the sweep removes stale siblings and keeps what we just wrote.
 
     Extracted from ``run_pipeline`` (ADR-072) so the staged tree and upload contract are testable

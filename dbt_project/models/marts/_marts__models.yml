@@ -967,6 +967,38 @@ models:
                 row_condition: "xsuccess is not null"
               config:
                 severity: warn
+      - name: win_prob_leverage
+        data_type: double
+        description: >
+          sk4123 (TF-63 xImpact ride-along): goal leverage ΔP(win | goal) = P(win | score+1) − P(win | score)
+          at the action's pre-action game state, from silly-kicks ``win_probability.goal_leverage``
+          (bundled ``WinProbabilityModel``; Dixon & Robinson 1998 / Robberechts 2019 chain). High for a late
+          equalizer, ≈ 0 in a decided state. -1..1, higher = more decisive. NULL pre-re-materialize; NaN where
+          the WP state is unresolved (never fabricated).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -1
+                max_value: 1
+                row_condition: "win_prob_leverage is not null"
+              config:
+                severity: warn
+      - name: ximpact
+        data_type: double
+        description: >
+          sk4123 (TF-63, Paul/Klemp/Memmert 2025): match-context-weighted action value =
+          vaep_adjusted_value × win_prob_leverage. Weights an action's outcome-bias-free value by how much a
+          goal at the pre-action state would swing the result — a late go-ahead scores high, a garbage-time
+          goal ≈ 0. Additive; vaep_adjusted_value unchanged. NULL pre-re-materialize; NaN where either factor
+          is NaN. Range [-2, 2].
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -2
+                max_value: 2
+                row_condition: "ximpact is not null"
+              config:
+                severity: warn
       - name: data_source
         data_type: string
         description: Data provider (statsbomb, wyscout, idsse, metrica, skillcorner, gradientsports) — LL2 Path B expanded to 6 sources.

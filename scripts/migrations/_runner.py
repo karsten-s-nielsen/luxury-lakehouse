@@ -20,7 +20,7 @@ Behaviour preserved from the legacy connector path:
   support ``ADD COLUMN IF NOT EXISTS`` in the ALTER TABLE clause.
 - All other statements (UPDATE, SET TBLPROPERTIES, CREATE TABLE IF
   NOT EXISTS, GRANT, etc.) execute unconditionally — relying on each
-  migration file being idempotent by construction (per CLAUDE.md
+  migration file being idempotent by construction (per AGENTS.md
   "Project Conventions" → Bronze migrations auto-apply contract).
 
 Auth resolution is the SDK default chain — PAT (DATABRICKS_TOKEN)

@@ -221,6 +221,30 @@ def test_process_empty_unit_returns_zero_and_writes_nothing(monkeypatch) -> None
     assert capture == []
 
 
+def test_process_dry_run_computes_but_writes_nothing(monkeypatch) -> None:
+    """dry_run=True (the in-preflight canary, ADR-087): every scorer RUNS (a compute-path defect still
+    surfaces), but NO _write is issued and 0 is returned."""
+    inputs = UnitInputs(actions=pd.DataFrame({"a": [1]}), frames=pd.DataFrame({"f": [1]}), xt="XT")
+    capture: list[dict] = []
+    ran: list[str] = []
+    proc = _make_processor(monkeypatch, inputs=inputs, capture=capture)
+
+    def _obr(a, f, xt):
+        ran.append("obr")
+        return pd.DataFrame({"x": range(5)})
+
+    monkeypatch.setattr(tmp, "compute_off_ball_runs", _obr)
+    monkeypatch.setattr(tmp, "compute_action_defensive_credit", lambda a, f, xt: pd.DataFrame({"x": [1]}))
+    monkeypatch.setattr(tmp, "compute_defensive_credit_long", lambda a, f, xt: pd.DataFrame({"x": [1]}))
+    monkeypatch.setattr(tmp, "score_gkdv_unit", lambda *a, **k: _gkdv_frame(k["match_id"]))
+
+    total = proc.process(WorkUnit(provider="idsse", match_id="M1", period=2), dry_run=True)
+
+    assert total == 0
+    assert capture == []  # NO writes under dry_run
+    assert ran == ["obr"]  # NON-VACUOUS: compute still ran (a real bug would surface here)
+
+
 # ── gkdv gated off (ADR-082 amendment): default-off ships off_ball_runs + defensive_credit only ──
 
 

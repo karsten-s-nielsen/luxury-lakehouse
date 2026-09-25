@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.110-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.5.116-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -166,7 +166,7 @@ def publish_to_hf_hub(guarded: GuardedFrame, hf_token: str) -> str:
             )
 
         # Sweep stale siblings: delete_patterns are matched RELATIVE to path_in_repo ("data"),
-        # so the only correct whole-path pattern is ["**"] (CLAUDE.md). Matches the src/ingestion
+        # so the only correct whole-path pattern is ["**"] (AGENTS.md). Matches the src/ingestion
         # twin, which publishes the SAME repo from the same source — divergent sweep behaviour
         # between the twins would make the winner depend on run order.
         dataset_url = upload_guarded(

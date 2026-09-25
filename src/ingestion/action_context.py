@@ -30,6 +30,7 @@ from analytics.action_context.drain import (
     DrainSummary,
     assign_workers,
     drain_worker,
+    parse_breaker_config,
 )
 from analytics.action_context.ghost_gk_backend import resolve_ghost_gk_backend
 from analytics.action_context.pipeline import _reconstruct_xt
@@ -1056,6 +1057,15 @@ def main_preflight() -> None:
     units = [replace(u, kde_backend=kde_backend) for u in guard.discover_units(spark, args.catalog, args.schema)]
     if kde_backend != "fft-cic":
         task_logger.info("Action context preflight: ghost-GK backend = %s (non-default)", kde_backend)
+
+    # ADR-087 canary: dry-run one unit per provider through the FULL processor BEFORE the fan-out, so a
+    # systemic compute-path defect fails THIS task (compute_* skipped) instead of burning the retry
+    # budget. Runs after the nothing-to-do return above, so a quiet run never builds the processor.
+    from analytics.action_context.canary import run_canary
+    from ingestion.drain_adapters import SparkGameProcessor
+
+    run_canary(SparkGameProcessor(spark, args.catalog, args.schema), units, task_logger)
+
     assignments = assign_workers(units, _ActionContextGuard._N_DRAIN_WORKERS)
     run_id = _resolve_run_id(args)
     queue = DeltaWorkQueue(spark, args.catalog)
@@ -1450,6 +1460,26 @@ def main_drain_worker() -> None:
                     "in analytics.action_context.batching). Set for memory-envelope A/Bs without a release.",
                 },
             ),
+            (
+                "--max-consecutive-failures",
+                {"type": str, "default": None, "help": "Circuit-breaker: consecutive failures to abort (default 6)."},
+            ),
+            (
+                "--systemic-failure-rate",
+                {
+                    "type": str,
+                    "default": None,
+                    "help": "Circuit-breaker: failure rate to abort past the min-sample (default 0.5).",
+                },
+            ),
+            (
+                "--systemic-min-sample",
+                {
+                    "type": str,
+                    "default": None,
+                    "help": "Circuit-breaker: min attempted units before the rate check (default 20).",
+                },
+            ),
         ],
     )
     task_logger = configure_logging("action_context_drain")
@@ -1479,6 +1509,12 @@ def main_drain_worker() -> None:
             raise SystemExit(f"--watchdog-budget-s must be > 0, got {budget_s}")
     else:
         budget_s = WATCHDOG_BUDGET_S
+
+    max_consec, sys_rate, sys_min = parse_breaker_config(
+        getattr(args, "max_consecutive_failures", None),
+        getattr(args, "systemic_failure_rate", None),
+        getattr(args, "systemic_min_sample", None),
+    )
 
     # Run-scoped frame-batch-size override (ADR-047 amendment 2): validate loud at
     # startup, then publish via the driver env hook resolve_frame_batch_size reads —
@@ -1537,6 +1573,9 @@ def main_drain_worker() -> None:
         sink=sink,
         units=units,
         budget_s=budget_s,
+        max_consecutive_failures=max_consec,
+        systemic_failure_rate=sys_rate,
+        systemic_min_sample=sys_min,
     )
     task_logger.info(
         "Drain worker %d complete: processed=%d failed=%d timed_out=%d rows=%d",
@@ -1664,6 +1703,7 @@ def _process_tracking_match(
     profile: bool = False,
     profile_max_batches: int = 0,
     kde_backend: str = "fft-cic",
+    dry_run: bool = False,
 ) -> int:
     """Process a single tracking-provider match via applyInPandas.
 
@@ -2037,6 +2077,24 @@ def _process_tracking_match(
             schema=_get_result_schema(),
         )
     )
+
+    if dry_run:
+        # In-preflight canary (ADR-087): force the mapInPandas UDF to run so a compute-path defect
+        # surfaces exactly as it would in the drain, but persist NOTHING and return 0. count() cannot be
+        # optimized past the opaque per-group Python UDF, so it materializes every group.
+        hb.set_phase("dry_run_materialize")
+        try:
+            n = int(result_sdf.count())
+        finally:
+            hb.stop()
+        task_logger.info(
+            "action_context dry-run canary %s:%s:%s materialized %d rows (not written)",
+            provider,
+            match_id,
+            period_filter,
+            n,
+        )
+        return 0
 
     rw = _period_replace_where(match_id, period_filter)
 

@@ -75,7 +75,7 @@ Before Phase 1a, the published `luxury-lakehouse/football2vec-v2` stage-1 weight
 - `src/evolve/targets/football2vec/evaluator.py` — `huggingface_hub.get_token()` replaces `os.environ.get("HF_TOKEN", "")` at both dataset-load (L261) and stage-1-weights-load (L524); `except Exception` broadened from `(OOM, RuntimeError, ValueError)` at L636.
 - `src/evolve/backends/remote_ssh.py` — `HF_TOKEN=<local_env>` forwarded as inline env prefix in the remote command (orchestrator-side belt-and-suspenders for Rule 1).
 - `src/tests/test_evolve_football2vec_l2.py` — asserts `openevolve` in `_REMOTE_REQUIRED_IMPORTS`, `timeout_seconds: int > 0` per host, `callable(_verify_remote_entrypoint)`.
-- `CLAUDE.md` — new `## Orchestration Discipline` short-form section (7 rules).
+- `AGENTS.md` — new `## Orchestration Discipline` short-form section (7 rules).
 - `docs/engineering/orchestration.md` — new file with full rationale, failure-mode catalog (this cycle's debug narrative), reference smoke-test probe.
 
 ## Next cycle candidates
