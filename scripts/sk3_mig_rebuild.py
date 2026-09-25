@@ -23,7 +23,7 @@ Steps:
 Spec: docs/superpowers/specs/2026-05-02-sk3-mig-direction-of-play-migration-design.md
 Plan: docs/superpowers/plans/2026-05-02-sk3-mig-direction-of-play-migration.md
 
-⚠️ Per CLAUDE.md "Never disappear into long-running commands": invoke this with
+⚠️ Per AGENTS.md "Never disappear into long-running commands": invoke this with
 ``run_in_background: true`` and poll the output file every 30 seconds.
 """
 

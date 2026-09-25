@@ -35,7 +35,7 @@ clean-targets:
 # the developer (running `dbt build` locally as their account user) and the
 # ingestion SP (running the daily-job `dbt_build` task) can replace the same
 # objects without per-object owner drift. See `terraform/modules/service_principals/main.tf`
-# for the group definition and CLAUDE.md "## dbt Ownership Model".
+# for the group definition and AGENTS.md "## dbt Ownership Model".
 models:
   soccer_analytics:
     +post-hook:

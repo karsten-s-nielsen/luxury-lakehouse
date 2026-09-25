@@ -163,7 +163,7 @@ resource "databricks_service_principal" "hf_app" {
 # every newly-built model back to the group, keeping ownership stable across
 # runs and preventing per-object owner drift.
 #
-# See CLAUDE.md "## dbt Ownership Model" section for the operator runbook.
+# See AGENTS.md "## dbt Ownership Model" section for the operator runbook.
 
 resource "databricks_group" "dbt_owners" {
   provider     = databricks.account

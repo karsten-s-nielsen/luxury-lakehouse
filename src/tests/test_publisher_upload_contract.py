@@ -106,7 +106,7 @@ def test_partitioned_publisher_sweeps_whole_path_in_repo(fake_api: type[_FakeApi
     (upload,) = _uploads(fake_api)
     assert upload["path_in_repo"] == "data"
     assert upload["delete_patterns"] == ["**"], (
-        "a 'data/'-prefixed pattern is matched relative to path_in_repo and silently no-ops (CLAUDE.md)"
+        "a 'data/'-prefixed pattern is matched relative to path_in_repo and silently no-ops (AGENTS.md)"
     )
     assert upload["_staged"] == ["competition_id=11/data.parquet", "competition_id=43/data.parquet"]
     assert _created(fake_api) == [(pub.DATASET_REPO, False)], "public frames must not create a private repo"
@@ -391,7 +391,7 @@ def test_publisher_upload_contract(
     (upload,) = _uploads(fake_api)
     assert upload["path_in_repo"] == "data", f"{where}/{module_id} must publish under data/"
     assert upload["_staged"] == expected, f"{where}/{module_id} staged tree changed"
-    # A "data/"-prefixed pattern is matched RELATIVE to path_in_repo and silently no-ops (CLAUDE.md).
+    # A "data/"-prefixed pattern is matched RELATIVE to path_in_repo and silently no-ops (AGENTS.md).
     patterns = upload["delete_patterns"]
     assert patterns is None or patterns == ["**"], (
         f"{where}/{module_id} delete_patterns={patterns!r} — must be ['**'] or absent, never 'data/'-prefixed"
@@ -452,7 +452,7 @@ def test_validator_refuses_path_in_repo_prefixed_patterns() -> None:
 def test_no_source_file_uses_a_path_in_repo_prefixed_delete_pattern() -> None:
     """No module may write the inert ``"data/..."`` sweep form.
 
-    CLAUDE.md has mandated ``["**"]`` for a long time, but the only enforcement was parametrized
+    AGENTS.md has mandated ``["**"]`` for a long time, but the only enforcement was parametrized
     over six split publishers -- so four publishers plus every Spark-path caller carried the
     inert form for months, and ``upload_volume_to_hf_hub``'s docstring recommended it. This test
     covers BOTH publish paths and any future caller.

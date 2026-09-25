@@ -73,7 +73,7 @@ from workflows import workflow
 # review).
 VALIDATED_HF_FLAVOR: str = "cpu-xl"
 
-# uv silent-downgrade footgun (CLAUDE.md): a top-level silly-kicks pin in PEP
+# uv silent-downgrade footgun (AGENTS.md): a top-level silly-kicks pin in PEP
 # 723 deps silently overrides the wheel's transitive pin; explicit pins are an
 # active footgun, not a safety net (verified empirically 2026-05-04).
 _REQUIRED_SK_MIN: tuple[int, int, int] = (4, 123, 0)
@@ -222,7 +222,7 @@ def extract_features_for_games(
     all_y_scores: list[pd.DataFrame] = []
     all_y_concedes: list[pd.DataFrame] = []
 
-    # Pre-build game index (CLAUDE.md: no boolean mask filter inside loops)
+    # Pre-build game index (AGENTS.md: no boolean mask filter inside loops)
     game_groups: dict[Any, pd.DataFrame] = dict(iter(named.groupby("game_id")))
 
     # Per spec §2.6: log resident-set high-water marks every 100 games so the

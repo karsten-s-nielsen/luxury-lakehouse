@@ -206,7 +206,7 @@ def validate_delete_patterns(patterns: list[str] | None, *, path_in_repo: str) -
     ``huggingface_hub`` matches ``delete_patterns`` RELATIVE to ``path_in_repo``
     (``_prepare_folder_deletions`` strips the prefix before filtering), so a pattern written as
     ``"data/*.parquet"`` against ``path_in_repo="data"`` matches **nothing** and the sweep is a
-    silent no-op. CLAUDE.md has mandated ``["**"]`` for a long time; nothing enforced it outside
+    silent no-op. AGENTS.md has mandated ``["**"]`` for a long time; nothing enforced it outside
     six publishers, and every Spark-path caller got it wrong — including one that copied the
     broken form straight out of ``upload_volume_to_hf_hub``'s own docstring.
 

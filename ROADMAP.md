@@ -1080,7 +1080,7 @@ This entry graduates from ROADMAP to a TODO item / numbered phase when **any one
 - Cross-model joint scoring (Football2Vec + ScoutGPT + stats fused into one ranking) becomes a product requirement
 - Databricks Vector Search adds multi-vector or ranking-DSL support (closes the gap; *removes* the motivation — graduate the entry as "DROPPED" rather than as "PROCEED")
 
-Per the ADR discipline in `CLAUDE.md`, if Vespa adoption is greenlit, write an ADR capturing the trigger condition that fired, the spike result, the chosen integration architecture (Databricks → Delta → HTTP Feed API → Vespa serving), and the operational tier (HF Spaces / self-hosted VM / Vespa Cloud).
+Per the ADR discipline in `AGENTS.md`, if Vespa adoption is greenlit, write an ADR capturing the trigger condition that fired, the spike result, the chosen integration architecture (Databricks → Delta → HTTP Feed API → Vespa serving), and the operational tier (HF Spaces / self-hosted VM / Vespa Cloud).
 
 ### When NOT to adopt
 
