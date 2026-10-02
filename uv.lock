@@ -1788,7 +1788,7 @@ requires-dist = [
     { name = "matplotlib", marker = "extra == 'analytics'", specifier = ">=3.8.0" },
     { name = "mlflow-skinny", marker = "extra == 'mlflow'", specifier = ">=2.19.0" },
     { name = "mplsoccer", marker = "extra == 'analytics'", specifier = ">=1.1.3" },
-    { name = "mplsoccer", marker = "extra == 'taipy-app'", specifier = "==1.8.0" },
+    { name = "mplsoccer", marker = "extra == 'taipy-app'", specifier = "==1.8.1" },
     { name = "msgpack", specifier = ">=1.2.1" },
     { name = "numpy", marker = "extra == 'analytics'", specifier = ">=1.26.0" },
     { name = "numpy", marker = "extra == 'taipy-app'", specifier = "==1.26.4" },
@@ -2030,7 +2030,7 @@ wheels = [
 
 [[package]]
 name = "mplsoccer"
-version = "1.8.0"
+version = "1.8.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "matplotlib" },
@@ -2041,9 +2041,9 @@ dependencies = [
     { name = "scipy" },
     { name = "seaborn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5b/9b/67587d0027c99c13c6bd4c787999124a33ef16e350894777f45d791204f7/mplsoccer-1.8.0.tar.gz", hash = "sha256:394697e12f3b18d096163510b491fc79c60855f98e6d5fede00acab2a0b505ad", size = 882721, upload-time = "2026-07-31T20:43:44.597Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ae/da/adf50899dcdb662ede092917b5120bf0ec96b6f60d57ebb0d22490a0a8d8/mplsoccer-1.8.1.tar.gz", hash = "sha256:77d504d38e19ef310f4a22c95a78572db1e6f1a8f721c7d5535e3623ddada2e8", size = 869736, upload-time = "2026-09-14T18:58:20.083Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/88/b9/a7e7395fd8b9e669458274a2bd23924f1f8d83dda21c70f00cd669fd88c6/mplsoccer-1.8.0-py3-none-any.whl", hash = "sha256:04a78093f1039a7586257af2315365bdf9438f4c0d88c9297e37114fde7e7760", size = 108271, upload-time = "2026-07-31T20:43:40.646Z" },
+    { url = "https://files.pythonhosted.org/packages/37/45/8b6e9fa5797d1cb3cd98315b973f0e95b999c158057ff5344f33b76c2e0b/mplsoccer-1.8.1-py3-none-any.whl", hash = "sha256:9d5c44885b853741e9bc189f2ed2f9b1524f1ef6e20e3a9de153f09531c396d7", size = 108905, upload-time = "2026-09-14T18:58:18.379Z" },
 ]
 
 [[package]]
