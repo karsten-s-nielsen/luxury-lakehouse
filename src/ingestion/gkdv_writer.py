@@ -50,7 +50,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 logger = logging.getLogger(__name__)
 
 # Keep in lockstep with the other silly-kicks-consuming entry points (AGENTS.md sec serverless env pins).
-_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 123, 0)
+_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 128, 0)
 
 CATALOG = "soccer_analytics"
 BRONZE_TABLE = "gkdv_keeper_pooled"

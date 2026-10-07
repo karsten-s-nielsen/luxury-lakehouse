@@ -38,9 +38,6 @@ from ingestion.defensive_credit_writer import (
     LONG_OUTPUT_COLUMNS,
     LONG_TABLE,
     _read_xg_preds,
-    attach_xg,
-    compute_action_defensive_credit,
-    compute_defensive_credit_long,
 )
 from ingestion.defensive_credit_writer import (
     _assert_silly_kicks_min as _dc_assert_sk,
@@ -56,7 +53,6 @@ from ingestion.gk_decision_writer import (
 )
 from ingestion.gk_decision_writer import (
     _bundled_completion_model,
-    score_gk_decision_unit,
 )
 from ingestion.gk_decision_writer import (
     _struct_type as _gk_decision_struct_type,
@@ -64,7 +60,7 @@ from ingestion.gk_decision_writer import (
 from ingestion.gkdv_writer import (
     _assert_silly_kicks_min as _gkdv_assert_sk,
 )
-from ingestion.gkdv_writer import _build_comp_season_lookup, score_gkdv_unit
+from ingestion.gkdv_writer import _build_comp_season_lookup
 from ingestion.off_ball_runs_writer import (
     BRONZE_TABLE as OFF_BALL_TABLE,
 )
@@ -73,9 +69,6 @@ from ingestion.off_ball_runs_writer import (
 )
 from ingestion.off_ball_runs_writer import (
     _struct_type as _off_ball_struct_type,
-)
-from ingestion.off_ball_runs_writer import (
-    compute_off_ball_runs,
 )
 from ingestion.restdefense_writer import (
     BRONZE_TABLE as REST_DEFENSE_TABLE,
@@ -86,13 +79,9 @@ from ingestion.restdefense_writer import (
 from ingestion.restdefense_writer import (
     _struct_type as _rd_struct_type,
 )
-from ingestion.restdefense_writer import (
-    compute_rest_defense_samples,
-)
 from ingestion.tracking_marts_driver import (
     _TRACKING_PROVIDERS,
     ac_xt_grid,
-    read_and_build_unit_inputs,
     resolve_unit_meta,
 )
 from shared.constants import DEFAULT_BRONZE_SCHEMA
@@ -107,16 +96,14 @@ logger = logging.getLogger(__name__)
 
 GKDV_OBS_TABLE = "gkdv_observations"
 
-#: gkdv scoring is GATED OFF pending its dedicated perf project (ADR-082 amendment 2026-08-26). The gkdv
-#: ghost-GK arm runs a per-scored-frame accessible-space DAS (doubled — actual + ghost frame) under
-#: ``spearman`` pitch control, and ``spearman`` is the ONLY GK-aware method (``lambda_gk`` exists only on
-#: ``SpearmanParams``), so it cannot be swapped for a faster backend. At >45 min/unit x 374 units it
-#: exceeds the per-unit watchdog and cannot finish one drain (>35 h at 8 workers) — the old driver-
-#: sequential writer had the same wall (it "stalled 120 min"), so gkdv has never produced output.
-#: off_ball_runs + defensive_credit are unaffected and ship now; the perf project flips this flag once
-#: gkdv is viable. SINGLE SOURCE OF TRUTH: the gate (``tracking_marts_gate._OUTPUT_TABLES``) excludes
-#: ``gkdv_observations`` and the pool (``tracking_marts_drain.main_gkdv_pool``) no-ops while this is False.
-GKDV_ENABLED = False
+#: gkdv scoring is RE-ENABLED (ADR-082 amendment, sk 4.128 adoption). The perf project it was gated on
+#: shipped: silly-kicks 4.128 native DAS (ADR-107, @njit kernels) + the executor-distributed two-stage
+#: refactor (build-once → spill → per-mart scoring) move the per-scored-frame ghost-GK DAS (doubled: actual
+#: + ghost) off the 16 GB driver onto executors, so it no longer exceeds the per-unit watchdog. The gkdv
+#: arm scores as the sixth Stage-2 mart (``gkdv_observations``); the cross-game ``pool_keepers`` reduce runs
+#: in the separate ``tracking_marts_drain.main_gkdv_pool`` task. SINGLE SOURCE OF TRUTH for the flag: the
+#: gate (``tracking_marts_gate._OUTPUT_TABLES``) now includes ``gkdv_observations`` and the pool runs.
+GKDV_ENABLED = True
 
 # ── gkdv_observations intermediate schema ──
 # Derived from ``gkdv_writer.build_keeper_observations`` (the per-scored-keeper-frame grain, want_threat
@@ -223,105 +210,111 @@ class TrackingMartsProcessor:
         )
 
     def process(self, unit: WorkUnit, *, dry_run: bool = False) -> int:
-        """Score the enabled tracking-grain outputs for one unit; return the summed rows written.
+        """Score the enabled tracking-grain outputs for one unit (two-stage, executor-distributed; rev3).
 
-        Each scorer runs in isolation and attributes its own failure; if ANY failed, the unit fails as a
-        whole (combined ``RuntimeError``) so the drain rolls it forward rather than shipping a partial unit.
-        gkdv is skipped entirely when gated off (``GKDV_ENABLED`` / ``gkdv_enabled=False``) — it is then
-        never scored, never written, and cannot contribute to the combined failure.
+        ``process(unit)`` stays the per-unit unit-of-work boundary ``drain_worker`` wraps (events / watchdog /
+        circuit-breaker / rollforward UNCHANGED, TM-PLAN-10). Internally it runs Stage 1 (build the unit's
+        oriented frames ONCE on executors + spill to a UC-Volume Parquet) then Stage 2 (six per-mart scoring
+        passes that read the spill) — frames never hit the 16 GB driver (the OOM fix). Each mart's
+        dispatch+write runs in its own try/except; if ANY failed the whole unit fails (combined
+        ``RuntimeError``) so the drain rolls it forward. The spill is cleaned up in a ``finally``.
 
-        ``dry_run=True`` (the in-preflight canary, ADR-087): every scorer still RUNS — so a compute-path
-        defect surfaces exactly as it would in the drain — but no ``_write`` is issued and 0 is returned.
+        ``dry_run=True`` (the in-preflight canary, ADR-087): both stages still RUN so a compute-path defect
+        surfaces, but nothing is persisted and 0 is returned.
         """
-        inputs = read_and_build_unit_inputs(
-            self._spark, self._catalog, unit, xt_grid_data=self._xt_grid, xt_l=self._xt_l, xt_w=self._xt_w
+        from analytics.action_context.enrich import _resolve_enrichment_identity
+        from analytics.action_context.tracking_frame_spill import built_frame_struct_type
+        from ingestion.tracking_marts_dispatch import (
+            MartSpec,
+            build_stage2_mart_sdf,
+            cleanup_spill,
+            make_build_udf,
+            make_mart_scorers,
+            run_stage1_build_and_spill,
+            spill_path,
         )
-        if inputs is None:
+        from ingestion.tracking_marts_driver import read_raw_trk_sdf, read_unit_actions
+        from ingestion.utils import write_delta_table
+
+        if unit.period is None:
+            return 0  # match-grain unit has no frames (mirrors the old read_and_build_unit_inputs no-op)
+        period = int(unit.period)
+
+        # ── Driver-side small data (actions / meta / xg / resolved-actions) → the UDF closures ──────────
+        raw_actions = read_unit_actions(self._spark, self._catalog, unit.provider, unit.match_id)
+        period_actions = raw_actions[raw_actions["period_id"] == period].copy()
+        if raw_actions.empty or period_actions.empty:
             return 0
-
-        where = (
-            f"data_source = '{unit.provider}' AND match_id = '{unit.match_id}' AND period_id = {int(unit.period or 0)}"
+        meta = resolve_unit_meta(self._spark, self._catalog, unit.provider, unit.match_id)
+        # Identity resolution is frames-free (byte-identical to build_unit_inputs' internal resolve, TM-PLAN-04).
+        resolved_actions = _resolve_enrichment_identity(
+            period_actions, provider=unit.provider, match_id_native=unit.match_id
         )
-        total = 0
-        errors: list[str] = []
-
-        def _write_or_skip(pdf: pd.DataFrame, schema: Any, table: str) -> int:
-            # dry_run canary: compute already ran (the arg was evaluated); skip the persist only.
-            return 0 if dry_run else self._write(pdf, schema, table, where)
-
+        xg_preds = _read_xg_preds(self._spark, self._catalog, unit.provider, unit.match_id)
+        comp, season = self._comp_season.get((unit.provider, unit.match_id), (None, None))
         # Per-match HF redistribution tier rides per-row on the actions (ADR-064); constant per match.
-        _at = inputs.actions["access_tier"].iloc[0] if "access_tier" in inputs.actions.columns else None
+        _at = resolved_actions["access_tier"].iloc[0] if "access_tier" in resolved_actions.columns else None
         access_tier = None if _at is None or (isinstance(_at, float) and _at != _at) else str(_at)
 
-        # off_ball_runs (fct_off_ball_runs).
-        try:
-            obr = compute_off_ball_runs(inputs.actions, inputs.frames, inputs.xt)
-            total += _write_or_skip(obr, self._off_ball_schema, OFF_BALL_TABLE)
-        except Exception as exc:  # noqa: BLE001 — attributed + re-raised as a combined unit failure below
-            errors.append(f"off_ball_runs: {exc}")
-
-        # defensive_credit (fct_action_defensive + fct_defensive_credit_attributions) — needs per-unit xG.
-        try:
-            xg_preds = _read_xg_preds(self._spark, self._catalog, unit.provider, unit.match_id)
-            actions = attach_xg(inputs.actions, xg_preds)
-            total += _write_or_skip(
-                compute_action_defensive_credit(actions, inputs.frames, inputs.xt), self._agg_schema, AGG_TABLE
-            )
-            total += _write_or_skip(
-                compute_defensive_credit_long(actions, inputs.frames, inputs.xt), self._long_schema, LONG_TABLE
-            )
-        except Exception as exc:  # noqa: BLE001 — attributed + re-raised as a combined unit failure below
-            errors.append(f"defensive_credit: {exc}")
-
-        # gkdv scoring -> bronze.gkdv_observations (pooled later in the separate gkdv_pool reduce).
-        # GATED OFF by default (GKDV_ENABLED) pending the gkdv perf project (ADR-082 amendment): when off,
-        # gkdv is never scored, never written, and CANNOT fail the unit — off_ball_runs + defensive_credit
-        # complete cleanly. The perf project re-enables it via ``gkdv_enabled=True``.
+        # ── Stage 1: build + spill (executor-distributed) ──────────────────────────────────────────────
+        raw_sdf = read_raw_trk_sdf(self._spark, self._catalog, unit.provider, unit.match_id, period)
+        build_udf = make_build_udf(
+            unit.provider, unit.match_id, period, raw_actions, meta, self._xt_grid, self._xt_l, self._xt_w
+        )
+        sdir = spill_path(self._catalog, self._schema, unit)
+        where = f"data_source = '{unit.provider}' AND match_id = '{unit.match_id}' AND period_id = {period}"
+        scorers = make_mart_scorers(
+            unit.provider,
+            unit.match_id,
+            resolved_actions,
+            self._xt_grid,
+            self._xt_l,
+            self._xt_w,
+            xg_preds,
+            meta,
+            comp,
+            season,
+            access_tier,
+            gkdv_enabled=self._gkdv_enabled,
+        )
+        specs: list[MartSpec] = [
+            MartSpec(OFF_BALL_TABLE, self._off_ball_schema, scorers["off_ball_runs"]),
+            MartSpec(AGG_TABLE, self._agg_schema, scorers["action_defensive"]),
+            MartSpec(LONG_TABLE, self._long_schema, scorers["defensive_credit_attributions"]),
+            MartSpec(GK_DECISION_TABLE, self._gk_decision_schema, scorers["gk_decision"]),
+            MartSpec(REST_DEFENSE_TABLE, self._rd_schema, scorers["rest_defense"]),
+        ]
         if self._gkdv_enabled:
-            try:
-                meta = resolve_unit_meta(self._spark, self._catalog, unit.provider, unit.match_id)
-                comp, season = self._comp_season.get((unit.provider, unit.match_id), (None, None))
-                obs = score_gkdv_unit(
-                    inputs.frames,
-                    meta.home_team_id,
-                    inputs.xt,
-                    data_source=unit.provider,
-                    match_id=unit.match_id,
-                    competition_id=comp,
-                    season_id=season,
-                )
-                obs = obs.copy()
-                obs["match_id"] = unit.match_id  # for the per-unit replaceWhere (game_id carries the same value)
-                total += _write_or_skip(obs[list(_GKDV_OBS_COLUMNS)], self._gkdv_obs_schema, GKDV_OBS_TABLE)
-            except Exception as exc:  # noqa: BLE001 — attributed + re-raised as a combined unit failure below
-                errors.append(f"gkdv: {exc}")
+            specs.append(MartSpec(GKDV_OBS_TABLE, self._gkdv_obs_schema, scorers["gkdv_observations"]))
 
-        # gk_decision (fct_gk_decision) — reconstruction tier, per-DECISION, period-native (sk4118 Phase E).
-        # decision_id == the SPADL action_id; the per-period unit only sees its period's decisions, so the
-        # per-unit replaceWhere (data_source, match_id, period_id) is disjoint across periods.
+        total = 0
+        errors: list[str] = []
         try:
-            gk = score_gk_decision_unit(
-                inputs.actions,
-                inputs.frames,
-                self._completion_model,
-                data_source=unit.provider,
-                match_id=unit.match_id,
-                access_tier=access_tier,
+            run_stage1_build_and_spill(
+                self._spark, unit, raw_sdf, build_udf, built_frame_struct_type(unit.provider), sdir
             )
-            total += _write_or_skip(gk, self._gk_decision_schema, GK_DECISION_TABLE)
-        except Exception as exc:  # noqa: BLE001 — attributed + re-raised as a combined unit failure below
-            errors.append(f"gk_decision: {exc}")
-
-        # rest_defense (fct_rest_defense) — sk4118 Phase E. Period-native (RD_SAMPLE_KEYS carry period_id),
-        # so the per-unit replaceWhere is disjoint across periods. L1 always; L2 finite via the fitted xt.
-        try:
-            rd = compute_rest_defense_samples(inputs.actions, inputs.frames, inputs.xt, access_tier=access_tier)
-            total += _write_or_skip(rd, self._rd_schema, REST_DEFENSE_TABLE)
-        except Exception as exc:  # noqa: BLE001 — attributed + re-raised as a combined unit failure below
-            errors.append(f"rest_defense: {exc}")
+            # ── Stage 2: six per-mart scoring passes (read the spill) ──────────────────────────────────
+            for spec in specs:
+                try:
+                    scored_sdf = build_stage2_mart_sdf(self._spark, unit, sdir, spec)
+                    if dry_run:
+                        int(scored_sdf.count())  # canary: force the UDF to run; persist nothing
+                    else:
+                        total += write_delta_table(
+                            scored_sdf,
+                            self._catalog,
+                            DEFAULT_BRONZE_SCHEMA,
+                            spec.table,
+                            replace_where=where,
+                            logger=self._logger,
+                        )
+                except Exception as exc:  # noqa: BLE001 — attributed + re-raised as a combined unit failure
+                    errors.append(f"{spec.table}: {exc}")
+        finally:
+            cleanup_spill(self._spark, sdir)
 
         if errors:
             raise RuntimeError(
                 f"tracking-marts unit {unit.provider}:{unit.match_id}:{unit.period} failed: " + "; ".join(errors)
             )
-        return total
+        return 0 if dry_run else total

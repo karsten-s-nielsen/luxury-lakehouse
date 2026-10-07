@@ -43,7 +43,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             artifactDeploy = container "Artifact Deploy" "Training-to-production contract (ADR-012); M2M-OAuth-capable auth (ADR-079). MLflow + UC Volume helpers." "Python"
             hfPublish = container "HF Publish Helper" "README delivery (ADR-014) + ADR-072 publish seam: prepare_public_upload guards/splits/drops; GuardedFrame gates writes; upload_guarded derives repo privacy, sweep and HF token; refuses unaccounted files." "Python"
             databricksSqlFetch = container "Databricks SQL Fetch" "HTTP helper for HF Jobs trainers querying gold marts (no Spark)" "Python, requests"
-            ingestionPipelines = container "Compute Pipelines" "@workflow Databricks ingestion/compute pipelines, 6 providers. Stamps per-match visibility on bronze, threaded to SPADL (ADR-064). GS dedup (ADR-030), ET derivers (ADR-029), DFL via silly-kicks (ADR-055). Tracking-grain marts (off_ball_runs/defensive_credit/gkdv) run as a SECOND worker-drain reusing the ADR-037/068 fan-out (ADR-082)." "Python, PySpark, silly-kicks 4.121.0"
+            ingestionPipelines = container "Compute Pipelines" "@workflow Databricks ingest/compute, 6 providers. Per-match visibility threaded to SPADL (ADR-064); GS dedup (ADR-030), ET derivers (ADR-029), DFL via silly-kicks (ADR-055). Tracking-grain marts: 2nd worker-drain (ADR-037/068/082), executor two-stage build-spill-score, gkdv re-enabled (ADR-088)." "Python, PySpark, silly-kicks 4.128.0"
             refreshSyncedTables = container "Synced Table Refresh" "Triggers refresh on 44 synced tables; detect-only for checkpoint-broken TRIGGERED tables — flags + dispatches the heal, never deletes (ADR-041)" "Python, databricks-sdk"
             migrateSyncedTables = container "Synced Table Migration" "SDK-managed lifecycle: delete, CDF enable, create, wait (ADR-026). Replaces Terraform module." "Python, databricks-sdk"
             rederiveSyncedMarts = container "Strand-safe Re-derive" "Operator re-derive of TRIGGERED synced marts (ADR-043): D MERGE-reprocess / T plain-rebuild / B delete+full-refresh+recreate. Pure planner + thin executor." "Python, databricks-sdk"
@@ -51,7 +51,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             evolveEngine = container "Evolve Engine" "LLM-guided architecture search. AST validation, restricted exec." "Python, OpenEvolve"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models: xG + canonical-SPADL pre-shot xG v3 (SB-360 freeze-frame builder, two-mode gate, OOF calibration; ADR-066), xT, VAEP, OBSO, pitch control, PSxG (ADR-059), embeddings" "Python, PyTorch"
             execVisibility = container "Executor Visibility (exec_visibility)" "Driver heartbeat + executor env-fingerprint/faulthandler markers + silly-kicks env-drift guard (ADR-044). Spark-Connect-safe applyInPandas progress + hang diagnostics (ADR-031)." "Python"
-            actionContextHexagon = container "Action Context Hexagon" "Pure-domain AC enrichment (ADR-028): ports + enrich_batch, one Spark+local UDF. Frames-required (ADR-057); sb360 cogroup (ADR-058); velocity via silly-kicks (ADR-067); drain gate (ADR-068)." "Python, pandas, silly-kicks 4.121.0"
+            actionContextHexagon = container "Action Context Hexagon" "Pure-domain AC enrichment (ADR-028): ports + enrich_batch, one Spark+local UDF. Frames-required (ADR-057); sb360 cogroup (ADR-058); velocity via silly-kicks (ADR-067); drain gate (ADR-068)." "Python, pandas, silly-kicks 4.128.0"
             sharedLibrary = container "Shared Library" "Cross-package constants, identifiers, and the per-match access_tier classifier — a fail-safe ALLOWLIST (ADR-064): open-data providers public, everything else restricted. Zero external deps." "Python"
         }
 
@@ -68,7 +68,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
 
         dbtProject = softwareSystem "dbt Project" "Medallion transformation: 113 models (52 staging, 11 intermediate, 50 marts). Kimball dims, liquid clustering. on-run-start tripwire blocks --full-refresh of TRIGGERED synced marts (ADR-043)." {
             fctWorkflowCosts = container "fct_workflow_costs" "Gold-layer cost attribution with billing JOIN. 90-day rolling window." "SQL, dbt" "Database"
-            goldModels = container "Gold Models" "45 fact (+ fct_workflow_costs) + 4 dim tables, contracts, liquid clustering, per-row access_tier (ADR-064). Pre-shot xG fct_shot_xg (ADR-066); PSxG fct_shot_psxg (ADR-059); GK insight-views (ADR-061); sk4118 marts: fct_team_metrics, fct_gk_decision, fct_player_match_metrics, fct_rest_defense (sk 4.121.0)." "SQL, dbt" "Database"
+            goldModels = container "Gold Models" "45 fact (+ fct_workflow_costs) + 4 dim tables, contracts, liquid clustering, per-row access_tier (ADR-064). Pre-shot xG fct_shot_xg (ADR-066); PSxG fct_shot_psxg (ADR-059); GK insight-views (ADR-061); sk4118 marts: fct_team_metrics, fct_gk_decision, fct_player_match_metrics, fct_rest_defense (sk 4.128.0)." "SQL, dbt" "Database"
         }
 
         # Data stores

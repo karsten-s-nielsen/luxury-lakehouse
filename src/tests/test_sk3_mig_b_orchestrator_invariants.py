@@ -255,7 +255,7 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     )
 
 
-# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 123, 0) ──────────
+# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 128, 0) ──────────
 # Floor advanced 4.121.0 -> 4.123.0 (2026-09-22) for silly-kicks 4.123.0's ExpectedThreat.fit_from_counts
 # (SK-XT-COUNTS, ADR-102) — the distributed counts-based xT fit the ExT-grid producer rewrite needs (P2).
 # Carries 4.122.0's TF-63 xImpact ride-along (VAEP.rate_ximpact + win_probability; adopted for the
@@ -364,7 +364,7 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
 
 
 def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
-    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 121, 0)`.
+    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 128, 0)`.
 
     Per spec §2.10.5: the runtime check inside `main()` is not directly
     introspectable post-hoc, so we assert the constant. Code review covers
@@ -382,11 +382,11 @@ def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
         if not hasattr(trainer, "_REQUIRED_SK_MIN"):
             missing.append(item)
             continue
-        expected = (4, 123, 0)
+        expected = (4, 128, 0)
         actual = trainer._REQUIRED_SK_MIN
         if actual != expected:
             wrong_value[item] = actual
     assert not missing, (
-        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 123, 0)`: {missing}"
+        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 128, 0)`: {missing}"
     )
-    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 123, 0): {wrong_value}"
+    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 128, 0): {wrong_value}"
