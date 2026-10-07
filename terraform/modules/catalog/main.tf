@@ -87,6 +87,22 @@ resource "databricks_volume" "staging" {
   comment      = "Ephemeral Parquet staging for streaming ingestion pipelines"
 }
 
+# ── Volume: Stage-1 built-frame spill for the tracking-marts two-stage executor ──
+# The tracking-marts drain (ADR-088) builds each unit's oriented frames once on
+# executors, spills them to /Volumes/<catalog>/bronze/tracking_marts_build_spill/
+# via a Spark write (NOT an in-UDF FS write), then re-reads them for the six
+# per-mart scoring passes. One subdir per (provider, match_id, period), overwritten
+# per run (idempotent); the drain cleans each unit's subdir after its marts land.
+# Ephemeral, same shape as _staging. Matches ingestion.tracking_marts_dispatch.SPILL_VOLUME_BASE.
+
+resource "databricks_volume" "tracking_marts_build_spill" {
+  catalog_name = var.catalog_name
+  schema_name  = databricks_schema.bronze.name
+  name         = "tracking_marts_build_spill"
+  volume_type  = "MANAGED"
+  comment      = "Ephemeral Stage-1 built-frame spill for the tracking-marts two-stage executor (ADR-088)"
+}
+
 # ── Unity Catalog Grants: Ingestion Service Principal ────────────────────────
 # Least-privilege access for the ingestion job: catalog traversal, schema
 # read/write on bronze, and volume access for wheel storage.
@@ -272,6 +288,17 @@ resource "databricks_grant" "ingestion_sp_staging_volume" {
   count = var.enable_ingestion_sp_grants ? 1 : 0
 
   volume = "${var.catalog_name}.${databricks_schema.bronze.name}.${databricks_volume.staging.name}"
+
+  principal  = var.ingestion_sp_application_id
+  privileges = ["READ_VOLUME", "WRITE_VOLUME"]
+}
+
+# The tracking-marts drain runs AS the ingestion SP: Stage-1 WRITES the built-frame
+# spill, Stage-2 READS it back (ADR-088). Both privileges required.
+resource "databricks_grant" "ingestion_sp_tracking_marts_spill_volume" {
+  count = var.enable_ingestion_sp_grants ? 1 : 0
+
+  volume = "${var.catalog_name}.${databricks_schema.bronze.name}.${databricks_volume.tracking_marts_build_spill.name}"
 
   principal  = var.ingestion_sp_application_id
   privileges = ["READ_VOLUME", "WRITE_VOLUME"]

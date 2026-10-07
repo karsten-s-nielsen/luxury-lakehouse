@@ -34,7 +34,7 @@ Two constraints shaped the design. (1) The six tracking-marts outputs are **diff
 - Per-mart scoring is pure-testable on fixtures; the Spark dispatch is validated by `_make_streaming_group_mapper`'s carry/flush test + a pyspark Docker harness + live Part-B.
 
 ### Negative
-- A per-unit UC-Volume Parquet spill intermediate (cleaned up in a `finally`; overwritten per run).
+- A per-unit UC-Volume Parquet spill intermediate (cleaned up in a `finally`; overwritten per run). Requires a provisioned spill volume: `databricks_volume.tracking_marts_build_spill` (bronze) + the ingestion-SP `READ_VOLUME`/`WRITE_VOLUME` grant in `terraform/modules/catalog/main.tf` — a new operator precondition. (Missed in the original PR, caught by the ADR-087 preflight canary with `[UC_VOLUME_NOT_FOUND]`; added in the `fix/tracking-marts-spill-volume` hotfix 2026-10-07.)
 - 7 Spark jobs per unit (1 build + 6 score) vs the old 1 driver pass — a throughput/dispatch-overhead trade, measured in the fit profile (ADR-082 budget re-measure).
 - Built-frame schema is per-provider (smoothing columns for idsse/gradientsports; `team_id` object for gradientsports vs category elsewhere; `visibility` BooleanType) — declared explicitly with a parity test (ADR-033).
 

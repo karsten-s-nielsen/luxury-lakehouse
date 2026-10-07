@@ -236,6 +236,8 @@ There is **no** lakehouse-side frame dtype cast today; float32/category is silly
 
 **Execution is NOT part of the code commit.** No wheel-consuming job runs until post-merge `main` CI is green ([no-jobs-in-ci]); every job run below is a separate explicit approval.
 
+**Precondition (added 2026-10-07):** the Stage-1 spill UC Volume `tracking_marts_build_spill` (bronze schema) + the ingestion-SP `READ_VOLUME`/`WRITE_VOLUME` grant on it MUST exist before the drain — provisioned by `terraform/modules/catalog/main.tf` (`databricks_volume.tracking_marts_build_spill`) and applied via the Terraform Apply workflow. This was missed in the original PR (#599) and caught by the ADR-087 preflight canary (`[UC_VOLUME_NOT_FOUND]` on gradientsports:10502:1); landed in the `fix/tracking-marts-spill-volume` hotfix. Verify with `SHOW VOLUMES IN {catalog}.bronze` before step 1.
+
 Scope — the tracking-derived marts whose values move under sk 4.128 (DAS value shift + float32 + re-fit bundles):
 `fct_off_ball_runs`, `fct_rest_defense`, `fct_defensive_credit_attributions`, `fct_gk_tracking_actions`, `fct_gk_tracking_stats`, `fct_action_context` (das_* + gkdv `delta_das`), `fct_action_defensive`, `fct_defcon_actions`, `fct_physical_stats`, `fct_tracking_frames`, `fct_gk_shot_stopping_pooled`.
 
