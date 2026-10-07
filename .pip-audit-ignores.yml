@@ -268,3 +268,36 @@ ignores:
     review_trigger: >-
       a taipy-core release relaxing the pyarrow <19.0 cap (which would let datasets>=5.0.1
       resolve), OR a datasets fix release that no longer requires pyarrow>=21.0.0
+
+  - id: PYSEC-2026-4114
+    package: oauthlib (3.3.1 in the resolution)
+    fix_in: "4.0.0"
+    blocked_by: "databricks-sql-connector (every available >=4.0.0 release) requires oauthlib>=3.1.0,<4.0.0"
+    justification: >-
+      PYSEC-2026-4114 affects oauthlib < 4.0.0 (fix 4.0.0). VERIFIED 2026-10-07 by attempting the
+      floor: BLOCKED — `uv lock` with the `oauthlib>=4.0.0` constraint has no solution; every
+      available databricks-sql-connector >=4.0.0 release hard-caps oauthlib>=3.1.0,<4.0.0 (the only
+      version without the cap, 4.2.7, is yanked), so the [analytics] extra becomes unsatisfiable.
+      oauthlib enters only transitively through requests-oauthlib in the Databricks auth chain
+      (client-side OAuth token acquisition); the lakehouse runs no OAuth authorization server or
+      provider endpoint, so the advisory's server-side request-validation paths are not exercised.
+    review_trigger: >-
+      a databricks-sql-connector release relaxing the oauthlib <4.0.0 cap
+
+  - id: CVE-2026-104851
+    package: fsspec (2025.3.0 in the resolution)
+    fix_in: "2026.6.0"
+    blocked_by: "datasets caps fsspec[http]<=2025.3.0; the datasets release lifting it needs pyarrow>=21.0.0 while taipy-core 4.1.1 caps pyarrow<19.0"
+    justification: >-
+      CVE-2026-104851 affects fsspec < 2026.6.0 (fix 2026.6.0). VERIFIED 2026-10-07 by attempting
+      the floor: BLOCKED — `uv lock` with `fsspec>=2026.6.0` has no solution (the same
+      datasets -> pyarrow -> taipy-core chain that blocks the datasets CVE-2026-66007 entry above:
+      datasets caps fsspec[http]<=2025.3.0, and the datasets>=4.1.0 release that would lift the cap
+      requires pyarrow>=21.0.0 while taipy-core 4.1.1 caps pyarrow<19.0, making [training] and
+      [taipy-app] unsatisfiable together). fsspec is used only transitively (huggingface-hub /
+      datasets / torch artifact IO) against first-party HF repos (the `luxury-lakehouse` org) plus
+      public open-data and our own UC-Volume / gold Delta paths; no untrusted remote filesystem
+      URLs are opened.
+    review_trigger: >-
+      a taipy-core release relaxing the pyarrow <19.0 cap (letting datasets>=4.1.0 + fsspec>=2026.6.0
+      resolve), OR a datasets release that caps fsspec higher without needing pyarrow>=21.0.0
