@@ -68,6 +68,17 @@ pre-filtered to `is_gk_distribution` rows, with resolved keeper geometry
   pending operator decision — see
   [`workflow-cards/wf-xt-gk-v2.yaml`](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/workflow-cards/wf-xt-gk-v2.yaml).
 
+## Retrain status — silly-kicks 4.128 (PENDING)
+
+**A 4.128 retrain is REQUIRED and OUTSTANDING.** xt-gk-v2's corpus feature
+`pressure_on_actor__andrienko_oval` (from `bronze.spadl_action_context`) is frame-derived, so the
+silly-kicks 4.128 F1b float32 frame-storage shift (ADR-106) moves it when `spadl_action_context` is
+re-materialized. To avoid a mixed-vintage train/serve skew the model is retrained at 4.128 (trainer
+sentinel `_REQUIRED_SK_MIN = (4, 128, 0)`). The retrain RUN is a **post-merge operator step** under its
+own approval, sequenced AFTER the AC re-materialize; the produced-model metrics, champion alias, and
+status flip land with that run. This card currently documents the 4.123-vintage champion with the 4.128
+retrain pending (spec `2026-10-06-tracking-marts-executor-refactor-sk4128-design.md` §4.6 governance split).
+
 ## Intended Use
 
 - **Goalkeeper distribution analysis**: value a keeper's passing/throwing under a

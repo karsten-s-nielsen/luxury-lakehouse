@@ -66,7 +66,7 @@ _SHOT_TYPE_NAME = "shot"
 
 # sk floor for fit_from_counts (SK-XT-COUNTS, ADR-102). Runtime-asserted in the fit path as defense in
 # depth; the serverless env is ADR-046 exact-pinned to this, so this only fires on a misbuilt env.
-_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 123, 0)
+_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 128, 0)
 
 # SPADL action types relevant to xT
 _RELEVANT_TYPES = (

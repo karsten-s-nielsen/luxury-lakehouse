@@ -1,316 +1,227 @@
-"""Unit tests for ``ingestion.tracking_marts_processor.TrackingMartsProcessor`` (Task 4, ADR-037).
+"""Unit tests for ``ingestion.tracking_marts_processor.TrackingMartsProcessor`` (rev3 two-stage, ADR-037).
 
-The processor is orchestration: build one unit's inputs ONCE, run the tracking-grain scorers, write each
-result with the per-unit ``replaceWhere``. These tests fake every Spark/pyspark seam (the xT-grid +
-comp/season loads, the struct-type factories, ``read_and_build_unit_inputs``, ``_read_xg_preds``,
-``resolve_unit_meta``, ``compute_rest_defense_samples``, and ``_write``) so NO Spark is touched, and
-assert the orchestration contract:
+``process(unit)`` is orchestration over the executor-distributed two-stage dispatch (build-once → spill →
+six per-mart scoring passes). These tests fake every Spark/pyspark seam — the ``__init__`` loads (xT grid,
+comp/season, struct factories, completion model), the driver reads (``read_unit_actions`` /
+``read_raw_trk_sdf`` / ``resolve_unit_meta`` / ``_read_xg_preds`` / ``_resolve_enrichment_identity``), and the
+dispatch functions (``run_stage1_build_and_spill`` / ``build_stage2_mart_sdf`` / ``write_delta_table`` /
+``cleanup_spill``) — so NO Spark is touched, and assert the orchestration contract:
 
-* the (actions, frames, xt) scorers run on the SAME oriented inputs;
-* every bronze table is written with the identical per-unit ``replaceWhere``;
-* the returned count is the sum across the writes;
-* a per-scorer exception is attributed and re-raised as a combined unit failure (drain rolls it forward),
-  while the OTHER scorers still write (per-scorer isolation).
+* the correct per-mart specs are built (six with gkdv enabled, five without);
+* each mart is written with the identical per-unit ``replaceWhere``; the returned count sums the writes;
+* a per-mart failure is attributed and re-raised as a combined unit failure (drain rolls it forward), while
+  the OTHER marts still run (per-mart isolation);
+* the spill is cleaned up in a ``finally`` even when a mart fails;
+* ``dry_run`` materializes (``.count()``) but writes nothing and returns 0; an empty unit returns 0.
 
-The real ``_write`` (``spark.createDataFrame`` + ``write_delta_table``) is validated live in Part B.
+The REAL two-stage Spark dispatch (build/spill/score mapInPandas) is validated by the pure dispatch-closure
+tests + the pyspark Docker test (``tests/tracking_marts/``) + the live Part-B recompute.
 """
 
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
 import pytest
 
-from analytics.action_context.unit_inputs import UnitInputs
+import analytics.action_context.enrich as ac_enrich
+import analytics.action_context.tracking_frame_spill as spill_mod
+import ingestion.tracking_marts_dispatch as dispatch
+import ingestion.tracking_marts_driver as driver
+import ingestion.utils as utils
 from analytics.action_context.work_unit import WorkUnit
 from ingestion import tracking_marts_processor as tmp
-from ingestion.tracking_marts_processor import _GKDV_OBS_COLUMNS, TrackingMartsProcessor
+from ingestion.tracking_marts_processor import (
+    AGG_TABLE,
+    GK_DECISION_TABLE,
+    GKDV_OBS_TABLE,
+    LONG_TABLE,
+    OFF_BALL_TABLE,
+    REST_DEFENSE_TABLE,
+    TrackingMartsProcessor,
+)
 
 
 class _Meta:
     home_team_id = "HOME"
 
 
-def _gkdv_frame(match_id: str) -> pd.DataFrame:
-    """A score_gkdv_unit-shaped frame (the 9 columns it stamps, minus the processor-added match_id)."""
-    return pd.DataFrame(
-        {
-            "data_source": ["idsse"],
-            "game_id": [match_id],
-            "competition_id": ["C1"],
-            "season_id": ["2023"],
-            "player_id": ["gk"],
-            "period_id": [2],
-            "frame_id": [7],
-            "delta_das": [0.1],
-            "delta_threat_suppression": [0.2],
-        }
-    )
+#: Per-mart fake row counts the faked ``write_delta_table`` returns (so ``total`` is deterministic).
+_MART_ROWS = {
+    OFF_BALL_TABLE: 5,
+    AGG_TABLE: 3,
+    LONG_TABLE: 2,
+    GK_DECISION_TABLE: 7,
+    REST_DEFENSE_TABLE: 4,
+    GKDV_OBS_TABLE: 6,
+}
 
 
-def _make_processor(monkeypatch, *, inputs, capture, gkdv_enabled: bool = True):
-    """Construct a processor with every Spark/pyspark seam faked; capture writes into ``capture``.
+class _FakeSdf:
+    """Stands in for the lazy Stage-2 Spark DataFrame; ``.count()`` is the dry-run canary path."""
 
-    ``gkdv_enabled`` defaults True here so the existing four-write contract tests keep exercising the gkdv
-    scoring path (the perf project depends on it). The SHIPPED default is False (gkdv gated off) — see
-    ``test_gkdv_gated_off_is_the_shipped_default`` and the ``gkdv_enabled=False`` skip tests.
-    """
+    def __init__(self, table: str) -> None:
+        self.table = table
+        self.counted = False
+
+    def count(self) -> int:
+        self.counted = True
+        return _MART_ROWS[self.table]
+
+
+def _make_processor(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    gkdv_enabled: bool = True,
+    actions: pd.DataFrame | None = None,
+    write_raises: set[str] | None = None,
+    stage1_raises: bool = False,
+) -> tuple[TrackingMartsProcessor, dict[str, Any]]:
+    """Build a processor with every Spark seam faked. Returns (processor, record) where ``record`` captures
+    stage1 calls, per-mart ``build_stage2`` tables, writes, dry-run counts, and cleanup."""
+    rec: dict[str, Any] = {"writes": [], "stage2": [], "stage1": 0, "cleanup": 0, "sdfs": []}
+    acts = pd.DataFrame({"period_id": [2, 2], "access_tier": ["public", "public"]}) if actions is None else actions
+
+    # ── __init__ seams (module-level in tmp) ──
     monkeypatch.setattr(tmp, "ac_xt_grid", lambda spark, catalog, schema: ([[0.0]], 1, 1))
     monkeypatch.setattr(
         tmp, "_build_comp_season_lookup", lambda spark, catalog, providers: {("idsse", "M1"): ("C1", "2023")}
     )
     monkeypatch.setattr(tmp, "_off_ball_struct_type", lambda: "OFF_SCHEMA")
-    monkeypatch.setattr(tmp, "_dc_struct_type", lambda cols, types: ("DC_SCHEMA", tuple(cols)))
+    monkeypatch.setattr(tmp, "_dc_struct_type", lambda cols, types: "DC_SCHEMA")
     monkeypatch.setattr(tmp, "_gkdv_obs_struct_type", lambda: "GKDV_SCHEMA")
     monkeypatch.setattr(tmp, "_rd_struct_type", lambda: "RD_SCHEMA")
     monkeypatch.setattr(tmp, "_gk_decision_struct_type", lambda: "GKD_SCHEMA")
     monkeypatch.setattr(tmp, "_bundled_completion_model", lambda: object())
+
+    # ── process() driver reads ──
     monkeypatch.setattr(tmp, "resolve_unit_meta", lambda spark, catalog, provider, match_id: _Meta())
-    monkeypatch.setattr(tmp, "read_and_build_unit_inputs", lambda spark, catalog, unit, **kw: inputs)
     monkeypatch.setattr(tmp, "_read_xg_preds", lambda spark, catalog, provider, match_id: pd.DataFrame())
-    monkeypatch.setattr(tmp, "attach_xg", lambda actions, xg_preds: actions)  # passthrough (same actions object)
+    monkeypatch.setattr(driver, "read_unit_actions", lambda spark, catalog, provider, match_id: acts)
+    monkeypatch.setattr(driver, "read_raw_trk_sdf", lambda spark, catalog, provider, match_id, period: "RAW_SDF")
+    monkeypatch.setattr(ac_enrich, "_resolve_enrichment_identity", lambda a, *, provider, match_id_native: a)
+    monkeypatch.setattr(spill_mod, "built_frame_struct_type", lambda provider: "BUILT_SCHEMA")
 
-    # rest_defense (sk4118 Phase E) — default fake returns 4 rows; count tests account for it.
-    def _fake_rd(a, f, xt, *, access_tier):
-        return pd.DataFrame({"x": range(4)})
+    # ── dispatch seam ──
+    monkeypatch.setattr(dispatch, "spill_path", lambda catalog, schema, unit: "/vol/spill/u")
+    monkeypatch.setattr(dispatch, "make_build_udf", lambda *a, **k: lambda raw: raw)
+    monkeypatch.setattr(dispatch, "make_mart_scorers", lambda *a, **k: _scorers_for(k.get("gkdv_enabled", True)))
 
-    monkeypatch.setattr(tmp, "compute_rest_defense_samples", _fake_rd)
+    def _fake_stage1(spark, unit, raw_sdf, build_udf, built_schema, spill_dir):
+        if stage1_raises:
+            raise RuntimeError("stage1 boom")
+        rec["stage1"] += 1
+        return spill_dir
 
-    # gk_decision (sk4118 Phase E) — default fake returns 2 rows; count tests account for it.
-    def _fake_gkd(actions, frames, completion_model, *, data_source, match_id, access_tier):
-        return pd.DataFrame({"x": range(2)})
+    monkeypatch.setattr(dispatch, "run_stage1_build_and_spill", _fake_stage1)
 
-    monkeypatch.setattr(tmp, "score_gk_decision_unit", _fake_gkd)
+    def _fake_stage2(spark, unit, spill_dir, mart):
+        rec["stage2"].append(mart.table)
+        sdf = _FakeSdf(mart.table)
+        rec["sdfs"].append(sdf)
+        return sdf
+
+    monkeypatch.setattr(dispatch, "build_stage2_mart_sdf", _fake_stage2)
+
+    def _fake_cleanup(spark, spill_dir):
+        rec["cleanup"] += 1
+
+    monkeypatch.setattr(dispatch, "cleanup_spill", _fake_cleanup)
+
+    raises = write_raises or set()
+
+    def _fake_write(sdf, catalog, schema, table, *, replace_where, logger):
+        if table in raises:
+            raise ValueError(f"{table} write boom")
+        rec["writes"].append({"table": table, "where": replace_where})
+        return _MART_ROWS[table]
+
+    monkeypatch.setattr(utils, "write_delta_table", _fake_write)
 
     proc = TrackingMartsProcessor(spark=object(), catalog="cat", schema="bronze", gkdv_enabled=gkdv_enabled)
-
-    def _fake_write(pdf, schema, table, where):
-        capture.append({"table": table, "where": where, "rows": len(pdf), "schema": schema})
-        return len(pdf)
-
-    monkeypatch.setattr(proc, "_write", _fake_write)
-    return proc
+    return proc, rec
 
 
-def test_process_runs_three_scorers_on_same_inputs_and_writes_four_tables(monkeypatch) -> None:
-    actions = pd.DataFrame({"a": [1, 2]})
-    frames = pd.DataFrame({"f": [1, 2, 3]})
-    inputs = UnitInputs(actions=actions, frames=frames, xt="XT")
-    capture: list[dict] = []
-    seen: dict[str, tuple] = {}
+def _scorers_for(gkdv_enabled: bool) -> dict[str, Any]:
+    keys = ["off_ball_runs", "action_defensive", "defensive_credit_attributions", "gk_decision", "rest_defense"]
+    if gkdv_enabled:
+        keys.append("gkdv_observations")
+    return {k: (lambda built: built) for k in keys}
 
-    def _obr(a, f, xt):
-        seen["obr"] = (id(a), id(f), xt)
-        return pd.DataFrame({"x": range(5)})
 
-    def _agg(a, f, xt):
-        seen["agg"] = (id(a), id(f), xt)
-        return pd.DataFrame({"x": range(3)})
+_UNIT = WorkUnit(provider="idsse", match_id="M1", period=2)
+_WHERE = "data_source = 'idsse' AND match_id = 'M1' AND period_id = 2"
 
-    def _long(a, f, xt):
-        seen["long"] = (id(a), id(f), xt)
-        return pd.DataFrame({"x": range(2)})
 
-    def _gkdv(frames_arg, home_team_id, xt, *, data_source, match_id, competition_id, season_id, want_threat=True):
-        seen["gkdv"] = (id(frames_arg), xt, data_source, match_id, competition_id, season_id, home_team_id)
-        return _gkdv_frame(match_id)
+def test_process_builds_six_specs_and_writes_each_with_replace_where(monkeypatch: pytest.MonkeyPatch) -> None:
+    proc, rec = _make_processor(monkeypatch, gkdv_enabled=True)
+    total = proc.process(_UNIT)
 
-    proc = _make_processor(monkeypatch, inputs=inputs, capture=capture)
-    monkeypatch.setattr(tmp, "compute_off_ball_runs", _obr)
-    monkeypatch.setattr(tmp, "compute_action_defensive_credit", _agg)
-    monkeypatch.setattr(tmp, "compute_defensive_credit_long", _long)
-    monkeypatch.setattr(tmp, "score_gkdv_unit", _gkdv)
-
-    unit = WorkUnit(provider="idsse", match_id="M1", period=2)
-    total = proc.process(unit)
-
-    # (a) all three (actions, frames) scorers ran on the SAME oriented inputs; gkdv on the same frames.
-    assert seen["obr"][0] == seen["agg"][0] == seen["long"][0] == id(actions)
-    assert seen["obr"][1] == seen["agg"][1] == seen["long"][1] == id(frames)
-    assert seen["gkdv"][0] == id(frames)
-    assert seen["obr"][2] == seen["agg"][2] == seen["long"][2] == seen["gkdv"][1] == "XT"
-    # gkdv got home_team_id from resolve_unit_meta and (comp, season) from the lookup.
-    assert seen["gkdv"][2:7] == ("idsse", "M1", "C1", "2023", "HOME")
-
-    # (b) six writes to the six bronze tables, each with the SAME per-unit replaceWhere.
-    where = "data_source = 'idsse' AND match_id = 'M1' AND period_id = 2"
-    assert [c["table"] for c in capture] == [
-        "off_ball_runs",
-        "action_defensive_credit",
-        "defensive_credit_attributions",
-        "gkdv_observations",
-        "gk_decision",
-        "rest_defense",
+    assert rec["stage1"] == 1
+    assert rec["stage2"] == [
+        OFF_BALL_TABLE,
+        AGG_TABLE,
+        LONG_TABLE,
+        GK_DECISION_TABLE,
+        REST_DEFENSE_TABLE,
+        GKDV_OBS_TABLE,
     ]
-    assert {c["where"] for c in capture} == {where}
-
-    # (c) summed row count across all six writes (gk_decision fake -> 2, rest_defense fake -> 4).
-    assert total == 5 + 3 + 2 + 1 + 2 + 4
-
-    # gkdv write carries the intermediate schema in the canonical column order.
-    gkdv_write = next(c for c in capture if c["table"] == "gkdv_observations")
-    assert gkdv_write["schema"] == "GKDV_SCHEMA"
+    assert [w["table"] for w in rec["writes"]] == rec["stage2"]
+    assert {w["where"] for w in rec["writes"]} == {_WHERE}
+    assert total == sum(_MART_ROWS.values())
+    assert rec["cleanup"] == 1  # finally
 
 
-def test_process_gkdv_write_has_full_columns_including_match_id(monkeypatch) -> None:
-    """The processor stamps match_id and selects the canonical _GKDV_OBS_COLUMNS order before writing."""
-    inputs = UnitInputs(actions=pd.DataFrame({"a": [1]}), frames=pd.DataFrame({"f": [1]}), xt="XT")
-    captured_pdf: dict[str, pd.DataFrame] = {}
-
-    def _make(monkeypatch):
-        proc = _make_processor(monkeypatch, inputs=inputs, capture=[])
-        monkeypatch.setattr(tmp, "compute_off_ball_runs", lambda a, f, xt: pd.DataFrame({"x": [1]}))
-        monkeypatch.setattr(tmp, "compute_action_defensive_credit", lambda a, f, xt: pd.DataFrame({"x": [1]}))
-        monkeypatch.setattr(tmp, "compute_defensive_credit_long", lambda a, f, xt: pd.DataFrame({"x": [1]}))
-        monkeypatch.setattr(tmp, "score_gkdv_unit", lambda *a, **k: _gkdv_frame(k["match_id"]))
-
-        def _capture_write(pdf, schema, table, where):
-            if table == "gkdv_observations":
-                captured_pdf["pdf"] = pdf
-            return len(pdf)
-
-        monkeypatch.setattr(proc, "_write", _capture_write)
-        return proc
-
-    proc = _make(monkeypatch)
-    proc.process(WorkUnit(provider="idsse", match_id="M1", period=2))
-
-    written = captured_pdf["pdf"]
-    assert list(written.columns) == list(_GKDV_OBS_COLUMNS)
-    assert (written["match_id"] == "M1").all()
-    assert (written["game_id"] == "M1").all()  # game_id == match_id
+def test_process_five_specs_when_gkdv_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    proc, rec = _make_processor(monkeypatch, gkdv_enabled=False)
+    proc.process(_UNIT)
+    assert GKDV_OBS_TABLE not in rec["stage2"]
+    assert len(rec["stage2"]) == 5
+    assert GKDV_OBS_TABLE not in [w["table"] for w in rec["writes"]]
 
 
-def test_process_attributes_scorer_failure_and_rolls_unit_forward(monkeypatch) -> None:
-    inputs = UnitInputs(actions=pd.DataFrame({"a": [1]}), frames=pd.DataFrame({"f": [1]}), xt="XT")
-    capture: list[dict] = []
-    proc = _make_processor(monkeypatch, inputs=inputs, capture=capture)
-
-    def _boom(a, f, xt):
-        raise ValueError("obr exploded")
-
-    monkeypatch.setattr(tmp, "compute_off_ball_runs", _boom)
-    monkeypatch.setattr(tmp, "compute_action_defensive_credit", lambda a, f, xt: pd.DataFrame({"x": [1]}))
-    monkeypatch.setattr(tmp, "compute_defensive_credit_long", lambda a, f, xt: pd.DataFrame({"x": [1]}))
-    monkeypatch.setattr(tmp, "score_gkdv_unit", lambda *a, **k: _gkdv_frame(k["match_id"]))
-
-    unit = WorkUnit(provider="idsse", match_id="M1", period=2)
-    with pytest.raises(RuntimeError) as excinfo:
-        proc.process(unit)
-
-    msg = str(excinfo.value)
-    assert "off_ball_runs" in msg and "obr exploded" in msg
-    assert "idsse:M1:2" in msg
-
-    # Per-scorer isolation: the failing scorer skipped its write, the others still wrote (unit rolls forward).
-    tables = [c["table"] for c in capture]
-    assert "off_ball_runs" not in tables
-    assert "action_defensive_credit" in tables
-    assert "defensive_credit_attributions" in tables
-    assert "gkdv_observations" in tables
+def test_process_attributes_mart_failure_and_rolls_unit_forward(monkeypatch: pytest.MonkeyPatch) -> None:
+    proc, rec = _make_processor(monkeypatch, gkdv_enabled=True, write_raises={LONG_TABLE})
+    with pytest.raises(RuntimeError, match=f"idsse:M1:2 failed.*{LONG_TABLE}"):
+        proc.process(_UNIT)
+    # the OTHER five marts still ran + wrote (per-mart isolation); spill cleaned up despite the failure.
+    assert len(rec["stage2"]) == 6
+    assert LONG_TABLE not in [w["table"] for w in rec["writes"]]
+    assert len([w for w in rec["writes"]]) == 5
+    assert rec["cleanup"] == 1
 
 
-def test_process_empty_unit_returns_zero_and_writes_nothing(monkeypatch) -> None:
-    capture: list[dict] = []
-    proc = _make_processor(monkeypatch, inputs=None, capture=capture)
-    # No scorer should be reached; make them explode if called.
-    monkeypatch.setattr(tmp, "compute_off_ball_runs", lambda *a, **k: (_ for _ in ()).throw(AssertionError("called")))
+def test_process_cleanup_runs_even_when_stage1_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    proc, rec = _make_processor(monkeypatch, gkdv_enabled=True, stage1_raises=True)
+    with pytest.raises(RuntimeError):
+        proc.process(_UNIT)
+    assert rec["stage2"] == []  # never reached Stage 2
+    assert rec["cleanup"] == 1  # finally still cleaned the spill
 
-    total = proc.process(WorkUnit(provider="idsse", match_id="M1", period=2))
 
+def test_process_empty_unit_returns_zero_and_skips_stage1(monkeypatch: pytest.MonkeyPatch) -> None:
+    proc, rec = _make_processor(monkeypatch, actions=pd.DataFrame({"period_id": [], "access_tier": []}))
+    assert proc.process(_UNIT) == 0
+    assert rec["stage1"] == 0
+    assert rec["stage2"] == []
+
+
+def test_process_dry_run_materializes_but_writes_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    proc, rec = _make_processor(monkeypatch, gkdv_enabled=True)
+    total = proc.process(_UNIT, dry_run=True)
     assert total == 0
-    assert capture == []
+    assert rec["writes"] == []  # nothing persisted
+    assert all(sdf.counted for sdf in rec["sdfs"])  # every mart forced to run (canary)
+    assert len(rec["stage2"]) == 6
+    assert rec["cleanup"] == 1
 
 
-def test_process_dry_run_computes_but_writes_nothing(monkeypatch) -> None:
-    """dry_run=True (the in-preflight canary, ADR-087): every scorer RUNS (a compute-path defect still
-    surfaces), but NO _write is issued and 0 is returned."""
-    inputs = UnitInputs(actions=pd.DataFrame({"a": [1]}), frames=pd.DataFrame({"f": [1]}), xt="XT")
-    capture: list[dict] = []
-    ran: list[str] = []
-    proc = _make_processor(monkeypatch, inputs=inputs, capture=capture)
-
-    def _obr(a, f, xt):
-        ran.append("obr")
-        return pd.DataFrame({"x": range(5)})
-
-    monkeypatch.setattr(tmp, "compute_off_ball_runs", _obr)
-    monkeypatch.setattr(tmp, "compute_action_defensive_credit", lambda a, f, xt: pd.DataFrame({"x": [1]}))
-    monkeypatch.setattr(tmp, "compute_defensive_credit_long", lambda a, f, xt: pd.DataFrame({"x": [1]}))
-    monkeypatch.setattr(tmp, "score_gkdv_unit", lambda *a, **k: _gkdv_frame(k["match_id"]))
-
-    total = proc.process(WorkUnit(provider="idsse", match_id="M1", period=2), dry_run=True)
-
-    assert total == 0
-    assert capture == []  # NO writes under dry_run
-    assert ran == ["obr"]  # NON-VACUOUS: compute still ran (a real bug would surface here)
-
-
-# ── gkdv gated off (ADR-082 amendment): default-off ships off_ball_runs + defensive_credit only ──
-
-
-def test_gkdv_gated_off_is_the_shipped_default() -> None:
-    """gkdv is gated off by default pending its perf project: the module constant is False AND the
-    constructor's ``gkdv_enabled`` defaults to it, so an un-parameterized worker (the shipped path) never
-    scores gkdv. Asserted on the signature so no Spark seam is needed."""
+def test_gkdv_enabled_is_the_shipped_default() -> None:
+    """gkdv is RE-ENABLED (sk 4.128 adoption, ADR-082 amendment): the module constant is True AND the
+    constructor's ``gkdv_enabled`` defaults to it, so an un-parameterized worker scores gkdv."""
     import inspect
 
-    assert tmp.GKDV_ENABLED is False
+    assert tmp.GKDV_ENABLED is True
     default = inspect.signature(TrackingMartsProcessor.__init__).parameters["gkdv_enabled"].default
     assert default is tmp.GKDV_ENABLED
-
-
-def test_gkdv_gated_off_skips_scoring_and_writes_only_non_gkdv_tables(monkeypatch) -> None:
-    """With gkdv gated off, ``score_gkdv_unit`` is NEVER called, no gkdv_observations write happens, and
-    the unit still succeeds with the shipping surfaces (off_ball_runs + defensive_credit + rest_defense)."""
-    inputs = UnitInputs(actions=pd.DataFrame({"a": [1]}), frames=pd.DataFrame({"f": [1]}), xt="XT")
-    capture: list[dict] = []
-    proc = _make_processor(monkeypatch, inputs=inputs, capture=capture, gkdv_enabled=False)
-    monkeypatch.setattr(tmp, "compute_off_ball_runs", lambda a, f, xt: pd.DataFrame({"x": range(5)}))
-    monkeypatch.setattr(tmp, "compute_action_defensive_credit", lambda a, f, xt: pd.DataFrame({"x": range(3)}))
-    monkeypatch.setattr(tmp, "compute_defensive_credit_long", lambda a, f, xt: pd.DataFrame({"x": range(2)}))
-    # gkdv scoring AND its meta lookup must be unreachable when gated off.
-    monkeypatch.setattr(tmp, "score_gkdv_unit", lambda *a, **k: (_ for _ in ()).throw(AssertionError("gkdv scored")))
-    monkeypatch.setattr(
-        tmp, "resolve_unit_meta", lambda *a, **k: (_ for _ in ()).throw(AssertionError("gkdv meta resolved"))
-    )
-
-    total = proc.process(WorkUnit(provider="idsse", match_id="M1", period=2))
-
-    assert [c["table"] for c in capture] == [
-        "off_ball_runs",
-        "action_defensive_credit",
-        "defensive_credit_attributions",
-        "gk_decision",
-        "rest_defense",
-    ]
-    assert "gkdv_observations" not in [c["table"] for c in capture]
-    assert total == 5 + 3 + 2 + 2 + 4  # + gk_decision fake (2) + rest_defense fake (4)
-    # The gkdv-only (comp, season) warehouse lookup is skipped when gated off.
-    assert proc._comp_season == {}
-
-
-def test_gkdv_gated_off_cannot_fail_the_unit_even_if_scoring_would_raise(monkeypatch) -> None:
-    """A gated-off gkdv is inert: even a score_gkdv_unit that WOULD raise is never invoked, so a unit whose
-    off_ball + defensive scorers succeed completes without the combined RuntimeError."""
-    inputs = UnitInputs(actions=pd.DataFrame({"a": [1]}), frames=pd.DataFrame({"f": [1]}), xt="XT")
-    capture: list[dict] = []
-    proc = _make_processor(monkeypatch, inputs=inputs, capture=capture, gkdv_enabled=False)
-    monkeypatch.setattr(tmp, "compute_off_ball_runs", lambda a, f, xt: pd.DataFrame({"x": [1]}))
-    monkeypatch.setattr(tmp, "compute_action_defensive_credit", lambda a, f, xt: pd.DataFrame({"x": [1]}))
-    monkeypatch.setattr(tmp, "compute_defensive_credit_long", lambda a, f, xt: pd.DataFrame({"x": [1]}))
-
-    def _boom(*a, **k):
-        raise ValueError("gkdv exploded")
-
-    monkeypatch.setattr(tmp, "score_gkdv_unit", _boom)
-
-    # No RuntimeError: gkdv never runs, so it never contributes a combined-failure attribution.
-    total = proc.process(WorkUnit(provider="idsse", match_id="M1", period=2))
-    assert total == 3 + 2 + 4  # off_ball + defensive_credit (1 each) + gk_decision (2) + rest_defense (4)
-    assert [c["table"] for c in capture] == [
-        "off_ball_runs",
-        "action_defensive_credit",
-        "defensive_credit_attributions",
-        "gk_decision",
-        "rest_defense",
-    ]

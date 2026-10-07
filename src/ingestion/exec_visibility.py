@@ -399,7 +399,9 @@ def executor_env_fingerprint(rendezvous_dir: str | None, *, seq: str) -> bool:
 
     # Module versions + import-ability (a hung import never returns — if a
     # fingerprint is missing a key, that import is the suspect).
-    for mod in ("numba", "accessible_space", "silly_kicks", "numpy", "scipy", "sklearn"):
+    # ``accessible_space`` dropped: silly-kicks 4.128 DAS is native (no accessible-space runtime dep), so
+    # probing its import here would always record a false finding (ADR-107).
+    for mod in ("numba", "silly_kicks", "numpy", "scipy", "sklearn"):
         try:
             m = importlib.import_module(mod)
             fp[f"{mod}_version"] = getattr(m, "__version__", "unknown")
@@ -447,7 +449,7 @@ def executor_env_fingerprint(rendezvous_dir: str | None, *, seq: str) -> bool:
 # executor-side assertion is the only thing that converts silent, intermittent
 # contamination into an immediate, debuggable failure.
 
-_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 123, 0)
+_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 128, 0)
 """Minimum silly-kicks the AC executor must run. Keep in lockstep with the
 ``silly-kicks`` floor in ``pyproject.toml`` — enforced by
 ``src/tests/test_executor_env_guard.py::test_required_sk_min_matches_pyproject_floor``."""

@@ -19,13 +19,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from analytics.action_context.unit_inputs import UnitInputs, build_unit_inputs
-
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import pandas as pd
+    from pyspark.sql import DataFrame as SparkDataFrame
     from pyspark.sql import SparkSession
 
-    from analytics.action_context.work_unit import MatchMeta, WorkUnit
+    from analytics.action_context.work_unit import MatchMeta
 
 logger = logging.getLogger(__name__)
 
@@ -63,37 +62,37 @@ def discover_tracking_units(
     return sorted((str(r[0]), str(r[1]), int(r[2])) for r in rows if r[2] is not None)
 
 
-def _read_unit(
+def read_raw_trk_sdf(
     spark: SparkSession,
     catalog: str,
     provider: str,
     match_id: str,
     period: int,
-) -> tuple[pd.DataFrame, pd.DataFrame, MatchMeta]:
-    """Read one unit's raw tracking frames + SPADL actions + resolved ``MatchMeta`` (driver-mode).
+) -> SparkDataFrame:
+    """Return ONE unit's raw tracking rows as a Spark DataFrame (projected to the builder's input cols).
 
-    Mirrors ``ingestion.action_context._process_tracking_match``'s read + meta-resolution block
-    (Part-B-validated): reuses that module's per-provider ``*_TRACKING_SELECT_COLS`` projections and
-    meta helpers so orientation is byte-identical to the drain. Frames are returned RAW (pre-rebase);
-    ``build_unit_inputs`` applies the timestamp rebase + conversion + identity resolution.
+    The executor-distributed seam: the two-stage dispatch (``tracking_marts_dispatch``) repartitions this
+    DataFrame and builds the oriented frames inside a ``mapInPandas`` pass — frames NEVER hit the driver.
+    Reuses ``ingestion.action_context``'s per-provider ``*_TRACKING_SELECT_COLS`` projections + the
+    SkillCorner meta broadcast-join so orientation is byte-identical to the AC drain.
     """
     from pyspark.sql import functions as F  # noqa: N812
 
     from ingestion import action_context as ac
 
     if provider == "idsse":
-        trk = (
+        return (
             spark.table(f"{catalog}.bronze.idsse_tracking")
             .filter((F.col("match_id") == match_id) & (F.col("period") == period))
             .select(*ac._IDSSE_TRACKING_SELECT_COLS)
         )
-    elif provider == "metrica":
-        trk = (
+    if provider == "metrica":
+        return (
             spark.table(f"{catalog}.bronze.metrica_tracking")
             .filter((F.col("match_id") == match_id) & (F.col("period") == period))
             .select(*ac._METRICA_TRACKING_SELECT_COLS)
         )
-    elif provider == "skillcorner":
+    if provider == "skillcorner":
         trk = (
             spark.table(f"{catalog}.bronze.skillcorner_tracking")
             .filter((F.col("match_id") == match_id) & (F.col("period") == period))
@@ -110,37 +109,33 @@ def _read_unit(
                 F.col("pitch_width").cast("double").alias("pitch_width"),
             )
         )
-        trk = trk.join(F.broadcast(matches_meta), on="player_id", how="left")
-    elif provider == "gradientsports":
-        trk = (
+        return trk.join(F.broadcast(matches_meta), on="player_id", how="left")
+    if provider == "gradientsports":
+        return (
             spark.table(f"{catalog}.bronze.gradientsports_tracking")
             .filter((F.col("match_id") == match_id) & (F.col("period") == period))
             .select(*ac._GRADIENTSPORTS_TRACKING_SELECT_COLS)
         )
-    else:
-        raise ValueError(f"Unknown tracking provider: {provider}")
+    raise ValueError(f"Unknown tracking provider: {provider}")
 
-    trk_pdf = trk.toPandas()
 
-    actions_pdf = (
+def read_unit_actions(spark: SparkSession, catalog: str, provider: str, match_id: str) -> pd.DataFrame:
+    """Return one match's SPADL actions as driver pandas (small/bounded; the per-unit closure input)."""
+    from pyspark.sql import functions as F  # noqa: N812
+
+    return (
         spark.table(f"{catalog}.bronze.spadl_actions")
         .filter((F.col("match_id_native") == match_id) & (F.col("data_source") == provider))
         .toPandas()
     )
 
-    meta = _resolve_meta(spark, catalog, provider, match_id)
-    return trk_pdf, actions_pdf, meta
-
 
 def resolve_unit_meta(spark: SparkSession, catalog: str, provider: str, match_id: str) -> MatchMeta:
-    """Public accessor for a unit's resolved ``MatchMeta`` (home_team_id etc.).
+    """Public accessor for a unit's resolved ``MatchMeta`` (home_team_id etc.) — a UDF-closure input.
 
-    :func:`read_and_build_unit_inputs` returns oriented ``(actions, frames, xt)`` and does not surface the
-    resolved meta, but the gkdv scorer (via ``ingestion.tracking_marts_processor.TrackingMartsProcessor``)
-    needs ``home_team_id`` to build the ghost counterfactual
-    (``silly_kicks.gkdv.build_ghost_frames(home_team_id=...)``). This thin wrapper reuses the SAME
-    per-provider resolution the driver already applies, so orientation/home-team identity stay byte-
-    identical to the AC drain rather than being re-derived independently.
+    The gkdv scorer (via ``ingestion.tracking_marts_processor.TrackingMartsProcessor``) needs ``home_team_id``
+    to build the ghost counterfactual (``silly_kicks.gkdv.build_ghost_frames(home_team_id=...)``). Reuses the
+    SAME per-provider resolution the AC drain applies, so orientation/home-team identity stay byte-identical.
     """
     return _resolve_meta(spark, catalog, provider, match_id)
 
@@ -211,46 +206,6 @@ def _resolve_meta(spark: SparkSession, catalog: str, provider: str, match_id: st
         )
 
     raise ValueError(f"Unknown tracking provider: {provider}")
-
-
-def read_and_build_unit_inputs(
-    spark: SparkSession,
-    catalog: str,
-    unit: WorkUnit,
-    *,
-    xt_grid_data: list[list[float]],
-    xt_l: int,
-    xt_w: int,
-) -> UnitInputs | None:
-    """Read + build oriented ``(actions, frames, xt)`` for ONE tracking ``WorkUnit``.
-
-    The per-unit read + build, so a per-unit drain processor
-    (``ingestion.tracking_marts_processor.TrackingMartsProcessor``) can build inputs one unit at a time.
-    Returns ``None`` when the unit reads empty (no tracking frames or no SPADL actions) — the caller
-    treats a ``None`` as a no-op unit (mirrors the old loop's ``continue``). The xT grid is passed in
-    (the processor loads it ONCE via :func:`ac_xt_grid` at construction), not re-loaded per unit.
-    """
-    from analytics.action_context.work_unit import FrameBundle
-
-    if unit.period is None:
-        # Tracking units are period-grain (discover_tracking_units yields real period_ids); a match-grain
-        # unit has no frames to read, so it is a no-op — and this narrows ``period`` to ``int`` for _read_unit.
-        return None
-    trk_pdf, actions_pdf, meta = _read_unit(spark, catalog, unit.provider, unit.match_id, unit.period)
-    if trk_pdf.empty or actions_pdf.empty:
-        logger.warning(
-            "Skipping empty unit %s:%s:%s (no tracking or actions)", unit.provider, unit.match_id, unit.period
-        )
-        return None
-    return build_unit_inputs(
-        unit,
-        frame_bundle=FrameBundle(tier="tracking", frames=trk_pdf),
-        actions_df=actions_pdf,
-        meta=meta,
-        xt_grid_data=xt_grid_data,
-        xt_l=xt_l,
-        xt_w=xt_w,
-    )
 
 
 def ac_xt_grid(spark: SparkSession, catalog: str, schema: str) -> tuple[list[list[float]], int, int]:

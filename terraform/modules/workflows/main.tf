@@ -1924,17 +1924,18 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path,
-        "silly-kicks[das,ghost-gk,parse-dfl]==4.123.0",
-        "accessible-space==2.0.15",
+        "silly-kicks[ghost-gk,parse-dfl]==4.128.0",
+        # accessible-space dropped: silly-kicks 4.128 DAS is a NATIVE engine (ADR-107) — no
+        # accessible-space runtime dependency; the [das] extra is retired.
         # numba: silly-kicks ships @njit kernels for pitch control + ball-carrier
         # (tracking/pitch_control/_{spearman,fernandez_bornn}.py, tracking/_ball_carrier.py)
         # behind a `try: import numba / except: _HAS_NUMBA=False` fallback. numba is
         # only an OPTIONAL silly-kicks extra ([numba]), so without it pinned here the
         # serverless tracking enrichment silently runs the slow numpy fallback — a
         # latent footgun (correct output, no error, ~2x slower hot loops). Pinning it
-        # makes the deployed env match the code's design contract. (DAS/accessible-space
-        # is pure numpy — numba does not accelerate it; see project memory
-        # ac1-numba-das-cost.)
+        # makes the deployed env match the code's design contract. (Native DAS, sk 4.128,
+        # ships its own @njit kernels — tracking/_das_numba.py — so numba now accelerates
+        # DAS too; see project memory ac1-numba-das-cost.)
         "numba==0.67.0",
         "numpy==1.26.4",
         # xgboost-cpu: same version + API as xgboost, but without the

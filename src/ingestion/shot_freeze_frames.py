@@ -33,13 +33,14 @@ and NO per-period conversion — it reads the shot's ``bronze.statsbomb_360`` fr
 builds canonical-SPADL snapshots via ``analytics.action_context.sb360_freeze_frames`` (which is already
 shooter-normalized, so no orientation, and stamps ``access_tier='public'`` itself).
 
-LONG-TERM (how IDSSE/Metrica onboard): replace this driver-side loop with a DISTRIBUTED SINK
-mirroring ``compute_action_context`` — a per-``(match, period)`` work-queue in
-``ingestion.drain_adapters`` + a ``compute_shot_freeze_frames_drain_worker`` entry point.
-That (a) moves conversion onto Spark executors (via the same ``mapInPandas`` frame-batching +
-M13 owner de-dup ``_process_tracking_match`` uses) so the dense providers scale, and (b)
-amortizes the serverless cold-start across the whole drain instead of paying it per match.
-IDSSE + Metrica are enabled (``--providers …,idsse,metrica``) only once that sink lands.
+rev3 (2026-10-06) moved per-``(match, period)`` conversion off the driver onto Spark executors via
+``mapInPandas`` frame-batching (the same seam ``_process_tracking_match`` uses), with M13 owner de-dup.
+That removed the driver ``toPandas`` that had deferred IDSSE's dense ~1.5M-row periods, so IDSSE is now
+a daily source. METRICA stays out of the default — its three legacy sample matches are not quality data
+(owner decision 2026-10-06), not a scaling limit; name it explicitly via ``--providers`` to backfill.
+LONG-TERM a full DISTRIBUTED SINK (a per-``(match, period)`` work-queue in ``ingestion.drain_adapters``
++ a ``compute_shot_freeze_frames_drain_worker`` entry point, mirroring ``compute_action_context``) would
+further amortize serverless cold-start across the drain instead of paying it per match.
 
 Design notes / assumptions (surfaced for review — see the PR description):
 
@@ -98,12 +99,12 @@ _TRACKING_PROVIDERS: frozenset[str] = frozenset({"gradientsports", "skillcorner"
 # valid ``--providers`` / ``--match-ids`` value but is NOT in the daily default (opt-in backfill only).
 _FREEZE_FRAME_PROVIDERS: frozenset[str] = _TRACKING_PROVIDERS | frozenset({"statsbomb"})
 
-# INTERIM SCOPE (see module docstring): the daily run is limited to GradientSports + SkillCorner —
-# the only providers small enough for the current driver-side per-(match, period) conversion.
-# IDSSE/Metrica onboard with the distributed-sink rewrite (work-queue + drain worker), NOT by
-# widening this default. statsbomb (SB-360) is a deliberate opt-in for the one-time backfill, NOT a
-# daily source. Overridable via ``--providers``.
-_DEFAULT_PROVIDERS = "gradientsports,skillcorner"
+# Daily scope: GradientSports + SkillCorner + IDSSE. The executor-distributed mapInPandas refactor (rev3)
+# removed the per-(match, period) driver ``toPandas`` that had deferred IDSSE (~1.5M rows/period), so IDSSE
+# now onboards. METRICA is deliberately EXCLUDED (owner decision 2026-10-06): its three legacy sample
+# matches are not quality data; it remains an opt-in via ``--providers`` but is not a daily source.
+# statsbomb (SB-360) is a deliberate opt-in for the one-time backfill, NOT a daily source.
+_DEFAULT_PROVIDERS = "gradientsports,skillcorner,idsse"
 
 # ── Driver input-table column contract (SSOT for the discovery/resolution SQL AND the schema guard) ──
 # The join that resolves the Kimball match_key surrogate is:
@@ -226,11 +227,10 @@ def _parse_freeze_frame_match_ids_arg(raw: str | None) -> tuple[str, list[str]] 
 def _parse_providers_arg(raw: str | None) -> frozenset[str]:
     """Parse/validate the ``--providers`` comma-list against the known freeze-frame-provider set.
 
-    Empty / ``None`` → the interim default (``gradientsports,skillcorner``). Unknown providers raise
-    a loud ``SystemExit``. Enabling ``idsse``/``metrica`` here is a deliberate opt-in (see the module
-    docstring's INTERIM SCOPE note — the driver-side conversion is not yet safe for their dense
-    periods); ``statsbomb`` is a deliberate opt-in for the one-time SB-360 backfill (never in the
-    daily default).
+    Empty / ``None`` → the daily default (``gradientsports,skillcorner,idsse``). Unknown providers raise
+    a loud ``SystemExit``. ``metrica`` is a deliberate opt-in (excluded from the default on data quality,
+    not conversion-safety — see the module docstring); ``statsbomb`` is a deliberate opt-in for the
+    one-time SB-360 backfill (never in the daily default).
     """
     if raw is None or raw.strip() == "":
         raw = _DEFAULT_PROVIDERS
@@ -249,14 +249,14 @@ def _units_from_match_ids(parsed: tuple[str, list[str]], selected: frozenset[str
     """Build ``(provider, native_id)`` units from a parsed ``--match-ids``, enforcing ``--providers`` scope.
 
     Rejects (loud ``SystemExit``) a backfill whose provider is outside the selected set — so a
-    ``--match-ids idsse:…`` cannot silently bypass the INTERIM GS+SkillCorner scope.
+    ``--match-ids metrica:…`` cannot silently bypass the daily GS+SkillCorner+IDSSE scope.
     """
     provider, ids = parsed
     if provider not in selected:
         raise SystemExit(
             f"--match-ids provider {provider!r} is outside the selected --providers set "
-            f"{sorted(selected)}. Add it to --providers to process it (INTERIM SCOPE — idsse/metrica "
-            f"await the distributed-sink rewrite; see the module docstring)."
+            f"{sorted(selected)}. Add it to --providers to process it (metrica/statsbomb are "
+            f"deliberate opt-ins; see the module docstring)."
         )
     return [(provider, native_id) for native_id in ids]
 
@@ -334,9 +334,9 @@ def _discover_missing_units(
 ) -> list[tuple[str, str]]:
     """Return ``[(provider, native_id), ...]`` for ``providers``-scoped shot-matches not yet freeze-framed.
 
-    Discovery is CONSTRAINED to the ``--providers``-selected set (default GS+SkillCorner) — an
-    idsse/metrica/statsbomb match is never returned unless explicitly enabled (INTERIM SCOPE +
-    statsbomb opt-in). Tracking providers use the generic anti-set SQL; ``statsbomb`` uses its own
+    Discovery is CONSTRAINED to the ``--providers``-selected set (default GS+SkillCorner+IDSSE) — a
+    metrica/statsbomb match is never returned unless explicitly enabled (deliberate opt-ins).
+    Tracking providers use the generic anti-set SQL; ``statsbomb`` uses its own
     :func:`_missing_statsbomb_units_sql` (which additionally requires ``bronze.statsbomb_360`` data),
     and the two result sets are unioned. Uses ``tolerate_missing_table`` so the first run (before the
     table is populated / when the migration has just created an empty table) does not spuriously fail;
@@ -716,7 +716,6 @@ def _process_match(
     if provider == "statsbomb":
         return _process_statsbomb_match(spark, catalog, schema, gold_schema, native_id, task_logger)
 
-    import pandas as _pd
     from pyspark.sql import functions as spark_fn  # type: ignore[import-not-found]
 
     from ingestion.action_context import (
@@ -785,31 +784,38 @@ def _process_match(
         meta = _resolve_tracking_match_meta(spark, catalog, provider, native_id, actions_pdf)
         trk_sdf = _prepare_tracking_frames_for_match(trk_sdf, provider)
 
-        # ── Per-period conversion + snapshot build (driver-side; snapshot set is tiny) ──
-        periods = [int(r["period"]) for r in trk_sdf.select("period").distinct().collect()]
-        snapshot_frames: list[pd.DataFrame] = []
-        for period in sorted(periods):
-            trk_period_pdf = trk_sdf.filter(spark_fn.col("period") == period).toPandas()
-            snaps = _period_snapshots(provider, trk_period_pdf, actions_pdf, meta, native_id)
-            if len(snaps):
-                snapshot_frames.append(snaps)
+        # ── Per-period snapshot build, EXECUTOR-DISTRIBUTED (mapInPandas; ADR-045) ──
+        # Replaces the per-period ``toPandas()`` loop — the whole-half driver pull that deferred idsse/metrica
+        # (~1.5M rows/period). One ``period`` group == one executor task; frames never hit the driver. Unlike
+        # the six-mart tracking-marts drain this is SINGLE-output, so the snapshot rows are returned directly
+        # as the result schema — no spill. The driver-owned ADR-064 ``access_tier`` is stamped in the UDF
+        # (the pure builder output does not carry it; a NULL fail-safes to restricted downstream).
+        from ingestion.action_context import _UDF_SHUFFLE_PARTITIONS, _make_streaming_group_mapper
 
-        if not snapshot_frames:
+        frame_col = "frame_num" if provider == "gradientsports" else "frame"
+        _ff_cols = list(_SHOT_FF_COLUMNS)
+
+        def _snapshot_udf(period_pdf: pd.DataFrame) -> pd.DataFrame:
+            import pandas as _p
+
+            snaps = _period_snapshots(provider, period_pdf, actions_pdf, meta, native_id)
+            if not len(snaps):
+                return _p.DataFrame(columns=_ff_cols)
+            snaps = snaps.copy()
+            snaps["access_tier"] = access_tier
+            return snaps[_ff_cols]
+
+        sort_cols = ["period", frame_col] if frame_col in trk_sdf.columns else ["period"]
+        result_sdf = (
+            trk_sdf.repartition(_UDF_SHUFFLE_PARTITIONS, "period")
+            .sortWithinPartitions(*sort_cols)
+            .mapInPandas(_make_streaming_group_mapper(_snapshot_udf, ["period"]), schema=_shot_ff_struct_type())
+        )
+        written = write_shot_freeze_frames(result_sdf, catalog, schema, [match_key], row_count=None)
+        if written == 0:
             task_logger.warning(
                 "No shot freeze-frames produced for %s match %s (match_key=%s)", provider, native_id, match_key
             )
-            return (match_key, 0)
-
-        # Stamp the driver-owned ADR-064 ``access_tier`` per row BEFORE the reindex: the pure builder
-        # output (``_SNAPSHOT_COLUMNS``) does not carry it, so the reindex to ``_SHOT_FF_COLUMNS`` would
-        # KeyError without it. The raw dim_matches value is stamped verbatim (a NULL fail-safes to
-        # restricted in the downstream publisher's split_restricted — never invented here).
-        all_snaps = _pd.concat(snapshot_frames, ignore_index=True)
-        all_snaps["access_tier"] = access_tier
-        all_snaps = all_snaps[list(_SHOT_FF_COLUMNS)]
-        n_rows = len(all_snaps)
-        snapshots_sdf = spark.createDataFrame(all_snaps, schema=_shot_ff_struct_type())
-        written = write_shot_freeze_frames(snapshots_sdf, catalog, schema, [match_key], row_count=n_rows)
         return (match_key, written)
     except Exception as exc:  # ADR-002 §5 — hard-fail-first with the match key in the message
         raise RuntimeError(f"compute_shot_freeze_frames failed for {provider}:{native_id}") from exc

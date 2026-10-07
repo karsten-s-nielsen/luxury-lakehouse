@@ -156,6 +156,20 @@ model under EU AI Act governance** — it requires a model-card + `AI_GOVERNANCE
 flip. gkdv remains an in-scope governed system (`wf-tracking-marts` → `gkdv.md`); it is operationally
 paused, not removed.
 
+## Amendment (2026-10-06) — gkdv RE-ENABLED (sk 4.128 + executor two-stage refactor)
+
+The `GKDV-PERF` follow-up is resolved; `tracking_marts_processor.GKDV_ENABLED` is now **`True`**. Two
+changes closed the per-unit cost that paused it: **silly-kicks 4.128 native DAS** (ADR-107 — the per-scored-
+frame ghost-GK DAS runs native `@njit` kernels, no accessible-space) and the **executor two-stage refactor**
+(ADR-088 — build-once → UC-Volume spill → six per-mart scoring passes) moves the doubled per-frame DAS off
+the 16 GB driver onto executors, so it no longer exceeds the per-unit watchdog. gkdv scores as the sixth
+Stage-2 mart (`gkdv_observations`); the cross-game `pool_keepers` reduce runs in the separate
+`main_gkdv_pool` task; the completeness gate (`tracking_marts_gate._OUTPUT_TABLES`) now sums **six** tables
+(the conditional keys off `GKDV_ENABLED`). No gkdv frame-sampling methodology changed — this re-enables the
+existing scoring on a faster substrate — so no evaluative-model-card change is required by this flip (the
+sk-side native-DAS parity is carried by ADR-107). The real per-unit rate + the 7-pass dispatch/wall-clock
+budget are re-measured in the ADR-088 fit profile.
+
 ## CLAUDE.md Amendment
 
 Performance Budgets: `compute_tracking_marts` is a worker-drain task like `compute_action_context`

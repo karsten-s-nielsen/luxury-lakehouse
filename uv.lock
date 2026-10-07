@@ -23,22 +23,6 @@ constraints = [
 overrides = [{ name = "flask-socketio", specifier = ">=5.5.1" }]
 
 [[package]]
-name = "accessible-space"
-version = "2.0.15"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "matplotlib" },
-    { name = "numpy" },
-    { name = "pandas" },
-    { name = "scipy" },
-    { name = "tqdm" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/76/9e/c53e0c8a4752c1f2e5d438160396ab150af76c486091b29f26e9d9293e06/accessible_space-2.0.15.tar.gz", hash = "sha256:c93c47c53a872dc21e8fd2faa661d46ccc9837046d3e607d90c13a9203327941", size = 72538, upload-time = "2026-01-11T18:00:23.362Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ca/2e/8f34dbdc074323f2f9fdf8b3571b4ad2f821ae547e505ffb05bea556dab8/accessible_space-2.0.15-py3-none-any.whl", hash = "sha256:e9d92188e8c132d62d1d9d970285df2082237362085335f5a65d78c13864139d", size = 74475, upload-time = "2026-01-11T18:00:21.779Z" },
-]
-
-[[package]]
 name = "agate"
 version = "1.7.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1665,7 +1649,7 @@ wheels = [
 
 [[package]]
 name = "luxury-lakehouse"
-version = "0.5.116"
+version = "0.5.117"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -1697,7 +1681,7 @@ analytics = [
     { name = "rapidfuzz" },
     { name = "scikit-learn" },
     { name = "scipy" },
-    { name = "silly-kicks", extra = ["das", "ghost-gk"] },
+    { name = "silly-kicks", extra = ["ghost-gk"] },
     { name = "sparse-dot-topn" },
     { name = "unidecode" },
     { name = "xgboost-cpu" },
@@ -1723,7 +1707,7 @@ sdk = [
     { name = "psycopg2-binary" },
 ]
 spadl = [
-    { name = "silly-kicks", extra = ["das", "ghost-gk"] },
+    { name = "silly-kicks", extra = ["ghost-gk"] },
 ]
 taipy-app = [
     { name = "cachetools" },
@@ -1818,7 +1802,7 @@ requires-dist = [
     { name = "scikit-learn", marker = "extra == 'analytics'", specifier = ">=1.3.0" },
     { name = "scipy", marker = "extra == 'analytics'", specifier = ">=1.11.0" },
     { name = "scipy", marker = "extra == 'taipy-app'", specifier = ">=1.15.0" },
-    { name = "silly-kicks", extras = ["das", "ghost-gk", "parse-dfl"], marker = "extra == 'spadl'", specifier = ">=4.123.0,<5" },
+    { name = "silly-kicks", extras = ["ghost-gk", "parse-dfl"], marker = "extra == 'spadl'", specifier = ">=4.128.0,<5" },
     { name = "sparse-dot-topn", marker = "extra == 'analytics'", specifier = ">=1.1.0" },
     { name = "sqlparse", specifier = ">=0.6.0" },
     { name = "starlette", specifier = ">=1.3.1" },
@@ -3424,7 +3408,7 @@ wheels = [
 
 [[package]]
 name = "silly-kicks"
-version = "4.123.0"
+version = "4.128.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
@@ -3432,15 +3416,12 @@ dependencies = [
     { name = "scikit-learn" },
     { name = "scipy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/31/ad/9cec509d559a41d87c6af817c1cad4f4d7c60cf06d824e53af467b4d9cf0/silly_kicks-4.123.0.tar.gz", hash = "sha256:34f71fdbe02c64ea161ba0366b3c0310af32c5d480f5b86795031839e2c4c7a4", size = 35816474, upload-time = "2026-09-22T17:16:59.912Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/17/fd/f50401c84b9dfc6c62ff515c43813440251dd8d85ded28da2d0e81b53ca6/silly_kicks-4.128.0.tar.gz", hash = "sha256:ebd96e987c69c6542724223f908a803e580db1e9a8f3a0b7660226d024a00549", size = 36587425, upload-time = "2026-10-05T16:45:18.847Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7d/c5/dbdfd1a06adef6b2cb29bd6666b5e53fcc5553fb4ac5a3987bc16060bea5/silly_kicks-4.123.0-py3-none-any.whl", hash = "sha256:7768506fc092e9c33b308be89376e7fd3ef2090a7a9b08439dbb94be6c66daae", size = 12809215, upload-time = "2026-09-22T17:16:56.468Z" },
+    { url = "https://files.pythonhosted.org/packages/8e/b4/b4265ea4bc7e8c07d5270d2557d384591f6339d48cc8333911cdbb1c19e0/silly_kicks-4.128.0-py3-none-any.whl", hash = "sha256:dc0873b7ef06c65a4ce1d51e67b067da01ca31a68366df0f12c84cea7b346b0b", size = 12419712, upload-time = "2026-10-05T16:45:15.226Z" },
 ]
 
 [package.optional-dependencies]
-das = [
-    { name = "accessible-space" },
-]
 ghost-gk = [
     { name = "huggingface-hub" },
 ]

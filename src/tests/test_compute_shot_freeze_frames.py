@@ -50,21 +50,22 @@ def test_parse_match_ids_statsbomb_opt_in() -> None:
     )
 
 
-# ── provider scoping (INTERIM: GS + SkillCorner only) ──────────────────────
+# ── provider scoping (daily: GS + SkillCorner + IDSSE; Metrica opt-in) ─────
 
 
-def test_default_providers_is_exactly_gs_and_skillcorner() -> None:
-    # INTERIM SCOPE: the daily/incremental run must default to GS + SkillCorner only.
-    assert sff._parse_providers_arg(None) == frozenset({"gradientsports", "skillcorner"})
-    assert sff._parse_providers_arg("") == frozenset({"gradientsports", "skillcorner"})
-    assert sff._DEFAULT_PROVIDERS == "gradientsports,skillcorner"
-    # statsbomb is a deliberate opt-in (the one-time SB-360 backfill) — NEVER in the daily default.
+def test_default_providers_is_gs_skillcorner_idsse() -> None:
+    # Daily/incremental default = GS + SkillCorner + IDSSE (rev3 executor refactor onboarded IDSSE).
+    assert sff._parse_providers_arg(None) == frozenset({"gradientsports", "skillcorner", "idsse"})
+    assert sff._parse_providers_arg("") == frozenset({"gradientsports", "skillcorner", "idsse"})
+    assert sff._DEFAULT_PROVIDERS == "gradientsports,skillcorner,idsse"
+    # metrica + statsbomb are deliberate opt-ins — NEVER in the daily default.
+    assert "metrica" not in sff._parse_providers_arg(None)
     assert "statsbomb" not in sff._parse_providers_arg(None)
 
 
 def test_parse_providers_opt_in_and_reject_unknown() -> None:
-    # idsse/metrica are a deliberate opt-in (allowed when explicitly named), unknowns are rejected.
-    assert sff._parse_providers_arg("gradientsports,idsse") == frozenset({"gradientsports", "idsse"})
+    # metrica is a deliberate opt-in (allowed when explicitly named), unknowns are rejected.
+    assert sff._parse_providers_arg("gradientsports,metrica") == frozenset({"gradientsports", "metrica"})
     with pytest.raises(SystemExit):
         sff._parse_providers_arg("gradientsports,wyscout")  # wyscout has no freeze frames
 
@@ -95,7 +96,7 @@ def test_units_from_match_ids_rejects_out_of_scope_provider() -> None:
 
 
 def test_missing_units_sql_scopes_to_selected_providers() -> None:
-    selected = frozenset({"gradientsports", "skillcorner"})  # the interim default scope
+    selected = frozenset({"gradientsports", "skillcorner"})  # an explicit scope subset (not the default)
     sql = sff._missing_units_sql("soccer_analytics", "dev_gold", selected)
     # Sources + the gold dim (match_key resolution) + the anti-set target.
     assert "soccer_analytics.bronze.spadl_actions" in sql

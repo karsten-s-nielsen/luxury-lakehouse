@@ -54,7 +54,8 @@ _AC_FRAME_COLUMNS: frozenset[str] = frozenset(
         "speed_source",
         "ball_state",
         "team_attacking_direction",
-        "confidence",
+        # ``confidence`` dropped in silly-kicks 4.128 (F1a — the all-null confidence column was removed,
+        # ADR-106). The builders no longer emit it, so it is no longer part of the AC frame contract.
         "visibility",
         "source_provider",
         "is_goalkeeper_source",

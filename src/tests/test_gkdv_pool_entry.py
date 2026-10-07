@@ -98,17 +98,16 @@ def test_pool_gkdv_reads_observations_pools_and_writes_per_provider_replacewhere
     assert total == 3
 
 
-def test_main_gkdv_pool_noops_when_gkdv_gated_off(monkeypatch: pytest.MonkeyPatch) -> None:
-    """gkdv gated off (GKDV_ENABLED=False, ADR-082 amendment): the drain writes no observations, so the
-    reduce entry point must short-circuit BEFORE touching Spark — never constructing a session nor calling
-    ``_pool_gkdv``. The task stays in the job (the perf project re-enables the whole path by one constant)."""
+def test_main_gkdv_pool_runs_when_gkdv_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """gkdv RE-ENABLED (GKDV_ENABLED=True, ADR-082 amendment, sk 4.128): the drain now writes observations,
+    so the reduce entry point runs — constructs a session and calls ``_pool_gkdv`` (no short-circuit)."""
     import logging
     import types
 
     import ingestion.tracking_marts_drain as tmd
     from ingestion.tracking_marts_processor import GKDV_ENABLED
 
-    assert GKDV_ENABLED is False  # shipped default
+    assert GKDV_ENABLED is True  # re-enabled on sk 4.128
 
     called = {"spark": False, "pool": False}
 
@@ -129,4 +128,4 @@ def test_main_gkdv_pool_noops_when_gkdv_gated_off(monkeypatch: pytest.MonkeyPatc
 
     tmd.main_gkdv_pool()
 
-    assert called == {"spark": False, "pool": False}
+    assert called == {"spark": True, "pool": True}
