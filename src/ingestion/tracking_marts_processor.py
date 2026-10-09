@@ -28,6 +28,7 @@ per-unit orchestration (which scorers, which tables, error attribution) is unit-
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from ingestion.defensive_credit_writer import (
@@ -95,6 +96,25 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 logger = logging.getLogger(__name__)
 
 GKDV_OBS_TABLE = "gkdv_observations"
+
+
+@dataclass(frozen=True)
+class _Stage1Prep:
+    """A unit's driver-side build inputs + the raw-frame Spark DF + the Stage-1 build UDF.
+
+    Factored out of ``process`` so the in-preflight Probe-M ``build_fit_probe`` reuses the IDENTICAL
+    build-input resolution (no drift between the canary build and the real drain build)."""
+
+    period: int
+    raw_sdf: Any  # pyspark DataFrame of the unit's raw tracking rows
+    build_udf: Any  # Callable[[pd.DataFrame], pd.DataFrame] — the Stage-1 build closure
+    resolved_actions: Any  # pd.DataFrame (identity-resolved period actions)
+    xg_preds: Any  # pd.DataFrame
+    meta: Any  # MatchMeta
+    comp: str | None
+    season: str | None
+    access_tier: str | None
+
 
 #: gkdv scoring is RE-ENABLED (ADR-082 amendment, sk 4.128 adoption). The perf project it was gated on
 #: shipped: silly-kicks 4.128 native DAS (ADR-107, @njit kernels) + the executor-distributed two-stage
@@ -222,45 +242,24 @@ class TrackingMartsProcessor:
         ``dry_run=True`` (the in-preflight canary, ADR-087): both stages still RUN so a compute-path defect
         surfaces, but nothing is persisted and 0 is returned.
         """
-        from analytics.action_context.enrich import _resolve_enrichment_identity
         from analytics.action_context.tracking_frame_spill import built_frame_struct_type
         from ingestion.tracking_marts_dispatch import (
             MartSpec,
             build_stage2_mart_sdf,
             cleanup_spill,
-            make_build_udf,
             make_mart_scorers,
             run_stage1_build_and_spill,
             spill_path,
         )
-        from ingestion.tracking_marts_driver import read_raw_trk_sdf, read_unit_actions
         from ingestion.utils import write_delta_table
 
-        if unit.period is None:
-            return 0  # match-grain unit has no frames (mirrors the old read_and_build_unit_inputs no-op)
-        period = int(unit.period)
-
-        # ── Driver-side small data (actions / meta / xg / resolved-actions) → the UDF closures ──────────
-        raw_actions = read_unit_actions(self._spark, self._catalog, unit.provider, unit.match_id)
-        period_actions = raw_actions[raw_actions["period_id"] == period].copy()
-        if raw_actions.empty or period_actions.empty:
-            return 0
-        meta = resolve_unit_meta(self._spark, self._catalog, unit.provider, unit.match_id)
-        # Identity resolution is frames-free (byte-identical to build_unit_inputs' internal resolve, TM-PLAN-04).
-        resolved_actions = _resolve_enrichment_identity(
-            period_actions, provider=unit.provider, match_id_native=unit.match_id
-        )
-        xg_preds = _read_xg_preds(self._spark, self._catalog, unit.provider, unit.match_id)
-        comp, season = self._comp_season.get((unit.provider, unit.match_id), (None, None))
-        # Per-match HF redistribution tier rides per-row on the actions (ADR-064); constant per match.
-        _at = resolved_actions["access_tier"].iloc[0] if "access_tier" in resolved_actions.columns else None
-        access_tier = None if _at is None or (isinstance(_at, float) and _at != _at) else str(_at)
-
-        # ── Stage 1: build + spill (executor-distributed) ──────────────────────────────────────────────
-        raw_sdf = read_raw_trk_sdf(self._spark, self._catalog, unit.provider, unit.match_id, period)
-        build_udf = make_build_udf(
-            unit.provider, unit.match_id, period, raw_actions, meta, self._xt_grid, self._xt_l, self._xt_w
-        )
+        prep = self._prepare_stage1(unit)
+        if prep is None:
+            return 0  # match-grain / empty unit (mirrors the old read_and_build_unit_inputs no-op)
+        period = prep.period
+        raw_sdf, build_udf = prep.raw_sdf, prep.build_udf
+        resolved_actions, xg_preds, meta = prep.resolved_actions, prep.xg_preds, prep.meta
+        comp, season, access_tier = prep.comp, prep.season, prep.access_tier
         sdir = spill_path(self._catalog, self._schema, unit)
         where = f"data_source = '{unit.provider}' AND match_id = '{unit.match_id}' AND period_id = {period}"
         scorers = make_mart_scorers(
@@ -318,3 +317,92 @@ class TrackingMartsProcessor:
                 f"tracking-marts unit {unit.provider}:{unit.match_id}:{unit.period} failed: " + "; ".join(errors)
             )
         return 0 if dry_run else total
+
+    def _prepare_stage1(self, unit: WorkUnit) -> _Stage1Prep | None:
+        """Resolve a unit's driver-side build inputs + raw-frame Spark DF + Stage-1 build UDF.
+
+        Returns ``None`` for a match-grain (no period) or empty unit — the callers short-circuit to 0.
+        This is the SINGLE place build inputs are resolved, shared by ``process`` (Stage 1/2) and the
+        in-preflight Probe-M ``build_fit_probe`` (one-window build-fit), so the two cannot drift.
+        """
+        from analytics.action_context.enrich import _resolve_enrichment_identity
+        from ingestion.tracking_marts_dispatch import make_build_udf
+        from ingestion.tracking_marts_driver import read_raw_trk_sdf, read_unit_actions
+
+        if unit.period is None:
+            return None
+        period = int(unit.period)
+        raw_actions = read_unit_actions(self._spark, self._catalog, unit.provider, unit.match_id)
+        period_actions = raw_actions[raw_actions["period_id"] == period].copy()
+        if raw_actions.empty or period_actions.empty:
+            return None
+        meta = resolve_unit_meta(self._spark, self._catalog, unit.provider, unit.match_id)
+        # Identity resolution is frames-free (byte-identical to build_unit_inputs' internal resolve, TM-PLAN-04).
+        resolved_actions = _resolve_enrichment_identity(
+            period_actions, provider=unit.provider, match_id_native=unit.match_id
+        )
+        xg_preds = _read_xg_preds(self._spark, self._catalog, unit.provider, unit.match_id)
+        comp, season = self._comp_season.get((unit.provider, unit.match_id), (None, None))
+        # Per-match HF redistribution tier rides per-row on the actions (ADR-064); constant per match.
+        _at = resolved_actions["access_tier"].iloc[0] if "access_tier" in resolved_actions.columns else None
+        access_tier = None if _at is None or (isinstance(_at, float) and _at != _at) else str(_at)
+        raw_sdf = read_raw_trk_sdf(self._spark, self._catalog, unit.provider, unit.match_id, period)
+        build_udf = make_build_udf(
+            unit.provider, unit.match_id, period, raw_actions, meta, self._xt_grid, self._xt_l, self._xt_w
+        )
+        return _Stage1Prep(
+            period=period,
+            raw_sdf=raw_sdf,
+            build_udf=build_udf,
+            resolved_actions=resolved_actions,
+            xg_preds=xg_preds,
+            meta=meta,
+            comp=comp,
+            season=season,
+            access_tier=access_tier,
+        )
+
+    def build_fit_probe(self, unit: WorkUnit, window_id: int) -> int:
+        """Probe M (ADR-087): build+spill the SINGLE ``window_id`` of ``unit`` and assert it is non-empty.
+
+        Satisfies ``analytics.action_context.canary.BuildFitProbePort``. Exercises the Stage-1 windowed
+        build+spill memory path (the ADR-088/089 two-stage seam) on the one window handed by the preflight
+        (the GLOBAL densest across in-scope units), bounding the probe to O(one window). NO Stage-2
+        scoring (scoring is whole-unit, irrelevant to the build-memory bound). Persists nothing; returns 0.
+        A build-path defect raises; an empty built output raises (non-vacuous — a window that built nothing
+        would not prove the memory path).
+        """
+        from analytics.action_context.tracking_frame_spill import built_frame_struct_type
+        from ingestion.frame_window_dispatch import windowed_build_sdf
+        from ingestion.tracking_marts_dispatch import _TM_WINDOW_FRAMES
+
+        prep = self._prepare_stage1(unit)
+        if prep is None:
+            raise RuntimeError(
+                f"build_fit_probe: unit {unit.provider}:{unit.match_id}:{unit.period} has no build inputs "
+                "(match-grain or empty) — it should never have been selected as the densest window."
+            )
+        built = windowed_build_sdf(
+            self._spark,
+            prep.raw_sdf,
+            unit.provider,
+            prep.build_udf,
+            built_frame_struct_type(unit.provider),
+            target_window_frames=_TM_WINDOW_FRAMES,
+            only_window_id=window_id,
+        )
+        n = int(built.count())  # force the windowed build UDF to run (persist nothing)
+        if n <= 0:
+            raise RuntimeError(
+                f"build_fit_probe: window {window_id} of {unit.provider}:{unit.match_id}:{unit.period} "
+                "built 0 rows — the build produced nothing, so the memory-fit probe proved nothing."
+            )
+        self._logger.info(
+            "build_fit_probe ok unit=%s:%s:%s window=%d built_rows=%d",
+            unit.provider,
+            unit.match_id,
+            unit.period,
+            window_id,
+            n,
+        )
+        return 0
