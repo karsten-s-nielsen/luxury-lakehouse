@@ -106,6 +106,10 @@ _FREEZE_FRAME_PROVIDERS: frozenset[str] = _TRACKING_PROVIDERS | frozenset({"stat
 # statsbomb (SB-360) is a deliberate opt-in for the one-time backfill, NOT a daily source.
 _DEFAULT_PROVIDERS = "gradientsports,skillcorner,idsse"
 
+# Haloed frame-window seam (ADR-089): target CORE frames per window for the per-(period, window_id) build,
+# bounding the executor peak by window size, not the ~1.5M-row dense IDSSE half. Matches tracking-marts.
+_SF_WINDOW_FRAMES = 20000
+
 # ── Driver input-table column contract (SSOT for the discovery/resolution SQL AND the schema guard) ──
 # The join that resolves the Kimball match_key surrogate is:
 #   bronze.spadl_actions.<_SPADL_DATA_SOURCE_COL> = dev_gold.dim_matches.<_DIM_MATCHES_PROVIDER_COL>
@@ -559,21 +563,37 @@ def _period_snapshots(
 
     import analytics.action_context.pipeline as _ac_pipeline
     from analytics.action_context.enrich import _resolve_enrichment_identity
+    from analytics.action_context.frame_windows import _HALO_COL, build_windowed
 
     if trk_period_pdf.empty or actions_pdf.empty:
         return _pd.DataFrame(columns=list(_SHOT_FF_COLUMNS))
 
+    frame_col = "frame_num" if provider == "gradientsports" else "frame"
     period = int(trk_period_pdf["period"].iloc[0])
     actions_period = actions_pdf[actions_pdf["period_id"] == period].copy()
     if actions_period.empty:
         return _pd.DataFrame(columns=list(_SHOT_FF_COLUMNS))
 
-    # Convert with the ORIGINAL (pre-remap) actions — the converter reads game_id + native columns,
-    # never the hashed team_id — exactly as enrich_batch does (convert THEN resolve identity).
-    frames = _ac_pipeline._convert_tracking_batch(provider, trk_period_pdf, actions_period, meta)
+    def _build(raw: pd.DataFrame) -> pd.DataFrame:
+        # Convert with the ORIGINAL (pre-remap) actions — the converter reads game_id + native columns,
+        # never the hashed team_id — exactly as enrich_batch does (convert THEN resolve identity).
+        f = _ac_pipeline._convert_tracking_batch(provider, raw, actions_period, meta)
+        if f is None or len(f) == 0:
+            return f if f is not None else _pd.DataFrame()
+        f = f.copy()
+        f["game_id"] = int(actions_period["game_id"].iloc[0])
+        return f
+
+    # Haloed frame-window build (ADR-089): the input is ONE (period, window_id) group (core+halo); build on
+    # core+halo for velocity continuity, trim the halo. Each shot's frame lands in exactly ONE core window,
+    # so passing the whole period's actions snapshots only the core-frame shots here (single-owner). A call
+    # WITHOUT the halo helper (legacy/whole-period) falls back to the plain convert.
+    if _HALO_COL in trk_period_pdf.columns:
+        frames = build_windowed(trk_period_pdf, _build, frame_col=frame_col)
+    else:
+        frames = _build(trk_period_pdf)
     if frames is None or len(frames) == 0:
         return _pd.DataFrame(columns=list(_SHOT_FF_COLUMNS))
-    frames["game_id"] = int(actions_period["game_id"].iloc[0])
 
     # MUTATE contract: overwrite team_id/player_id with the frame-compatible native ids so the
     # snapshot builder's is_teammate equality holds against the converted frames.
@@ -805,11 +825,21 @@ def _process_match(
             snaps["access_tier"] = access_tier
             return snaps[_ff_cols]
 
-        sort_cols = ["period", frame_col] if frame_col in trk_sdf.columns else ["period"]
+        # Haloed frame-window seam (ADR-089): bound the per-task build by window size (not the ~1.5M-row
+        # dense IDSSE half). assign_frame_windows adds _window_id + _is_halo; the group is (period,
+        # window_id); _snapshot_udf (via _period_snapshots -> build_windowed) builds core+halo + trims +
+        # snapshots the core-frame shots. All shot_freeze tracking providers (idsse/skillcorner/GS) are
+        # seam targets (metrica is not a shot_freeze provider).
+        from analytics.action_context.frame_windows import _WINDOW_COL
+        from ingestion.frame_window_dispatch import assign_frame_windows
+
+        windowed_sdf = assign_frame_windows(trk_sdf, provider, target_window_frames=_SF_WINDOW_FRAMES)
+        keys = ["period", _WINDOW_COL]
+        sort_cols = [*keys, frame_col] if frame_col in trk_sdf.columns else keys
         result_sdf = (
-            trk_sdf.repartition(_UDF_SHUFFLE_PARTITIONS, "period")
+            windowed_sdf.repartition(_UDF_SHUFFLE_PARTITIONS, *keys)
             .sortWithinPartitions(*sort_cols)
-            .mapInPandas(_make_streaming_group_mapper(_snapshot_udf, ["period"]), schema=_shot_ff_struct_type())
+            .mapInPandas(_make_streaming_group_mapper(_snapshot_udf, keys), schema=_shot_ff_struct_type())
         )
         written = write_shot_freeze_frames(result_sdf, catalog, schema, [match_key], row_count=None)
         if written == 0:

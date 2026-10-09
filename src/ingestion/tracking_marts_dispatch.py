@@ -38,6 +38,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from analytics.action_context.frame_windows import SEAM_PROVIDERS
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import pandas as pd
     from pyspark.sql import DataFrame as SparkDataFrame
@@ -210,6 +212,15 @@ def make_mart_scorers(
     return scorers
 
 
+# Providers whose dense halves OOM the whole-unit Stage-1 build → routed through the haloed frame-window
+# seam (ADR-089). metrica is EXCLUDED (owner: no value; convert window-unsafe; does not OOM) → whole-unit.
+# Single-sourced from the pure seam core (imported at top) so the AC drain + this site agree (no drift).
+_SEAM_PROVIDERS = SEAM_PROVIDERS
+#: Target CORE frames per window (fit-profile: GS built ~583 MB / 83 950 frames → ~21 k keeps built
+#: ~146 MB + raw + transients well under the 1 GB UDF-worker cap). Halo (≤39 frames) is negligible on top.
+_TM_WINDOW_FRAMES = 20000
+
+
 def run_stage1_build_and_spill(
     spark: SparkSession,
     unit: WorkUnit,
@@ -221,19 +232,29 @@ def run_stage1_build_and_spill(
     """Stage 1: distribute the per-unit build over executors, spill the built frames to ``spill_dir``.
 
     ``raw_trk_sdf`` is the unit's raw tracking rows (already projected to the builder's input columns, NO
-    driver ``toPandas``). One ``(match, period)`` group == the whole unit == one executor task builds it.
-    ``spill_dir`` is injected (``spill_path(...)`` in production; a local temp dir in the container test).
+    driver ``toPandas``). For a dense seam provider the build is windowed (haloed frame-windows, ADR-089)
+    so the executor peak is bounded by ``_TM_WINDOW_FRAMES``, not unit size (the 16 GB-driver OOM fix);
+    for an excluded provider (metrica) the whole unit is ONE ``(match, period)`` group. The union of either
+    is the whole-unit built frame. ``spill_dir`` is injected (``spill_path(...)`` in prod; a local temp dir
+    in the container test).
     """
-    from ingestion.action_context import _UDF_SHUFFLE_PARTITIONS, _make_streaming_group_mapper
+    if unit.provider in _SEAM_PROVIDERS:
+        from ingestion.frame_window_dispatch import windowed_build_sdf
 
-    keys = ["match_id", "period"]
-    frame_col = _frame_col(unit.provider)
-    sort_cols = [*keys, frame_col] if frame_col in raw_trk_sdf.columns else keys
-    built_sdf = (
-        raw_trk_sdf.repartition(_UDF_SHUFFLE_PARTITIONS, *keys)
-        .sortWithinPartitions(*sort_cols)
-        .mapInPandas(_make_streaming_group_mapper(build_udf, keys), schema=built_schema)
-    )
+        built_sdf = windowed_build_sdf(
+            spark, raw_trk_sdf, unit.provider, build_udf, built_schema, target_window_frames=_TM_WINDOW_FRAMES
+        )
+    else:
+        from ingestion.action_context import _UDF_SHUFFLE_PARTITIONS, _make_streaming_group_mapper
+
+        keys = ["match_id", "period"]
+        frame_col = _frame_col(unit.provider)
+        sort_cols = [*keys, frame_col] if frame_col in raw_trk_sdf.columns else keys
+        built_sdf = (
+            raw_trk_sdf.repartition(_UDF_SHUFFLE_PARTITIONS, *keys)
+            .sortWithinPartitions(*sort_cols)
+            .mapInPandas(_make_streaming_group_mapper(build_udf, keys), schema=built_schema)
+        )
     # Driver-orchestrated Spark write (executors write their partitions) — NOT an in-UDF FS write.
     built_sdf.write.mode("overwrite").parquet(spill_dir)
     return spill_dir
