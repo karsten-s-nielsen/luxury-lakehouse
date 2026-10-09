@@ -40,7 +40,7 @@ def test_terraform_drain_worker_entry_point_and_params() -> None:
 def test_terraform_preflight_passes_job_run_id() -> None:
     """B1: preflight receives the job-level run id to write into the task value."""
     text = _tf()
-    block = text[text.index('task_key        = "preflight_action_context"') :][:1800]
+    block = text[text.index('task_key        = "preflight_action_context"') :][:2100]
     assert '"--run-id", "{{job.run_id}}"' in block
 
 

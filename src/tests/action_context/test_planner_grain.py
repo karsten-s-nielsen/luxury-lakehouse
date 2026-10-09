@@ -289,6 +289,7 @@ def _preflight_with_queue(monkeypatch: pytest.MonkeyPatch, queue_cls: type) -> N
     units = [WorkUnit(provider="skillcorner", match_id=f"m{i}", period=1) for i in range(3)]
     monkeypatch.setattr(ac._ActionContextGuard, "discover_units", lambda self, s, c, sc: units)
     monkeypatch.setattr(ac, "_set_task_value", lambda key, value, log: None)
+    monkeypatch.setattr(ac, "_compute_ac_unit_sizes", lambda spark, catalog, units: ({}, {}))  # ADR-087 Probe-C sizes
 
     class _FakeSink:
         def __init__(self, *a: object, **k: object) -> None:

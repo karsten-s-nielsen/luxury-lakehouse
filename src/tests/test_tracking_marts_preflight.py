@@ -118,7 +118,10 @@ def test_preflight_canary_failure_aborts_before_enqueue(monkeypatch) -> None:
     monkeypatch.setattr(
         tmd,
         "discover_open_units",
-        lambda spark, catalog, *, full: [WorkUnit(provider="idsse", match_id="J", period=1)],
+        lambda spark, catalog, *, full, providers=None: [WorkUnit(provider="idsse", match_id="J", period=1)],
+    )
+    monkeypatch.setattr(
+        "ingestion.tracking_marts_driver.compute_tracking_size_signals", lambda spark, catalog, units: ({}, [])
     )
 
     class _BoomProcessor:
@@ -182,7 +185,10 @@ def test_preflight_canary_passes_then_enqueues(monkeypatch) -> None:
     monkeypatch.setattr(
         tmd,
         "discover_open_units",
-        lambda spark, catalog, *, full: [WorkUnit(provider="idsse", match_id="J", period=1)],
+        lambda spark, catalog, *, full, providers=None: [WorkUnit(provider="idsse", match_id="J", period=1)],
+    )
+    monkeypatch.setattr(
+        "ingestion.tracking_marts_driver.compute_tracking_size_signals", lambda spark, catalog, units: ({}, [])
     )
 
     class _OkProcessor:
@@ -201,3 +207,84 @@ def test_preflight_canary_passes_then_enqueues(monkeypatch) -> None:
     assert captured["canary_dry_run"] is True  # canary ran (dry_run) before enqueue
     assert captured["run_id"] == "JOBRUN42"  # enqueue reached (canary passed)
     assert set_values["tracking_marts_run_id"] == "JOBRUN42"
+
+
+# ── ADR-087 amendment: --providers scope (the re-materialize GS-tracking carve-out lever) ──
+
+
+def test_parse_providers_scope_inclusion_and_validation() -> None:
+    """``--providers`` is a comma inclusion list (empty = all); an unknown provider fails loudly."""
+    from ingestion.tracking_marts_drain import _parse_providers
+
+    assert _parse_providers("") == ("idsse", "metrica", "skillcorner", "gradientsports")  # empty = all
+    assert _parse_providers(None) == ("idsse", "metrica", "skillcorner", "gradientsports")
+    assert _parse_providers("idsse,skillcorner") == ("idsse", "skillcorner")  # order follows _TRACKING_PROVIDERS
+    assert _parse_providers("skillcorner, idsse") == ("idsse", "skillcorner")  # whitespace + order-insensitive input
+    with pytest.raises(SystemExit, match="Unknown --providers"):
+        _parse_providers("idsse,nope")
+
+
+def test_preflight_threads_provider_scope_to_discovery(monkeypatch) -> None:
+    """The GS carve-out: ``--providers idsse,skillcorner`` reaches discover_open_units, so gradientsports
+    is neither discovered, canaried, nor enqueued."""
+    import ingestion.bootstrap as boot
+    import ingestion.drain_adapters as da
+    import ingestion.tracking_marts_drain as tmd
+    import ingestion.tracking_marts_processor as tmp
+
+    class _Args:
+        catalog = "cat"
+        schema = "bronze"
+        full = "true"
+        providers = "idsse,skillcorner"
+        run_id = "R1"
+
+    monkeypatch.setattr(tmd, "parse_ingestion_args", lambda *a, **k: _Args())
+    monkeypatch.setattr(tmd, "configure_logging", lambda name: logging.getLogger("t"))
+    monkeypatch.setattr(tmd, "get_spark_session", lambda: object())
+    monkeypatch.setattr(boot, "bootstrap_hooks", lambda *a, **k: None)
+    monkeypatch.setattr(tmd, "_resolve_run_id", lambda args: "R1")
+    monkeypatch.setattr(tmd, "_set_task_value", lambda *a, **k: None)
+
+    class _Sink:
+        def __init__(self, *a, **k) -> None: ...
+
+        def ensure_tables(self) -> None: ...
+
+    class _Queue:
+        def __init__(self, *a, **k) -> None: ...
+
+        def ensure_table(self) -> None: ...
+
+        def prune(self, *a, **k) -> int:
+            return 0
+
+        def enqueue(self, run_id, assignments) -> None: ...
+
+        def count_for_run(self, run_id) -> int:
+            return 1
+
+    monkeypatch.setattr(da, "DeltaUnitEventSink", _Sink)
+    monkeypatch.setattr(da, "DeltaWorkQueue", _Queue)
+
+    seen: dict[str, object] = {}
+
+    def _discover(spark, catalog, *, full, providers=None):
+        seen["providers"] = providers
+        return [WorkUnit(provider="idsse", match_id="J", period=1)]
+
+    monkeypatch.setattr(tmd, "discover_open_units", _discover)
+    monkeypatch.setattr(
+        "ingestion.tracking_marts_driver.compute_tracking_size_signals",
+        lambda spark, catalog, units: ({}, []),
+    )
+
+    class _OkProcessor:
+        def __init__(self, *a, **k) -> None: ...
+
+        def process(self, unit: WorkUnit, *, dry_run: bool = False) -> int:
+            return 0
+
+    monkeypatch.setattr(tmp, "TrackingMartsProcessor", _OkProcessor)
+    tmd.main_tracking_marts_preflight()
+    assert seen["providers"] == ("idsse", "skillcorner")  # gradientsports excluded

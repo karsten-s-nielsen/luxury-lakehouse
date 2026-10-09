@@ -116,6 +116,17 @@ resource "databricks_job" "data_ingestion" {
     name    = "tracking_marts_full"
     default = ""
   }
+  # Provider scope for the preflights' two-probe canary + enqueue (ADR-087 amendment). Empty => all
+  # providers (the daily-run default). Comma-separated inclusion list; the re-materialize GS-tracking
+  # carve-out passes "idsse,skillcorner" so gradientsports is neither canaried nor re-materialized.
+  parameter {
+    name    = "tracking_marts_providers"
+    default = ""
+  }
+  parameter {
+    name    = "action_context_providers"
+    default = ""
+  }
 
   # ── Schedule: Daily at 6am UTC ───────────────────────────────────────────
   schedule {
@@ -1420,6 +1431,8 @@ resource "databricks_job" "data_ingestion" {
         "--schema", "bronze",
         "--provider", "{{job.parameters.provider}}",
         "--max-units", "{{job.parameters.max_units}}",
+        # Provider scope (empty => all) — the two-probe canary + enqueue carve-out lever (ADR-087).
+        "--providers", "{{job.parameters.action_context_providers}}",
         # Ghost-GK backend (ADR-035 amendment): default = var.ghost_gk_backend_default (installation knob);
         # the preflight resolves + stamps it onto every WorkUnit, so the drain workers read it off the queue.
         "--ghost-gk-backend", "{{job.parameters.ghost_gk_backend}}",
@@ -1555,6 +1568,8 @@ resource "databricks_job" "data_ingestion" {
         "--run-id", "{{job.run_id}}",
         # Force a FULL re-enumeration (empty => incremental). REQUIRED after clearing an output table (ADR N3).
         "--full", "{{job.parameters.tracking_marts_full}}",
+        # Provider scope (empty => all) — the two-probe canary + enqueue carve-out lever (ADR-087).
+        "--providers", "{{job.parameters.tracking_marts_providers}}",
       ]
     }
 

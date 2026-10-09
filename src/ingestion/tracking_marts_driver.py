@@ -20,11 +20,14 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from collections.abc import Sequence
+
     import pandas as pd
     from pyspark.sql import DataFrame as SparkDataFrame
     from pyspark.sql import SparkSession
 
-    from analytics.action_context.work_unit import MatchMeta
+    from analytics.action_context.canary import WindowRef
+    from analytics.action_context.work_unit import MatchMeta, WorkUnit
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +120,76 @@ def read_raw_trk_sdf(
             .select(*ac._GRADIENTSPORTS_TRACKING_SELECT_COLS)
         )
     raise ValueError(f"Unknown tracking provider: {provider}")
+
+
+#: Per-provider raw tracking table (bronze) — the unfiltered source for the preflight size aggregate.
+_RAW_TRACKING_TABLE: dict[str, str] = {
+    "idsse": "idsse_tracking",
+    "metrica": "metrica_tracking",
+    "skillcorner": "skillcorner_tracking",
+    "gradientsports": "gradientsports_tracking",
+}
+
+
+def read_provider_raw_trk_sdf(spark: SparkSession, catalog: str, provider: str) -> SparkDataFrame:
+    """ALL units' raw tracking rows for ``provider``, projected to the frame-window key columns only.
+
+    The provider-wide, filter-free sibling of ``read_raw_trk_sdf`` for the ADR-087 preflight size
+    aggregate: it selects just ``(match_id, period, <frame col>)`` — the columns ``assign_frame_windows``
+    needs — so the COUNT aggregate never pulls the full builder projection or the SkillCorner meta join
+    (both irrelevant to a row count). NOT a build input.
+    """
+    from pyspark.sql import functions as F  # noqa: N812
+
+    from ingestion.frame_window_dispatch import _frame_col
+
+    table = _RAW_TRACKING_TABLE.get(provider)
+    if table is None:
+        raise ValueError(f"Unknown tracking provider: {provider}")
+    return spark.table(f"{catalog}.bronze.{table}").select("match_id", "period", F.col(_frame_col(provider)))
+
+
+def compute_tracking_size_signals(
+    spark: SparkSession, catalog: str, units: Sequence[WorkUnit]
+) -> tuple[dict[tuple[str, str, int], int], list[WindowRef]]:
+    """Preflight size signals from RAW TRACKING for the ADR-087 two-probe canary, scoped to ``units``.
+
+    Returns ``(unit_counts, window_refs)``:
+    - ``unit_counts[(provider, match_id, period)]`` = raw tracking rows in the unit (Probe-C smallest
+      signal, R1).
+    - ``window_refs`` = one ``WindowRef`` per ``(provider, match, period, _window_id)`` carrying its
+      core+halo row count — the ``mapInPandas`` UDF-group input that drives the Stage-1 memory peak
+      (Probe-M GLOBAL densest signal, R2).
+
+    COUNT aggregates only (no build). The raw read is SEMI-JOINED to the OPEN ``units`` (per provider),
+    so a daily incremental run (few open units) aggregates only those — NOT the whole corpus — while a
+    ``--full`` re-materialize (all units open) aggregates everything, as intended. The window count
+    mirrors ``assign_frame_windows``'s core+halo replication, so it equals exactly the rows a window's
+    build UDF receives.
+    """
+    from analytics.action_context.canary import WindowRef
+    from analytics.action_context.work_unit import WorkUnit
+    from ingestion.frame_window_dispatch import assign_frame_windows
+    from ingestion.tracking_marts_dispatch import _TM_WINDOW_FRAMES
+
+    keys_by_provider: dict[str, list[tuple[str, int]]] = {}
+    for u in units:
+        if u.period is None:
+            continue
+        keys_by_provider.setdefault(u.provider, []).append((str(u.match_id), int(u.period)))
+
+    unit_counts: dict[tuple[str, str, int], int] = {}
+    window_refs: list[WindowRef] = []
+    for provider, keys in keys_by_provider.items():
+        keys_df = spark.createDataFrame(keys, schema="match_id string, period int")
+        raw = read_provider_raw_trk_sdf(spark, catalog, provider).join(keys_df, ["match_id", "period"], "left_semi")
+        for r in raw.groupBy("match_id", "period").count().collect():
+            unit_counts[(provider, str(r["match_id"]), int(r["period"]))] = int(r["count"])
+        assigned = assign_frame_windows(raw, provider, target_window_frames=_TM_WINDOW_FRAMES)
+        for r in assigned.groupBy("match_id", "period", "_window_id").count().collect():
+            unit = WorkUnit(provider=provider, match_id=str(r["match_id"]), period=int(r["period"]))
+            window_refs.append(WindowRef(unit=unit, window_id=int(r["_window_id"]), n_rows=int(r["count"])))
+    return unit_counts, window_refs
 
 
 def read_unit_actions(spark: SparkSession, catalog: str, provider: str, match_id: str) -> pd.DataFrame:

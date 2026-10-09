@@ -41,7 +41,7 @@ from analytics.action_context.drain import (
 )
 from ingestion.action_context import _resolve_run_id, _set_task_value, raise_on_failed_units
 from ingestion.drain_adapters import _EVENT_SCHEMA
-from ingestion.tracking_marts_driver import discover_tracking_units
+from ingestion.tracking_marts_driver import _TRACKING_PROVIDERS, discover_tracking_units
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
 
 if TYPE_CHECKING:
@@ -118,9 +118,15 @@ def _succeeded_unit_keys(spark: SparkSession, catalog: str) -> frozenset[tuple[s
     )
 
 
-def discover_open_units(spark: SparkSession, catalog: str, *, full: bool) -> list[WorkUnit]:
+def discover_open_units(
+    spark: SparkSession, catalog: str, *, full: bool, providers: tuple[str, ...] = _TRACKING_PROVIDERS
+) -> list[WorkUnit]:
     """OPEN tracking-marts units = every discovered ``(provider, match_id, period)`` MINUS the cross-run
     ``succeeded`` done-set (§3.1). ``full=True`` returns the whole universe (skips the events read).
+
+    ``providers`` scopes discovery (ADR-087 amendment): the preflight's ``--providers`` restricts the
+    universe (and so the canary selection AND the enqueue) to an in-scope set — the re-materialize's
+    GS-tracking carve-out lever. Default = all ``_TRACKING_PROVIDERS`` (the daily path, unchanged).
 
     N3 (durable operator foot-gun): because "done" is a cross-run ``succeeded`` unit-event — NOT an
     output-``left_anti`` — TRUNCATING any of the four output bronze tables leaves its units marked done,
@@ -129,7 +135,7 @@ def discover_open_units(spark: SparkSession, catalog: str, *, full: bool) -> lis
     """
     from analytics.action_context.work_unit import WorkUnit
 
-    triples = discover_tracking_units(spark, catalog)
+    triples = discover_tracking_units(spark, catalog, providers=providers)
     universe = [WorkUnit(provider=p, match_id=m, period=per) for p, m, per in triples]
     done_keys: frozenset[tuple[str, str, int | None]] = frozenset() if full else _succeeded_unit_keys(spark, catalog)
     return open_units(universe, done_keys, full=full)
@@ -138,6 +144,22 @@ def discover_open_units(spark: SparkSession, catalog: str, *, full: bool) -> lis
 def _parse_full_flag(raw: object) -> bool:
     """The ``--full`` job parameter arrives as a string (empty when unset). Truthy on ``1/true/yes/full``."""
     return str(raw or "").strip().lower() in {"1", "true", "yes", "full"}
+
+
+def _parse_providers(raw: object, *, valid: tuple[str, ...] = _TRACKING_PROVIDERS) -> tuple[str, ...]:
+    """Parse the ``--providers`` comma-list (empty/unset ⇒ all ``valid`` — today's behaviour).
+
+    The re-materialize GS-tracking carve-out passes ``idsse,skillcorner``. Rejects an unknown provider
+    loudly (no silent empty scope). Order follows ``valid`` for determinism.
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return valid
+    requested = {p.strip() for p in text.split(",") if p.strip()}
+    unknown = requested - set(valid)
+    if unknown:
+        raise SystemExit(f"Unknown --providers {sorted(unknown)}. Valid: {sorted(valid)}")
+    return tuple(p for p in valid if p in requested)
 
 
 # ── entry points ──────────────────────────────────────────────────────
@@ -171,6 +193,16 @@ def main_tracking_marts_preflight() -> None:
                     "incremental (default).",
                 },
             ),
+            (
+                "--providers",
+                {
+                    "type": str,
+                    "default": None,
+                    "help": "Comma-separated provider scope (empty = all tracking providers). Scopes "
+                    "discovery, the canary, and the enqueue — the re-materialize GS-tracking carve-out "
+                    "lever (e.g. 'idsse,skillcorner'). ADR-087 amendment.",
+                },
+            ),
         ],
     )
     task_logger = configure_logging("tracking_marts_preflight")
@@ -190,20 +222,33 @@ def main_tracking_marts_preflight() -> None:
     DeltaUnitEventSink(spark, args.catalog, task_logger, drain_name=_DRAIN_NAME, include_sb360=False).ensure_tables()
 
     full = _parse_full_flag(getattr(args, "full", None))
-    units = discover_open_units(spark, args.catalog, full=full)
+    providers = _parse_providers(getattr(args, "providers", None))
+    units = discover_open_units(spark, args.catalog, full=full, providers=providers)
     if not units:
         task_logger.info("Tracking-marts preflight: nothing to do")
         _set_task_value("tracking_marts_run_id", "", task_logger)
         _set_task_value("tracking_marts_worker_ids", [], task_logger)
         return
 
-    # ADR-087 canary: dry-run one unit per provider through the FULL processor BEFORE the fan-out, so a
-    # systemic compute-path defect fails THIS task (the dependent compute_* is skipped) instead of
-    # burning the 8-worker retry budget. units is non-empty here, so the processor build is not a no-op.
-    from analytics.action_context.canary import run_canary
+    # ADR-087 two-probe canary (bounded + scope-aware): Probe C (smallest unit per in-scope provider,
+    # full dry-run) + Probe M (GLOBAL densest window, Stage-1 build-fit only) BEFORE the fan-out, so a
+    # systemic compute-path defect OR a window-build OOM fails THIS task (dependent compute_* skipped)
+    # instead of burning the 8-worker retry budget. Replaces the units[:1] worst-case dense-GS dry-run.
+    from dataclasses import replace
+
+    from analytics.action_context.canary import run_canary, select_canary_probes
+    from ingestion.tracking_marts_driver import compute_tracking_size_signals
     from ingestion.tracking_marts_processor import TrackingMartsProcessor
 
-    run_canary(TrackingMartsProcessor(spark, args.catalog, args.schema), units, task_logger)
+    unit_counts, window_refs = compute_tracking_size_signals(spark, args.catalog, units)
+    sized_units = [
+        replace(
+            u, n_frames=(unit_counts.get((u.provider, str(u.match_id), u.period)) if u.period is not None else None)
+        )
+        for u in units
+    ]
+    probes = select_canary_probes(sized_units, window_refs)
+    run_canary(TrackingMartsProcessor(spark, args.catalog, args.schema), probes, task_logger)
 
     assignments = assign_workers(units, _N_TRACKING_MARTS_WORKERS)
     run_id = _resolve_run_id(args)

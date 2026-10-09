@@ -1009,6 +1009,7 @@ def test_main_preflight_builds_queue_and_task_values(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(ac, "_force_full_rematerialize_on_grid_change", lambda *a, **k: None)
     units = [WorkUnit(provider="statsbomb", match_id=f"s{i}") for i in range(20)]
     monkeypatch.setattr(ac._ActionContextGuard, "discover_units", lambda self, s, c, sc: units)
+    monkeypatch.setattr(ac, "_compute_ac_unit_sizes", lambda spark, catalog, units: ({}, {}))  # ADR-087 Probe-C sizes
 
     captured: dict[str, object] = {}
 

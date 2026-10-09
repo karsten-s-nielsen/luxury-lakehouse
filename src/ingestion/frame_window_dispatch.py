@@ -84,18 +84,27 @@ def windowed_build_sdf(
     built_schema: Any,  # pyspark StructType of the BUILT frame
     *,
     target_window_frames: int,
+    only_window_id: int | None = None,
 ) -> SparkDataFrame:
     """Lazy built-frame DF: window the raw frames (halo), build each window, trim the halo, union.
 
     Replaces a whole-unit ``repartition(match_id,period).mapInPandas(build_fn)`` — bounds the worker peak
     by ``target_window_frames``, not unit size. The per-group UDF runs ``build_windowed`` (build on
     core+halo → drop halo rows); the result's schema is ``built_schema`` (halo trimmed, so same columns).
+
+    ``only_window_id`` (ADR-087 Probe M): restrict the build to the single ``_window_id`` (its core+halo
+    rows) — used by the in-preflight memory-fit canary to build the GLOBAL densest window ALONE, bounding
+    the probe to O(one window). ``None`` (default) builds every window, the production drain behaviour.
     """
+    from pyspark.sql import functions as F  # noqa: N812
+
     from analytics.action_context.frame_windows import _WINDOW_COL, build_windowed
     from ingestion.action_context import _UDF_SHUFFLE_PARTITIONS, _make_streaming_group_mapper
 
     frame_col = _frame_col(provider)
     assigned = assign_frame_windows(raw_sdf, provider, target_window_frames=target_window_frames)
+    if only_window_id is not None:
+        assigned = assigned.where(F.col(_WINDOW_COL) == int(only_window_id))
     keys = ["match_id", "period", _WINDOW_COL]
 
     def _udf(window_rows: pd.DataFrame) -> pd.DataFrame:

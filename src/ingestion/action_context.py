@@ -17,7 +17,7 @@ import argparse
 import logging
 import os
 import re
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
@@ -749,24 +749,36 @@ class _ActionContextGuard:
     # concurrency is pinned to it (test_terraform_concurrency_matches_n_workers).
     _N_DRAIN_WORKERS = 8
 
-    def __init__(self, *, provider_filter: str | None = None, max_units: int | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        provider_filter: str | None = None,
+        max_units: int | None = None,
+        providers: tuple[str, ...] | None = None,
+    ) -> None:
         """Optional ad-hoc scoping for a one-off preflight run.
 
         ``provider_filter`` — restrict discovery to a single provider (``None`` =
-        all). ``max_units`` — cap each provider's discovered units to ``<=N``
+        all). ``providers`` — restrict discovery to a SET of providers (``None`` =
+        all; ADR-087 ``--providers`` multi-scope, the re-materialize GS-tracking
+        carve-out lever); combines with ``provider_filter`` (both must pass).
+        ``max_units`` — cap each provider's discovered units to ``<=N``
         (``None`` = no cap). A "unit" is whatever the anti-join emits: a match for
         the event-only / non-IDSSE tracking providers, a ``(match, period)`` half
-        for IDSSE. Both default to ``None`` so the daily scheduled preflight (and
+        for IDSSE. All default to ``None`` so the daily scheduled preflight (and
         the module-level ``skip_guard`` singleton) behave exactly as before.
         """
         self.provider_filter = provider_filter
+        self.providers = providers
         self.max_units = max_units
         self._units_cache: list[WorkUnit] | None = None  # set by discover_units()
         self._units_cache_key: tuple[str, str] | None = None  # (catalog, schema) of the cache (R1)
 
     def _selected(self, provider: str) -> bool:
         """Whether this provider's discovery query should run at all."""
-        return self.provider_filter is None or provider == self.provider_filter
+        if self.provider_filter is not None and provider != self.provider_filter:
+            return False
+        return self.providers is None or provider in self.providers
 
     def _cap(self, units: list[Any]) -> list[Any]:
         """Deterministically cap a provider's discovered units to ``max_units``.
@@ -908,6 +920,66 @@ def _parse_preflight_filters(provider: str | None, max_units: str | None) -> tup
     return provider_filter, capped
 
 
+def _parse_providers_scope(raw: object) -> tuple[str, ...] | None:
+    """Parse the ``--providers`` comma-list (empty/unset ⇒ ``None`` = all; ADR-087 amendment).
+
+    The re-materialize GS-tracking carve-out passes ``idsse,skillcorner``. Rejects an unknown provider
+    loudly. Order follows ``_ALL_PROVIDERS`` for determinism.
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    requested = {p.strip() for p in text.split(",") if p.strip()}
+    unknown = requested - set(_ALL_PROVIDERS)
+    if unknown:
+        raise SystemExit(f"Unknown --providers {sorted(unknown)}. Valid: {sorted(_ALL_PROVIDERS)}")
+    return tuple(p for p in sorted(_ALL_PROVIDERS) if p in requested)
+
+
+def _compute_ac_unit_sizes(
+    spark: SparkSession, catalog: str, units: Sequence[WorkUnit]
+) -> tuple[dict[tuple[str, str, int], int], dict[tuple[str, str], int]]:
+    """Per-unit SPADL action counts for the ADR-087 Probe-C smallest-unit size signal, scoped to ``units``.
+
+    Returns ``(by_unit, by_match)``: ``by_unit[(provider, match, period)]`` and the per-match roll-up
+    ``by_match[(provider, match)]`` (for the match-grain, period-less units). ACTION count (not frames)
+    is an adequate RELATIVE smallness proxy for the whole-unit correctness probe (spec R1's weaker bar);
+    it works uniformly across every AC provider, including the sb360 (statsbomb) units that have no raw
+    tracking table. SEMI-JOINED to the OPEN units' matches (CANARY-IMPL-01) — symmetric with
+    ``compute_tracking_size_signals`` — so a daily preflight aggregates only the open matches' actions,
+    never the full ``bronze.spadl_actions`` corpus.
+    """
+    match_keys = sorted({(u.provider, str(u.match_id)) for u in units})
+    if not match_keys:
+        return {}, {}
+    keys_df = spark.createDataFrame(match_keys, schema="data_source string, match_id_native string")
+    rows = (
+        spark.table(f"{catalog}.bronze.spadl_actions")
+        .join(keys_df, ["data_source", "match_id_native"], "left_semi")
+        .groupBy("data_source", "match_id_native", "period_id")
+        .count()
+        .collect()
+    )
+    by_unit: dict[tuple[str, str, int], int] = {}
+    by_match: dict[tuple[str, str], int] = {}
+    for r in rows:
+        if r["period_id"] is None:
+            continue
+        prov, mid, n = str(r["data_source"]), str(r["match_id_native"]), int(r["count"])
+        by_unit[(prov, mid, int(r["period_id"]))] = n
+        by_match[(prov, mid)] = by_match.get((prov, mid), 0) + n
+    return by_unit, by_match
+
+
+def _ac_unit_size(
+    by_unit: dict[tuple[str, str, int], int], by_match: dict[tuple[str, str], int], unit: WorkUnit
+) -> int | None:
+    """Look up a unit's action count by its grain — per (match, period) for IDSSE, per match otherwise."""
+    if unit.period is None:
+        return by_match.get((unit.provider, str(unit.match_id)))
+    return by_unit.get((unit.provider, str(unit.match_id), int(unit.period)))
+
+
 def _resolve_run_id(args: argparse.Namespace) -> str:
     """The job-level run id, passed as ``--run-id`` (from ``{{job.run_id}}``).
 
@@ -987,6 +1059,16 @@ def main_preflight() -> None:
                 },
             ),
             (
+                "--providers",
+                {
+                    "type": str,
+                    "default": None,
+                    "help": "Comma-separated provider scope (empty = all). Scopes discovery + the canary + "
+                    "the enqueue — the re-materialize GS-tracking carve-out lever (e.g. 'idsse,skillcorner'). "
+                    "ADR-087 amendment.",
+                },
+            ),
+            (
                 "--run-id",
                 {
                     "type": str,
@@ -1015,6 +1097,7 @@ def main_preflight() -> None:
     provider_filter, max_units = _parse_preflight_filters(
         getattr(args, "provider", None), getattr(args, "max_units", None)
     )
+    providers_scope = _parse_providers_scope(getattr(args, "providers", None))
     if provider_filter is not None or max_units is not None:
         task_logger.info(
             "Action context preflight SCOPED: provider_filter=%s max_units=%s",
@@ -1039,7 +1122,7 @@ def main_preflight() -> None:
 
     DeltaUnitEventSink(spark, args.catalog, task_logger).ensure_tables()
 
-    guard = _ActionContextGuard(provider_filter=provider_filter, max_units=max_units)
+    guard = _ActionContextGuard(provider_filter=provider_filter, max_units=max_units, providers=providers_scope)
     fr = timed_check(guard, spark, args.catalog, args.schema)  # telemetry (count + skip); discovery memoised
     if fr.count == 0:
         task_logger.info("Action context preflight: nothing to do")
@@ -1063,13 +1146,16 @@ def main_preflight() -> None:
     if kde_backend != "fft-cic":
         task_logger.info("Action context preflight: ghost-GK backend = %s (non-default)", kde_backend)
 
-    # ADR-087 canary: dry-run one unit per provider through the FULL processor BEFORE the fan-out, so a
-    # systemic compute-path defect fails THIS task (compute_* skipped) instead of burning the retry
-    # budget. Runs after the nothing-to-do return above, so a quiet run never builds the processor.
-    from analytics.action_context.canary import run_canary
+    # ADR-087 two-probe canary (bounded + scope-aware): Probe C = full dry-run on the SMALLEST unit of
+    # each in-scope provider (not the old units[:1] worst-case dense-GS unit). NO Probe M — the AC drain
+    # is not two-stage (direct mapInPandas) so it has no window-build OOM class (window_counts=None).
+    from analytics.action_context.canary import run_canary, select_canary_probes
     from ingestion.drain_adapters import SparkGameProcessor
 
-    run_canary(SparkGameProcessor(spark, args.catalog, args.schema), units, task_logger)
+    by_unit, by_match = _compute_ac_unit_sizes(spark, args.catalog, units)
+    sized_units = [replace(u, n_frames=_ac_unit_size(by_unit, by_match, u)) for u in units]
+    probes = select_canary_probes(sized_units, None)
+    run_canary(SparkGameProcessor(spark, args.catalog, args.schema), probes, task_logger)
 
     assignments = assign_workers(units, _ActionContextGuard._N_DRAIN_WORKERS)
     run_id = _resolve_run_id(args)

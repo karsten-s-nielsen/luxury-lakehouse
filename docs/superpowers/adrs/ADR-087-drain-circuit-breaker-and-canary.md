@@ -51,3 +51,37 @@ the fan-out; a provider-specific defect the single canary unit does not exercise
 circuit-breaker (the primary fast-fail). The cost/benefit that sank the per-provider fan: the canary's
 cost lands on EVERY full run, while its benefit only pays off on the RARE systemic-bug run — and the
 breaker already fast-fails those.
+
+## Amendment (2026-10-09, wheel TBD) — two-probe BOUNDED + scope-aware canary; `units[:1]` was worst-case
+
+The `--full` re-materialize preflight (`414142904894469`) timed out AGAIN at 1200 s. Root cause: the
+`units[:1]` selector from the 2026-09-23 amendment is WORST-CASE under `--full` + the ADR-088 two-stage
+build-spill. `discover_tracking_units` returns units `sorted(...)` → provider-alphabetical → the first
+unit is always `gradientsports` (the densest provider, ~2.4 M rows/half), so `units[:1]` deterministically
+dry-runs the single most expensive unit, and one full-processor dry-run of it exceeds 1200 s. (Incremental
+daily runs were unaffected — few, small open units.) The 2026-09-23 concern (don't fan DENSE dry-runs on
+every run) still holds; the miss was picking the densest unit as the one canary.
+
+**Fix — TWO probes, each at its cheapest sufficient input, bounded, scope-aware (NO timeout change):**
+
+- **Probe C (correctness, BOTH drains):** full `process(dry_run=True)` on the SMALLEST unit of EACH
+  in-scope provider — catches a systemic code/schema/wiring defect + per-provider data shape, at
+  O(smallest-per-provider) not O(densest). The per-provider fan is now cheap (smallest, not dense).
+- **Probe M (memory fit, tracking-marts ONLY):** Stage-1 windowed build+spill of the GLOBAL densest
+  window across the in-scope units (via `windowed_build_sdf(only_window_id=...)`), asserting it fits with
+  no OOM. The ADR-089 bound is per-window, so the global worst-case window proves the whole corpus — and
+  it can live in a NON-densest unit (so the candidate set is all in-scope units, not the densest unit).
+  No Stage-2 scoring (scoring is whole-unit, irrelevant to the build-memory bound). Turns the one-time
+  offline no-OOM proof into a standing live gate. The AC drain is not two-stage → no Probe M.
+- **Scope-aware:** each preflight gains `--providers` (comma inclusion; empty = all) threaded into
+  discovery, so a carved-out provider is never canaried AND the enqueue is scoped — the re-materialize's
+  GS-tracking carve-out lever (D1; GS rides the silly-kicks TF-65 ball-velocity fix, not this cycle).
+- **Non-breaking port split:** `build_fit_probe` is a new `BuildFitProbePort` Protocol implemented only by
+  `TrackingMartsProcessor`, NOT added to the shared `GameProcessorPort`; `run_canary` runs Probe M only
+  when a `memory_window` is present, so the AC `SparkGameProcessor` is untouched.
+
+Decisions recorded: the Probe-C size proxy is the per-unit RAW-TRACKING row count for tracking-marts
+(`compute_tracking_size_signals`) and the per-unit SPADL ACTION count for AC (`_compute_ac_unit_sizes`,
+sb360 providers have no raw tracking table; action count is an adequate relative-smallness proxy for the
+correctness probe). The size aggregate is SEMI-JOINED to the OPEN units, so a daily incremental run does
+not scan the whole corpus. Spec: `docs/superpowers/specs/2026-10-09-tracking-marts-canary-bounded-design.md`.

@@ -43,6 +43,11 @@ class WorkUnit:
     # Default kept in sync with ghost_gk_backend.DEFAULT_GHOST_GK_BACKEND (a literal here to avoid a
     # module-scope import — work_unit.py must import offline; __post_init__ imports the allowlist lazily).
     kde_backend: str = "fft-cic"
+    # Preflight-local size signal (the Probe-C smallest-unit selector, ADR-087 amendment). Populated by
+    # discovery; NOT serialized to the work queue (_QUEUE_COLUMNS is the SSOT and omits it), so it is always
+    # None on a unit reconstructed by _row_to_work_unit. compare=False so a sized unit equals/hashes the
+    # same as its unsized twin — a mixed sized/unsized set or dedup never splits on it (CANARY-IMPL-02).
+    n_frames: int | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
         # Belt-and-braces against a value that bypasses resolve_ghost_gk_backend (e.g. a direct
