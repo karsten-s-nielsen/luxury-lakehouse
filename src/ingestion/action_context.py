@@ -32,6 +32,7 @@ from analytics.action_context.drain import (
     drain_worker,
     parse_breaker_config,
 )
+from analytics.action_context.frame_windows import SEAM_PROVIDERS
 from analytics.action_context.ghost_gk_backend import resolve_ghost_gk_backend
 from analytics.action_context.pipeline import _reconstruct_xt
 from analytics.action_context.schema import (
@@ -409,6 +410,7 @@ def _make_action_context_udf(
     kde_backend: str = "fft-cic",
     frame_batch_size: int | None = None,
     ownership_anchors: dict[int, tuple[float, float, float]] | None = None,
+    sorted_frames_by_period: dict[int, Any] | None = None,
 ) -> Callable[[pd.DataFrame], pd.DataFrame]:
     """Build the per-group pandas UDF closure for action context enrichment
     (dispatched via ``_make_streaming_group_mapper`` + ``mapInPandas``, ADR-045).
@@ -457,7 +459,9 @@ def _make_action_context_udf(
 
         match_id_val = pdf["match_id"].iloc[0]
         period_val = pdf["period"].iloc[0]
-        batch_id_val = pdf["frame_batch_id"].iloc[0] if "frame_batch_id" in pdf.columns else None
+        # The group id for logs/markers: `_window_id` for the ADR-089 seam, else `frame_batch_id`.
+        _group_id_col = "_window_id" if "_window_id" in pdf.columns else "frame_batch_id"
+        batch_id_val = pdf[_group_id_col].iloc[0] if _group_id_col in pdf.columns else None
 
         # Executor visibility: if THIS group hangs >120s, faulthandler dumps all
         # thread stacks to executor stderr (the only place to see a silent UDF
@@ -520,6 +524,7 @@ def _make_action_context_udf(
                 kde_backend=kde_backend,
                 frame_batch_size=frame_batch_size,
                 ownership_anchors=ownership_anchors,
+                sorted_frames_by_period=sorted_frames_by_period,
             )
             # Executor-side per-batch progress log: serverless / Spark Connect
             # forbids driver-side accumulators (PySparkAttributeError on
@@ -1902,12 +1907,11 @@ def _process_tracking_match(
     # Per-provider size, run-overridable via AC_FRAME_BATCH_SIZE (ADR-047 am. 2).
     # The SAME resolved value travels into the UDF closure below so the M13
     # single-owner action math batches identically (H3).
+    # NOTE: the grouping column (`_window_id` for the ADR-089 seam providers, else `frame_batch_id`)
+    # is assigned AFTER the provider timestamp rebases + the ownership anchors below, so those run on
+    # the NON-replicated frames (the seam's halo duplicates boundary rows). Mirrors run_work_unit.
     frame_batch_size = resolve_frame_batch_size(provider)
     frame_col = "frame_num" if provider == "gradientsports" else "frame"
-    trk_sdf = trk_sdf.withColumn(
-        "frame_batch_id",
-        F.floor(F.col(frame_col) / F.lit(frame_batch_size)),
-    )
 
     # GradientSports: the frame-batch / link / owned-action logic needs a "timestamp" column,
     # but the GS converter (_bronze_gradientsports_to_converter_input) reads "period_elapsed_time".
@@ -2006,10 +2010,38 @@ def _process_tracking_match(
             _ownership_anchors[int(r["period"])] = (_t0, _f0, (_f1 - _f0) / (_t1 - _t0))
         assert_frames_time_base({p: w[0] for p, w in _frame_windows.items()})
 
+    # ── Grouping assignment (ADR-089 seam vs legacy floor-batch) ──
+    # Seam providers (idsse/skillcorner/gradientsports): dense-ordinal `_window_id` + a halo so sk's
+    # composed savgol velocity is CONTINUOUS across window boundaries (§4.5c correction). The whole-
+    # period distinct-frame array is collected ONCE for the single-owner ordinal map (same posture as
+    # the anchors above; a frame = ~22 rows, so distinct() first). metrica (excluded) keeps the
+    # halo-less `frame_batch_id = floor(frame / size)`. Mirrors run_work_unit; lockstep via
+    # test_ac_seam_in_both_dispatchers.
+    _sorted_frames_by_period: dict[int, Any] = {}
+    if provider in SEAM_PROVIDERS:
+        import numpy as _np
+
+        from ingestion.frame_window_dispatch import assign_frame_windows
+
+        _frame_rows = (
+            trk_sdf.select("period", frame_col)
+            .distinct()
+            .groupBy("period")
+            .agg(F.sort_array(F.collect_list(frame_col)).alias("_frames"))
+            .collect()
+        )
+        _sorted_frames_by_period = {int(r["period"]): _np.asarray(r["_frames"], dtype=float) for r in _frame_rows}
+        trk_sdf = assign_frame_windows(trk_sdf, provider, target_window_frames=frame_batch_size)
+        _group_keys = ["match_id", "period", "_window_id"]
+    else:
+        trk_sdf = trk_sdf.withColumn("frame_batch_id", F.floor(F.col(frame_col) / F.lit(frame_batch_size)))
+        _group_keys = ["match_id", "period", "frame_batch_id"]
+
     # Observability branch: single-process cProfile on the driver instead of the
     # distributed applyInPandas write. trk_sdf is already shaped exactly like the
-    # UDF's groups (frame_batch_id present), so the per-batch enrich_batch calls
-    # are identical to production — only serial + profiled. No bronze write.
+    # UDF's groups (`_window_id` for seam providers, else `frame_batch_id`), so the
+    # per-group enrich_batch calls are identical to production — only serial +
+    # profiled. No bronze write.
     if profile:
         hb.set_phase("profile_driver_cprofile")
         try:
@@ -2033,6 +2065,8 @@ def _process_tracking_match(
                 kde_backend=kde_backend,
                 frame_batch_size=frame_batch_size,
                 ownership_anchors=_ownership_anchors,
+                group_keys=_group_keys,
+                sorted_frames_by_period=_sorted_frames_by_period,
             )
         finally:
             hb.stop()
@@ -2059,6 +2093,7 @@ def _process_tracking_match(
         kde_backend=kde_backend,
         frame_batch_size=frame_batch_size,
         ownership_anchors=_ownership_anchors,
+        sorted_frames_by_period=_sorted_frames_by_period,
     )
 
     # GradientSports uses "period" (not "period_id") in bronze
@@ -2068,10 +2103,12 @@ def _process_tracking_match(
     # replaces groupBy().applyInPandas, whose shuffle AQE coalesced to ~1 task for a whole
     # Metrica half (measured concurrency 1.00 → strictly serial enrichment). Same udf_fn,
     # same per-group inputs, same output schema — only the task topology changes.
-    _group_keys = ["match_id", "period", "frame_batch_id"]
+    # `_group_keys` is set above (`_window_id` seam vs `frame_batch_id`); sort by frame within the
+    # group so the sk convert sees an ordered sequence (the seam's halo rows interleave by frame).
+    _sort_cols = [*_group_keys, frame_col] if frame_col in trk_sdf.columns else _group_keys
     result_sdf = (
         trk_sdf.repartition(_UDF_SHUFFLE_PARTITIONS, *_group_keys)
-        .sortWithinPartitions(*_group_keys)
+        .sortWithinPartitions(*_sort_cols)
         .mapInPandas(
             _make_streaming_group_mapper(udf_fn, _group_keys),
             schema=_get_result_schema(),
@@ -2241,6 +2278,8 @@ def _run_profile_on_driver(
     kde_backend: str = "fft-cic",
     frame_batch_size: int | None = None,
     ownership_anchors: dict[int, tuple[float, float, float]] | None = None,
+    group_keys: list[str] | None = None,
+    sorted_frames_by_period: dict[int, Any] | None = None,
 ) -> int:
     """Pull the whole match to the driver, run ``enrich_batch`` per frame
     batch under ``cProfile`` (single-process), and write the breakdown to the
@@ -2301,8 +2340,10 @@ def _run_profile_on_driver(
         gs_gk_player_ids=gs_gk_player_ids,
     )
 
-    # One groupby group == one applyInPandas group == one enrich_batch call.
-    groups = list(frames_all.groupby(["period", "frame_batch_id"], sort=True))
+    # One groupby group == one applyInPandas group == one enrich_batch call. The grain is the
+    # dispatcher's grouping column (`_window_id` seam / `frame_batch_id` legacy) — group_keys[-1].
+    _grp_col = group_keys[-1] if group_keys else "frame_batch_id"
+    groups = list(frames_all.groupby(["period", _grp_col], sort=True))
     n_total_batches = len(groups)
     if max_batches and max_batches > 0 and n_total_batches > max_batches:
         groups = groups[:max_batches]
@@ -2335,6 +2376,7 @@ def _run_profile_on_driver(
             kde_backend=kde_backend,
             frame_batch_size=frame_batch_size,
             ownership_anchors=ownership_anchors,
+            sorted_frames_by_period=sorted_frames_by_period,
         )
         n_rows += len(result)
         for _c in _health_cols:

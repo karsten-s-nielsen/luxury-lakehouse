@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from analytics.action_context.batching import resolve_frame_batch_size
 from analytics.action_context.completeness import assert_unit_action_completeness
@@ -29,6 +29,7 @@ from analytics.action_context.enrich import (
     _enrich_tracking_match,
     _resolve_enrichment_identity,
 )
+from analytics.action_context.frame_windows import SEAM_PROVIDERS, assign_window_ids, provider_hz
 from analytics.action_context.schema import RESULT_COLUMNS, build_output
 from analytics.action_context.time_base_guard import assert_frames_time_base, assert_work_unit_time_base
 
@@ -262,33 +263,71 @@ def compute_ownership_anchors(
     return anchors
 
 
+def compute_sorted_frames(frames: pd.DataFrame, frame_col: str, period_col: str = "period") -> dict[int, Any]:
+    """Per-period sorted DISTINCT frame array ``{period: np.ndarray}`` for the seam's ordinal map.
+
+    The haloed-frame-window seam assigns ``_window_id = floor(frame_ordinal / target)`` on the
+    DENSE distinct-frame ordinal (ADR-089 §4.3). To decide single ownership (which window a given
+    action's ``est_frame`` falls in) every window-group must reconstruct the IDENTICAL ordinal —
+    so the dispatcher computes the whole-period distinct-frame array ONCE and threads it, exactly
+    like ``compute_ownership_anchors``. ``np.searchsorted(sorted_frames, f) == dense_rank(f) - 1``
+    for a frame value ``f`` (matches the Spark ``assign_frame_windows`` ordinal); a real-valued
+    ``est_frame`` between two frames maps to the next frame's ordinal (tie-free, single-owner).
+    """
+    import numpy as np
+
+    out: dict[int, Any] = {}
+    fr = frames.dropna(subset=[frame_col])
+    for period, g in fr.groupby(period_col):
+        out[int(period)] = np.sort(g[frame_col].unique()).astype(float)  # type: ignore[arg-type]  # period is the int groupby key
+    return out
+
+
 def _owned_action_ids(
     provider: str,
     frames_pdf: pd.DataFrame,
     actions: pd.DataFrame,
     frame_batch_size: int,
     anchor: tuple[float, float, float] | None = None,
+    *,
+    sorted_frames: Any = None,
+    target_window_frames: int | None = None,
 ) -> set[Any] | None:
-    """Action ids owned by THIS batch (M13 single-owner de-dup).
+    """Action ids owned by THIS batch/window (M13 single-owner de-dup).
 
-    Owner = batch whose ``frame_batch_size``-frame window contains the action's frame. The frame
-    for an action time ``t`` is recovered from the linear ``frame = f0 + (t - t0)·slope``
-    relationship (tracking fps is constant). ``anchor`` is the dispatcher's GLOBAL per-period
-    ``(t0, f0, slope)`` (see ``compute_ownership_anchors``) — every batch then computes the
-    IDENTICAL global frame for a given ``t`` and exactly one batch claims each action even on
-    gappy tracking. Without an anchor, falls back to the legacy per-batch fit (direct callers
-    only — the dispatchers always pass one; lockstep-tested). ``frame_batch_size`` MUST be the
-    same size the dispatcher used to assign ``frame_batch_id`` (H3). Returns ``None`` (no
-    de-dup) when the batch lacks the columns to evaluate the map.
+    Two grouping regimes share this owner math (the frame for an action time ``t`` is recovered
+    from the GLOBAL linear ``frame = f0 + (t - t0)·slope`` — tracking fps is constant — so every
+    group evaluates the IDENTICAL ``est_frame`` and exactly one claims each action, even on gappy
+    tracking):
+
+    * **Seam (``_window_id`` present, ADR-089):** owner = the window whose dense-ordinal window
+      contains ``est_frame``: ``floor(searchsorted(sorted_frames, est_frame) / target_window_frames)
+      == this _window_id``. ``sorted_frames`` is the dispatcher's whole-period distinct-frame array
+      (``compute_sorted_frames``) — the SAME ordinal basis ``assign_frame_windows`` used. Requires
+      ``anchor`` + ``sorted_frames`` + ``target_window_frames`` (dispatchers always pass them);
+      absent → ``None`` (no de-dup, the legacy degenerate fallback).
+    * **Legacy floor-batch (``frame_batch_id`` present — metrica + direct callers):** owner =
+      ``floor(est_frame / frame_batch_size) == this frame_batch_id``. Without an ``anchor`` falls
+      back to the per-batch fit (direct callers only; the dispatchers always pass one).
+
+    Returns ``None`` (no de-dup) when the group lacks the columns to evaluate the map.
     """
     frame_col = "frame_num" if provider == "gradientsports" else "frame"
-    if not {"frame_batch_id", "timestamp"}.issubset(frames_pdf.columns) or frame_col not in frames_pdf.columns:
-        return None
     if "time_seconds" not in actions.columns or "action_id" not in actions.columns:
+        return None
+    if frame_col not in frames_pdf.columns or "timestamp" not in frames_pdf.columns:
         return None
     import numpy as np
 
-    this_batch_id = int(frames_pdf["frame_batch_id"].iloc[0])
+    seam = "_window_id" in frames_pdf.columns
+    if seam:
+        # The seam dispatchers ALWAYS pass anchor + sorted_frames + target; a degenerate period
+        # (no anchor) falls back to no-de-dup, matching the legacy path.
+        if anchor is None or sorted_frames is None or target_window_frames is None:
+            return None
+    elif "frame_batch_id" not in frames_pdf.columns:
+        return None
+
     if anchor is not None:
         t0, f0, slope = anchor
     else:
@@ -302,9 +341,17 @@ def _owned_action_ids(
         if t1 == t0:
             return None
         slope = (f1 - f0) / (t1 - t0)
+
     est_frame = f0 + (actions["time_seconds"].to_numpy(dtype=float) - t0) * slope
-    owning_batch = np.floor(est_frame / frame_batch_size).astype("int64")
     action_ids = actions["action_id"].to_numpy()
+    if seam:
+        # target_window_frames is guaranteed non-None in the seam branch (guarded above); cast for pyright.
+        _tw = cast("int", target_window_frames)
+        this_window_id = int(frames_pdf["_window_id"].iloc[0])
+        owning = (np.searchsorted(sorted_frames, est_frame, side="left") // _tw).astype("int64")
+        return set(action_ids[owning == this_window_id].tolist())
+    this_batch_id = int(frames_pdf["frame_batch_id"].iloc[0])
+    owning_batch = np.floor(est_frame / frame_batch_size).astype("int64")
     return set(action_ids[owning_batch == this_batch_id].tolist())
 
 
@@ -323,6 +370,7 @@ def enrich_batch(
     kde_backend: str = "fft-cic",
     frame_batch_size: int | None = None,
     ownership_anchors: dict[int, tuple[float, float, float]] | None = None,
+    sorted_frames_by_period: dict[int, Any] | None = None,
 ) -> pd.DataFrame:
     """Enrich ONE unit of work — the shared contract called identically by prod + local.
 
@@ -333,7 +381,10 @@ def enrich_batch(
     is only correct when the dispatcher used the default too; explicit callers
     pass it through). ``ownership_anchors`` is the dispatcher's GLOBAL per-period
     M13 map (``compute_ownership_anchors``) — without it, boundary actions on gappy
-    tracking can be double-claimed by adjacent batches. sb360: ``frames_pdf`` is
+    tracking can be double-claimed by adjacent batches. ``sorted_frames_by_period``
+    is the dispatcher's whole-period distinct-frame array for the ADR-089 seam
+    (``_window_id`` groups with a halo); it defines the dense ordinal the single-owner
+    map uses and is ignored by the legacy floor-batch path. sb360: ``frames_pdf`` is
     the synthetic freeze-frames for the match. event_only: ``frames_pdf`` is ignored.
     """
     import pandas as pd
@@ -363,6 +414,7 @@ def enrich_batch(
 
     # ── tracking tier (per-frame-batch) ──
     xt = _reconstruct_xt(xt_grid_data, xt_l, xt_w)
+    frame_col = "frame_num" if provider == "gradientsports" else "frame"
 
     all_actions = pd.DataFrame(actions_records)
     actions = all_actions[all_actions["period_id"] == int(period)].copy() if period is not None else all_actions.copy()
@@ -384,7 +436,21 @@ def enrich_batch(
     # from this batch's frames. Identical in Spark + local since both call enrich_batch.
     resolved_batch_size = frame_batch_size if frame_batch_size is not None else resolve_frame_batch_size(provider)
     _anchor = ownership_anchors.get(int(period)) if ownership_anchors is not None and period is not None else None
-    owned_action_ids = _owned_action_ids(provider, frames_pdf, actions, resolved_batch_size, anchor=_anchor)
+    # Seam (ADR-089): `_window_id` groups carry the dispatcher's whole-period distinct-frame array so
+    # ownership is in the SAME dense ordinal `assign_frame_windows` used; `target_window_frames` ==
+    # `resolved_batch_size` (the window size the dispatcher passed). Legacy floor-batch ignores both.
+    _sorted = (
+        sorted_frames_by_period.get(int(period)) if sorted_frames_by_period is not None and period is not None else None
+    )
+    owned_action_ids = _owned_action_ids(
+        provider,
+        frames_pdf,
+        actions,
+        resolved_batch_size,
+        anchor=_anchor,
+        sorted_frames=_sorted,
+        target_window_frames=resolved_batch_size,
+    )
 
     # M13 EARLY-RETURN: if this batch owns zero actions (all buffer-windowed actions belong
     # to adjacent batches), short-circuit before the expensive 20-step enrich chain.
@@ -395,8 +461,27 @@ def enrich_batch(
     if owned_action_ids is not None and not owned_action_ids:
         return _empty_result()
 
-    pdf = frames_pdf.drop(columns=["frame_batch_id"]) if "frame_batch_id" in frames_pdf.columns else frames_pdf
+    # Drop the grouping/halo helper columns before the sk convert (it must not see them). KEEP the halo
+    # ROWS (`_is_halo=True`) THROUGH the convert so the composed savgol velocity is continuous across the
+    # core window's boundary (ADR-089 §4.5c), THEN trim the built frames back to CORE before the enrich
+    # chain. This isolates the value-change to boundary VELOCITY (+ its correct downstream propagation):
+    # the window-dependent enrich features (obso_peak, pausa_*, elastic_sync) see EXACTLY the core batch
+    # window — unchanged from the pre-seam halo-less batching, honouring their ADR-047 batch-scope — not
+    # the halo-extended window. Same build-core+halo → trim-to-core pattern as `build_windowed` (the
+    # tracking-marts/shot_freeze sites); AC's owned filter below keeps each action in its one core window.
+    _core_frame_ids = (
+        set(frames_pdf.loc[~frames_pdf["_is_halo"], frame_col].to_numpy().tolist())
+        if "_is_halo" in frames_pdf.columns
+        else None
+    )
+    _helpers = [c for c in ("frame_batch_id", "_window_id", "_is_halo") if c in frames_pdf.columns]
+    pdf = frames_pdf.drop(columns=_helpers) if _helpers else frames_pdf
     frames = _convert_tracking_batch(provider, pdf, actions, meta)
+    if _core_frame_ids is not None:
+        # Built frames carry the raw frame number under `frame_col` or `frame_id` (sk convert preserves
+        # per-frame identity 1:1 — same key logic as frame_windows.build_windowed).
+        _built_key = frame_col if frame_col in frames.columns else "frame_id"
+        frames = frames[frames[_built_key].isin(_core_frame_ids)].reset_index(drop=True)
     frames["game_id"] = int(actions["game_id"].iloc[0])
 
     actions = _resolve_enrichment_identity(actions, provider=provider, match_id_native=native_match_id)
@@ -528,16 +613,35 @@ def run_work_unit(
                 for p, s in f.dropna(subset=["timestamp"]).groupby("period")["timestamp"]
             }
         )
-    f["frame_batch_id"] = (f[frame_col] // frame_batch_size).astype("int64")
-
     # M13 GLOBAL ownership anchors (ADR-040 amendment 2 follow-up): one per-period
     # frame↔time line for the WHOLE unit, so every batch claims actions identically —
     # per-batch fits drift on gappy tracking and double-claim boundary actions.
-    # Mirrors the Spark driver; lockstep via test_m13_global_anchor.
+    # Computed on the rebased, NON-replicated frames (before any seam halo duplication
+    # below) so the per-period earliest/latest line is unperturbed. Mirrors the Spark
+    # driver; lockstep via test_m13_global_anchor.
     common["ownership_anchors"] = compute_ownership_anchors(f, frame_col)
 
+    if wu.provider in SEAM_PROVIDERS:
+        # ADR-089 seam: replace the halo-less floor batching with dense-ordinal windows + a halo
+        # (replicates boundary frames) so sk's composed savgol velocity is CONTINUOUS across window
+        # boundaries (the §4.5c correction). `_window_id` grouping + the whole-period distinct-frame
+        # ordinal map (for single-owner). Mirrors the Spark driver `_process_tracking_match`;
+        # lockstep via test_ac_seam_in_both_dispatchers. metrica keeps the floor path (excluded).
+        common["sorted_frames_by_period"] = compute_sorted_frames(f, frame_col)
+        f = assign_window_ids(
+            f,
+            wu.provider,
+            target_window_frames=frame_batch_size,
+            frame_col=frame_col,
+            hz=provider_hz(wu.provider),
+        )
+        _group_col = "_window_id"
+    else:
+        f["frame_batch_id"] = (f[frame_col] // frame_batch_size).astype("int64")
+        _group_col = "frame_batch_id"
+
     parts: list[pd.DataFrame] = []
-    for (period_val, _batch_id), group in f.groupby(["period", "frame_batch_id"], sort=True):
+    for (period_val, _gid), group in f.groupby(["period", _group_col], sort=True):
         parts.append(enrich_batch(tier="tracking", frames_pdf=group, period=int(period_val), **common))  # type: ignore[arg-type]  # period_val is the int `period` groupby key; pandas types it as Hashable
 
     result = pd.concat(parts, ignore_index=True) if parts else _empty_result()
