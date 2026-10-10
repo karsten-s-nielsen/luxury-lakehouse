@@ -24,7 +24,7 @@ pytest.importorskip("pyspark", reason="tracking-marts canary Spark primitives ru
 from analytics.action_context.canary import WindowRef, select_canary_probes
 from analytics.action_context.frame_windows import _WINDOW_COL
 from analytics.action_context.work_unit import WorkUnit
-from ingestion.frame_window_dispatch import assign_frame_windows, windowed_build_sdf
+from ingestion.frame_window_dispatch import assign_core_window_ids, assign_frame_windows, windowed_build_sdf
 
 _ROOT = Path("src/tests/fixtures/action_context")
 _PROVIDER = "idsse"
@@ -57,15 +57,41 @@ def _frames() -> pd.DataFrame:
     return frames
 
 
+def test_assign_core_window_ids_matches_assign_frame_windows_core(spark) -> None:
+    """SINGLE-SOURCE invariant (ADR-087 follow-up): the window id ``compute_tracking_size_signals`` counts
+    on (``assign_core_window_ids``) is IDENTICAL, per (match,period,frame), to the CORE (``_is_halo=False``)
+    window id the drain actually builds (``assign_frame_windows``). If these drift, Probe M selects a window
+    the drain never builds. Discriminating: a window-id formula change in either path fails this."""
+    sdf = spark.createDataFrame(_frames())
+    core = (
+        assign_core_window_ids(sdf, _PROVIDER, target_window_frames=_TARGET)
+        .select("match_id", "period", "frame", _WINDOW_COL)
+        .toPandas()
+        .sort_values(["match_id", "period", "frame"])
+        .reset_index(drop=True)
+    )
+    afw_core = (
+        assign_frame_windows(sdf, _PROVIDER, target_window_frames=_TARGET)
+        .where("not _is_halo")
+        .select("match_id", "period", "frame", _WINDOW_COL)
+        .toPandas()
+        .sort_values(["match_id", "period", "frame"])
+        .reset_index(drop=True)
+    )
+    assert len(core) == len(afw_core) and len(core) > 0
+    assert core.equals(afw_core), "assign_core_window_ids != assign_frame_windows CORE — single-source drift"
+
+
 def test_window_count_aggregate_feeds_global_densest(spark) -> None:
-    """The per-``_window_id`` row-count aggregate over ``assign_frame_windows`` yields WindowRefs whose
-    global argmax is exactly what ``select_canary_probes`` selects as Probe M."""
+    """The per-``_window_id`` CORE row-count aggregate over ``assign_core_window_ids`` (what
+    ``compute_tracking_size_signals`` does) yields WindowRefs whose global argmax is exactly what
+    ``select_canary_probes`` selects as Probe M."""
     frames = _frames()
     assert frames["frame"].nunique() > _TARGET, "fixture must span >1 window (else vacuous)"
 
     sdf = spark.createDataFrame(frames)
-    assigned = assign_frame_windows(sdf, _PROVIDER, target_window_frames=_TARGET)
-    counts = assigned.groupBy("match_id", "period", _WINDOW_COL).count().toPandas()
+    cored = assign_core_window_ids(sdf, _PROVIDER, target_window_frames=_TARGET)
+    counts = cored.groupBy("match_id", "period", _WINDOW_COL).count().toPandas()
     assert len(counts) > 1, "must produce several windows"
 
     unit = WorkUnit(provider=_PROVIDER, match_id=_MATCH, period=_PERIOD)

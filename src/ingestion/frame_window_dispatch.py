@@ -25,6 +25,33 @@ def _frame_col(provider: str) -> str:
     return "frame_num" if provider == "gradientsports" else "frame"
 
 
+def assign_core_window_ids(
+    raw_sdf: SparkDataFrame,
+    provider: str,
+    *,
+    target_window_frames: int,
+) -> SparkDataFrame:
+    """Add the CORE ``_ord`` (0-based dense frame-ordinal) + ``_window_id`` (``_ord // target``) to a
+    unit's raw tracking rows — WITHOUT the halo replication, so the row count is unchanged.
+
+    The SINGLE SOURCE of the core window id (ADR-087 follow-up): ``assign_frame_windows`` wraps this and
+    adds the left/right halo on top, and the preflight size count (``compute_tracking_size_signals``)
+    calls it directly + ``groupBy(_window_id).count()``. Both therefore agree on which window a frame is
+    core in — the load-bearing invariant that Probe M selects the window the drain actually builds. Keys
+    are ``(match_id, period)``; the dense_rank gives a 0-based ordinal over DISTINCT frames (a frame =
+    ~22 rows), so non-contiguous frames still bucket correctly.
+    """
+    from pyspark.sql import Window
+    from pyspark.sql import functions as F  # noqa: N812
+
+    frame_col = _frame_col(provider)
+    unit = Window.partitionBy("match_id", "period").orderBy(frame_col)
+    tw = F.lit(int(target_window_frames))
+    return raw_sdf.withColumn("_ord", F.dense_rank().over(unit) - 1).withColumn(
+        "_window_id", (F.col("_ord") / tw).cast("int")
+    )
+
+
 def assign_frame_windows(
     raw_sdf: SparkDataFrame,
     provider: str,
@@ -44,16 +71,15 @@ def assign_frame_windows(
     from analytics.action_context.frame_windows import halo_frames, provider_hz
 
     halo = halo_frames(provider, provider_hz(provider))
-    frame_col = _frame_col(provider)
-    unit = Window.partitionBy("match_id", "period").orderBy(frame_col)
-
-    # dense_rank over DISTINCT frames (ties share a rank) → 0-based frame ordinal; a frame = ~22 rows.
-    ranked = raw_sdf.withColumn("_ord", F.dense_rank().over(unit) - 1)
-    max_ord = Window.partitionBy("match_id", "period")
-    ranked = ranked.withColumn("_max_ord", F.max("_ord").over(max_ord))
     tw = F.lit(int(target_window_frames))
+
+    # CORE `_ord` + `_window_id` come from the SINGLE SOURCE (assign_core_window_ids); this function only
+    # ADDS the halo replication on top. So the preflight size count (which calls assign_core_window_ids
+    # directly) and the real build here cannot assign a frame a DIFFERENT window (ADR-087 follow-up).
+    ranked = assign_core_window_ids(raw_sdf, provider, target_window_frames=target_window_frames)
+    max_ord = Window.partitionBy("match_id", "period")
     ranked = (
-        ranked.withColumn("_window_id", (F.col("_ord") / tw).cast("int"))
+        ranked.withColumn("_max_ord", F.max("_ord").over(max_ord))
         .withColumn("_pos", F.col("_ord") - F.col("_window_id") * tw)  # position within the core window
         .withColumn("_last_window", (F.col("_max_ord") / tw).cast("int"))
     )
@@ -119,4 +145,4 @@ def windowed_build_sdf(
     )
 
 
-__all__ = ["assign_frame_windows", "windowed_build_sdf"]
+__all__ = ["assign_core_window_ids", "assign_frame_windows", "windowed_build_sdf"]

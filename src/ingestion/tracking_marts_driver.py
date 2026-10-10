@@ -155,21 +155,24 @@ def compute_tracking_size_signals(
     """Preflight size signals from RAW TRACKING for the ADR-087 two-probe canary, scoped to ``units``.
 
     Returns ``(unit_counts, window_refs)``:
-    - ``unit_counts[(provider, match_id, period)]`` = raw tracking rows in the unit (Probe-C smallest
-      signal, R1).
     - ``window_refs`` = one ``WindowRef`` per ``(provider, match, period, _window_id)`` carrying its
-      core+halo row count — the ``mapInPandas`` UDF-group input that drives the Stage-1 memory peak
-      (Probe-M GLOBAL densest signal, R2).
+      CORE row count (Probe-M GLOBAL densest signal, R2). CORE, not core+halo: the halo adds at most
+      ``2*H`` frames/window (``H = halo_frames`` ~ 22 to 26 vs ``_TM_WINDOW_FRAMES`` = 20000, ``< 0.3 %``),
+      a bounded additive constant that cannot flip the densest-window ranking - and Probe M BUILDS the
+      selected window (``build_fit_probe``), the real memory check; ``n_rows`` is only the selector.
+    - ``unit_counts[(provider, match_id, period)]`` = the unit's CORE row total (Probe-C smallest signal,
+      R1), derived by SUMMING its per-window counts — no separate scan.
 
-    COUNT aggregates only (no build). The raw read is SEMI-JOINED to the OPEN ``units`` (per provider),
-    so a daily incremental run (few open units) aggregates only those — NOT the whole corpus — while a
-    ``--full`` re-materialize (all units open) aggregates everything, as intended. The window count
-    mirrors ``assign_frame_windows``'s core+halo replication, so it equals exactly the rows a window's
-    build UDF receives.
+    SINGLE PASS per provider (ADR-087 follow-up): ONE ``raw`` read → ``assign_core_window_ids`` (the
+    single-sourced core ``_window_id``, no halo ``unionByName``) → ONE ``groupBy`` count. Replaces the old
+    two-read path (a separate ``raw.groupBy`` + ``assign_frame_windows``'s dense_rank + halo union) that
+    timed out the ``--full`` preflight. The ``dense_rank`` is retained (the residual cost). The raw read
+    is SEMI-JOINED to the OPEN ``units`` per provider, so a daily incremental run aggregates only those,
+    never the whole corpus. COUNT aggregates only (no build).
     """
     from analytics.action_context.canary import WindowRef
     from analytics.action_context.work_unit import WorkUnit
-    from ingestion.frame_window_dispatch import assign_frame_windows
+    from ingestion.frame_window_dispatch import assign_core_window_ids
     from ingestion.tracking_marts_dispatch import _TM_WINDOW_FRAMES
 
     keys_by_provider: dict[str, list[tuple[str, int]]] = {}
@@ -183,12 +186,13 @@ def compute_tracking_size_signals(
     for provider, keys in keys_by_provider.items():
         keys_df = spark.createDataFrame(keys, schema="match_id string, period int")
         raw = read_provider_raw_trk_sdf(spark, catalog, provider).join(keys_df, ["match_id", "period"], "left_semi")
-        for r in raw.groupBy("match_id", "period").count().collect():
-            unit_counts[(provider, str(r["match_id"]), int(r["period"]))] = int(r["count"])
-        assigned = assign_frame_windows(raw, provider, target_window_frames=_TM_WINDOW_FRAMES)
-        for r in assigned.groupBy("match_id", "period", "_window_id").count().collect():
-            unit = WorkUnit(provider=provider, match_id=str(r["match_id"]), period=int(r["period"]))
-            window_refs.append(WindowRef(unit=unit, window_id=int(r["_window_id"]), n_rows=int(r["count"])))
+        cored = assign_core_window_ids(raw, provider, target_window_frames=_TM_WINDOW_FRAMES)
+        for r in cored.groupBy("match_id", "period", "_window_id").count().collect():
+            mid, period_, n = str(r["match_id"]), int(r["period"]), int(r["count"])
+            unit = WorkUnit(provider=provider, match_id=mid, period=period_)
+            window_refs.append(WindowRef(unit=unit, window_id=int(r["_window_id"]), n_rows=n))
+            key = (provider, mid, period_)
+            unit_counts[key] = unit_counts.get(key, 0) + n  # R1 = Σ the unit's per-window CORE counts
     return unit_counts, window_refs
 
 
