@@ -85,3 +85,19 @@ Decisions recorded: the Probe-C size proxy is the per-unit RAW-TRACKING row coun
 sb360 providers have no raw tracking table; action count is an adequate relative-smallness proxy for the
 correctness probe). The size aggregate is SEMI-JOINED to the OPEN units, so a daily incremental run does
 not scan the whole corpus. Spec: `docs/superpowers/specs/2026-10-09-tracking-marts-canary-bounded-design.md`.
+
+## Amendment follow-up (2026-10-09, wheel 0.5.120) — size aggregate single-pass (the `--full` preflight STILL timed out)
+
+The bounded two-probe canary (wheel 0.5.119) fixed the dense-unit canary cost, but the `--full` preflight
+STILL timed out at 1200 s — isolated to `compute_tracking_size_signals` (`--providers idsse` ALONE, ~14
+units, timed out ~1258 s). Its cost was **a redundant R1 read + a corpus-wide `dense_rank` + the
+`assign_frame_windows` halo `unionByName`** (the halo is `≤ 2H` frames/window, `H ≈ 22–26`, `< 0.3 %` —
+NOT a 3× blow-up). Fix: `assign_core_window_ids` is extracted as the SINGLE SOURCE of the core
+`_window_id` (`assign_frame_windows` wraps it + adds the halo); `compute_tracking_size_signals` does ONE
+read → `assign_core_window_ids` → ONE `groupBy` count, deriving the per-unit R1 total by SUMMING the
+per-window counts (no second read, no halo union). `WindowRef.n_rows` is now CORE rows (the `< 0.3 %`
+halo is irrelevant to WHICH window is densest, and Probe M BUILDS the selected window — the real memory
+check). The `dense_rank` is RETAINED (the residual cost — the ordinal needs the sort; there is no cheaper
+EXACT per-window count). Sufficiency vs the 1200 s budget is the R5 POST-MERGE measurement gate (re-run
+`preflight_tracking_marts --full --providers idsse`: ≤ 600 s PASS; 600–1000 s PASS + raise `timeout_seconds`
+≥ 2× observed; > 1000 s raise mandatory). Spec: `docs/superpowers/specs/2026-10-09-preflight-size-signals-single-pass-design.md`.
