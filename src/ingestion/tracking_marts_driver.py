@@ -149,26 +149,21 @@ def read_provider_raw_trk_sdf(spark: SparkSession, catalog: str, provider: str) 
     return spark.table(f"{catalog}.bronze.{table}").select("match_id", "period", F.col(_frame_col(provider)))
 
 
-def compute_tracking_size_signals(
-    spark: SparkSession, catalog: str, units: Sequence[WorkUnit]
-) -> tuple[dict[tuple[str, str, int], int], list[WindowRef]]:
-    """Preflight size signals from RAW TRACKING for the ADR-087 two-probe canary, scoped to ``units``.
+def compute_tracking_size_signals(spark: SparkSession, catalog: str, units: Sequence[WorkUnit]) -> list[WindowRef]:
+    """Preflight Probe-M window counts from RAW TRACKING (ADR-087), scoped to ``units``.
 
-    Returns ``(unit_counts, window_refs)``:
-    - ``window_refs`` = one ``WindowRef`` per ``(provider, match, period, _window_id)`` carrying its
-      CORE row count (Probe-M GLOBAL densest signal, R2). CORE, not core+halo: the halo adds at most
-      ``2*H`` frames/window (``H = halo_frames`` ~ 22 to 26 vs ``_TM_WINDOW_FRAMES`` = 20000, ``< 0.3 %``),
-      a bounded additive constant that cannot flip the densest-window ranking - and Probe M BUILDS the
-      selected window (``build_fit_probe``), the real memory check; ``n_rows`` is only the selector.
-    - ``unit_counts[(provider, match_id, period)]`` = the unit's CORE row total (Probe-C smallest signal,
-      R1), derived by SUMMING its per-window counts — no separate scan.
+    Returns one ``WindowRef`` per ``(provider, match, period, _window_id)`` carrying its CORE row count —
+    the Probe-M GLOBAL densest-window selector (R2 / spec §2.5). CORE, not core+halo: the halo adds at most
+    ``2*H`` frames/window (``H = halo_frames`` ~ 22 to 26 vs ``_TM_WINDOW_FRAMES`` = 20000, ``< 0.3 %``), a
+    bounded additive constant that cannot flip the densest-window ranking — and Probe M BUILDS the selected
+    window (``build_fit_probe``), the real memory check; ``n_rows`` is only the selector.
 
-    SINGLE PASS per provider (ADR-087 follow-up): ONE ``raw`` read → ``assign_core_window_ids`` (the
-    single-sourced core ``_window_id``, no halo ``unionByName``) → ONE ``groupBy`` count. Replaces the old
-    two-read path (a separate ``raw.groupBy`` + ``assign_frame_windows``'s dense_rank + halo union) that
-    timed out the ``--full`` preflight. The ``dense_rank`` is retained (the residual cost). The raw read
-    is SEMI-JOINED to the OPEN ``units`` per provider, so a daily incremental run aggregates only those,
-    never the whole corpus. COUNT aggregates only (no build).
+    Probe C no longer selects a smallest real unit (it is a bundled fixture — ``tracking_marts_canary``),
+    so the per-unit R1 ``unit_counts`` this function used to also return are DROPPED (ADR-087 amendment 3):
+    nothing consumed them once Probe C stopped sizing real units. ONE ``raw`` read per provider →
+    ``assign_core_window_ids`` (the single-sourced core ``_window_id``, no halo ``unionByName``) → ONE
+    ``groupBy`` count. The raw read is SEMI-JOINED to the OPEN ``units`` per provider, so a daily
+    incremental run aggregates only those, never the whole corpus. COUNT aggregates only (no build).
     """
     from analytics.action_context.canary import WindowRef
     from analytics.action_context.work_unit import WorkUnit
@@ -181,19 +176,15 @@ def compute_tracking_size_signals(
             continue
         keys_by_provider.setdefault(u.provider, []).append((str(u.match_id), int(u.period)))
 
-    unit_counts: dict[tuple[str, str, int], int] = {}
     window_refs: list[WindowRef] = []
     for provider, keys in keys_by_provider.items():
         keys_df = spark.createDataFrame(keys, schema="match_id string, period int")
         raw = read_provider_raw_trk_sdf(spark, catalog, provider).join(keys_df, ["match_id", "period"], "left_semi")
         cored = assign_core_window_ids(raw, provider, target_window_frames=_TM_WINDOW_FRAMES)
         for r in cored.groupBy("match_id", "period", "_window_id").count().collect():
-            mid, period_, n = str(r["match_id"]), int(r["period"]), int(r["count"])
-            unit = WorkUnit(provider=provider, match_id=mid, period=period_)
-            window_refs.append(WindowRef(unit=unit, window_id=int(r["_window_id"]), n_rows=n))
-            key = (provider, mid, period_)
-            unit_counts[key] = unit_counts.get(key, 0) + n  # R1 = Σ the unit's per-window CORE counts
-    return unit_counts, window_refs
+            unit = WorkUnit(provider=provider, match_id=str(r["match_id"]), period=int(r["period"]))
+            window_refs.append(WindowRef(unit=unit, window_id=int(r["_window_id"]), n_rows=int(r["count"])))
+    return window_refs
 
 
 def read_unit_actions(spark: SparkSession, catalog: str, provider: str, match_id: str) -> pd.DataFrame:

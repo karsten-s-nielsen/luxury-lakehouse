@@ -101,3 +101,52 @@ check). The `dense_rank` is RETAINED (the residual cost — the ordinal needs th
 EXACT per-window count). Sufficiency vs the 1200 s budget is the R5 POST-MERGE measurement gate (re-run
 `preflight_tracking_marts --full --providers idsse`: ≤ 600 s PASS; 600–1000 s PASS + raise `timeout_seconds`
 ≥ 2× observed; > 1000 s raise mandatory). Spec: `docs/superpowers/specs/2026-10-09-preflight-size-signals-single-pass-design.md`.
+
+## Amendment follow-up 2 (2026-10-10, wheel 0.5.121) — Probe C on a BUNDLED FIXTURE (the real-unit Probe C was itself the wall)
+
+The size-signals single-pass (wheel 0.5.120) was necessary but NOT sufficient: the R5 measurement
+(`preflight_tracking_marts --full --providers idsse`, run `144485168052616`) STILL timed out at ~1240 s,
+and the driver stack trace pinned the remaining cost to **Probe C itself** —
+`run_canary → processor.process(dry_run=True) → TrackingMartsProcessor.process → scored_sdf.count()` —
+the Stage-2 score of one real idsse unit, ~14 min. A full two-stage score of ANY real unit ≈ one drain
+unit (pitch-control / defensive-credit dominate), and every tracking provider's smallest unit is still a
+dense half (idsse 1.73 M, skillcorner 665 K, GS 2.4 M rows; metrica excluded). A sub-unit slice is not an
+option — the scorers are whole-unit (the global action→frame link is not window-decomposable), so a 1 %
+slice leaves ~99 % of actions unlinked (spurious failure / vacuous pass). So no real unit fits the 1200 s
+budget.
+
+**Fix — Probe C on a bundled, COMPLETE, tiny idsse fixture scored through the six PURE scorer cores:**
+
+- A complete small unit (few frames + their MATCHING few actions, self-consistent, link-rate ~0.99)
+  exercises every scorer's real code path (schema, wiring, the `gk_decision is_actor` class) in seconds,
+  corpus-independent. The DISPATCH (mapInPandas + StructTypes) is NOT re-smoked here — Probe M already
+  runs a REAL Spark Stage-1 build, and CI's `test_build_spill` / the Docker tests cover the dispatch.
+- **NON-EMPTY is the BAR (R3):** Probe C asserts each of the six marts is produced AND has `≥ 1` row — a
+  0-row mart with a valid schema would let a scorer defect ship past the preflight (the vacuous-green the
+  canary exists to prevent). A legitimately-empty mart on the fixture is a fixture-curation failure.
+- **Lifted, single-source:** the build+score mechanics move from `src/tests/tracking_marts/_oracle.py`
+  into the wheel module `ingestion.tracking_marts_canary` (idsse scorer cores are `ingestion.*_writer`
+  and `analytics ⇏ ingestion`, so it lives in `ingestion`); `_oracle` imports it (no drift). Scorer
+  imports are function-local so the module stays importable offline.
+- **Dedicated public fixture:** `src/ingestion/canary_fixture/` ships as `ingestion` package-data (idsse
+  is public-tier — the distributed wheel carries no restricted data). Curated by
+  `scripts/build_tracking_marts_canary_fixture.py` as a self-consistent `[0, 130] s` window of `J03WMX_p1`
+  (~3251 frames + their 44 matching actions). WHY `[0, 130]`: the single shot in the frame window is at
+  `t ≈ 102 s`, so `gk_decision` needs the window to reach ~105 s; `[0, 130]` is the SMALLEST window where
+  `gk_decision` is at its stable 2 (not the `[0, 110]` knife-edge 1) and every other mart ≥ 1 row, at
+  ~1.26 MB (vs 2.6 MB for the full 300 s window). A sliced unit stays COMPLETE + self-consistent because
+  frames and their matching actions are both inside the window.
+- **Probe M UNCHANGED:** still the REAL global-densest-window Stage-1 build-fit (a fixture is too small to
+  stress memory). `compute_tracking_size_signals` now returns window counts ONLY — the per-unit R1
+  `unit_counts` are dropped (nothing selects a smallest real unit any more).
+- **AC drain UNCHANGED (§2.6a, owner-ratified):** tracking-marts ONLY. AC keeps its real smallest-unit
+  Probe C (never observed to time out); `run_canary` stays generic — the tracking-marts preflight injects
+  the fixture Probe C, the AC preflight keeps `select_canary_probes`' smallest-unit Probe C.
+
+**Trade-off (accepted):** the fixture drops live per-provider DATA-shape coverage and the per-provider
+BUILD path for non-fixture providers — the runtime circuit-breaker backs the former; `test_transport_oracle`
+(all providers) + the per-provider ingest tests + Probe M's real build cover the latter. **R6 (post-merge
+measurement):** re-run `preflight_tracking_marts --full --providers idsse` — now aggregate + Probe M (real
+window build) + fixture Probe C (seconds) → expect `≤ 600 s`; if still over, the residual is the
+aggregate / Probe-M build and `timeout_seconds` is raised (data-gated). Spec:
+`docs/superpowers/specs/2026-10-10-preflight-fixture-probe-c-design.md`.

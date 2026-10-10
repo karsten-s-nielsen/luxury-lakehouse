@@ -28,7 +28,12 @@ repos:
       - id: trailing-whitespace
       - id: check-added-large-files
         args: [--maxkb=1000]
-        exclude: ^src/tests/fixtures/action_context/  # AC-1 hexagon's IDSSE anchor fixtures (frames.parquet 2.5MB) -- intentionally committed for local-runnability + differential vs legacy oracles (ADR-028)
+        # Intentionally-committed fixture parquet (frames are inherently >1MB). Same rationale both paths:
+        #   - src/tests/fixtures/action_context/ : AC-1 hexagon IDSSE anchor fixtures (frames.parquet 2.5MB; ADR-028)
+        #   - src/ingestion/canary_fixture/      : tracking-marts preflight canary fixture, SHIPPED in the wheel
+        #                                          (frames.parquet 1.26MB; ADR-087 amendment 3), built by
+        #                                          scripts/build_tracking_marts_canary_fixture.py
+        exclude: ^(src/tests/fixtures/action_context/|src/ingestion/canary_fixture/)
       - id: check-merge-conflict
 
   # Secret scanning

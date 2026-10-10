@@ -230,24 +230,26 @@ def main_tracking_marts_preflight() -> None:
         _set_task_value("tracking_marts_worker_ids", [], task_logger)
         return
 
-    # ADR-087 two-probe canary (bounded + scope-aware): Probe C (smallest unit per in-scope provider,
-    # full dry-run) + Probe M (GLOBAL densest window, Stage-1 build-fit only) BEFORE the fan-out, so a
-    # systemic compute-path defect OR a window-build OOM fails THIS task (dependent compute_* skipped)
-    # instead of burning the 8-worker retry budget. Replaces the units[:1] worst-case dense-GS dry-run.
-    from dataclasses import replace
-
+    # ADR-087 two-probe canary (amendment 3): Probe C + Probe M BEFORE the fan-out, so a systemic
+    # compute-path defect OR a window-build OOM fails THIS task (dependent compute_* skipped) instead of
+    # burning the 8-worker retry budget.
     from analytics.action_context.canary import run_canary, select_canary_probes
+    from ingestion.tracking_marts_canary import run_fixture_probe_c
     from ingestion.tracking_marts_driver import compute_tracking_size_signals
     from ingestion.tracking_marts_processor import TrackingMartsProcessor
 
-    unit_counts, window_refs = compute_tracking_size_signals(spark, args.catalog, units)
-    sized_units = [
-        replace(
-            u, n_frames=(unit_counts.get((u.provider, str(u.match_id), u.period)) if u.period is not None else None)
-        )
-        for u in units
-    ]
-    probes = select_canary_probes(sized_units, window_refs)
+    # Probe C (correctness): a bundled COMPLETE idsse fixture scored through the six PURE scorer cores
+    # (seconds), NOT a real unit. A full two-stage score of ANY real unit ≈ one drain unit and blew the
+    # 1200 s preflight budget (R5); the pure-core fixture smoke catches the same systemic code/schema
+    # defect (the gk_decision is_actor class) corpus-independently. Raises -> preflight aborts pre-enqueue.
+    run_fixture_probe_c(task_logger)
+
+    # Probe M (memory fit): the GLOBAL densest window's Stage-1 build-fit (the ADR-089 UDF-cap check).
+    # No correctness units — the fixture IS Probe C — so ``select_canary_probes`` is given no units and
+    # picks only the ``memory_window`` from the window counts. ``compute_tracking_size_signals`` now
+    # returns window counts ONLY (R1 unit_counts dropped, spec §2.5).
+    window_refs = compute_tracking_size_signals(spark, args.catalog, units)
+    probes = select_canary_probes((), window_refs)
     run_canary(TrackingMartsProcessor(spark, args.catalog, args.schema), probes, task_logger)
 
     assignments = assign_workers(units, _N_TRACKING_MARTS_WORKERS)
