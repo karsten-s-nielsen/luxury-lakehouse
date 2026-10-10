@@ -423,14 +423,11 @@ wheels = [
 
 [[package]]
 name = "click"
-version = "8.4.2"
+version = "8.5.0"
 source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-16-luxury-lakehouse-dbt' and extra == 'extra-16-luxury-lakehouse-sdk') or (extra == 'extra-16-luxury-lakehouse-dbt' and extra == 'extra-16-luxury-lakehouse-taipy-app')" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/76/d4/81420972a676e8ffea40450d8c8c92943e7218a78fe9b64359836cc9876b/click-8.4.2.tar.gz", hash = "sha256:9a6cea6e60b17ebe0a44c5cc636d94f09bd66142c1cd7d8b4cd731c4917a15f6", size = 338000, upload-time = "2026-06-24T17:45:15.148Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c7/0e/7fa0ef50764b67090eca4114772a2abf8b6148198475e54c660b97caeee6/click-8.5.0.tar.gz", hash = "sha256:ba0d2089de75ea0310e2dde03160e6ca10009947fb95a182f9b54021bb272e34", size = 382235, upload-time = "2026-08-26T13:33:14.56Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fb/e2/79c688af8b210d232694e31e59da9f6ec747bae31c3f5946e4e9b98860d5/click-8.4.2-py3-none-any.whl", hash = "sha256:e6f9f66136c816745b9d65817da91d61d957fb16e02e4dcd0552553c5a197b76", size = 119243, upload-time = "2026-06-24T17:45:13.73Z" },
+    { url = "https://files.pythonhosted.org/packages/58/50/6c0d534c5f134586a8e1ba4e330569e32f057e33372ae556463212fb4cd3/click-8.5.0-py3-none-any.whl", hash = "sha256:255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360", size = 125251, upload-time = "2026-08-26T13:33:12.928Z" },
 ]
 
 [[package]]
@@ -3543,7 +3540,7 @@ wheels = [
 
 [[package]]
 name = "sqlfluff"
-version = "4.3.0"
+version = "3.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "chardet" },
@@ -3553,15 +3550,16 @@ dependencies = [
     { name = "jinja2" },
     { name = "pathspec" },
     { name = "platformdirs" },
+    { name = "pytest" },
     { name = "pyyaml" },
     { name = "regex" },
     { name = "tblib" },
-    { name = "tomli" },
+    { name = "toml" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c8/06/c675066797f91a77d456bc15375a0a8c9b4765f1e66db639655772a928da/sqlfluff-4.3.0.tar.gz", hash = "sha256:aa647b3721112f1aca581efe8eaa815a332ae214610a0946592f98a19ef1e8cb", size = 1068771, upload-time = "2026-08-07T09:01:19.317Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/37/9f/501f119821c8e1eaccf079a0f82428e84a3411bd6a2f7a418620689c769d/sqlfluff-3.4.0.tar.gz", hash = "sha256:6e1ea2d39b20cc791a1a009c234afaf043b448c7f2eb1c11551316fb41f36f47", size = 882079, upload-time = "2025-04-17T09:54:30.308Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/79/be/0be38ce154b9d798bb00b5ce65a3ad0e1ae2bc9419fcd8e3c773c2b80c70/sqlfluff-4.3.0-py3-none-any.whl", hash = "sha256:582e12af5101bd1c5bc120cb4a6942dadcfe5e5b1e01406f220dd08f5b3f31dd", size = 1051485, upload-time = "2026-08-07T09:01:17.139Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/c9/477317d2b9ebba9fbdc20190d7bc06c0e9d08dcf6ca3bdb87661df6ff8b7/sqlfluff-3.4.0-py3-none-any.whl", hash = "sha256:115e3f1bf1dc1318c58426ba3299eb682642cb67b5d12d9ea7c42b5e23aeabd6", size = 886362, upload-time = "2025-04-17T09:54:28.819Z" },
 ]
 
 [[package]]
