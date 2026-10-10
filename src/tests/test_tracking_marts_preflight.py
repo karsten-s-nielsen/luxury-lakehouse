@@ -121,16 +121,25 @@ def test_preflight_canary_failure_aborts_before_enqueue(monkeypatch) -> None:
         lambda spark, catalog, *, full, providers=None: [WorkUnit(provider="idsse", match_id="J", period=1)],
     )
     monkeypatch.setattr(
-        "ingestion.tracking_marts_driver.compute_tracking_size_signals", lambda spark, catalog, units: ({}, [])
+        "ingestion.tracking_marts_driver.compute_tracking_size_signals", lambda spark, catalog, units: []
     )
 
-    class _BoomProcessor:
+    # ADR-087 amendment 3: Probe C is the bundled-fixture smoke. A scorer crash on the fixture makes
+    # run_fixture_probe_c raise -> preflight aborts BEFORE the enqueue (the _NoQueue guard proves it).
+    import ingestion.tracking_marts_canary as tmc
+
+    def _boom(**_k):
+        raise ValueError("compute boom")
+
+    monkeypatch.setattr(tmc, "score_fixture_marts", _boom)
+
+    class _OkProcessor:
         def __init__(self, *a, **k) -> None: ...
 
         def process(self, unit: WorkUnit, *, dry_run: bool = False) -> int:
-            raise ValueError("compute boom")
+            return 0
 
-    monkeypatch.setattr(tmp, "TrackingMartsProcessor", _BoomProcessor)
+    monkeypatch.setattr(tmp, "TrackingMartsProcessor", _OkProcessor)
 
     with pytest.raises(RuntimeError, match="canary FAILED"):
         tmd.main_tracking_marts_preflight()
@@ -188,14 +197,25 @@ def test_preflight_canary_passes_then_enqueues(monkeypatch) -> None:
         lambda spark, catalog, *, full, providers=None: [WorkUnit(provider="idsse", match_id="J", period=1)],
     )
     monkeypatch.setattr(
-        "ingestion.tracking_marts_driver.compute_tracking_size_signals", lambda spark, catalog, units: ({}, [])
+        "ingestion.tracking_marts_driver.compute_tracking_size_signals", lambda spark, catalog, units: []
     )
+
+    # Probe C = the bundled-fixture smoke (ADR-087 amendment 3). Stub it to a valid all-6-non-empty
+    # result so the canary passes and the preflight proceeds to the enqueue.
+    import pandas as pd
+
+    import ingestion.tracking_marts_canary as tmc
+
+    def _fixture_ok(**_k):
+        captured["fixture_probe"] = True
+        return {m: pd.DataFrame({"x": [1]}) for m in tmc.MART_KEYS}
+
+    monkeypatch.setattr(tmc, "score_fixture_marts", _fixture_ok)
 
     class _OkProcessor:
         def __init__(self, *a, **k) -> None: ...
 
         def process(self, unit: WorkUnit, *, dry_run: bool = False) -> int:
-            captured["canary_dry_run"] = dry_run
             return 0
 
     monkeypatch.setattr(tmp, "TrackingMartsProcessor", _OkProcessor)
@@ -204,7 +224,7 @@ def test_preflight_canary_passes_then_enqueues(monkeypatch) -> None:
 
     tmd.main_tracking_marts_preflight()
 
-    assert captured["canary_dry_run"] is True  # canary ran (dry_run) before enqueue
+    assert captured["fixture_probe"] is True  # fixture Probe C ran before enqueue
     assert captured["run_id"] == "JOBRUN42"  # enqueue reached (canary passed)
     assert set_values["tracking_marts_run_id"] == "JOBRUN42"
 
@@ -276,8 +296,14 @@ def test_preflight_threads_provider_scope_to_discovery(monkeypatch) -> None:
     monkeypatch.setattr(tmd, "discover_open_units", _discover)
     monkeypatch.setattr(
         "ingestion.tracking_marts_driver.compute_tracking_size_signals",
-        lambda spark, catalog, units: ({}, []),
+        lambda spark, catalog, units: [],
     )
+
+    import pandas as pd
+
+    import ingestion.tracking_marts_canary as tmc
+
+    monkeypatch.setattr(tmc, "score_fixture_marts", lambda **_k: {m: pd.DataFrame({"x": [1]}) for m in tmc.MART_KEYS})
 
     class _OkProcessor:
         def __init__(self, *a, **k) -> None: ...

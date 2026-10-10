@@ -26,8 +26,14 @@ from analytics.action_context.local.parquet_sources import (
     ParquetMatchMetadataSource,
     ParquetXtSource,
 )
-from analytics.action_context.unit_inputs import UnitInputs, build_unit_inputs
+from analytics.action_context.unit_inputs import UnitInputs
 from analytics.action_context.work_unit import WorkUnit
+
+# SINGLE SOURCE of the build+score CODE (ADR-087 amendment 3): the mechanics live in the wheel module
+# ``ingestion.tracking_marts_canary`` (so the preflight's bundled-fixture Probe C and this test oracle
+# share one builder — no drift). This oracle supplies its OWN ``FIXTURE_ROOT`` + per-provider ``UNITS``
+# (its multi-provider transport fixtures) and the test-only compare helpers below.
+from ingestion import tracking_marts_canary as _canary
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from analytics.action_context.work_unit import MatchMeta
@@ -43,15 +49,14 @@ UNITS: dict[str, tuple[str, int]] = {
     "metrica": ("Sample_Game_1", 2),
 }
 
-#: The six tracking-marts output keys (aligned with ``tracking_marts_dispatch.make_mart_scorers``).
-MART_KEYS: tuple[str, ...] = (
-    "off_ball_runs",
-    "action_defensive",  # defensive_credit aggregate
-    "defensive_credit_attributions",  # defensive_credit long
-    "gk_decision",
-    "rest_defense",
-    "gkdv_observations",
-)
+#: The six tracking-marts output keys — single-sourced from the lifted canary module.
+MART_KEYS: tuple[str, ...] = _canary.MART_KEYS
+
+#: The build+score CODE is single-sourced from ``ingestion.tracking_marts_canary`` (no drift). These thin
+#: wrappers bind this oracle's ``FIXTURE_ROOT`` + per-provider ``UNITS`` / ``metadata`` to that one builder.
+synthetic_xg_preds = _canary.synthetic_xg_preds
+actions_with_synthetic_xg = _canary.actions_with_synthetic_xg
+_access_tier = _canary._access_tier
 
 
 def work_unit(provider: str) -> WorkUnit:
@@ -61,50 +66,11 @@ def work_unit(provider: str) -> WorkUnit:
 
 def build_inputs(provider: str) -> UnitInputs:
     """Build oriented ``(actions, frames, xt)`` for a provider's fixture unit (the driver's seam)."""
-    wu = work_unit(provider)
-    grid, xt_l, xt_w = ParquetXtSource(FIXTURE_ROOT).grid()
-    return build_unit_inputs(
-        wu,
-        frame_bundle=ParquetFrameSource(FIXTURE_ROOT).frames(wu),
-        actions_df=ParquetActionsSource(FIXTURE_ROOT).actions(wu),
-        meta=metadata(provider),
-        xt_grid_data=grid,
-        xt_l=xt_l,
-        xt_w=xt_w,
-    )
+    return _canary.build_inputs(FIXTURE_ROOT, work_unit(provider))
 
 
 def metadata(provider: str) -> MatchMeta:
     return ParquetMatchMetadataSource(FIXTURE_ROOT).metadata(work_unit(provider))
-
-
-def synthetic_xg_preds(inp: UnitInputs) -> pd.DataFrame:
-    """The synthetic per-shot xG predictions (fct_shot_xg is absent in fixtures). Shared by the baseline and
-    the dispatch-closure test so both ``attach_xg`` the identical preds."""
-    import silly_kicks.spadl.config as cfg
-
-    shot_id = cfg.actiontype_id["shot"]
-    shots = inp.actions[inp.actions["type_id"] == shot_id]
-    return pd.DataFrame(
-        {
-            "data_source": shots["data_source"].to_numpy(),
-            "match_id_native": shots["match_id_native"].to_numpy(),
-            "action_id": shots["action_id"].to_numpy(),
-            "xg": np.full(len(shots), 0.12),
-        }
-    )
-
-
-def actions_with_synthetic_xg(inp: UnitInputs) -> pd.DataFrame:
-    """Per-shot synthetic xG via the production ``attach_xg`` LEFT-JOIN (mirrors the defensive-credit test)."""
-    from ingestion.defensive_credit_writer import attach_xg
-
-    return attach_xg(inp.actions, synthetic_xg_preds(inp))
-
-
-def _access_tier(inp: UnitInputs) -> str | None:
-    _at = inp.actions["access_tier"].iloc[0] if "access_tier" in inp.actions.columns else None
-    return None if _at is None or (isinstance(_at, float) and _at != _at) else str(_at)
 
 
 def score_all_marts(
@@ -114,51 +80,17 @@ def score_all_marts(
     *,
     include_gkdv: bool = True,
 ) -> dict[str, pd.DataFrame]:
-    """Run the six pure scorers on a GIVEN ``frames`` (one signature source — no drift).
+    """Run the six pure scorers on a GIVEN ``frames`` (single-sourced — no drift).
 
     The transport-neutrality capstone calls this twice — once with the in-memory built frames, once with
     the spilled+restored frames — and asserts equality per mart. ``pure_mart_outputs`` is the built-frame
-    case (the baseline). Identity columns are stamped exactly as ``TrackingMartsProcessor.process`` stamps.
+    case (the baseline). Delegates to the lifted ``tracking_marts_canary.score_all_marts``, binding this
+    oracle's per-provider ``match_id`` (``UNITS``) + ``metadata`` so the identity stamps are unchanged.
     """
-    from ingestion.defensive_credit_writer import compute_action_defensive_credit, compute_defensive_credit_long
-    from ingestion.gk_decision_writer import _bundled_completion_model, score_gk_decision_unit
-    from ingestion.gkdv_writer import score_gkdv_unit
-    from ingestion.off_ball_runs_writer import compute_off_ball_runs
-    from ingestion.restdefense_writer import compute_rest_defense_samples
-
-    meta = metadata(provider)
     match_id, _period = UNITS[provider]
-    actions_xg = actions_with_synthetic_xg(inp)
-    access_tier = _access_tier(inp)
-
-    out: dict[str, pd.DataFrame] = {
-        "off_ball_runs": compute_off_ball_runs(inp.actions, frames, inp.xt),
-        "action_defensive": compute_action_defensive_credit(actions_xg, frames, inp.xt),
-        "defensive_credit_attributions": compute_defensive_credit_long(actions_xg, frames, inp.xt),
-        "gk_decision": score_gk_decision_unit(
-            inp.actions,
-            frames,
-            _bundled_completion_model(),
-            data_source=provider,
-            match_id=match_id,
-            access_tier=access_tier,
-        ),
-        "rest_defense": compute_rest_defense_samples(inp.actions, frames, inp.xt, access_tier=access_tier),
-    }
-    if include_gkdv:
-        obs = score_gkdv_unit(
-            frames,
-            meta.home_team_id,
-            inp.xt,
-            data_source=provider,
-            match_id=match_id,
-            competition_id=None,
-            season_id=None,
-        )
-        obs = obs.copy()
-        obs["match_id"] = match_id  # the processor stamps this for the per-unit replaceWhere
-        out["gkdv_observations"] = obs
-    return out
+    return _canary.score_all_marts(
+        provider, inp, frames, match_id=match_id, meta=metadata(provider), include_gkdv=include_gkdv
+    )
 
 
 def pure_mart_outputs(provider: str, *, include_gkdv: bool = True) -> dict[str, pd.DataFrame]:
@@ -218,6 +150,11 @@ __all__: list[str] = [
     "FIXTURE_ROOT",
     "MART_KEYS",
     "UNITS",
+    # Parquet-adapter re-exports: ``test_frame_windows`` builds units through ``_oracle.Parquet*Source``.
+    "ParquetActionsSource",
+    "ParquetFrameSource",
+    "ParquetMatchMetadataSource",
+    "ParquetXtSource",
     "actions_with_synthetic_xg",
     "assert_mart_equal",
     "build_inputs",
