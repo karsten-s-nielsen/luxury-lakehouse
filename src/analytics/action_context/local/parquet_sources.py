@@ -24,11 +24,27 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 
 from analytics.action_context.work_unit import FrameBundle, MatchMeta, provider_tier, resolve_frame_tier
 
 if TYPE_CHECKING:
     from analytics.action_context.work_unit import WorkUnit
+
+
+def _read_parquet(path: str | Path) -> pd.DataFrame:
+    """Engine-agnostic parquet read (ADR-087 amendment follow-up 3).
+
+    Uses ``pyarrow.parquet.read_table(...).to_pandas()`` instead of ``pd.read_parquet``: pandas' wrapper
+    REFUSES to read under pyarrow < 10.0.1, and Databricks serverless pins pyarrow 8.0.0 (base runtime,
+    not uv.lock) — so ``pd.read_parquet`` has no usable engine there and the preflight canary raised
+    (R6, run 755550720578960). ``read_table`` reads fine on pyarrow 8 and 19; ``to_pandas()`` defaults to
+    NUMPY-backed columns (NOT ArrowExtensionArray), byte-identical to the old ``pd.read_parquet`` output
+    (proven by the R-EQ test + the unchanged transport-neutrality / mini-golden goldens). These adapters
+    are serverless-reachable via the tracking-marts preflight fixture Probe C, so the read must not depend
+    on pandas' parquet-engine version gate. Enforced repo-wide by ``test_no_pd_read_parquet_on_serverless``.
+    """
+    return pq.read_table(path).to_pandas()
 
 
 def _unit_dir(root: Path, wu: WorkUnit) -> Path:
@@ -46,7 +62,7 @@ class ParquetFrameSource:
         # is THE single static->runtime mapping (tracking -> tracking, statsbomb -> sb360).
         frame_tier = resolve_frame_tier(provider_tier(wu))
         if frame_tier == "tracking":
-            return FrameBundle(tier="tracking", frames=pd.read_parquet(d / "frames.parquet"))
+            return FrameBundle(tier="tracking", frames=_read_parquet(d / "frames.parquet"))
         # statsbomb -> sb360: freeze-frames are required (a no-360 dir is out of scope, never enqueued).
         sb360 = d / "sb360.parquet"
         if not sb360.exists():
@@ -54,7 +70,7 @@ class ParquetFrameSource:
                 f"statsbomb unit {wu.match_id} has no sb360.parquet — out of action-context scope "
                 f"(frames-required; ADR-057). Discovery should not have enqueued it."
             )
-        return FrameBundle(tier="sb360", frames=pd.read_parquet(sb360))
+        return FrameBundle(tier="sb360", frames=_read_parquet(sb360))
 
 
 class ParquetActionsSource:
@@ -62,7 +78,7 @@ class ParquetActionsSource:
         self._root = Path(root)
 
     def actions(self, wu: WorkUnit) -> pd.DataFrame:
-        return pd.read_parquet(_unit_dir(self._root, wu) / "actions.parquet")
+        return _read_parquet(_unit_dir(self._root, wu) / "actions.parquet")
 
 
 class ParquetXtSource:
@@ -79,7 +95,7 @@ class ParquetXtSource:
                 msg = f"No xt_grid.parquet under {self._root}"
                 raise FileNotFoundError(msg)
             path = matches[0]
-        rows = pd.read_parquet(path)
+        rows = _read_parquet(path)
         zone_x = rows["zone_x"].to_numpy(dtype=int)
         zone_y = rows["zone_y"].to_numpy(dtype=int)
         values = rows["xt_value"].to_numpy(dtype=float)
@@ -95,7 +111,7 @@ class ParquetMatchMetadataSource:
         self._root = Path(root)
 
     def metadata(self, wu: WorkUnit) -> MatchMeta:
-        row = pd.read_parquet(_unit_dir(self._root, wu) / "meta.parquet").iloc[0]
+        row = _read_parquet(_unit_dir(self._root, wu) / "meta.parquet").iloc[0]
 
         def _json_or_none(col: str) -> Any:
             if col not in row.index or pd.isna(row[col]):
