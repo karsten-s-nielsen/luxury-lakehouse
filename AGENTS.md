@@ -117,7 +117,7 @@ Anti-bloat gate: `src/tests/test_agents_md_budget.py` (byte budget + per-bullet 
 - **`.toPandas()` calls must be bounded** (DataFrame-API bound or allowlisted); enforced by `test_topandas_boundedness.py`. → docs/context/data-performance.md
 - **Prefer Spark executors over driver-bound processing** — applyInPandas → UC Volume Parquet → last-resort toPandas. → docs/context/data-performance.md
 - Liquid clustering + auto-compaction + Predictive Optimization + deletion vectors are **the mart-table defaults**. → docs/context/data-performance.md
-- **Databricks Serverless Constraints:** 16 GB driver, 1 GB UDF group cap, no broadcast, no cache/persist, no internet in UDFs, no local FS writes, frozen dataclasses for config. → docs/context/data-performance.md
+- **Databricks Serverless Constraints:** 16 GB driver, 1 GB UDF group cap, no broadcast, no cache/persist, no internet in UDFs, no local FS writes, frozen dataclasses for config; **serverless runs BASE-RUNTIME pkg versions (pyarrow 8.0.0) NOT uv.lock — serverless-reachable parquet IO uses `pyarrow.parquet.read_table().to_pandas()`, never `pd.read_parquet`** (gated by `test_no_pd_read_parquet_on_serverless`). → docs/context/data-performance.md
 - Batch compute: factor loop-invariants + broadcast; **verify HF Jobs dataset size against container RAM**; pre-build `dict(iter(df.groupby))`. → docs/context/data-performance.md
 
 ### Budgets

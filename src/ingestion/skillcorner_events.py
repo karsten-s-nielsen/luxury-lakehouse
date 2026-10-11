@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import IO, TYPE_CHECKING
 
 import pandas as pd
+import pyarrow.parquet as pq
 
 from ingestion.utils import tolerate_missing_table, validate_dataframe, write_delta_table
 
@@ -64,7 +65,9 @@ def parse_events_parquet(content: bytes, *, match_id: str) -> pd.DataFrame:
         content: Raw bytes of the parquet artifact.
         match_id: Raw native SkillCorner match ID (e.g. "1021404").
     """
-    df = pd.read_parquet(io.BytesIO(content))
+    # Engine-agnostic (pq.read_table.to_pandas) not pd.read_parquet: skillcorner ingest runs on serverless
+    # (pyarrow 8.0.0, pandas read_parquet refuses < 10). ADR-087 amendment follow-up 3.
+    df = pq.read_table(io.BytesIO(content)).to_pandas()
     buf = io.StringIO()
     df.to_csv(buf, index=False)
     buf.seek(0)

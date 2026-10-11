@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-import pandas as pd
+import pyarrow.parquet as pq
 from huggingface_hub import hf_hub_download, repo_exists
 
 from ingestion.guards import FilterResult, check_hf_dataset_freshness, record_import_sha, timed_check
@@ -108,8 +108,10 @@ def _import_v2_embeddings(
         repo_type="dataset",
     )
 
-    # Read into pandas
-    v2_pdf = pd.read_parquet(parquet_path)
+    # Read into pandas. Engine-agnostic (pq.read_table.to_pandas) not pd.read_parquet: this runs on the
+    # serverless `embeddings` environment, where pyarrow is 8.0.0 and pandas' read_parquet refuses < 10
+    # (ADR-087 amendment follow-up 3 / test_no_pd_read_parquet_on_serverless).
+    v2_pdf = pq.read_table(parquet_path).to_pandas()
     logger.info("Downloaded %d v2 embeddings from HF Hub", len(v2_pdf))
 
     if v2_pdf.empty:
@@ -328,7 +330,7 @@ def _import_embeddings_360(
         repo_type="dataset",
     )
 
-    pdf = pd.read_parquet(parquet_path)
+    pdf = pq.read_table(parquet_path).to_pandas()  # engine-agnostic (serverless pyarrow 8); see main_v2
     logger.info("Downloaded %d 360 embeddings from HF Hub", len(pdf))
 
     if pdf.empty:

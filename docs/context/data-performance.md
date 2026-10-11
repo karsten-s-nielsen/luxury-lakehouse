@@ -31,6 +31,12 @@ On-demand detail for the Database Performance + benchmark rules in `AGENTS.md`. 
 
 16 GB driver (fixed), 1 GB UDF group cap, no broadcast variables, no `df.cache()`/`persist()`, no internet in UDFs, no local filesystem writes from Spark (`file://` forbidden), lazy closure capture — use frozen dataclasses for `applyInPandas` config. Full list in `docs/engineering/databricks-serverless.md`.
 
+### Base-runtime package versions ≠ uv.lock (pyarrow 8.0.0) — ADR-087 amendment follow-up 3
+
+Serverless tasks run with the **base-runtime** versions of Spark-coupled system packages, which are NOT the versions `uv.lock` pins. In particular **pyarrow is 8.0.0** on serverless (uv.lock pins 19.0.1, and pyarrow is only a transitive dep + the `training` extra — the `analytics`/`embeddings` environments do not pin it, so the base-runtime arrow stands; lifting it is avoided because arrow is coupled to the Spark runtime). Installed pandas (≥2.1) **refuses `pd.read_parquet` when pyarrow < 10.0.1** (`Unable to find a usable engine`). This bit the tracking-marts preflight fixture Probe C (R6, run `755550720578960`): it read its bundled parquet via `pd.read_parquet` and failed at 102 s on serverless, though CI/local (pyarrow 19) were green — the `local-env ≠ serverless-env` failure class.
+
+**Invariant:** any code reachable from a serverless task does parquet IO via the engine-agnostic `pyarrow.parquet.read_table(path).to_pandas()` (reads on pyarrow 8 and 19; `to_pandas()` is numpy-backed = byte-identical to `pd.read_parquet`), **never `pd.read_parquet`**. Enforced mechanically by `test_no_pd_read_parquet_on_serverless.py` (default-deny scan of `src/` with a compute-classified allowlist), the env-independent R-GUARD (`test_build_inputs_has_no_pd_read_parquet_dependency`), and the serverless-parity Docker leg `test_canary_pyarrow8_parity.py` (pyarrow==8.0.0 end-to-end). The canonical reader is `analytics.action_context.local.parquet_sources._read_parquet`; in-repo idiom precedent `scoutgpt_training.py` (`pq.read_table`).
+
 ## Batch compute (summary)
 
 Factor loop-invariant computation out and broadcast; verify HF Jobs dataset size against container RAM before loading (`l40sx1`: 62 GB, `cpu-basic`: 16 GB); pre-build `dict(iter(df.groupby(key)))` indexes at both match and frame level.

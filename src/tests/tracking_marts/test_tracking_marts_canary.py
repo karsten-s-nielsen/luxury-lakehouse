@@ -94,3 +94,47 @@ def test_mart_keys_are_single_sourced() -> None:
     from tests.tracking_marts import _oracle
 
     assert _oracle.MART_KEYS is canary.MART_KEYS
+
+
+# ── R-GUARD / R-EQ: engine-agnostic fixture read (serverless pyarrow 8.0.0) ──
+
+
+def test_build_inputs_has_no_pd_read_parquet_dependency(monkeypatch) -> None:
+    """R-GUARD (env-independent class guard): the fixture read must NOT touch pandas' parquet engine.
+    Monkeypatch ``pandas.read_parquet`` to RAISE — building the fixture inputs (four parquet reads) still
+    succeeds, because the adapters read via ``pyarrow.parquet.read_table``. On serverless (pyarrow 8)
+    pandas' ``read_parquet`` is unusable; this proves the preflight read path never calls it."""
+    import pandas
+
+    def _boom(*a, **k):
+        raise AssertionError("pd.read_parquet must not be used on the serverless read path")
+
+    monkeypatch.setattr(pandas, "read_parquet", _boom)
+    inp = canary.build_inputs(canary.canary_fixture_root(), canary.canary_work_unit())
+    assert len(inp.frames) > 0 and len(inp.actions) > 0  # read succeeded without pandas' engine
+
+
+def test_build_inputs_reads_through_pyarrow(monkeypatch) -> None:
+    """Non-vacuity for R-GUARD: the read genuinely goes through ``pyarrow.parquet.read_table`` — patch IT
+    to raise and the build fails. Guards against the test above passing because no read happened."""
+    import pyarrow.parquet
+
+    def _boom(*a, **k):
+        raise RuntimeError("pq boom")
+
+    monkeypatch.setattr(pyarrow.parquet, "read_table", _boom)
+    with pytest.raises(RuntimeError, match="pq boom"):
+        canary.build_inputs(canary.canary_fixture_root(), canary.canary_work_unit())
+
+
+def test_engine_agnostic_read_equals_pd_read_parquet() -> None:
+    """R-EQ: where pandas' engine works (pyarrow >= 10, local/CI), the engine-agnostic ``_read_parquet``
+    returns a frame byte-identical to ``pd.read_parquet`` — so the swap shifts no dtypes/values (the
+    transport-neutrality + mini-golden goldens cannot move). Under serverless pyarrow 8 ``pd.read_parquet``
+    is unavailable; R-PARITY (the Docker pyarrow-8 leg) covers liveness there."""
+    from pathlib import Path
+
+    from analytics.action_context.local.parquet_sources import _read_parquet
+
+    f = Path(canary.canary_fixture_root()) / "xt_grid.parquet"
+    pd.testing.assert_frame_equal(_read_parquet(f), pd.read_parquet(f), check_dtype=True)

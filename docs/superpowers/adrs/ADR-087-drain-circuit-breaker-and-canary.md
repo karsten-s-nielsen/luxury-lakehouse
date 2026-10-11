@@ -150,3 +150,27 @@ measurement):** re-run `preflight_tracking_marts --full --providers idsse` — n
 window build) + fixture Probe C (seconds) → expect `≤ 600 s`; if still over, the residual is the
 aggregate / Probe-M build and `timeout_seconds` is raised (data-gated). Spec:
 `docs/superpowers/specs/2026-10-10-preflight-fixture-probe-c-design.md`.
+
+## Amendment follow-up 3 (2026-10-10, wheel 0.5.122) — engine-agnostic fixture read (serverless pyarrow 8.0.0)
+
+The fixture Probe C (follow-up 2, 0.5.121) fixed the timeout (preflight 102 s vs > 1240 s) but R6 (run
+`755550720578960`) then FAILED at 102 s: the canary read its bundled parquet via `pd.read_parquet`, and
+Databricks serverless pins **pyarrow 8.0.0** (base runtime, NOT uv.lock's 19.0.1 — pyarrow is transitive,
+the `analytics`/`embeddings` environments do not pin it, and the Spark-coupled arrow is not lifted).
+Installed pandas refuses `read_parquet` under pyarrow < 10.0.1 → `Unable to find a usable engine`. CI/local
+(pyarrow 19) were green — the recurring **`local-env ≠ serverless-env`** failure class (the whole
+selector → aggregate → fixture chain was validated against uv.lock, never the serverless runtime).
+
+**Fix:** the `parquet_sources.py` adapters (+ the two other serverless-reachable readers found by the
+mechanical audit — `player_embeddings_v2.py`, `skillcorner_events.py`) read via `pyarrow.parquet.read_table(
+path).to_pandas()` (reads on pyarrow 8 and 19; numpy-backed = byte-identical to `pd.read_parquet`, so no
+golden shift). The old real-unit Probe C never hit this because it read bronze via Spark, not pandas.
+
+**The class-killer (not another point fix):** three layers end the recurrence — (1) R-GATE
+`test_no_pd_read_parquet_on_serverless` (mechanical default-deny ban of `pd.read_parquet` in `src/` outside
+a compute-classified allowlist; the hand-audit leaked, a scan does not); (2) R-GUARD (env-independent —
+monkeypatch `pandas.read_parquet` to raise, the fixture read still succeeds); (3) the pyarrow==8.0.0 Docker
+parity leg (read + scorers end-to-end under the serverless arrow version, pre-merge). Documented invariant:
+`docs/context/data-performance.md` + AGENTS.md. **R7 (post-merge, operator):** re-run
+`preflight_tracking_marts --full --providers idsse` → SUCCESS ≤ 600 s, then the combined re-materialize
+resumes at GATE 0. Spec: `docs/superpowers/specs/2026-10-10-serverless-safe-canary-parquet-read-design.md`.

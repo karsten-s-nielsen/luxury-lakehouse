@@ -61,7 +61,10 @@ def test_run_pipeline_360_writes_football2vec_360_data_source() -> None:
     with (
         patch("ingestion.player_embeddings_v2.hf_hub_download", return_value="/nonexistent/path/fake.parquet"),
         patch("ingestion.player_embeddings_v2.repo_exists", return_value=True),
-        patch("ingestion.player_embeddings_v2.pd.read_parquet", return_value=fake_parquet),
+        patch(
+            "ingestion.player_embeddings_v2.pq.read_table",
+            return_value=MagicMock(to_pandas=MagicMock(return_value=fake_parquet)),
+        ),
         patch("ingestion.player_embeddings_v2.write_delta_table", side_effect=fake_write),
         patch("ingestion.player_embeddings_v2.validate_dataframe", return_value=3),
         patch("ingestion.player_embeddings_v2._compute_stat_vectors", return_value=(pd.DataFrame(), {})),
@@ -101,7 +104,10 @@ def test_run_pipeline_360_rejects_wrong_dimension() -> None:
     with (
         patch("ingestion.player_embeddings_v2.hf_hub_download", return_value="/nonexistent/path/fake.parquet"),
         patch("ingestion.player_embeddings_v2.repo_exists", return_value=True),
-        patch("ingestion.player_embeddings_v2.pd.read_parquet", return_value=fake_parquet),
+        patch(
+            "ingestion.player_embeddings_v2.pq.read_table",
+            return_value=MagicMock(to_pandas=MagicMock(return_value=fake_parquet)),
+        ),
     ):
         with pytest.raises((ValueError, RuntimeError), match="208"):
             mod._import_embeddings_360(spark, "soccer_analytics", "bronze", logger)
@@ -125,7 +131,10 @@ def test_import_v2_rejects_wrong_dimension() -> None:
     with (
         patch("ingestion.player_embeddings_v2.hf_hub_download", return_value="/fake.parquet"),
         patch("ingestion.player_embeddings_v2.repo_exists", return_value=True),
-        patch("ingestion.player_embeddings_v2.pd.read_parquet", return_value=fake_parquet),
+        patch(
+            "ingestion.player_embeddings_v2.pq.read_table",
+            return_value=MagicMock(to_pandas=MagicMock(return_value=fake_parquet)),
+        ),
     ):
         with pytest.raises(RuntimeError, match="192"):
             mod._import_v2_embeddings(spark, "soccer_analytics", "bronze", logger)
