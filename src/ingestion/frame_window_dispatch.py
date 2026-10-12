@@ -145,4 +145,56 @@ def windowed_build_sdf(
     )
 
 
-__all__ = ["assign_core_window_ids", "assign_frame_windows", "windowed_build_sdf"]
+def assign_score_windows(
+    built_sdf: SparkDataFrame,
+    mart: str,
+    provider: str,
+    *,
+    target_window_frames: int,
+) -> SparkDataFrame:
+    """Spark analogue of ``frame_windows.assign_score_window_ids`` (ADR-090) — tag SPILLED BUILT frames.
+
+    Adds ``_window_id`` (dense ``frame_id`` ordinal within ``(game_id, period_id)`` ``// target``) +
+    ``_is_halo`` with the per-mart SCORING halo (``score_halo_frames(mart, provider)``), NOT the build halo.
+    Mirrors ``assign_frame_windows`` but keyed on the BUILT-frame columns (``game_id``/``period_id`` by
+    ``frame_id``). A frame-local mart (gkdv, halo 0) yields cores only. The pure core (``assign_score_window_ids``)
+    is the tested reference; THIS Spark plumbing is Docker/live-validated, matching ``assign_frame_windows``.
+    """
+    from pyspark.sql import Window
+    from pyspark.sql import functions as F  # noqa: N812
+
+    from analytics.action_context.frame_windows import _HALO_COL, _WINDOW_COL, score_halo_frames
+
+    halo = score_halo_frames(mart, provider)
+    keys = ["game_id", "period_id"]
+    unit = Window.partitionBy(*keys).orderBy("frame_id")
+    tw = F.lit(int(target_window_frames))
+    ranked = built_sdf.withColumn("_ord", F.dense_rank().over(unit) - 1).withColumn(
+        _WINDOW_COL, (F.col("_ord") / tw).cast("int")
+    )
+    if halo <= 0:
+        return ranked.withColumn(_HALO_COL, F.lit(False)).drop("_ord")
+
+    max_ord = Window.partitionBy(*keys)
+    ranked = (
+        ranked.withColumn("_max_ord", F.max("_ord").over(max_ord))
+        .withColumn("_pos", F.col("_ord") - F.col(_WINDOW_COL) * tw)
+        .withColumn("_last_window", (F.col("_max_ord") / tw).cast("int"))
+    )
+    core = ranked.withColumn(_HALO_COL, F.lit(False))
+    left = (
+        ranked.where((F.col("_pos") < F.lit(halo)) & (F.col(_WINDOW_COL) >= 1))
+        .withColumn(_WINDOW_COL, F.col(_WINDOW_COL) - 1)
+        .withColumn(_HALO_COL, F.lit(True))
+    )
+    dist_to_end = (F.col(_WINDOW_COL) + 1) * tw - 1 - F.col("_ord")
+    right = (
+        ranked.where((dist_to_end < F.lit(halo)) & (F.col(_WINDOW_COL) < F.col("_last_window")))
+        .withColumn(_WINDOW_COL, F.col(_WINDOW_COL) + 1)
+        .withColumn(_HALO_COL, F.lit(True))
+    )
+    helper = ("_ord", "_max_ord", "_pos", "_last_window")
+    return core.unionByName(left).unionByName(right).drop(*helper)
+
+
+__all__ = ["assign_core_window_ids", "assign_frame_windows", "assign_score_windows", "windowed_build_sdf"]

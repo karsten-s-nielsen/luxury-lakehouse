@@ -1939,7 +1939,7 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path,
-        "silly-kicks[ghost-gk,parse-dfl]==4.128.0",
+        "silly-kicks[ghost-gk,parse-dfl]==4.133.0",
         # accessible-space dropped: silly-kicks 4.128 DAS is a NATIVE engine (ADR-107) — no
         # accessible-space runtime dependency; the [das] extra is retired.
         # numba: silly-kicks ships @njit kernels for pitch control + ball-carrier

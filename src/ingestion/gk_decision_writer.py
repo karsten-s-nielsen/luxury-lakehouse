@@ -69,7 +69,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 logger = logging.getLogger(__name__)
 
 # Keep in lockstep with the other silly-kicks-consuming entry points (AGENTS.md sec serverless env pins).
-_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 128, 0)
+_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 133, 0)
 
 CATALOG = "soccer_analytics"
 BRONZE_TABLE = "gk_decision"
@@ -156,6 +156,7 @@ def score_gk_decision_reconstructed(
     params: Any = None,
     visible_area: pd.DataFrame | None = None,
     frame_convention: Literal["per_action_ltr", "match_ltr"] | None = None,
+    goal_map: Any = None,
 ) -> tuple[pd.DataFrame, Any]:
     """One unit's ``(actions, frames)`` -> reconstruction-tier ``(samples, GkDecisionReport)``.
 
@@ -187,6 +188,7 @@ def score_gk_decision_reconstructed(
         keeper_ids=keeper_ids,
         frame_convention=conv,
         visible_area=visible_area,
+        goal_map=goal_map,  # ADR-090: whole-unit map injected under windowed scoring; None -> sk resolves
     )
     return compute_gk_decision_value(option_set, extra_drops=option_set.drop_counts())
 
@@ -203,6 +205,7 @@ def score_gk_decision_unit(
     params: Any = None,
     visible_area: pd.DataFrame | None = None,
     frame_convention: Literal["per_action_ltr", "match_ltr"] | None = None,
+    goal_map: Any = None,
 ) -> pd.DataFrame:
     """One unit's oriented ``(actions, frames)`` -> stamped per-DECISION gk_decision rows (ADR-037 drain body).
 
@@ -227,6 +230,7 @@ def score_gk_decision_unit(
         params=params,
         visible_area=visible_area,
         frame_convention=frame_convention,
+        goal_map=goal_map,
     )
     if samples.empty:
         return pd.DataFrame(columns=list(OUTPUT_COLUMNS))

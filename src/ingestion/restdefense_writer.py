@@ -38,7 +38,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 logger = logging.getLogger(__name__)
 
 # Keep in lockstep with the other silly-kicks-consuming entry points (AGENTS.md serverless env pins).
-_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 128, 0)
+_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 133, 0)
 
 CATALOG = "soccer_analytics"
 MODEL_NAME = "rest_defense"
@@ -94,7 +94,7 @@ REST_DEFENSE_DDL = ", ".join(f"{c} {_OUTPUT_TYPES[c].upper().replace('LONG', 'BI
 
 
 def compute_rest_defense_samples(
-    actions: pd.DataFrame, frames: pd.DataFrame, xt: Any, *, access_tier: str | None
+    actions: pd.DataFrame, frames: pd.DataFrame, xt: Any, *, access_tier: str | None, goal_map: Any = None
 ) -> pd.DataFrame:
     """Score one unit's rest-defense samples -> identity + 23 sk cols + access_tier.
 
@@ -103,11 +103,15 @@ def compute_rest_defense_samples(
     Layer-2 cols are NaN without it (never fabricated). ``visible_area`` is not passed (FOV companions are
     structurally N/A in the tracking-marts drain — see the module docstring). Returns an empty frame with
     the full schema when nothing qualifies.
+
+    ``goal_map`` (ADR-090): the whole-unit ``resolve_defended_goals`` map, injected under windowed Stage-2
+    scoring so the defended-end estimate does not drift per window; ``None`` lets sk resolve it from
+    ``frames`` (byte-identical for a whole-unit caller). Threaded to the sk Layer-1 ``goal_map=`` seam.
     """
     import pandas as pd
     from silly_kicks.restdefense import compute_rest_defense
 
-    samples, _report = compute_rest_defense(actions, frames, xt=xt)
+    samples, _report = compute_rest_defense(actions, frames, xt=xt, goal_map=goal_map)
 
     if samples.empty:
         return pd.DataFrame(columns=list(OUTPUT_COLUMNS))

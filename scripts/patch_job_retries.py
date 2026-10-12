@@ -164,13 +164,21 @@ def _classify_task(task_key: str) -> int:
 
 
 def _patch_tasks(settings: dict) -> list[str]:
-    """Mutate task settings in-place, return list of changes made."""
+    """Mutate task settings in-place, return list of changes made.
+
+    ``max_retries`` ABSENT is NOT the same as explicit ``0``: the Databricks TF provider
+    (Go omitempty) drops ``max_retries = 0`` from the payload, and the platform then applies
+    its DEFAULT (1 retry) for an absent field — see the module docstring. So ``.get(..., 0)``
+    would read absent as 0, decide "already correct", and make NO change (the no-op bug that
+    shipped 1-retry compute tasks and burned a full drain's DBU on GATE 0, run 941047587677694).
+    Read absent as ``None`` so it compares unequal to the intended explicit int and is patched.
+    """
     changes: list[str] = []
     tasks = settings.get("tasks", [])
 
     for task in tasks:
         task_key = task.get("task_key", "")
-        current = task.get("max_retries", 0)
+        current = task.get("max_retries")  # None if absent; absent != explicit 0 (platform default = 1)
         intended = _classify_task(task_key)
 
         if current != intended:
@@ -182,7 +190,7 @@ def _patch_tasks(settings: dict) -> list[str]:
         inner_task = for_each.get("task", {})
         if inner_task:
             inner_key = inner_task.get("task_key", "")
-            inner_current = inner_task.get("max_retries", 0)
+            inner_current = inner_task.get("max_retries")
             inner_intended = _classify_task(inner_key)
 
             if inner_current != inner_intended:
@@ -220,10 +228,13 @@ def _verify_post_apply(base_url: str, headers: dict[str, str], job_id: int) -> N
     settings = job.get("settings", {})
     tasks = settings.get("tasks", [])
 
+    # absent read as None (NOT 0): an absent field means the platform default (1 retry) is in
+    # effect, so verification MUST fail on absence when intended=0 — otherwise the reset silently
+    # not persisting the explicit 0 (or never being sent) passes undetected, as it did pre-fix.
     mismatches: list[str] = []
     for task in tasks:
         task_key = task.get("task_key", "")
-        actual = task.get("max_retries", 0)
+        actual = task.get("max_retries")
         intended = _classify_task(task_key)
         if actual != intended:
             mismatches.append(f"  {task_key}: actual={actual} intended={intended}")
@@ -232,7 +243,7 @@ def _verify_post_apply(base_url: str, headers: dict[str, str], job_id: int) -> N
         inner_task = for_each.get("task", {})
         if inner_task:
             inner_key = inner_task.get("task_key", "")
-            inner_actual = inner_task.get("max_retries", 0)
+            inner_actual = inner_task.get("max_retries")
             inner_intended = _classify_task(inner_key)
             if inner_actual != inner_intended:
                 mismatches.append(f"  {task_key}/{inner_key}: actual={inner_actual} intended={inner_intended}")

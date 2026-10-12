@@ -50,7 +50,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 logger = logging.getLogger(__name__)
 
 # Keep in lockstep with the other silly-kicks-consuming entry points (AGENTS.md sec serverless env pins).
-_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 128, 0)
+_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 133, 0)
 
 CATALOG = "soccer_analytics"
 BRONZE_TABLE = "gkdv_keeper_pooled"
@@ -163,6 +163,7 @@ def build_keeper_observations(
     *,
     want_threat: bool = True,
     params: Any = None,
+    goal_map: Any = None,
 ) -> pd.DataFrame:
     """Per SCORED-and-DEFENDING frame -> observation rows (``player_id`` + arm deltas).
 
@@ -180,7 +181,10 @@ def build_keeper_observations(
     if scored.empty:
         return pd.DataFrame(columns=cols)
 
-    goal_map: Any = resolve_defended_goals(frames) if want_threat else None
+    # ADR-090: use the injected whole-unit map under windowed scoring; None -> resolve from these frames
+    # (byte-identical for a whole-unit caller). Only needed for the threat arm.
+    if goal_map is None and want_threat:
+        goal_map = resolve_defended_goals(frames)
     arm_kwargs = {"params": params} if params is not None else {}
 
     # Pre-index BOTH legs ONCE per unit (no boolean-mask scan inside the per-frame loop -- AGENTS.md
@@ -207,6 +211,7 @@ def build_keeper_observations(
             _DAS: float(delta_das(actual, ghost, attacking_team_id=atk, **arm_kwargs)),
         }
         if want_threat:
+            assert goal_map is not None  # noqa: S101 — resolved at the want_threat guard above; pin for pyright
             row[_THREAT] = float(
                 delta_threat_suppression(actual, ghost, attacking_team_id=atk, xt=xt, goal_map=goal_map, **arm_kwargs)
             )
@@ -221,24 +226,42 @@ def score_unit(
     *,
     want_threat: bool = True,
     params: Any = None,
+    goal_map: Any = None,
+    carrier: Any = None,
+    scored_frame_keys: Any = None,
 ) -> tuple[pd.DataFrame, Any]:
     """One unit's oriented frames -> ``(observations, GkdvReport)``.
 
     Derives ``team_in_possession`` (the DAS arm requires it) then builds the ghost counterfactual and
     scores it. ``frames`` are the AC-oriented home-LTR frames from ``build_unit_inputs``.
+
+    ``goal_map`` / ``carrier`` / ``scored_frame_keys`` (ADR-090/ADR-119): the whole-unit invariants injected
+    under windowed Stage-2 scoring. ``goal_map`` (``resolve_defended_goals``) + ``carrier``
+    (``infer_ball_carrier``) pin the defended-end flip + possession; ``scored_frame_keys``
+    (``select_gkdv_scored_frames``) pins the possession-stride survivor selection (a whole-unit rank the
+    window cannot reproduce). All ``None`` → derived from ``frames`` here (byte-identical for a whole-unit
+    caller). ``scored_frame_keys`` is threaded into ``build_ghost_frames`` (sk 4.133 seam).
     """
     from silly_kicks.gkdv import build_ghost_frames
     from silly_kicks.tracking import derive_team_in_possession, infer_ball_carrier
 
     f = frames.drop(columns=["team_in_possession"], errors="ignore")
-    carrier = infer_ball_carrier(f)
+    if carrier is None:
+        carrier = infer_ball_carrier(f)
     f = derive_team_in_possession(f, carrier)
 
-    build_kwargs = {"home_team_id": home_team_id, "carrier": carrier}
+    build_kwargs = {
+        "home_team_id": home_team_id,
+        "carrier": carrier,
+        "goal_map": goal_map,
+        "scored_frame_keys": scored_frame_keys,
+    }
     if params is not None:
         build_kwargs["params"] = params
     counterfactual, provenance, report = build_ghost_frames(f, **build_kwargs)
-    observations = build_keeper_observations(f, counterfactual, provenance, xt, want_threat=want_threat, params=params)
+    observations = build_keeper_observations(
+        f, counterfactual, provenance, xt, want_threat=want_threat, params=params, goal_map=goal_map
+    )
     return observations, report
 
 
@@ -252,6 +275,9 @@ def score_gkdv_unit(
     competition_id: str | None,
     season_id: str | None,
     want_threat: bool = True,
+    goal_map: Any = None,
+    carrier: Any = None,
+    scored_frame_keys: Any = None,
 ) -> pd.DataFrame:
     """One unit's oriented frames -> stamped per-frame observations (ADR-037 per-unit drain body).
 
@@ -261,7 +287,15 @@ def score_gkdv_unit(
     (= the native ``match_id`` -> ``aggregate_by_keeper`` ``n_games``), ``competition_id``, ``season_id``.
     The reduce (:func:`pool_keepers`) runs later over the whole ``gkdv_observations`` corpus.
     """
-    observations, _report = score_unit(frames, home_team_id, xt, want_threat=want_threat)
+    observations, _report = score_unit(
+        frames,
+        home_team_id,
+        xt,
+        want_threat=want_threat,
+        goal_map=goal_map,
+        carrier=carrier,
+        scored_frame_keys=scored_frame_keys,
+    )
     observations = observations.copy()
     observations["data_source"] = data_source
     observations["game_id"] = match_id  # native match id -> aggregate_by_keeper n_games

@@ -116,6 +116,54 @@ def halo_frames(provider: str, hz: float = _DEFAULT_HZ) -> int:
     return (wf - 1) + max_gap_frames
 
 
+# ── Stage-2 SCORING halo (ADR-090) — distinct from the BUILD halo above ────────────────────────────
+# The build halo (halo_frames) sizes sk's velocity/interpolation stencils. Stage-2 scoring windows the
+# SPILLED built frames and needs each scorer's own temporal reach, which differs per mart:
+#   off_ball       -> pre_seconds (1.5 s) of frames before the action's linked frame.
+#   action-linked  -> the asof link tolerance (0.2 s) only (one linked frame + its neighbourhood).
+#   gkdv           -> 0 (the arms score a single actual/ghost frame pair; no temporal reach).
+# Sourced from sk (RunValuationParams.pre_seconds / link_actions_to_frames tolerance_seconds) + pinned
+# by the sentinel below so an sk default change fires loud (ADR-067 lockstep), same as _PINNED_SK_CFG.
+_LINK_TOLERANCE_MARTS: frozenset[str] = frozenset(
+    {"action_defensive", "defensive_credit_attributions", "rest_defense", "gk_decision"}
+)
+_FRAME_LOCAL_MARTS: frozenset[str] = frozenset({"gkdv_observations"})
+_PINNED_OFF_BALL_PRE_SECONDS = 1.5
+_PINNED_LINK_TOLERANCE_SECONDS = 0.2
+
+
+def _sk_off_ball_pre_seconds() -> float:
+    from silly_kicks.tracking import RunValuationParams
+
+    return float(RunValuationParams().pre_seconds)
+
+
+def _sk_link_tolerance_seconds() -> float:
+    import inspect
+
+    from silly_kicks.tracking import link_actions_to_frames
+
+    return float(inspect.signature(link_actions_to_frames).parameters["tolerance_seconds"].default)
+
+
+def score_halo_frames(mart: str, provider: str) -> int:
+    """Stage-2 scoring halo in FRAMES for ``mart`` at ``provider``'s capture rate (ADR-090 §4.2).
+
+    The number of neighbouring built frames each window must carry so a scored entity near a window
+    boundary sees the same frames it would whole-unit. Per-mart: ``off_ball_runs`` = ``ceil(pre_seconds·hz)``
+    (the run look-back); ``gkdv_observations`` = 0 (single-frame arms); the action-linked marts = the asof
+    ``ceil(tolerance_seconds·hz)``. Raises on an unknown mart rather than silently under-haloing.
+    """
+    hz = provider_hz(provider)
+    if mart in _FRAME_LOCAL_MARTS:
+        return 0
+    if mart == "off_ball_runs":
+        return math.ceil(_sk_off_ball_pre_seconds() * hz)
+    if mart in _LINK_TOLERANCE_MARTS:
+        return math.ceil(_sk_link_tolerance_seconds() * hz)
+    raise ValueError(f"no scoring halo defined for mart {mart!r} (ADR-090 §4.2)")
+
+
 # ── Drift sentinel (import-time) — pins the sk INPUT, fires loud on sk window/gap drift (ADR-067). ──
 def _assert_sk_config_pinned() -> None:
     for provider, sk_key in _SK_PROVIDER_KEY.items():
@@ -132,6 +180,22 @@ def _assert_sk_config_pinned() -> None:
 
 
 _assert_sk_config_pinned()
+
+
+def _assert_score_params_pinned() -> None:
+    """Pin the sk scoring-reach defaults the Stage-2 scoring halo is derived from (ADR-090/ADR-067)."""
+    live = (_sk_off_ball_pre_seconds(), _sk_link_tolerance_seconds())
+    pinned = (_PINNED_OFF_BALL_PRE_SECONDS, _PINNED_LINK_TOLERANCE_SECONDS)
+    if live != pinned:
+        raise AssertionError(
+            f"silly-kicks scoring-reach drift: live (off_ball pre_seconds, link tolerance_seconds)={live} "
+            f"!= pinned={pinned}. The Stage-2 scoring halo (score_halo_frames) is derived from these; a "
+            f"change resizes it silently. Update the pinned constants + re-run the neutrality + "
+            f"halo-sufficiency tests (ADR-090 / ADR-067)."
+        )
+
+
+_assert_score_params_pinned()
 
 
 # ── Window assignment + halo replication (pure pandas; one unit's frames) ──────────────────────────
@@ -156,10 +220,27 @@ def assign_window_ids(
     of that neighbour's boundary, so the neighbour's build sees a sequence-continuous halo (spec §4.3).
     The returned frame is LONGER than the input (the halo duplicates). Rows preserve all original columns.
     """
+    halo = halo_frames(provider, hz)
+    return _assign_windows_with_halo(frames, frame_col=frame_col, target_window_frames=target_window_frames, halo=halo)
+
+
+def _assign_windows_with_halo(
+    frames: pd.DataFrame,
+    *,
+    frame_col: str,
+    target_window_frames: int,
+    halo: int,
+) -> pd.DataFrame:
+    """Shared ordinal + halo-replication core (pure pandas).
+
+    ``halo`` is the explicit reach in FRAMES — the BUILD halo (``assign_window_ids``) or the per-mart
+    SCORING halo (``assign_score_window_ids``). ``_window_id`` is the dense DISTINCT-``frame_col`` ordinal
+    ``// target_window_frames``; boundary frames within ``halo`` are REPLICATED into the neighbour window
+    as ``_is_halo=True``. ``halo <= 0`` (a frame-local mart) yields cores only, no replication.
+    """
     import numpy as np
     import pandas as pd
 
-    halo = halo_frames(provider, hz)
     distinct = np.sort(frames[frame_col].unique())
     ordinal = {f: i for i, f in enumerate(distinct)}  # dense 0-based frame ordinal
     ords = frames[frame_col].map(ordinal).to_numpy()
@@ -169,6 +250,8 @@ def assign_window_ids(
     core = frames.copy()
     core[_WINDOW_COL] = core_w
     core[_HALO_COL] = False
+    if halo <= 0:
+        return core
 
     parts = [core]
     # left-halo: the first ``halo`` ordinals of window w (w>=1) also feed window w-1's RIGHT edge.
@@ -189,6 +272,27 @@ def assign_window_ids(
         parts.append(rh)
 
     return pd.concat(parts, ignore_index=True)
+
+
+def assign_score_window_ids(
+    built_frames: pd.DataFrame,
+    mart: str,
+    provider: str,
+    *,
+    target_window_frames: int,
+    frame_col: str = "frame_id",
+) -> pd.DataFrame:
+    """Add ``_window_id`` + ``_is_halo`` to ONE unit's spilled BUILT frames for Stage-2 scoring of ``mart``.
+
+    The Stage-2 analogue of ``assign_window_ids`` (ADR-090): windows the built frames on the dense
+    ``frame_col`` ordinal with the per-mart SCORING halo (``score_halo_frames(mart, provider)``), NOT the
+    build halo. A frame-local mart (gkdv, halo 0) yields cores only. Rows preserve all built columns; the
+    union of per-window CORE outputs == the whole-unit mart output (neutrality, §6).
+    """
+    halo = score_halo_frames(mart, provider)
+    return _assign_windows_with_halo(
+        built_frames, frame_col=frame_col, target_window_frames=target_window_frames, halo=halo
+    )
 
 
 def build_windowed(

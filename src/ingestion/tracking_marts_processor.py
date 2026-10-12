@@ -244,10 +244,12 @@ class TrackingMartsProcessor:
         """
         from analytics.action_context.tracking_frame_spill import built_frame_struct_type
         from ingestion.tracking_marts_dispatch import (
+            _TM_SCORE_WINDOW_FRAMES,
             MartSpec,
             build_stage2_mart_sdf,
             cleanup_spill,
             make_mart_scorers,
+            precompute_stage2a,
             run_stage1_build_and_spill,
             spill_path,
         )
@@ -262,29 +264,6 @@ class TrackingMartsProcessor:
         comp, season, access_tier = prep.comp, prep.season, prep.access_tier
         sdir = spill_path(self._catalog, self._schema, unit)
         where = f"data_source = '{unit.provider}' AND match_id = '{unit.match_id}' AND period_id = {period}"
-        scorers = make_mart_scorers(
-            unit.provider,
-            unit.match_id,
-            resolved_actions,
-            self._xt_grid,
-            self._xt_l,
-            self._xt_w,
-            xg_preds,
-            meta,
-            comp,
-            season,
-            access_tier,
-            gkdv_enabled=self._gkdv_enabled,
-        )
-        specs: list[MartSpec] = [
-            MartSpec(OFF_BALL_TABLE, self._off_ball_schema, scorers["off_ball_runs"]),
-            MartSpec(AGG_TABLE, self._agg_schema, scorers["action_defensive"]),
-            MartSpec(LONG_TABLE, self._long_schema, scorers["defensive_credit_attributions"]),
-            MartSpec(GK_DECISION_TABLE, self._gk_decision_schema, scorers["gk_decision"]),
-            MartSpec(REST_DEFENSE_TABLE, self._rd_schema, scorers["rest_defense"]),
-        ]
-        if self._gkdv_enabled:
-            specs.append(MartSpec(GKDV_OBS_TABLE, self._gkdv_obs_schema, scorers["gkdv_observations"]))
 
         total = 0
         errors: list[str] = []
@@ -292,10 +271,62 @@ class TrackingMartsProcessor:
             run_stage1_build_and_spill(
                 self._spark, unit, raw_sdf, build_udf, built_frame_struct_type(unit.provider), sdir
             )
-            # ── Stage 2: six per-mart scoring passes (read the spill) ──────────────────────────────────
+            # ── Stage 2a (driver): whole-unit invariants + coverage-restricted actions + action routing ──
+            # Computed ONCE from the spill (bounded; ADR-090 §4.3) and injected into every Stage-2 window so
+            # windowed scoring is byte-identical to whole-unit. MUST run after the spill (reads it); the SAME
+            # scoring-window size feeds the routing + the dispatch so their window ids agree (cross-engine).
+            stage2a = precompute_stage2a(
+                self._spark,
+                sdir,
+                resolved_actions,
+                unit.provider,
+                gkdv_enabled=self._gkdv_enabled,
+                target_window_frames=_TM_SCORE_WINDOW_FRAMES,
+            )
+            scorers = make_mart_scorers(
+                unit.provider,
+                unit.match_id,
+                stage2a.restricted_actions,
+                self._xt_grid,
+                self._xt_l,
+                self._xt_w,
+                xg_preds,
+                meta,
+                comp,
+                season,
+                access_tier,
+                gkdv_enabled=self._gkdv_enabled,
+                goal_map=stage2a.invariants.goal_map,
+                carrier=stage2a.invariants.carrier,
+                scored_frame_keys=stage2a.scored_frame_keys,
+            )
+            specs: list[MartSpec] = [
+                MartSpec("off_ball_runs", OFF_BALL_TABLE, self._off_ball_schema, scorers["off_ball_runs"]),
+                MartSpec("action_defensive", AGG_TABLE, self._agg_schema, scorers["action_defensive"]),
+                MartSpec(
+                    "defensive_credit_attributions",
+                    LONG_TABLE,
+                    self._long_schema,
+                    scorers["defensive_credit_attributions"],
+                ),
+                MartSpec("gk_decision", GK_DECISION_TABLE, self._gk_decision_schema, scorers["gk_decision"]),
+                MartSpec("rest_defense", REST_DEFENSE_TABLE, self._rd_schema, scorers["rest_defense"]),
+            ]
+            if self._gkdv_enabled:
+                specs.append(
+                    MartSpec("gkdv_observations", GKDV_OBS_TABLE, self._gkdv_obs_schema, scorers["gkdv_observations"])
+                )
+            # ── Stage 2b: per-mart scoring passes (read the spill; windowed for seam providers) ──────────
             for spec in specs:
                 try:
-                    scored_sdf = build_stage2_mart_sdf(self._spark, unit, sdir, spec)
+                    scored_sdf = build_stage2_mart_sdf(
+                        self._spark,
+                        unit,
+                        sdir,
+                        spec,
+                        action_window=stage2a.action_window,
+                        target_window_frames=_TM_SCORE_WINDOW_FRAMES,
+                    )
                     if dry_run:
                         int(scored_sdf.count())  # canary: force the UDF to run; persist nothing
                     else:

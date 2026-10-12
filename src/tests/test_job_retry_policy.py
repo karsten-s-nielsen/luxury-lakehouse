@@ -18,6 +18,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 _REPO = Path(__file__).resolve().parents[2]
 _TF_FILE = _REPO / "terraform" / "modules" / "workflows" / "main.tf"
 
@@ -104,3 +106,71 @@ def test_all_tf_tasks_classified() -> None:
     assert not invalid, (
         f"TF tasks with unexpected max_retries values: {invalid}. Expected 0 (compute) or 1 (ingestion)."
     )
+
+
+# ── absent != explicit 0 (GATE 0 run 941047587677694 regression) ──
+# The TF provider drops max_retries=0 (Go omitempty) -> the deployed task has the field ABSENT,
+# and the platform applies its default (1 retry) for absent. patch_job_retries.py used
+# `.get("max_retries", 0)`, reading absent as 0, so it decided compute tasks were "already 0" and
+# made NO change -> the explicit 0 was never sent -> the drain ran with 1 retry and burned a full
+# re-drain of DBU. These guard that absent is treated as needing an explicit set.
+
+
+def test_absent_compute_max_retries_is_patched_to_explicit_zero() -> None:
+    from scripts.patch_job_retries import _patch_tasks
+
+    settings = {"tasks": [{"task_key": "compute_tracking_marts_iteration"}]}  # max_retries ABSENT
+    changes = _patch_tasks(settings)
+    assert settings["tasks"][0]["max_retries"] == 0, "absent compute max_retries must be set to explicit 0"
+    assert changes, "absent max_retries must register as a change, not a no-op"
+
+
+def test_absent_for_each_inner_max_retries_is_patched_to_explicit_zero() -> None:
+    from scripts.patch_job_retries import _patch_tasks
+
+    settings = {
+        "tasks": [
+            {
+                "task_key": "compute_tracking_marts",
+                "for_each_task": {"task": {"task_key": "compute_tracking_marts_iteration"}},  # inner ABSENT
+            }
+        ]
+    }
+    _patch_tasks(settings)
+    inner = settings["tasks"][0]["for_each_task"]["task"]
+    assert inner["max_retries"] == 0, "absent for_each inner (drain worker) max_retries must be set to explicit 0"
+
+
+def test_absent_ingestion_max_retries_is_patched_to_one() -> None:
+    from scripts.patch_job_retries import _INGESTION_TASK_KEYS, _patch_tasks
+
+    key = next(iter(_INGESTION_TASK_KEYS))
+    settings = {"tasks": [{"task_key": key}]}  # ABSENT; ingestion => 1
+    _patch_tasks(settings)
+    assert settings["tasks"][0]["max_retries"] == 1, f"absent ingestion ({key}) max_retries must be set to explicit 1"
+
+
+# ── _verify_post_apply detector is NON-VACUOUS (guards-that-cannot-fail) ──
+# The post-apply verifier is the fail-loud backstop: if the reset POST silently did not persist the
+# explicit 0 (the GATE-0 class — the field stays absent => platform default 1), the verifier MUST raise.
+# Watch it FAIL on the exact GATE-0 condition (absent compute max_retries) before trusting the GREEN below;
+# a verifier that passes on absence would be vacuous (it must read absent as None != intended 0).
+
+
+def test_verify_post_apply_raises_on_absent_compute_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    import scripts.patch_job_retries as p
+
+    # compute task with max_retries ABSENT (== the GATE-0 deployed state: platform default 1).
+    job = {"settings": {"tasks": [{"task_key": "compute_tracking_marts_iteration"}]}}
+    monkeypatch.setattr(p, "_get_job", lambda base_url, headers, job_id: job)
+    with pytest.raises(SystemExit):
+        p._verify_post_apply("https://host", {}, 123)
+
+
+def test_verify_post_apply_passes_on_explicit_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+    import scripts.patch_job_retries as p
+
+    # the FIXED state: compute task carries an explicit 0 → verifier must NOT raise (non-vacuity: it can pass).
+    job = {"settings": {"tasks": [{"task_key": "compute_tracking_marts_iteration", "max_retries": 0}]}}
+    monkeypatch.setattr(p, "_get_job", lambda base_url, headers, job_id: job)
+    p._verify_post_apply("https://host", {}, 123)  # no raise
