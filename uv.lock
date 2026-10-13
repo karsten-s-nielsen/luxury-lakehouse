@@ -2368,7 +2368,7 @@ wheels = [
 
 [[package]]
 name = "openevolve"
-version = "0.3.2"
+version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dacite" },
@@ -2378,9 +2378,9 @@ dependencies = [
     { name = "pyyaml" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3c/29/2186f38b76f5edac9094c3c1df67fc2a0d71e405afab9a4875dc37b3b56c/openevolve-0.3.2.tar.gz", hash = "sha256:cd41800ab54734d02a895892615a7f4b9240a6f307c82fc1df7335e89b546599", size = 197049, upload-time = "2026-07-18T13:16:40.27Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1a/60/aa28196ff124cc4174f4a2e48443d3bff22235edaa2fc819e76221bf3a6f/openevolve-0.4.0.tar.gz", hash = "sha256:59f7f12573785aca77808735d447b588e33906aa1480109b7b1324c652b91ad8", size = 230553, upload-time = "2026-09-28T03:30:01.991Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d8/ab/c08b84f9f2f676a0a6000c785a315205b9e2da640c9964d703d02990e8af/openevolve-0.3.2-py3-none-any.whl", hash = "sha256:df998b0731d9c1a80883b4aae452cc43405a3e9c61b46d676d06235b4db49366", size = 119381, upload-time = "2026-07-18T13:16:38.886Z" },
+    { url = "https://files.pythonhosted.org/packages/93/ae/4bfe446e8290f7b8988847b0810952f52c5a918d2a1e6eb760872c046f04/openevolve-0.4.0-py3-none-any.whl", hash = "sha256:2a09b95e7ce487826d029524a7c34b7e2d1b132ad4b8df6157f38d3a0a8668bf", size = 129481, upload-time = "2026-09-28T03:30:00.177Z" },
 ]
 
 [[package]]
