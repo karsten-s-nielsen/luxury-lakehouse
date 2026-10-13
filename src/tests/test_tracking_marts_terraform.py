@@ -45,6 +45,8 @@ def test_terraform_drain_worker_entry_point_and_params() -> None:
     assert "tracking_marts_run_id" in block  # run-id passed to the worker (from preflight task value)
     assert "timeout_seconds = 28800" in block  # 8 h drain budget
     assert '"--watchdog-budget-s", "{{job.parameters.watchdog_budget_s}}"' in block
+    # ADR-090 Stage-2 scoring-window override threaded to the worker (empty => in-code default).
+    assert '"--score-window-frames", "{{job.parameters.tracking_marts_score_window}}"' in block
 
 
 def test_terraform_preflight_passes_job_run_id_and_full_flag() -> None:
@@ -61,6 +63,12 @@ def test_terraform_preflight_passes_job_run_id_and_full_flag() -> None:
 def test_terraform_job_parameter_tracking_marts_full_exists() -> None:
     text = _tf()
     assert 'name    = "tracking_marts_full"' in text, "job parameter tracking_marts_full missing"
+
+
+def test_terraform_job_parameter_tracking_marts_score_window_exists() -> None:
+    """ADR-090: the Stage-2 scoring-window override is a job parameter (default empty => in-code default)."""
+    text = _tf()
+    assert 'name    = "tracking_marts_score_window"' in text, "job parameter tracking_marts_score_window missing"
 
 
 def test_terraform_verify_gate_and_pool_wiring() -> None:

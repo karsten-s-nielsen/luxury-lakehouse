@@ -157,3 +157,72 @@ def test_idle_worker_still_emits_slice_completed_and_does_not_build_processor(
     )
 
     assert sink.calls == [("slice_completed", 5)], "an IDLE worker must still emit exactly one slice_completed"
+
+
+# ── ADR-090 Stage-2 scoring-window override: parse contract + drain-worker -> processor pass-through ──
+
+
+@pytest.mark.parametrize("raw", ["", "   ", None])
+def test_parse_score_window_empty_is_none(raw: object) -> None:
+    from ingestion.tracking_marts_drain import _parse_score_window
+
+    assert _parse_score_window(raw) is None
+
+
+def test_parse_score_window_valid_int() -> None:
+    from ingestion.tracking_marts_drain import _parse_score_window
+
+    assert _parse_score_window("4000") == 4000
+
+
+@pytest.mark.parametrize("raw", ["0", "-5"])
+def test_parse_score_window_non_positive_raises(raw: str) -> None:
+    from ingestion.tracking_marts_drain import _parse_score_window
+
+    with pytest.raises(SystemExit, match="must be > 0"):
+        _parse_score_window(raw)
+
+
+def test_parse_score_window_garbage_raises() -> None:
+    from ingestion.tracking_marts_drain import _parse_score_window
+
+    with pytest.raises(SystemExit, match="must be an integer"):
+        _parse_score_window("abc")
+
+
+@pytest.mark.parametrize("window", [4000, None])
+def test_run_worker_passes_score_window_to_processor(monkeypatch: pytest.MonkeyPatch, window: int | None) -> None:
+    """The drain worker constructs ``TrackingMartsProcessor`` with the parsed scoring-window override
+    (``None`` => the processor resolves the baked default). A clean fake processor drains both units so the
+    run does not raise; we only assert the constructor kwarg."""
+    import ingestion.drain_adapters as q
+    import ingestion.tracking_marts_processor as tmp
+    from ingestion.tracking_marts_drain import _run_worker
+
+    captured: dict[str, object] = {}
+
+    class _CleanProcessor:
+        def __init__(self, *a: object, **k: object) -> None:
+            captured.update(k)
+
+        def process(self, unit: WorkUnit, *, dry_run: bool = False) -> int:
+            return 1
+
+    sink = _RecordingSink()
+    monkeypatch.setattr(q, "DeltaWorkQueue", _FakeQueue)
+    monkeypatch.setattr(q, "DeltaUnitEventSink", lambda *a, **k: sink)
+    monkeypatch.setattr(q, "SparkInterruptWatchdog", _InlineWatchdog)
+    monkeypatch.setattr(tmp, "TrackingMartsProcessor", _CleanProcessor)
+
+    _run_worker(
+        spark=object(),
+        catalog="cat",
+        schema="bronze",
+        worker_id=0,
+        run_id="R",
+        budget_s=2700,
+        task_logger=logging.getLogger("t"),
+        score_window_frames=window,
+    )
+
+    assert captured["score_window_frames"] == window

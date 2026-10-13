@@ -298,6 +298,26 @@ def _parse_budget(raw: object) -> int:
     return budget_s
 
 
+def _parse_score_window(raw: object) -> int | None:
+    """Resolve the Stage-2 scoring-window override (empty -> None = in-code ``_TM_SCORE_WINDOW_FRAMES``).
+
+    Mirrors ``_parse_budget``: empty/whitespace -> None (fall back to the baked default); a positive int
+    overrides; anything else fails loud (a silently-ignored bad window would re-OOM with no signal). The
+    window is a pure memory knob (ADR-090 neutrality — output byte-identical at any size), so a lower value
+    only trades compute for peak executor memory; the operator lowers it to fit the densest p2 units.
+    """
+    val = str(raw or "").strip()
+    if not val:
+        return None
+    try:
+        frames = int(val)
+    except ValueError as exc:
+        raise SystemExit(f"--score-window-frames must be an integer, got {val!r}") from exc
+    if frames <= 0:
+        raise SystemExit(f"--score-window-frames must be > 0, got {frames}")
+    return frames
+
+
 def _run_worker(
     spark: SparkSession,
     catalog: str,
@@ -310,6 +330,7 @@ def _run_worker(
     max_consecutive_failures: int = DEFAULT_MAX_CONSECUTIVE_FAILURES,
     systemic_failure_rate: float = DEFAULT_SYSTEMIC_FAILURE_RATE,
     systemic_min_sample: int = DEFAULT_SYSTEMIC_MIN_SAMPLE,
+    score_window_frames: int | None = None,
 ) -> None:
     """Drain one worker's slice (the testable core of ``main_tracking_marts_drain_worker``).
 
@@ -335,7 +356,7 @@ def _run_worker(
         sink.slice_completed(run_id, worker_id)
         return
 
-    processor = TrackingMartsProcessor(spark, catalog, schema)
+    processor = TrackingMartsProcessor(spark, catalog, schema, score_window_frames=score_window_frames)
     watchdog = SparkInterruptWatchdog(spark)
     summary = drain_worker(
         queue,
@@ -402,6 +423,16 @@ def main_tracking_marts_drain_worker() -> None:
                     "help": "Circuit-breaker: min attempted units before the rate check (default 20).",
                 },
             ),
+            (
+                "--score-window-frames",
+                {
+                    "type": str,
+                    "default": None,
+                    "help": "Stage-2 scoring-window override in frames (ADR-090). Empty/absent -> in-code "
+                    "_TM_SCORE_WINDOW_FRAMES. Lower it for the densest p2 units (memory-only; output "
+                    "byte-identical at any window).",
+                },
+            ),
         ],
     )
     task_logger = configure_logging("tracking_marts_drain")
@@ -427,6 +458,7 @@ def main_tracking_marts_drain_worker() -> None:
         getattr(args, "systemic_failure_rate", None),
         getattr(args, "systemic_min_sample", None),
     )
+    score_window = _parse_score_window(getattr(args, "score_window_frames", None))
     _run_worker(
         spark,
         args.catalog,
@@ -438,6 +470,7 @@ def main_tracking_marts_drain_worker() -> None:
         max_consecutive_failures=max_consec,
         systemic_failure_rate=sys_rate,
         systemic_min_sample=sys_min,
+        score_window_frames=score_window,
     )
 
 

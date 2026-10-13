@@ -78,12 +78,14 @@ def _make_processor(
     actions: pd.DataFrame | None = None,
     write_raises: set[str] | None = None,
     stage1_raises: bool = False,
+    score_window_frames: int | None = None,
 ) -> tuple[TrackingMartsProcessor, dict[str, Any]]:
     """Build a processor with every Spark seam faked. Returns (processor, record) where ``record`` captures
     stage1 calls, per-mart ``build_stage2`` tables, writes, dry-run counts, and cleanup."""
     rec: dict[str, Any] = {
         "writes": [],
         "stage2": [],
+        "stage2_windows": [],
         "stage1": 0,
         "cleanup": 0,
         "sdfs": [],
@@ -151,6 +153,7 @@ def _make_processor(
 
     def _fake_stage2(spark, unit, spill_dir, mart, *, action_window=None, target_window_frames=None):
         rec["stage2"].append(mart.table)
+        rec["stage2_windows"].append(target_window_frames)
         sdf = _FakeSdf(mart.table)
         rec["sdfs"].append(sdf)
         return sdf
@@ -172,7 +175,13 @@ def _make_processor(
 
     monkeypatch.setattr(utils, "write_delta_table", _fake_write)
 
-    proc = TrackingMartsProcessor(spark=object(), catalog="cat", schema="bronze", gkdv_enabled=gkdv_enabled)
+    proc = TrackingMartsProcessor(
+        spark=object(),
+        catalog="cat",
+        schema="bronze",
+        gkdv_enabled=gkdv_enabled,
+        score_window_frames=score_window_frames,
+    )
     return proc, rec
 
 
@@ -276,6 +285,38 @@ def test_process_dry_run_materializes_but_writes_nothing(monkeypatch: pytest.Mon
     assert all(sdf.counted for sdf in rec["sdfs"])  # every mart forced to run (canary)
     assert len(rec["stage2"]) == 6
     assert rec["cleanup"] == 1
+
+
+def test_process_passes_injected_score_window_to_both_dispatch_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ADR-090 runtime override: a ``score_window_frames=4000`` worker feeds 4000 as ``target_window_frames``
+    to BOTH ``precompute_stage2a`` (Stage-2a routing) AND every ``build_stage2_mart_sdf`` (Stage-2b dispatch).
+    The SAME value on both is the cross-engine window-id agreement the windowed scoring relies on (R2)."""
+    proc, rec = _make_processor(monkeypatch, gkdv_enabled=True, score_window_frames=4000)
+    proc.process(_UNIT)
+
+    assert rec["stage2a"]["target_window_frames"] == 4000
+    assert rec["stage2_windows"] == [4000] * 6  # six marts, each dispatched at the injected window
+
+
+def test_process_defaults_to_baked_window_when_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No override (``score_window_frames=None``) => both dispatch calls use the baked
+    ``_TM_SCORE_WINDOW_FRAMES`` (the daily-run default path is unchanged)."""
+    proc, rec = _make_processor(monkeypatch, gkdv_enabled=True, score_window_frames=None)
+    proc.process(_UNIT)
+
+    assert rec["stage2a"]["target_window_frames"] == dispatch._TM_SCORE_WINDOW_FRAMES
+    assert rec["stage2_windows"] == [dispatch._TM_SCORE_WINDOW_FRAMES] * 6
+
+
+def test_score_window_default_is_unchanged() -> None:
+    """Change-detector (spec §5 test 4): lowering the DEFAULT is a SEPARATE approval (§4.6 fit-profile);
+    this cycle only adds the override. If this fails, someone moved the baked default — that needs its own
+    sign-off, not this cycle. The constructor's override defaults OFF (None => resolve to the baked value)."""
+    import inspect
+
+    assert dispatch._TM_SCORE_WINDOW_FRAMES == 8000
+    default = inspect.signature(TrackingMartsProcessor.__init__).parameters["score_window_frames"].default
+    assert default is None
 
 
 def test_gkdv_enabled_is_the_shipped_default() -> None:

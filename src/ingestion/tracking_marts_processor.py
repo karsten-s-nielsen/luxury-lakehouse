@@ -182,7 +182,15 @@ class TrackingMartsProcessor:
     (mirrors ``drain_adapters.SparkGameProcessor`` loading the xT grid once), not per unit.
     """
 
-    def __init__(self, spark: SparkSession, catalog: str, schema: str, *, gkdv_enabled: bool = GKDV_ENABLED) -> None:
+    def __init__(
+        self,
+        spark: SparkSession,
+        catalog: str,
+        schema: str,
+        *,
+        gkdv_enabled: bool = GKDV_ENABLED,
+        score_window_frames: int | None = None,
+    ) -> None:
         # sk-version guard: the retired writer ``run_pipeline``s each asserted this at start; keep it live
         # here (the drain's single scoring entry) so a stale silly-kicks cannot silently score any of the
         # four surfaces once Task 12 deletes those call sites ([silly_kicks-bump-version-sentinels]).
@@ -197,6 +205,10 @@ class TrackingMartsProcessor:
         # gkdv is gated off by default (GKDV_ENABLED) pending its perf project; the arg keeps the scoring
         # path testable and lets the perf project re-enable it from a tuned worker without a code fork.
         self._gkdv_enabled = gkdv_enabled
+        # Stage-2 scoring-window override (ADR-090). None => resolve to the baked _TM_SCORE_WINDOW_FRAMES
+        # inside process (where that constant is already lazy-imported). A runtime knob for the densest p2
+        # units; the window is memory-only (neutrality proven), so any value is byte-identical output.
+        self._score_window_frames = score_window_frames
         self._logger = logging.getLogger("tracking_marts_drain")
         self._xt_grid, self._xt_l, self._xt_w = ac_xt_grid(spark, catalog, schema)
         # The per-unit (comp, season) lookup feeds ONLY the gkdv arm — skip the warehouse query when gated off.
@@ -255,6 +267,11 @@ class TrackingMartsProcessor:
         )
         from ingestion.utils import write_delta_table
 
+        # Resolve the scoring window ONCE (override or baked default) so the routing (Stage-2a) and the
+        # per-mart dispatch (Stage-2b) agree on window ids cross-engine (R2 — the invariant the two calls
+        # below both depend on).
+        window = self._score_window_frames if self._score_window_frames is not None else _TM_SCORE_WINDOW_FRAMES
+
         prep = self._prepare_stage1(unit)
         if prep is None:
             return 0  # match-grain / empty unit (mirrors the old read_and_build_unit_inputs no-op)
@@ -281,7 +298,7 @@ class TrackingMartsProcessor:
                 resolved_actions,
                 unit.provider,
                 gkdv_enabled=self._gkdv_enabled,
-                target_window_frames=_TM_SCORE_WINDOW_FRAMES,
+                target_window_frames=window,
             )
             scorers = make_mart_scorers(
                 unit.provider,
@@ -325,7 +342,7 @@ class TrackingMartsProcessor:
                         sdir,
                         spec,
                         action_window=stage2a.action_window,
-                        target_window_frames=_TM_SCORE_WINDOW_FRAMES,
+                        target_window_frames=window,
                     )
                     if dry_run:
                         int(scored_sdf.count())  # canary: force the UDF to run; persist nothing
