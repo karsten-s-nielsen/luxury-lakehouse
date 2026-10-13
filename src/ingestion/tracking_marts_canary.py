@@ -133,6 +133,70 @@ def _access_tier(inp: UnitInputs) -> str | None:
     return None if _at is None or (isinstance(_at, float) and _at != _at) else str(_at)
 
 
+def score_one_mart(
+    mart: str,
+    provider: str,
+    inp: UnitInputs,
+    frames: pd.DataFrame,
+    *,
+    match_id: str,
+    meta: MatchMeta,
+    goal_map: object | None = None,
+    carrier: object | None = None,
+    scored_frame_keys: object | None = None,
+) -> pd.DataFrame:
+    """Score ONE mart on a GIVEN ``frames`` (the per-mart dispatch; ``score_all_marts`` loops this).
+
+    Factored out so Stage-2 windowed scoring (ADR-090) can run ONE mart per window with its own halo.
+    ``goal_map`` / ``carrier`` are the whole-unit invariants injected under windowed scoring: ``None``
+    reproduces the pre-seam internal recompute (byte-identical for a whole-unit caller), so the three
+    frame-local marts ignore them, rest_defense + gk_decision take ``goal_map``, and gkdv takes both.
+    Scorer imports are function-local (offline-safe).
+    """
+    from ingestion.defensive_credit_writer import compute_action_defensive_credit, compute_defensive_credit_long
+    from ingestion.gk_decision_writer import _bundled_completion_model, score_gk_decision_unit
+    from ingestion.gkdv_writer import score_gkdv_unit
+    from ingestion.off_ball_runs_writer import compute_off_ball_runs
+    from ingestion.restdefense_writer import compute_rest_defense_samples
+
+    access_tier = _access_tier(inp)
+    if mart == "off_ball_runs":
+        return compute_off_ball_runs(inp.actions, frames, inp.xt)
+    if mart == "action_defensive":
+        return compute_action_defensive_credit(actions_with_synthetic_xg(inp), frames, inp.xt)
+    if mart == "defensive_credit_attributions":
+        return compute_defensive_credit_long(actions_with_synthetic_xg(inp), frames, inp.xt)
+    if mart == "gk_decision":
+        return score_gk_decision_unit(
+            inp.actions,
+            frames,
+            _bundled_completion_model(),
+            data_source=provider,
+            match_id=match_id,
+            access_tier=access_tier,
+            goal_map=goal_map,
+        )
+    if mart == "rest_defense":
+        return compute_rest_defense_samples(inp.actions, frames, inp.xt, access_tier=access_tier, goal_map=goal_map)
+    if mart == "gkdv_observations":
+        obs = score_gkdv_unit(
+            frames,
+            meta.home_team_id,
+            inp.xt,
+            data_source=provider,
+            match_id=match_id,
+            competition_id=None,
+            season_id=None,
+            goal_map=goal_map,
+            carrier=carrier,
+            scored_frame_keys=scored_frame_keys,
+        )
+        obs = obs.copy()
+        obs["match_id"] = match_id  # the processor stamps this for the per-unit replaceWhere
+        return obs
+    raise ValueError(f"unknown mart {mart!r} (expected one of {MART_KEYS})")
+
+
 def score_all_marts(
     provider: str,
     inp: UnitInputs,
@@ -144,48 +208,13 @@ def score_all_marts(
 ) -> dict[str, pd.DataFrame]:
     """Run the six pure scorers on a GIVEN ``frames`` (one signature source — no drift).
 
-    Parameterized by ``match_id`` + ``meta`` (vs reading a hardcoded ``UNITS`` table) so the ``src/tests``
-    oracle and the bundled-wheel canary share it. Identity columns are stamped exactly as
-    ``TrackingMartsProcessor.process`` stamps. The scorer imports are function-local so importing THIS
-    module stays offline-safe irrespective of any transitive Spark import in a writer module.
+    Delegates each mart to :func:`score_one_mart` with NO injected invariant (``goal_map``/``carrier`` =
+    ``None`` → internal recompute): this is the whole-unit path, byte-identical to the pre-ADR-090 body.
+    Parameterized by ``match_id`` + ``meta`` so the ``src/tests`` oracle and the bundled-wheel canary
+    share it. Identity columns are stamped exactly as ``TrackingMartsProcessor.process`` stamps.
     """
-    from ingestion.defensive_credit_writer import compute_action_defensive_credit, compute_defensive_credit_long
-    from ingestion.gk_decision_writer import _bundled_completion_model, score_gk_decision_unit
-    from ingestion.gkdv_writer import score_gkdv_unit
-    from ingestion.off_ball_runs_writer import compute_off_ball_runs
-    from ingestion.restdefense_writer import compute_rest_defense_samples
-
-    actions_xg = actions_with_synthetic_xg(inp)
-    access_tier = _access_tier(inp)
-
-    out: dict[str, pd.DataFrame] = {
-        "off_ball_runs": compute_off_ball_runs(inp.actions, frames, inp.xt),
-        "action_defensive": compute_action_defensive_credit(actions_xg, frames, inp.xt),
-        "defensive_credit_attributions": compute_defensive_credit_long(actions_xg, frames, inp.xt),
-        "gk_decision": score_gk_decision_unit(
-            inp.actions,
-            frames,
-            _bundled_completion_model(),
-            data_source=provider,
-            match_id=match_id,
-            access_tier=access_tier,
-        ),
-        "rest_defense": compute_rest_defense_samples(inp.actions, frames, inp.xt, access_tier=access_tier),
-    }
-    if include_gkdv:
-        obs = score_gkdv_unit(
-            frames,
-            meta.home_team_id,
-            inp.xt,
-            data_source=provider,
-            match_id=match_id,
-            competition_id=None,
-            season_id=None,
-        )
-        obs = obs.copy()
-        obs["match_id"] = match_id  # the processor stamps this for the per-unit replaceWhere
-        out["gkdv_observations"] = obs
-    return out
+    keys = MART_KEYS if include_gkdv else tuple(m for m in MART_KEYS if m != "gkdv_observations")
+    return {m: score_one_mart(m, provider, inp, frames, match_id=match_id, meta=meta) for m in keys}
 
 
 def score_fixture_marts(*, include_gkdv: bool = True) -> dict[str, pd.DataFrame]:
@@ -245,5 +274,6 @@ __all__ = [
     "run_fixture_probe_c",
     "score_all_marts",
     "score_fixture_marts",
+    "score_one_mart",
     "synthetic_xg_preds",
 ]

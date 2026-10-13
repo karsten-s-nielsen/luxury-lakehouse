@@ -20,6 +20,7 @@ tests + the pyspark Docker test (``tests/tracking_marts/``) + the live Part-B re
 
 from __future__ import annotations
 
+import types
 from typing import Any
 
 import pandas as pd
@@ -80,7 +81,17 @@ def _make_processor(
 ) -> tuple[TrackingMartsProcessor, dict[str, Any]]:
     """Build a processor with every Spark seam faked. Returns (processor, record) where ``record`` captures
     stage1 calls, per-mart ``build_stage2`` tables, writes, dry-run counts, and cleanup."""
-    rec: dict[str, Any] = {"writes": [], "stage2": [], "stage1": 0, "cleanup": 0, "sdfs": []}
+    rec: dict[str, Any] = {
+        "writes": [],
+        "stage2": [],
+        "stage1": 0,
+        "cleanup": 0,
+        "sdfs": [],
+        "stage2a": None,
+        "stage2a_restricted": None,
+        "scorer_args": None,
+        "scorer_kwargs": None,
+    }
     acts = pd.DataFrame({"period_id": [2, 2], "access_tier": ["public", "public"]}) if actions is None else actions
 
     # ── __init__ seams (module-level in tmp) ──
@@ -106,7 +117,13 @@ def _make_processor(
     # ── dispatch seam ──
     monkeypatch.setattr(dispatch, "spill_path", lambda catalog, schema, unit: "/vol/spill/u")
     monkeypatch.setattr(dispatch, "make_build_udf", lambda *a, **k: lambda raw: raw)
-    monkeypatch.setattr(dispatch, "make_mart_scorers", lambda *a, **k: _scorers_for(k.get("gkdv_enabled", True)))
+
+    def _fake_scorers(*a, **k):
+        rec["scorer_args"] = a
+        rec["scorer_kwargs"] = k
+        return _scorers_for(k.get("gkdv_enabled", True))
+
+    monkeypatch.setattr(dispatch, "make_mart_scorers", _fake_scorers)
 
     def _fake_stage1(spark, unit, raw_sdf, build_udf, built_schema, spill_dir):
         if stage1_raises:
@@ -116,7 +133,23 @@ def _make_processor(
 
     monkeypatch.setattr(dispatch, "run_stage1_build_and_spill", _fake_stage1)
 
-    def _fake_stage2(spark, unit, spill_dir, mart):
+    def _fake_stage2a(spark, spill_dir, resolved_actions, provider, *, gkdv_enabled, target_window_frames):
+        # Stage-2a reads the spill on the driver; faked here. gkdv-only invariants (carrier / stride) are
+        # None when disabled, mirroring precompute_stage2a's need_carrier gating.
+        rec["stage2a"] = {"gkdv_enabled": gkdv_enabled, "target_window_frames": target_window_frames}
+        inv = types.SimpleNamespace(goal_map="GOAL_MAP", carrier=("CARRIER" if gkdv_enabled else None))
+        out = types.SimpleNamespace(
+            restricted_actions=resolved_actions,
+            invariants=inv,
+            scored_frame_keys=("SCORED_FRAME_KEYS" if gkdv_enabled else None),
+            action_window={},
+        )
+        rec["stage2a_restricted"] = out.restricted_actions
+        return out
+
+    monkeypatch.setattr(dispatch, "precompute_stage2a", _fake_stage2a)
+
+    def _fake_stage2(spark, unit, spill_dir, mart, *, action_window=None, target_window_frames=None):
         rec["stage2"].append(mart.table)
         sdf = _FakeSdf(mart.table)
         rec["sdfs"].append(sdf)
@@ -179,6 +212,34 @@ def test_process_five_specs_when_gkdv_disabled(monkeypatch: pytest.MonkeyPatch) 
     assert GKDV_OBS_TABLE not in rec["stage2"]
     assert len(rec["stage2"]) == 5
     assert GKDV_OBS_TABLE not in [w["table"] for w in rec["writes"]]
+
+
+def test_process_threads_stage2a_invariants_into_scorers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stage-2a runs once (after the spill) and its whole-unit invariants + restricted actions are injected
+    into ``make_mart_scorers`` — the ADR-090 wiring the windowed dispatch relies on (gkdv-only invariants
+    gate on ``gkdv_enabled``)."""
+    acts = pd.DataFrame({"period_id": [2, 2], "access_tier": ["public", "public"], "action_id": [10, 11]})
+    proc, rec = _make_processor(monkeypatch, gkdv_enabled=True, actions=acts)
+    proc.process(_UNIT)
+
+    assert rec["stage2a"] == {"gkdv_enabled": True, "target_window_frames": dispatch._TM_SCORE_WINDOW_FRAMES}
+    # The scorer's 3rd positional arg is the SAME object Stage-2a returned as restricted_actions (identity),
+    # proving the coverage-restricted actions thread from Stage-2a into make_mart_scorers.
+    assert rec["scorer_args"][2] is rec["stage2a_restricted"]
+    assert rec["scorer_kwargs"]["goal_map"] == "GOAL_MAP"
+    assert rec["scorer_kwargs"]["carrier"] == "CARRIER"
+    assert rec["scorer_kwargs"]["scored_frame_keys"] == "SCORED_FRAME_KEYS"
+
+
+def test_process_gkdv_disabled_injects_no_carrier_or_stride(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With gkdv off, Stage-2a resolves no carrier / stride survivors (``need_carrier=False``), so the
+    scorers receive ``carrier=None`` + ``scored_frame_keys=None`` (only the GoalMap is injected)."""
+    proc, rec = _make_processor(monkeypatch, gkdv_enabled=False)
+    proc.process(_UNIT)
+    assert rec["stage2a"]["gkdv_enabled"] is False
+    assert rec["scorer_kwargs"]["goal_map"] == "GOAL_MAP"
+    assert rec["scorer_kwargs"]["carrier"] is None
+    assert rec["scorer_kwargs"]["scored_frame_keys"] is None
 
 
 def test_process_attributes_mart_failure_and_rolls_unit_forward(monkeypatch: pytest.MonkeyPatch) -> None:

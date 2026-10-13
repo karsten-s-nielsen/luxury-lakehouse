@@ -255,7 +255,17 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     )
 
 
-# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 128, 0) ──────────
+# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (4, 133, 0) ──────────
+# Floor advanced 4.132.0 -> 4.133.0 (2026-10-12) for the silly-kicks 4.133.0 gkdv stride-survivor seam
+# (ADR-119): `select_gkdv_scored_frames` + `build_ghost_frames(scored_frame_keys=)` close the last
+# whole-unit dependency in windowed gkdv scoring (the possession-stride global rank). Purely additive —
+# `scored_frame_keys=None` is the internal stride (byte-identical) — so no retrain / no golden change.
+# Floor advanced 4.128.0 -> 4.132.0 (2026-10-11) for the silly-kicks 4.132.0 GoalMap injection seam
+# (windowed Stage-2 ghost scoring): optional goal_map= on build_ghost_frames / serve_ghost_gk_positions /
+# ReconstructedOptionSet / serve_ghost_outfield_positions / build_restdefense_ghost_frames. Purely
+# additive — goal_map=None recomputes internally (byte-identical), so no retrain / no golden change.
+# Full lockstep bump (pyproject [spadl] floor, TF analytics env `==`, uv.lock, exec_visibility + all
+# trainer/writer _REQUIRED_SK_MIN, submit_ac1_oneshot mirror).
 # Floor advanced 4.121.0 -> 4.123.0 (2026-09-22) for silly-kicks 4.123.0's ExpectedThreat.fit_from_counts
 # (SK-XT-COUNTS, ADR-102) — the distributed counts-based xT fit the ExT-grid producer rewrite needs (P2).
 # Carries 4.122.0's TF-63 xImpact ride-along (VAEP.rate_ximpact + win_probability; adopted for the
@@ -360,11 +370,11 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
 # Floor advanced 4.120.0 -> 4.121.0 (2026-09-21) for silly-kicks 4.121.0's ExpectedThreat serialize
 # seam (ADR-100): to_dict/from_dict/save/load — the cross-process xT transport the ExT-v2 fold needs
 # (fit wf-xt-grids on HF Jobs, reconstruct in territory_writer). Additive; no retrain, no re-materialize.
-# Matches the pyproject [spadl] pin `silly-kicks>=4.121.0,<5`.
+# Matches the pyproject [spadl] pin `silly-kicks>=4.133.0,<5`.
 
 
 def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
-    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 128, 0)`.
+    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (4, 133, 0)`.
 
     Per spec §2.10.5: the runtime check inside `main()` is not directly
     introspectable post-hoc, so we assert the constant. Code review covers
@@ -382,11 +392,11 @@ def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
         if not hasattr(trainer, "_REQUIRED_SK_MIN"):
             missing.append(item)
             continue
-        expected = (4, 128, 0)
+        expected = (4, 133, 0)
         actual = trainer._REQUIRED_SK_MIN
         if actual != expected:
             wrong_value[item] = actual
     assert not missing, (
-        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 128, 0)`: {missing}"
+        f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (4, 133, 0)`: {missing}"
     )
-    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 128, 0): {wrong_value}"
+    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (4, 133, 0): {wrong_value}"
