@@ -123,6 +123,13 @@ resource "databricks_job" "data_ingestion" {
     name    = "tracking_marts_providers"
     default = ""
   }
+  # tracking_marts drain: Stage-2 scoring-window override in frames (ADR-090). Empty => the in-code
+  # _TM_SCORE_WINDOW_FRAMES default. A runtime memory knob (output byte-identical at any window — neutrality)
+  # for the densest period-2 units that OOM Stage-2 scoring at the default; lower it without a wheel deploy.
+  parameter {
+    name    = "tracking_marts_score_window"
+    default = ""
+  }
   parameter {
     name    = "action_context_providers"
     default = ""
@@ -809,6 +816,8 @@ resource "databricks_job" "data_ingestion" {
             "--run-id", "{{tasks.preflight_tracking_marts.values.tracking_marts_run_id}}",
             # Per-game watchdog override (ADR-037 amendment); empty => in-code WATCHDOG_BUDGET_S=2700.
             "--watchdog-budget-s", "{{job.parameters.watchdog_budget_s}}",
+            # Stage-2 scoring-window override (ADR-090); empty => in-code _TM_SCORE_WINDOW_FRAMES.
+            "--score-window-frames", "{{job.parameters.tracking_marts_score_window}}",
           ]
         }
 
