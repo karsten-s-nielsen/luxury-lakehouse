@@ -38,6 +38,7 @@ import json
 import logging
 import os
 import sys
+from typing import Any
 
 import requests
 
@@ -214,53 +215,77 @@ def _reset_job(base_url: str, headers: dict[str, str], job_id: int, new_settings
 
 
 def _verify_post_apply(base_url: str, headers: dict[str, str], job_id: int) -> None:
-    """GET /api/2.1/jobs/get + assert every task's max_retries matches classifier intent.
+    """GET /api/2.1/jobs/get + assert the retry policy landed, to the extent the API can confirm it.
 
-    Without this verifier the patch is fire-and-forget — if Databricks ever
-    silently rewrites max_retries on its side (e.g. policy mutation, future
-    SDK regression, or the same Go omitempty issue resurfacing in a different
-    code path), the next prod failure would be the first signal.
+    **The GET cannot echo ``max_retries = 0``** — Databricks omits it on the response (server-side Go
+    ``omitempty``, not only the TF provider), so a stored 0 and an absent field are indistinguishable, and
+    absent behaves as retry (proven: GATE-0 run 941047587677694 had compute iterations at attempt_number=1
+    with max_retries=None). A GET-based ``actual == 0`` assertion therefore can NEVER pass for a compute task
+    (ADR-025 amendment). So this verifier asserts only GET-returnable facts:
 
-    Raises SystemExit on mismatch so the CI step (terraform-apply.yml) fails
-    loud and the PR cannot ship a partially-patched job.
+    1. every NON-ZERO intent (ingestion = 1) must round-trip via GET — catches a dead/partial reset;
+    2. no task may show an UNINTENDED POSITIVE retry count (a compute/intended-0 task reading >= 1);
+    3. intended-0 reading absent/None/0 is ACCEPTED (the API cannot distinguish a stored 0 from absent);
+    4. the round-trip guard (1) must have run on >= 1 non-zero task, else it proved nothing (vacuous) — a job
+       with no ingestion task or a classifier regression to all-0 would otherwise pass silently.
+
+    Whether a reset-sent 0 actually SUPPRESSES the retry is NOT confirmable here (write side only, guarded by
+    ``_patch_tasks`` unit tests); it is settled once by the ADR-025 effectiveness probe. A green verify means
+    "honest + the non-zero intents applied", NOT "compute retries suppressed". Raises SystemExit on failure so
+    terraform-apply.yml fails loud.
     """
     job = _get_job(base_url, headers, job_id)
     settings = job.get("settings", {})
     tasks = settings.get("tasks", [])
 
-    # absent read as None (NOT 0): an absent field means the platform default (1 retry) is in
-    # effect, so verification MUST fail on absence when intended=0 — otherwise the reset silently
-    # not persisting the explicit 0 (or never being sent) passes undetected, as it did pre-fix.
     mismatches: list[str] = []
+    n_nonzero_verified = 0  # the round-trip guard (1) must run on >= 1 non-zero task (non-vacuity, point 4)
+
+    def _check(key: str, actual: Any, label: str) -> None:
+        nonlocal n_nonzero_verified
+        intended = _classify_task(key)
+        if intended != 0:
+            # non-zero intent (ingestion = 1) MUST round-trip via GET (catches a dead/partial reset).
+            n_nonzero_verified += 1
+            if actual != intended:
+                mismatches.append(f"  {label}: actual={actual} intended={intended} (non-zero intent must round-trip)")
+        elif actual is not None and int(actual) > 0:
+            # intended 0: absent/None/0 accepted (GET omits a stored 0); only a POSITIVE value is a defect.
+            mismatches.append(f"  {label}: actual={actual} intended=0 (unintended positive retries)")
+
     for task in tasks:
         task_key = task.get("task_key", "")
-        actual = task.get("max_retries")
-        intended = _classify_task(task_key)
-        if actual != intended:
-            mismatches.append(f"  {task_key}: actual={actual} intended={intended}")
-
-        for_each = task.get("for_each_task", {})
-        inner_task = for_each.get("task", {})
+        _check(task_key, task.get("max_retries"), task_key)
+        inner_task = task.get("for_each_task", {}).get("task", {})
         if inner_task:
             inner_key = inner_task.get("task_key", "")
-            inner_actual = inner_task.get("max_retries")
-            inner_intended = _classify_task(inner_key)
-            if inner_actual != inner_intended:
-                mismatches.append(f"  {task_key}/{inner_key}: actual={inner_actual} intended={inner_intended}")
+            _check(inner_key, inner_task.get("max_retries"), f"{task_key}/{inner_key}")
 
-    if mismatches:
-        logger.error("Post-apply verification FAILED — job %d has tasks with wrong max_retries:", job_id)
-        for m in mismatches:
-            logger.error(m)
+    if n_nonzero_verified == 0:
         logger.error(
-            "The reset POST succeeded but the verification GET shows drift. "
-            "Either a) Databricks rewrote max_retries server-side, b) the Go omitempty "
-            "regression has resurfaced in another code path, or c) the classifier disagrees "
-            "with the platform's saved state. Investigate before re-running."
+            "Post-apply verification VACUOUS — the round-trip guard checked 0 non-zero-intent tasks "
+            "(no ingestion max_retries=1 task found). The classifier or job shape changed; the honest verify "
+            "must not pass while proving nothing. Investigate the classifier / job definition before re-running."
         )
         sys.exit(1)
 
-    logger.info("Post-apply verification OK — %d task(s) match classifier intent", len(tasks))
+    if mismatches:
+        logger.error("Post-apply verification FAILED — job %d has tasks with the wrong max_retries:", job_id)
+        for m in mismatches:
+            logger.error(m)
+        logger.error(
+            "Non-zero intents (ingestion=1) must round-trip via GET, and no task may show a POSITIVE retry "
+            "count it should not. NOTE: Databricks omits max_retries=0 on GET (server-side omitempty), so an "
+            "intended-0 task reading absent/None is EXPECTED + accepted here — the effectiveness of the 0 is "
+            "settled by the ADR-025 probe, not this GET. Investigate the listed mismatches before re-running."
+        )
+        sys.exit(1)
+
+    logger.info(
+        "Post-apply verification OK — %d non-zero-intent task(s) round-tripped; no unintended positive retries "
+        "(intended-0 tasks read absent per Databricks GET omitempty).",
+        n_nonzero_verified,
+    )
 
 
 def main() -> None:

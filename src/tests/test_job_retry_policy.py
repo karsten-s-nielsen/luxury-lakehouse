@@ -150,27 +150,88 @@ def test_absent_ingestion_max_retries_is_patched_to_one() -> None:
     assert settings["tasks"][0]["max_retries"] == 1, f"absent ingestion ({key}) max_retries must be set to explicit 1"
 
 
-# ── _verify_post_apply detector is NON-VACUOUS (guards-that-cannot-fail) ──
-# The post-apply verifier is the fail-loud backstop: if the reset POST silently did not persist the
-# explicit 0 (the GATE-0 class — the field stays absent => platform default 1), the verifier MUST raise.
-# Watch it FAIL on the exact GATE-0 condition (absent compute max_retries) before trusting the GREEN below;
-# a verifier that passes on absence would be vacuous (it must read absent as None != intended 0).
+# ── _verify_post_apply — honest verify + non-vacuity (patch_job_retries verify fix, ADR-025 amendment) ──
+# Databricks omits max_retries=0 on the Jobs GET (server-side omitempty), so a stored 0 and an absent field
+# are indistinguishable on read-back, and absent behaves as retry (GATE-0 proof). A GET-based `actual == 0`
+# assertion therefore can NEVER pass for a compute task — the #611 absent-compute-RAISES test was wrong and
+# is replaced below. The verify asserts only GET-returnable facts: every NON-ZERO intent (ingestion=1)
+# round-trips; no task shows an unintended POSITIVE retry count; intended-0 reading absent/None/0 is accepted;
+# and the round-trip guard ran on >= 1 non-zero task (else vacuous). Watch each raise-test fail on the wrong
+# state before trusting the pass.
 
 
-def test_verify_post_apply_raises_on_absent_compute_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+def _ingestion_key() -> str:
+    from scripts.patch_job_retries import _INGESTION_TASK_KEYS
+
+    return next(iter(_INGESTION_TASK_KEYS))  # a real intended-1 task, so a fixture is non-vacuous
+
+
+def test_verify_post_apply_passes_on_real_post_reset_shape(monkeypatch: pytest.MonkeyPatch) -> None:
     import scripts.patch_job_retries as p
 
-    # compute task with max_retries ABSENT (== the GATE-0 deployed state: platform default 1).
-    job = {"settings": {"tasks": [{"task_key": "compute_tracking_marts_iteration"}]}}
+    # The real live shape (production for_each inners): compute reads ABSENT (GET omits the stored 0) — accepted;
+    # ingestion = 1 round-trips → non-vacuous. Under the #611 verify this RAISED (absent != 0); now it must PASS.
+    job = {
+        "settings": {
+            "tasks": [
+                {"task_key": "cmp", "for_each_task": {"task": {"task_key": "compute_tracking_marts_iteration"}}},
+                {"task_key": "ing", "for_each_task": {"task": {"task_key": _ingestion_key(), "max_retries": 1}}},
+            ]
+        }
+    }
+    monkeypatch.setattr(p, "_get_job", lambda base_url, headers, job_id: job)
+    p._verify_post_apply("https://host", {}, 123)  # no raise
+
+
+def test_verify_post_apply_accepts_explicit_zero_compute(monkeypatch: pytest.MonkeyPatch) -> None:
+    import scripts.patch_job_retries as p
+
+    # An explicit 0 on compute is also accepted (0 is not a positive retry count); ingestion=1 keeps it non-vacuous.
+    job = {
+        "settings": {
+            "tasks": [
+                {"task_key": "compute_tracking_marts_iteration", "max_retries": 0},
+                {"task_key": _ingestion_key(), "max_retries": 1},
+            ]
+        }
+    }
+    monkeypatch.setattr(p, "_get_job", lambda base_url, headers, job_id: job)
+    p._verify_post_apply("https://host", {}, 123)  # no raise
+
+
+def test_verify_post_apply_raises_when_nonzero_intent_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    import scripts.patch_job_retries as p
+
+    # An ingestion (intended-1) task reading None = the reset did NOT land the 1 (the real failure mode).
+    job = {"settings": {"tasks": [{"task_key": _ingestion_key()}]}}  # absent, intended 1
     monkeypatch.setattr(p, "_get_job", lambda base_url, headers, job_id: job)
     with pytest.raises(SystemExit):
         p._verify_post_apply("https://host", {}, 123)
 
 
-def test_verify_post_apply_passes_on_explicit_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_verify_post_apply_raises_on_unintended_positive_retries(monkeypatch: pytest.MonkeyPatch) -> None:
     import scripts.patch_job_retries as p
 
-    # the FIXED state: compute task carries an explicit 0 → verifier must NOT raise (non-vacuity: it can pass).
-    job = {"settings": {"tasks": [{"task_key": "compute_tracking_marts_iteration", "max_retries": 0}]}}
+    # A compute (intended-0) task showing a POSITIVE retry count = drift toward retries.
+    job = {
+        "settings": {
+            "tasks": [
+                {"task_key": "compute_tracking_marts_iteration", "max_retries": 2},
+                {"task_key": _ingestion_key(), "max_retries": 1},  # non-vacuous
+            ]
+        }
+    }
     monkeypatch.setattr(p, "_get_job", lambda base_url, headers, job_id: job)
-    p._verify_post_apply("https://host", {}, 123)  # no raise
+    with pytest.raises(SystemExit):
+        p._verify_post_apply("https://host", {}, 123)
+
+
+def test_verify_post_apply_raises_when_no_nonzero_task_checked(monkeypatch: pytest.MonkeyPatch) -> None:
+    import scripts.patch_job_retries as p
+
+    # All-compute job (no ingestion) → the round-trip guard checked 0 non-zero tasks → vacuous → RAISE
+    # (B-PJR-SPEC-01 / HFW-SPEC-03: the honest verify must not pass while proving nothing).
+    job = {"settings": {"tasks": [{"task_key": "compute_tracking_marts_iteration"}, {"task_key": "duels_writer"}]}}
+    monkeypatch.setattr(p, "_get_job", lambda base_url, headers, job_id: job)
+    with pytest.raises(SystemExit):
+        p._verify_post_apply("https://host", {}, 123)

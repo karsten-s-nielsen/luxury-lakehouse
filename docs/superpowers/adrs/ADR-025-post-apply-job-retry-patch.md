@@ -44,6 +44,18 @@ A post-apply Python script (`scripts/patch_job_retries.py`) reads the job via th
 
 - When the provider eventually ships the `*int` pointer fix, the script becomes a no-op (all tasks already at intended values) and can be removed. No rush to remove — it's idempotent.
 
+## Amendment (2026-10-13) — the omitempty is SERVER-side; the verify cannot echo-check 0
+
+The original decision assumed the REST script could set a verifiable `max_retries = 0` where the TF provider's `omitempty` dropped it. When `scripts/patch_job_retries._verify_post_apply` first ran live (post-#611, which fixed the earlier `.get("max_retries", 0)` read bug that had no-op'd the reset), it RAISED: every compute task read back `max_retries = None`. Investigation (read-only, 2026-10-13):
+
+- **The `omitempty` is also SERVER-side.** The Databricks Jobs 2.1 GET response omits `max_retries = 0`, so a stored 0 and an absent field are indistinguishable on read-back. A GET-based `actual == 0` assertion can never pass for a compute task.
+- **Absent does retry** (confirmed empirically): GATE-0 run `941047587677694` had `compute_tracking_marts_iteration` runs at `attempt_number = 1` with `max_retries = None` — corroborating this ADR's 2026-05-15 instance.
+
+**Consequences of the amendment:**
+- **Write/read guard split.** "We sent 0" is checkable only on the WRITE side (`_patch_tasks` + its unit tests). The READ side (GET) cannot confirm it. `_verify_post_apply` therefore asserts only GET-returnable facts: non-zero intents (ingestion = 1) round-trip, no task shows an unintended POSITIVE retry count, and the round-trip guard ran on ≥ 1 non-zero task (non-vacuity); it does NOT assert an intended-0 task reads back 0.
+- **A green terraform-apply means "the verify is honest + the non-zero intents applied" — NOT "compute retries are suppressed."** Whether a reset-sent 0 actually suppresses the retry is settled by a one-time effectiveness probe (a throwaway `for_each`-wrapped always-failing task, `max_retries = 0`, read the iteration `attempt_number`); separate post-merge approval. If the probe shows the 0 is not honored, this ADR is **superseded-in-part** (the REST script cannot fix what the API will not persist; the retry-storm backstop is the ADR-087 circuit-breaker, which covers storms but not the single-retry waste this ADR targets).
+- Spec/plan: `docs/superpowers/specs/2026-10-13-patch-job-retries-verify-omitempty-design.md` (+ plan).
+
 ## Related
 
 - **Specs:** `docs/superpowers/specs/2026-05-15-metrica-tracking-fixes-design.md`
