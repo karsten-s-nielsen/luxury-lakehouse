@@ -1,0 +1,227 @@
+{
+ "provider": "skillcorner",
+ "players": [
+  {
+   "id": "1000644",
+   "visibility": "public",
+   "updated_at": "2026-09-10T01:16:23Z",
+   "firstName": "Mathias",
+   "lastName": "Macallister",
+   "nickname": "M. Macallister",
+   "dob": "2007-04-12",
+   "position": "Substitute",
+   "positionGroupType": "Other",
+   "source": {
+    "name": "SkillCorner Open Data",
+    "url": "https://github.com/SkillCorner/opendata",
+    "licence": "MIT"
+   }
+  },
+  {
+   "id": "1002177",
+   "visibility": "public",
+   "updated_at": "2026-09-10T01:16:23Z",
+   "firstName": "Harry",
+   "lastName": "Crawford",
+   "nickname": "H. Crawford",
+   "dob": "2007-02-03",
+   "position": "Right Winger",
+   "positionGroupType": "Wide Attacker",
+   "source": {
+    "name": "SkillCorner Open Data",
+    "url": "https://github.com/SkillCorner/opendata",
+    "licence": "MIT"
+   }
+  },
+  {
+   "id": "1003833",
+   "visibility": "public",
+   "updated_at": "2026-09-10T01:16:23Z",
+   "firstName": "Lachlan",
+   "lastName": "Charles",
+   "nickname": "L. Charles",
+   "dob": "2007-04-24",
+   "position": "Substitute",
+   "positionGroupType": "Other",
+   "source": {
+    "name": "SkillCorner Open Data",
+    "url": "https://github.com/SkillCorner/opendata",
+    "licence": "MIT"
+   }
+  },
+  {
+   "id": "1008911",
+   "visibility": "public",
+   "updated_at": "2026-09-10T01:16:23Z",
+   "firstName": "Luka",
+   "lastName": "Didulica",
+   "nickname": "L. Didulica",
+   "dob": "2007-09-18",
+   "position": "Substitute",
+   "positionGroupType": "Other",
+   "source": {
+    "name": "SkillCorner Open Data",
+    "url": "https://github.com/SkillCorner/opendata",
+    "licence": "MIT"
+   }
+  },
+  {
+   "id": "104563",
+   "visibility": "public",
+   "updated_at": "2026-09-10T01:16:23Z",
+   "firstName": "Nathaniel",
+   "lastName": "Atkinson",
+   "nickname": "N. Atkinson",
+   "dob": "1999-06-13",
+   "position": "Right Back",
+   "positionGroupType": "Full Back",
+   "source": {
+    "name": "SkillCorner Open Data",
+    "url": "https://github.com/SkillCorner/opendata",
+    "licence": "MIT"
+   }
+  },
+  {
+   "id": "10549",
+   "visibility": "public",
+   "updated_at": "2026-09-10T01:16:23Z",
+   "firstName": "Trent",
+   "lastName": "Sainsbury",
+   "nickname": "T. Sainsbury",
+   "dob": "1992-01-05",
+   "position": "Center Back",
+   "positionGroupType": "Central Defender",
+   "source": {
+    "name": "SkillCorner Open Data",
+    "url": "https://github.com/SkillCorner/opendata",
+    "licence": "MIT"
+   }
+  },
+  {
+   "id": "10623",
+   "visibility": "public",
+   "updated_at": "2026-09-10T01:16:23Z",
+   "firstName": "Valère",
+   "lastName": "Germain",
+   "nickname": "V. Germain",
+   "dob": "1990-04-17",
+   "position": "Center Forward",
+   "positionGroupType": "Center Forward",
+   "source": {
+    "name": "SkillCorner Open Data",
+    "url": "https://github.com/SkillCorner/opendata",
+    "licence": "MIT"
+   }
+  },
+  {
+   "id": "11117",
+   "visibility": "public",
+   "updated_at": "2026-09-10T01:16:23Z",
+   "firstName": "Zinédine",
+   "lastName": "Machach",
+   "nickname": "Z. Machach",
+   "dob": "1996-01-05",
+   "position": "Attacking Midfield",
+   "positionGroupType": "Midfield",
+   "source": {
+    "name": "SkillCorner Open Data",
+    "url": "https://github.com/SkillCorner/opendata",
+    "licence": "MIT"
+   }
+  },
+  {
+   "id": "114464",
+   "visibility": "public",
+   "updated_at": "2026-09-10T01:16:23Z",
+   "firstName": "Germán Julio",
+   "lastName": "César Ferreyra",
+   "nickname": "G. Ferreyra",
+   "dob": "1996-01-13",
+   "position": "Right Center Back",
+   "positionGroupType": "Central Defender",
+   "source": {
+    "name": "SkillCorner Open Data",
+    "url": "https://github.com/SkillCorner/opendata",
+    "licence": "MIT"
+   }
+  },
+  {
+   "id": "11885",
+   "visibility": "public",
+   "updated_at": "2026-09-10T01:16:23Z",
+   "firstName": "Daniel",
+   "lastName": "Arzani",
+   "nickname": "D. Arzani",
+   "dob": "1999-01-04",
+   "position": "Right Winger",
+   "positionGroupType": "Wide Attacker",
+   "source": {
+    "name": "SkillCorner Open Data",
+    "url": "https://github.com/SkillCorner/opendata",
+    "licence": "MIT"
+   }
+  },
+  {
+   "id": "11891",
+   "visibility": "public",
+   "updated_at": "2026-09-10T01:16:23Z",
+   "firstName": "Aziz Eraltay",
+   "lastName": "Behich",
+   "nickname": "A. Behich",
+   "dob": "1990-12-16",
+   "position": "Left Back",
+   "positionGroupType": "Full Back",
+   "source": {
+    "name": "SkillCorner Open Data",
+    "url": "https://github.com/SkillCorner/opendata",
+    "licence": "MIT"
+   }
+  },
+  {
+   "id": "11895",
+   "visibility": "public",
+   "updated_at": "2026-09-10T01:16:23Z",
+   "firstName": "Matthew",
+   "lastName": "Jurman",
+   "nickname": "M. Jurman",
+   "dob": "1989-12-08",
+   "position": "Left Center Back",
+   "positionGroupType": "Central Defender",
+   "source": {
+    "name": "SkillCorner Open Data",
+    "url": "https://github.com/SkillCorner/opendata",
+    "licence": "MIT"
+   }
+  },
+  {
+   "id": "796478",
+   "visibility": "public",
+   "updated_at": "2026-09-10T01:16:23Z",
+   "firstName": "Joseph ",
+   "lastName": "Lacey ",
+   "nickname": "J. Lacey",
+   "position": "Substitute",
+   "positionGroupType": "Other",
+   "source": {
+    "name": "SkillCorner Open Data",
+    "url": "https://github.com/SkillCorner/opendata",
+    "licence": "MIT"
+   }
+  },
+  {
+   "id": "966125",
+   "visibility": "public",
+   "updated_at": "2026-09-10T01:16:23Z",
+   "firstName": "Will ",
+   "lastName": "Dobson",
+   "nickname": "W. Will Dobson",
+   "position": "Substitute",
+   "positionGroupType": "Other",
+   "source": {
+    "name": "SkillCorner Open Data",
+    "url": "https://github.com/SkillCorner/opendata",
+    "licence": "MIT"
+   }
+  }
+ ]
+}

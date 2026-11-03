@@ -1,0 +1,51 @@
+name: v2 CI
+
+on:
+  push:
+    paths:
+      - "v2/**"
+      - ".github/workflows/v2-ci.yml"
+  pull_request:
+    paths:
+      - "v2/**"
+      - ".github/workflows/v2-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: v2 checks (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    defaults:
+      run:
+        working-directory: v2
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install Python 3.12
+        run: uv python install 3.12
+      - name: Sync the locked environment
+        run: uv sync --locked
+      - name: ruff check
+        run: uv run ruff check .
+      - name: ruff format
+        run: uv run ruff format --check .
+      - name: pyright
+        run: uv run pyright
+      - name: import-linter
+        run: uv run lint-imports
+      - name: pytest (default tier)
+        run: uv run pytest -m "not live and not hf and not bench"
+        env:
+          # the OS tests install and remove a real user-level task of this runner's OS (plan Task 24)
+          LAKEHOUSE_OS_TESTS: "1"
+      - name: pip-audit
+        run: uv run python scripts/pip_audit.py

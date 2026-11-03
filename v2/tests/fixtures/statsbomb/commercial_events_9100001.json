@@ -1,0 +1,1178 @@
+[
+ {
+  "index": 0,
+  "period": 1,
+  "timestamp": "00:00:00.000",
+  "minute": 0,
+  "second": 0,
+  "type": {
+   "id": 35,
+   "name": "Starting XI"
+  },
+  "possession": 1,
+  "possession_team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "play_pattern": {
+   "id": 1,
+   "name": "Regular Play"
+  },
+  "team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "duration": 0.0,
+  "id": "00000000-0000-4000-8000-000000000000",
+  "tactics": {
+   "formation": 442,
+   "lineup": [
+    {
+     "player": {
+      "id": 5501,
+      "name": "Ana Example"
+     },
+     "position": {
+      "id": 1,
+      "name": "Goalkeeper"
+     },
+     "jersey_number": 1
+    },
+    {
+     "player": {
+      "id": 5502,
+      "name": "Bo Sample"
+     },
+     "position": {
+      "id": 2,
+      "name": "Goalkeeper"
+     },
+     "jersey_number": 2
+    },
+    {
+     "player": {
+      "id": 5503,
+      "name": "Cé Placeholder"
+     },
+     "position": {
+      "id": 3,
+      "name": "Goalkeeper"
+     },
+     "jersey_number": 3
+    },
+    {
+     "player": {
+      "id": 5504,
+      "name": "Dürer Test"
+     },
+     "position": {
+      "id": 4,
+      "name": "Goalkeeper"
+     },
+     "jersey_number": 4
+    }
+   ]
+  },
+  "off_camera": true,
+  "out": true,
+  "counterpress": true,
+  "obv_for_after": 0.0123456789,
+  "obv_for_before": 0.0112233445,
+  "obv_for_net": 0.0,
+  "obv_against_after": 0.0021436587,
+  "obv_against_before": 0.002,
+  "obv_against_net": null,
+  "obv_total_net": 0.0011122233
+ },
+ {
+  "index": 1,
+  "period": 1,
+  "timestamp": "00:00:01.001",
+  "minute": 0,
+  "second": 1,
+  "type": {
+   "id": 35,
+   "name": "Starting XI"
+  },
+  "possession": 1,
+  "possession_team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "play_pattern": {
+   "id": 1,
+   "name": "Regular Play"
+  },
+  "team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "duration": 0.0,
+  "id": "00000000-0000-4000-8000-000000000001",
+  "player": {
+   "id": 5502,
+   "name": "Bo Sample"
+  },
+  "position": {
+   "id": 5,
+   "name": "Left Center Back"
+  },
+  "location": [
+   60.5,
+   40.1
+  ],
+  "under_pressure": true,
+  "related_events": [
+   "00000000-0000-4000-8000-000000000001"
+  ],
+  "50_50": {
+   "outcome": {
+    "id": 3,
+    "name": "synthetic name"
+   }
+  },
+  "obv_for_after": 0.0123456789,
+  "obv_for_before": 0.0112233445,
+  "obv_for_net": 1.1e-05,
+  "obv_against_after": 0.0021436587,
+  "obv_against_before": 0.002,
+  "obv_against_net": -0.0001,
+  "obv_total_net": 0.0011122233
+ },
+ {
+  "index": 2,
+  "period": 1,
+  "timestamp": "00:00:02.002",
+  "minute": 0,
+  "second": 2,
+  "type": {
+   "id": 35,
+   "name": "Starting XI"
+  },
+  "possession": 1,
+  "possession_team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "play_pattern": {
+   "id": 1,
+   "name": "Regular Play"
+  },
+  "team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "duration": 0.0,
+  "id": "00000000-0000-4000-8000-000000000002",
+  "player": {
+   "id": 5503,
+   "name": "Cé Placeholder"
+  },
+  "position": {
+   "id": 5,
+   "name": "Left Center Back"
+  },
+  "location": [
+   60.5,
+   40.1
+  ],
+  "under_pressure": true,
+  "related_events": [
+   "00000000-0000-4000-8000-000000000001"
+  ],
+  "bad_behaviour": {
+   "card": {
+    "id": 3,
+    "name": "synthetic name"
+   }
+  },
+  "obv_for_after": 0.0123456789,
+  "obv_for_before": 0.0112233445,
+  "obv_for_net": 0.0,
+  "obv_against_after": 0.0021436587,
+  "obv_against_before": 0.002,
+  "obv_against_net": -0.0001,
+  "obv_total_net": 0.0011122233
+ },
+ {
+  "index": 3,
+  "period": 1,
+  "timestamp": "00:00:03.003",
+  "minute": 0,
+  "second": 3,
+  "type": {
+   "id": 35,
+   "name": "Starting XI"
+  },
+  "possession": 1,
+  "possession_team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "play_pattern": {
+   "id": 1,
+   "name": "Regular Play"
+  },
+  "team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "duration": 0.0,
+  "id": "00000000-0000-4000-8000-000000000003",
+  "player": {
+   "id": 5504,
+   "name": "Dürer Test"
+  },
+  "position": {
+   "id": 5,
+   "name": "Left Center Back"
+  },
+  "location": [
+   60.5,
+   40.1
+  ],
+  "under_pressure": true,
+  "related_events": [
+   "00000000-0000-4000-8000-000000000001"
+  ],
+  "ball_receipt": {
+   "outcome": {
+    "id": 3,
+    "name": "synthetic name"
+   }
+  }
+ },
+ {
+  "index": 4,
+  "period": 1,
+  "timestamp": "00:00:04.004",
+  "minute": 0,
+  "second": 4,
+  "type": {
+   "id": 35,
+   "name": "Starting XI"
+  },
+  "possession": 1,
+  "possession_team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "play_pattern": {
+   "id": 1,
+   "name": "Regular Play"
+  },
+  "team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "duration": 0.0,
+  "id": "00000000-0000-4000-8000-000000000004",
+  "player": {
+   "id": 5501,
+   "name": "Ana Example"
+  },
+  "position": {
+   "id": 5,
+   "name": "Left Center Back"
+  },
+  "location": [
+   60.5,
+   40.1
+  ],
+  "under_pressure": true,
+  "related_events": [
+   "00000000-0000-4000-8000-000000000001"
+  ],
+  "ball_recovery": {
+   "offensive": true,
+   "recovery_failure": true
+  },
+  "obv_for_after": 0.0123456789,
+  "obv_for_before": 0.0112233445,
+  "obv_for_net": 0.0,
+  "obv_against_after": 0.0021436587,
+  "obv_against_before": 0.002,
+  "obv_against_net": -0.0001,
+  "obv_total_net": 0.0011122233
+ },
+ {
+  "index": 5,
+  "period": 1,
+  "timestamp": "00:00:05.005",
+  "minute": 0,
+  "second": 5,
+  "type": {
+   "id": 35,
+   "name": "Starting XI"
+  },
+  "possession": 1,
+  "possession_team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "play_pattern": {
+   "id": 1,
+   "name": "Regular Play"
+  },
+  "team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "duration": 0.0,
+  "id": "00000000-0000-4000-8000-000000000005",
+  "player": {
+   "id": 5502,
+   "name": "Bo Sample"
+  },
+  "position": {
+   "id": 5,
+   "name": "Left Center Back"
+  },
+  "location": [
+   60.5,
+   40.1
+  ],
+  "under_pressure": true,
+  "related_events": [
+   "00000000-0000-4000-8000-000000000001"
+  ],
+  "block": {
+   "deflection": true,
+   "offensive": true
+  },
+  "obv_for_after": 0.0123456789,
+  "obv_for_before": 0.0112233445,
+  "obv_for_net": 1.1e-05,
+  "obv_against_after": 0.0021436587,
+  "obv_against_before": 0.002,
+  "obv_against_net": -0.0001,
+  "obv_total_net": 0.0011122233
+ },
+ {
+  "index": 6,
+  "period": 1,
+  "timestamp": "00:00:06.006",
+  "minute": 0,
+  "second": 6,
+  "type": {
+   "id": 35,
+   "name": "Starting XI"
+  },
+  "possession": 1,
+  "possession_team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "play_pattern": {
+   "id": 1,
+   "name": "Regular Play"
+  },
+  "team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "duration": 0.0,
+  "id": "00000000-0000-4000-8000-000000000006",
+  "player": {
+   "id": 5503,
+   "name": "Cé Placeholder"
+  },
+  "position": {
+   "id": 5,
+   "name": "Left Center Back"
+  },
+  "location": [
+   60.5,
+   40.1
+  ],
+  "under_pressure": true,
+  "related_events": [
+   "00000000-0000-4000-8000-000000000001"
+  ],
+  "carry": {
+   "end_location": [
+    60.5,
+    40.25
+   ]
+  },
+  "obv_for_after": 0.0123456789,
+  "obv_for_before": 0.0112233445,
+  "obv_for_net": 0.0,
+  "obv_against_after": 0.0021436587,
+  "obv_against_before": 0.002,
+  "obv_against_net": -0.0001,
+  "obv_total_net": 0.0011122233
+ },
+ {
+  "index": 7,
+  "period": 1,
+  "timestamp": "00:00:07.007",
+  "minute": 0,
+  "second": 7,
+  "type": {
+   "id": 35,
+   "name": "Starting XI"
+  },
+  "possession": 1,
+  "possession_team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "play_pattern": {
+   "id": 1,
+   "name": "Regular Play"
+  },
+  "team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "duration": 0.0,
+  "id": "00000000-0000-4000-8000-000000000007",
+  "player": {
+   "id": 5504,
+   "name": "Dürer Test"
+  },
+  "position": {
+   "id": 5,
+   "name": "Left Center Back"
+  },
+  "location": [
+   60.5,
+   40.1
+  ],
+  "under_pressure": true,
+  "related_events": [
+   "00000000-0000-4000-8000-000000000001"
+  ],
+  "clearance": {
+   "aerial_won": true,
+   "body_part": {
+    "id": 3,
+    "name": "synthetic name"
+   },
+   "head": true,
+   "left_foot": true,
+   "other": true,
+   "right_foot": true
+  }
+ },
+ {
+  "index": 8,
+  "period": 1,
+  "timestamp": "00:00:08.008",
+  "minute": 0,
+  "second": 8,
+  "type": {
+   "id": 35,
+   "name": "Starting XI"
+  },
+  "possession": 1,
+  "possession_team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "play_pattern": {
+   "id": 1,
+   "name": "Regular Play"
+  },
+  "team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "duration": 0.0,
+  "id": "00000000-0000-4000-8000-000000000008",
+  "player": {
+   "id": 5501,
+   "name": "Ana Example"
+  },
+  "position": {
+   "id": 5,
+   "name": "Left Center Back"
+  },
+  "location": [
+   60.5,
+   40.1
+  ],
+  "under_pressure": true,
+  "related_events": [
+   "00000000-0000-4000-8000-000000000001"
+  ],
+  "dribble": {
+   "no_touch": true,
+   "nutmeg": true,
+   "outcome": {
+    "id": 3,
+    "name": "synthetic name"
+   },
+   "overrun": true
+  },
+  "obv_for_after": 0.0123456789,
+  "obv_for_before": 0.0112233445,
+  "obv_for_net": 0.0,
+  "obv_against_after": 0.0021436587,
+  "obv_against_before": 0.002,
+  "obv_against_net": -0.0001,
+  "obv_total_net": 0.0011122233
+ },
+ {
+  "index": 9,
+  "period": 1,
+  "timestamp": "00:00:09.009",
+  "minute": 0,
+  "second": 9,
+  "type": {
+   "id": 35,
+   "name": "Starting XI"
+  },
+  "possession": 1,
+  "possession_team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "play_pattern": {
+   "id": 1,
+   "name": "Regular Play"
+  },
+  "team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "duration": 0.0,
+  "id": "00000000-0000-4000-8000-000000000009",
+  "player": {
+   "id": 5502,
+   "name": "Bo Sample"
+  },
+  "position": {
+   "id": 5,
+   "name": "Left Center Back"
+  },
+  "location": [
+   60.5,
+   40.1
+  ],
+  "under_pressure": true,
+  "related_events": [
+   "00000000-0000-4000-8000-000000000001"
+  ],
+  "duel": {
+   "outcome": {
+    "id": 3,
+    "name": "synthetic name"
+   },
+   "type": {
+    "id": 3,
+    "name": "synthetic name"
+   }
+  },
+  "obv_for_after": 0.0123456789,
+  "obv_for_before": 0.0112233445,
+  "obv_for_net": 1.1e-05,
+  "obv_against_after": 0.0021436587,
+  "obv_against_before": 0.002,
+  "obv_against_net": -0.0001,
+  "obv_total_net": 0.0011122233
+ },
+ {
+  "index": 10,
+  "period": 1,
+  "timestamp": "00:00:10.010",
+  "minute": 0,
+  "second": 10,
+  "type": {
+   "id": 35,
+   "name": "Starting XI"
+  },
+  "possession": 1,
+  "possession_team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "play_pattern": {
+   "id": 1,
+   "name": "Regular Play"
+  },
+  "team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "duration": 0.0,
+  "id": "00000000-0000-4000-8000-000000000010",
+  "player": {
+   "id": 5503,
+   "name": "Cé Placeholder"
+  },
+  "position": {
+   "id": 5,
+   "name": "Left Center Back"
+  },
+  "location": [
+   60.5,
+   40.1
+  ],
+  "under_pressure": true,
+  "related_events": [
+   "00000000-0000-4000-8000-000000000001"
+  ],
+  "foul_committed": {
+   "advantage": true,
+   "card": {
+    "id": 3,
+    "name": "synthetic name"
+   },
+   "offensive": true,
+   "penalty": true,
+   "type": {
+    "id": 3,
+    "name": "synthetic name"
+   }
+  },
+  "obv_for_after": 0.0123456789,
+  "obv_for_before": 0.0112233445,
+  "obv_for_net": 0.0,
+  "obv_against_after": 0.0021436587,
+  "obv_against_before": 0.002,
+  "obv_against_net": -0.0001,
+  "obv_total_net": 0.0011122233
+ },
+ {
+  "index": 11,
+  "period": 1,
+  "timestamp": "00:00:11.011",
+  "minute": 0,
+  "second": 11,
+  "type": {
+   "id": 35,
+   "name": "Starting XI"
+  },
+  "possession": 1,
+  "possession_team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "play_pattern": {
+   "id": 1,
+   "name": "Regular Play"
+  },
+  "team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "duration": 0.0,
+  "id": "00000000-0000-4000-8000-000000000011",
+  "player": {
+   "id": 5504,
+   "name": "Dürer Test"
+  },
+  "position": {
+   "id": 5,
+   "name": "Left Center Back"
+  },
+  "location": [
+   60.5,
+   40.1
+  ],
+  "under_pressure": true,
+  "related_events": [
+   "00000000-0000-4000-8000-000000000001"
+  ],
+  "foul_won": {
+   "advantage": true,
+   "defensive": true,
+   "penalty": true
+  }
+ },
+ {
+  "index": 12,
+  "period": 1,
+  "timestamp": "00:00:12.012",
+  "minute": 0,
+  "second": 12,
+  "type": {
+   "id": 35,
+   "name": "Starting XI"
+  },
+  "possession": 1,
+  "possession_team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "play_pattern": {
+   "id": 1,
+   "name": "Regular Play"
+  },
+  "team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "duration": 0.0,
+  "id": "00000000-0000-4000-8000-000000000012",
+  "player": {
+   "id": 5501,
+   "name": "Ana Example"
+  },
+  "position": {
+   "id": 5,
+   "name": "Left Center Back"
+  },
+  "location": [
+   60.5,
+   40.1
+  ],
+  "under_pressure": true,
+  "related_events": [
+   "00000000-0000-4000-8000-000000000001"
+  ],
+  "goalkeeper": {
+   "body_part": {
+    "id": 3,
+    "name": "synthetic name"
+   },
+   "end_location": [
+    60.5,
+    40.25
+   ],
+   "outcome": {
+    "id": 3,
+    "name": "synthetic name"
+   },
+   "position": {
+    "id": 3,
+    "name": "synthetic name"
+   },
+   "shot_saved_to_post": true,
+   "technique": {
+    "id": 3,
+    "name": "synthetic name"
+   },
+   "type": {
+    "id": 3,
+    "name": "synthetic name"
+   },
+   "success_out": true
+  },
+  "obv_for_after": 0.0123456789,
+  "obv_for_before": 0.0112233445,
+  "obv_for_net": 0.0,
+  "obv_against_after": 0.0021436587,
+  "obv_against_before": 0.002,
+  "obv_against_net": -0.0001,
+  "obv_total_net": 0.0011122233
+ },
+ {
+  "index": 13,
+  "period": 1,
+  "timestamp": "00:00:13.013",
+  "minute": 0,
+  "second": 13,
+  "type": {
+   "id": 35,
+   "name": "Starting XI"
+  },
+  "possession": 1,
+  "possession_team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "play_pattern": {
+   "id": 1,
+   "name": "Regular Play"
+  },
+  "team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "duration": 0.0,
+  "id": "00000000-0000-4000-8000-000000000013",
+  "player": {
+   "id": 5502,
+   "name": "Bo Sample"
+  },
+  "position": {
+   "id": 5,
+   "name": "Left Center Back"
+  },
+  "location": [
+   60.5,
+   40.1
+  ],
+  "under_pressure": true,
+  "related_events": [
+   "00000000-0000-4000-8000-000000000001"
+  ],
+  "injury_stoppage": {
+   "in_chain": true
+  },
+  "obv_for_after": 0.0123456789,
+  "obv_for_before": 0.0112233445,
+  "obv_for_net": 1.1e-05,
+  "obv_against_after": 0.0021436587,
+  "obv_against_before": 0.002,
+  "obv_against_net": -0.0001,
+  "obv_total_net": 0.0011122233
+ },
+ {
+  "index": 14,
+  "period": 1,
+  "timestamp": "00:00:14.014",
+  "minute": 0,
+  "second": 14,
+  "type": {
+   "id": 35,
+   "name": "Starting XI"
+  },
+  "possession": 1,
+  "possession_team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "play_pattern": {
+   "id": 1,
+   "name": "Regular Play"
+  },
+  "team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "duration": 0.0,
+  "id": "00000000-0000-4000-8000-000000000014",
+  "player": {
+   "id": 5503,
+   "name": "Cé Placeholder"
+  },
+  "position": {
+   "id": 5,
+   "name": "Left Center Back"
+  },
+  "location": [
+   60.5,
+   40.1
+  ],
+  "under_pressure": true,
+  "related_events": [
+   "00000000-0000-4000-8000-000000000001"
+  ],
+  "interception": {
+   "outcome": {
+    "id": 3,
+    "name": "synthetic name"
+   }
+  },
+  "obv_for_after": 0.0123456789,
+  "obv_for_before": 0.0112233445,
+  "obv_for_net": 0.0,
+  "obv_against_after": 0.0021436587,
+  "obv_against_before": 0.002,
+  "obv_against_net": -0.0001,
+  "obv_total_net": 0.0011122233
+ },
+ {
+  "index": 15,
+  "period": 1,
+  "timestamp": "00:00:15.015",
+  "minute": 0,
+  "second": 15,
+  "type": {
+   "id": 35,
+   "name": "Starting XI"
+  },
+  "possession": 1,
+  "possession_team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "play_pattern": {
+   "id": 1,
+   "name": "Regular Play"
+  },
+  "team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "duration": 0.0,
+  "id": "00000000-0000-4000-8000-000000000015",
+  "player": {
+   "id": 5504,
+   "name": "Dürer Test"
+  },
+  "position": {
+   "id": 5,
+   "name": "Left Center Back"
+  },
+  "location": [
+   60.5,
+   40.1
+  ],
+  "under_pressure": true,
+  "related_events": [
+   "00000000-0000-4000-8000-000000000001"
+  ],
+  "miscontrol": {
+   "aerial_won": true
+  }
+ },
+ {
+  "index": 16,
+  "period": 1,
+  "timestamp": "00:00:16.016",
+  "minute": 0,
+  "second": 16,
+  "type": {
+   "id": 35,
+   "name": "Starting XI"
+  },
+  "possession": 1,
+  "possession_team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "play_pattern": {
+   "id": 1,
+   "name": "Regular Play"
+  },
+  "team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "duration": 0.0,
+  "id": "00000000-0000-4000-8000-000000000016",
+  "player": {
+   "id": 5501,
+   "name": "Ana Example"
+  },
+  "position": {
+   "id": 5,
+   "name": "Left Center Back"
+  },
+  "location": [
+   60.5,
+   40.1
+  ],
+  "under_pressure": true,
+  "related_events": [
+   "00000000-0000-4000-8000-000000000001"
+  ],
+  "pass": {
+   "aerial_won": true,
+   "angle": 12.5,
+   "assisted_shot_id": "synthetic assisted_shot_id",
+   "backheel": true,
+   "body_part": {
+    "id": 3,
+    "name": "synthetic name"
+   },
+   "cross": true,
+   "cut_back": true,
+   "deflected": true,
+   "end_location": [
+    60.5,
+    40.25
+   ],
+   "goal_assist": true,
+   "height": {
+    "id": 3,
+    "name": "synthetic name"
+   },
+   "inswinging": true,
+   "length": 12.5,
+   "miscommunication": true,
+   "no_touch": true,
+   "outcome": {
+    "id": 3,
+    "name": "synthetic name"
+   },
+   "outswinging": true,
+   "recipient": {
+    "id": 3,
+    "name": "synthetic name"
+   },
+   "shot_assist": true,
+   "straight": true,
+   "switch": true,
+   "technique": {
+    "id": 3,
+    "name": "synthetic name"
+   },
+   "through_ball": true,
+   "type": {
+    "id": 3,
+    "name": "synthetic name"
+   },
+   "pass_cluster_id": 12,
+   "pass_cluster_label": "Example cluster - short",
+   "pass_cluster_probability": 0.8123456789,
+   "pass_success_probability": 0.9012345678,
+   "xclaim": 0.0012345678
+  },
+  "obv_for_after": 0.0123456789,
+  "obv_for_before": 0.0112233445,
+  "obv_for_net": 0.0,
+  "obv_against_after": 0.0021436587,
+  "obv_against_before": 0.002,
+  "obv_against_net": -0.0001,
+  "obv_total_net": 0.0011122233
+ },
+ {
+  "index": 21,
+  "period": 1,
+  "timestamp": "00:00:21.021",
+  "minute": 0,
+  "second": 21,
+  "type": {
+   "id": 35,
+   "name": "Starting XI"
+  },
+  "possession": 1,
+  "possession_team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "play_pattern": {
+   "id": 1,
+   "name": "Regular Play"
+  },
+  "team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "duration": 0.0,
+  "id": "00000000-0000-4000-8000-000000000021",
+  "player": {
+   "id": 5502,
+   "name": "Bo Sample"
+  },
+  "position": {
+   "id": 5,
+   "name": "Left Center Back"
+  },
+  "location": [
+   60.5,
+   40.1
+  ],
+  "under_pressure": true,
+  "related_events": [
+   "00000000-0000-4000-8000-000000000001"
+  ],
+  "shot": {
+   "aerial_won": true,
+   "body_part": {
+    "id": 3,
+    "name": "synthetic name"
+   },
+   "deflected": true,
+   "end_location": [
+    60.5,
+    40.25
+   ],
+   "first_time": true,
+   "freeze_frame": [
+    {
+     "location": [
+      60.5,
+      40.25
+     ],
+     "player": {
+      "id": 3,
+      "name": "synthetic name"
+     },
+     "position": {
+      "id": 3,
+      "name": "synthetic name"
+     },
+     "teammate": true
+    }
+   ],
+   "key_pass_id": "synthetic key_pass_id",
+   "one_on_one": true,
+   "open_goal": true,
+   "outcome": {
+    "id": 3,
+    "name": "synthetic name"
+   },
+   "redirect": true,
+   "saved_to_post": true,
+   "statsbomb_xg": 12.5,
+   "technique": {
+    "id": 3,
+    "name": "synthetic name"
+   },
+   "type": {
+    "id": 3,
+    "name": "synthetic name"
+   },
+   "gk_positioning_xg_suppression": -0.0123456789,
+   "gk_save_difficulty_xg": 0.2345678901,
+   "gk_shot_stopping_xg_suppression": 0.0345678901,
+   "shot_execution_xg": 0.4567890123,
+   "shot_execution_xg_uplift": 0.0567890123,
+   "shot_goal_assist": true,
+   "shot_shot_assist": true
+  },
+  "obv_for_after": 0.0123456789,
+  "obv_for_before": 0.0112233445,
+  "obv_for_net": 1.1e-05,
+  "obv_against_after": 0.0021436587,
+  "obv_against_before": 0.002,
+  "obv_against_net": -0.0001,
+  "obv_total_net": 0.0011122233
+ },
+ {
+  "index": 22,
+  "period": 1,
+  "timestamp": "00:00:22.022",
+  "minute": 0,
+  "second": 22,
+  "type": {
+   "id": 35,
+   "name": "Starting XI"
+  },
+  "possession": 1,
+  "possession_team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "play_pattern": {
+   "id": 1,
+   "name": "Regular Play"
+  },
+  "team": {
+   "id": 771,
+   "name": "Synthetic United"
+  },
+  "duration": 0.0,
+  "id": "00000000-0000-4000-8000-000000000022",
+  "player": {
+   "id": 5503,
+   "name": "Cé Placeholder"
+  },
+  "position": {
+   "id": 5,
+   "name": "Left Center Back"
+  },
+  "location": [
+   60.5,
+   40.1
+  ],
+  "under_pressure": true,
+  "related_events": [
+   "00000000-0000-4000-8000-000000000001"
+  ],
+  "substitution": {
+   "outcome": {
+    "id": 3,
+    "name": "synthetic name"
+   },
+   "replacement": {
+    "id": 3,
+    "name": "synthetic name"
+   }
+  },
+  "obv_for_after": 0.0123456789,
+  "obv_for_before": 0.0112233445,
+  "obv_for_net": 0.0,
+  "obv_against_after": 0.0021436587,
+  "obv_against_before": 0.002,
+  "obv_against_net": -0.0001,
+  "obv_total_net": 0.0011122233
+ }
+]

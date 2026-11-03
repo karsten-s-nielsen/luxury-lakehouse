@@ -1,0 +1,182 @@
+[
+ {
+  "type": "file",
+  "oid": "72489df5bc8a7743139953deb6ae28969970f633",
+  "size": 3225,
+  "path": ".gitattributes"
+ },
+ {
+  "type": "file",
+  "oid": "8f2a82d84428c28e0e01f0a908c8395cc8d23900",
+  "size": 11930,
+  "path": "DFL_02_01_matchinformation_DFL-COM-000001_DFL-MAT-J03WMX.xml"
+ },
+ {
+  "type": "file",
+  "oid": "45d2f112aed6c4212e66db8a91e8da1b8d728090",
+  "size": 11722,
+  "path": "DFL_02_01_matchinformation_DFL-COM-000001_DFL-MAT-J03WN1.xml"
+ },
+ {
+  "type": "file",
+  "oid": "a693a0cacc2b597357e65a04eec5febfdaff79aa",
+  "size": 11745,
+  "path": "DFL_02_01_matchinformation_DFL-COM-000002_DFL-MAT-J03WOH.xml"
+ },
+ {
+  "type": "file",
+  "oid": "bce56e5f518216e62d1e93a38322d4b9e357e5ab",
+  "size": 11952,
+  "path": "DFL_02_01_matchinformation_DFL-COM-000002_DFL-MAT-J03WOY.xml"
+ },
+ {
+  "type": "file",
+  "oid": "46f1ffe15e1b96b12aab10594b12886c503c2f68",
+  "size": 11922,
+  "path": "DFL_02_01_matchinformation_DFL-COM-000002_DFL-MAT-J03WPY.xml"
+ },
+ {
+  "type": "file",
+  "oid": "7ec8acbff5a0c6167b632cc230d2a8b0e7b44b1c",
+  "size": 11932,
+  "path": "DFL_02_01_matchinformation_DFL-COM-000002_DFL-MAT-J03WQQ.xml"
+ },
+ {
+  "type": "file",
+  "oid": "7a8eb84881a1631da510982c01c90a3afd1b2e23",
+  "size": 11823,
+  "path": "DFL_02_01_matchinformation_DFL-COM-000002_DFL-MAT-J03WR9.xml"
+ },
+ {
+  "type": "file",
+  "oid": "bc2f5265763786ac8c05cd68595acc614deee50c",
+  "size": 776578,
+  "path": "DFL_03_02_events_raw_DFL-COM-000001_DFL-MAT-J03WMX.xml"
+ },
+ {
+  "type": "file",
+  "oid": "67b982007b8e3f5de83dcd104779acc92b76a813",
+  "size": 612114,
+  "path": "DFL_03_02_events_raw_DFL-COM-000001_DFL-MAT-J03WN1.xml"
+ },
+ {
+  "type": "file",
+  "oid": "c651487e6d0defbc033f87fadb1b5ebfcad75037",
+  "size": 635747,
+  "path": "DFL_03_02_events_raw_DFL-COM-000002_DFL-MAT-J03WOH.xml"
+ },
+ {
+  "type": "file",
+  "oid": "9d2bde37ff79a5a9f993882bc1d83aef70a51d8e",
+  "size": 683018,
+  "path": "DFL_03_02_events_raw_DFL-COM-000002_DFL-MAT-J03WOY.xml"
+ },
+ {
+  "type": "file",
+  "oid": "c8065cd1464a67a0312a7788bc6da6442084d141",
+  "size": 698898,
+  "path": "DFL_03_02_events_raw_DFL-COM-000002_DFL-MAT-J03WPY.xml"
+ },
+ {
+  "type": "file",
+  "oid": "081d5489af3437a7e3dbe7219226136bf61f7fd4",
+  "size": 732186,
+  "path": "DFL_03_02_events_raw_DFL-COM-000002_DFL-MAT-J03WQQ.xml"
+ },
+ {
+  "type": "file",
+  "oid": "1c9cc3875850b25837d37d7789554f3112ed1b76",
+  "size": 681050,
+  "path": "DFL_03_02_events_raw_DFL-COM-000002_DFL-MAT-J03WR9.xml"
+ },
+ {
+  "type": "file",
+  "oid": "0d8c8c9171c7acabfe3a70c42ccfd8b3956429bc",
+  "size": 418524833,
+  "lfs": {
+   "oid": "d3dd92e509421a6466acb0a083c009035f1751bc5fd9ef42ffa8f20d01cf7d49",
+   "size": 418524833,
+   "pointerSize": 134
+  },
+  "xetHash": "901c69f279aab058230dc69a545bf59c2255fdbd160c70258c565a98c638a05a",
+  "path": "DFL_04_03_positions_raw_observed_DFL-COM-000001_DFL-MAT-J03WMX.xml"
+ },
+ {
+  "type": "file",
+  "oid": "16247fd16e67117394540365241e9fb84d3626c8",
+  "size": 391722803,
+  "lfs": {
+   "oid": "56ef948961a18e150dba0b7b16869d0008ff66f3050a0c355d31fa5b8ec2fcec",
+   "size": 391722803,
+   "pointerSize": 134
+  },
+  "xetHash": "ca0686ad7ae39e00a22f2c89be33e43d04bf52e4069634badef3443e3c1e47e2",
+  "path": "DFL_04_03_positions_raw_observed_DFL-COM-000001_DFL-MAT-J03WN1.xml"
+ },
+ {
+  "type": "file",
+  "oid": "f3866cbd719d396d62edb56a2b63381f4e3f759f",
+  "size": 348945715,
+  "lfs": {
+   "oid": "ec4dcf30200aad694dea263d5289485fcd0ca42badddaeb7c81f5cd5a4229d4f",
+   "size": 348945715,
+   "pointerSize": 134
+  },
+  "xetHash": "a5783e04ad97293720d29d3b951ca59e7a883ed60222f396ae717cf80e36cd56",
+  "path": "DFL_04_03_positions_raw_observed_DFL-COM-000002_DFL-MAT-J03WOH.xml"
+ },
+ {
+  "type": "file",
+  "oid": "e012fa0d832945077a309d2882b473799c7c683c",
+  "size": 362567859,
+  "lfs": {
+   "oid": "a228ef0e676d009cefff1580fcb721b53f598454eb120ec347e0a628a3a4646b",
+   "size": 362567859,
+   "pointerSize": 134
+  },
+  "xetHash": "604735f6c2b3c465fd27d6e97a8586d0778257985efe4f17cbc67046bd43d009",
+  "path": "DFL_04_03_positions_raw_observed_DFL-COM-000002_DFL-MAT-J03WOY.xml"
+ },
+ {
+  "type": "file",
+  "oid": "24ea68e0f06a5821735a96dfa016e7b984aca87f",
+  "size": 371688499,
+  "lfs": {
+   "oid": "845202c29ad93d696653436da426a7cdaefb848298e07b7343de6529581671e1",
+   "size": 371688499,
+   "pointerSize": 134
+  },
+  "xetHash": "a122b81b94261b85ef82fab72a334bc1f44fe96ee37ec62a3c4261ec76af3cd8",
+  "path": "DFL_04_03_positions_raw_observed_DFL-COM-000002_DFL-MAT-J03WPY.xml"
+ },
+ {
+  "type": "file",
+  "oid": "845de30f406b4b3a1edf59d2c426f548702051ba",
+  "size": 356219423,
+  "lfs": {
+   "oid": "cbefcb0bd7f39f3b94ee69a7bc97aac0f936425062c1cc1b144733df36804d6f",
+   "size": 356219423,
+   "pointerSize": 134
+  },
+  "xetHash": "96df5e0823c08d835df2d9e4f1f3a95aa76e1a787dcba08ba18beab1ed83fa65",
+  "path": "DFL_04_03_positions_raw_observed_DFL-COM-000002_DFL-MAT-J03WQQ.xml"
+ },
+ {
+  "type": "file",
+  "oid": "41f025c938c9724508cd1ea118684eabac3c7bcc",
+  "size": 372934140,
+  "lfs": {
+   "oid": "70b63069189019066fb7e3d9db891122edfe787f3a43ba522ebe45ed89ea0269",
+   "size": 372934140,
+   "pointerSize": 134
+  },
+  "xetHash": "d68fab87e00ac4a7954a824d6060b218502ee80c383d8d4e0435920584c25290",
+  "path": "DFL_04_03_positions_raw_observed_DFL-COM-000002_DFL-MAT-J03WR9.xml"
+ },
+ {
+  "type": "file",
+  "oid": "85262fa883d05ab1753b817f7c387ddd95e4a4a9",
+  "size": 1827,
+  "path": "README.md"
+ }
+]

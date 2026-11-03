@@ -1,0 +1,24 @@
+# The v2 dbt project (spec §11; plan Task 23). `lakehouse.runs.dbt.run_dbt` renders the profile from
+# profiles.yml.j2 and runs `dbt build` against the run's working copy, attached as `lake`.
+name: lakehouse
+version: "0.1.0"
+config-version: 2
+profile: lakehouse
+require-dbt-version: [">=1.12.0", "<2.0.0"]
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+
+models:
+  lakehouse:
+    # Every model lives in the DuckLake catalog, schema `main` (the profile's schema).
+    +database: lake
+    staging:
+      # Silver: views over bronze. A view stores no data (spec §9, §11.1).
+      +materialized: view
+    gold:
+      # Row-level gold models are views; only dimensions are tables (spec §9: `dim_*`, `*_links`, `ops_*`,
+      # `lineage_*`). Every gold model has an enforced contract (spec §11.6).
+      +materialized: view
+      +contract:
+        enforced: true

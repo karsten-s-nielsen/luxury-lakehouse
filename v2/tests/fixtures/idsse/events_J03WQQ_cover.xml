@@ -1,0 +1,22 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<PutDataRequest RequestId="5125dba8-dd0e-4071-bbff-bd6ded33a984" MessageTime="2022-11-08T08:16:53.704+00:00" TransmissionComplete="true" TransmissionSuspended="false" DataStatus="postmatch">
+<Event X-Source-Position="32.76" Y-Source-Position="0.00" EventTime="2022-11-05T13:08:50.465+01:00" EventId="18240200000166" MatchId="DFL-MAT-J03WQQ" X-Position="32.76" Y-Position="0.00">
+ <ThrowIn Side="left" Team="DFL-CLU-00000P" DecisionTimestamp="2022-11-05T13:08:36.977+01:00">
+  <FairPlay Player="DFL-OBJ-0026RH" Team="DFL-CLU-00000P" BallPossessionPhase="166" />
+ </ThrowIn>
+</Event>
+<Event X-Source-Position="80.25" Y-PositionFromTracking="45.07" Y-Source-Position="49.95" EventTime="2022-11-05T14:20:12.744+01:00" CalculatedFrame="124569" EventId="18240200001060" MatchId="DFL-MAT-J03WQQ" X-Position="80.62" CalculatedTimestamp="2022-11-05T14:20:15.080+01:00" EndFrame="124683" Y-Position="44.43" X-PositionFromTracking="80.41" StartFrame="124490">
+ <FreeKick Team="DFL-CLU-00000P" DecisionTimestamp="2022-11-05T14:19:30.847+01:00" ExecutionMode="direct">
+  <ShotAtGoal BuildUp="freeKick" CounterAttack="false" AngleToGoal="14.15" ShotCondition="notComplicated" ShotOrigin="7" Rotation="other" SetupOrigin="insideLeft" InsideBox="false" SignificanceEvaluation="average" Team="DFL-CLU-00000P" TypeOfShot="rightLeg" DistanceToGoal="26.97" TakerSetup="ownSetPiece" Player="DFL-OBJ-002FXT" PlayerSpeed="7.37" GoalDistanceGoalkeeper="1.18" AssistAction="fouled" AfterFreeKick="true" AmountOfDefenders="4" ShotAssistFouledPlayer="DFL-OBJ-0026RH" BallPossessionPhase="1060" ChanceEvaluation="chance" DirectFreeKickIntention="farKeeper" xG="0.0563" TakerBallControl="setPiece" Pressure="0.00">
+   <BlockedShot Player="DFL-OBJ-J014L2" GoalPrevented="false" />
+  </ShotAtGoal>
+ </FreeKick>
+</Event>
+<Event X-Source-Position="23.75" Y-Source-Position="2.31" EventTime="2022-11-05T14:29:36.558+01:00" EventId="18240200001191" MatchId="DFL-MAT-J03WQQ" X-Position="23.75" EndFrame="138756" Y-Position="2.31" StartFrame="138547">
+ <FreeKick Team="DFL-CLU-00000H" DecisionTimestamp="2022-11-05T14:29:13.767+01:00" ExecutionMode="direct">
+  <Play Evaluation="unsuccessful" Rotation="awayFromGoal" Distance="medium" SemiField="false" PlayOrigin="oppositionHalf" Height="high" PlayAngle="61.38" FlatCross="false" PenaltyBox="true" Player="DFL-OBJ-0002EL" Team="DFL-CLU-00000H" Recipient="DFL-OBJ-0028FW" FromOpenPlay="false" BallPossessionPhase="1191">
+   <Cross Side="left" GoalKeeperInterference="fisted" GoalKeeper="DFL-OBJ-0028FW" />
+  </Play>
+ </FreeKick>
+</Event>
+</PutDataRequest>

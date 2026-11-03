@@ -1,0 +1,43 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<PutDataRequest RequestId="fcabbbfd-ff3c-4c4d-a01f-4e99af100fbf" MessageTime="2023-06-26T10:47:46.058+00:00" TransmissionComplete="true" TransmissionSuspended="false" DataStatus="postmatch">
+<Event EventId="18226900000107" EventTime="2023-05-27T15:38:12.280+02:00" MatchId="DFL-MAT-J03WN1">
+ <Caution OtherReason="violentConduct" Player="DFL-OBJ-J01KDN" CardColor="red" RefDecisionEvaluation="correct" Team="DFL-CLU-00000B" Reason="violentConduct" CardRating="red" />
+</Event>
+<Event EventId="18226900000435" Y-Position="0.00" EventTime="2023-05-27T16:01:22.074+02:00" X-Source-Position="27.75" Y-Source-Position="0.00" MatchId="DFL-MAT-J03WN1" X-Position="27.75">
+ <ThrowIn Side="left" DecisionTimestamp="2023-05-27T16:00:59.584+02:00" Team="DFL-CLU-00000S">
+  <Play PlayOrigin="oppositionHalf" Height="high" Recipient="DFL-OBJ-0000YV" FromOpenPlay="false" PlayAngle="53.19" Player="DFL-OBJ-0028NB" FlatCross="false" Evaluation="successfullyCompleted" PenaltyBox="true" SemiField="false" Team="DFL-CLU-00000S" BallPossessionPhase="435" Distance="medium">
+   <Pass FreeKickLayup="false" Direction="diagonalBall" />
+  </Play>
+ </ThrowIn>
+</Event>
+<Event Y-PositionFromTracking="40.14" EventId="18226900000478" CalculatedFrame="60429" X-PositionFromTracking="9.47" Y-Position="41.32" EventTime="2023-05-27T16:04:46.440+02:00" CalculatedTimestamp="2023-05-27T16:04:43.560+02:00" X-Source-Position="9.02" Y-Source-Position="41.32" MatchId="DFL-MAT-J03WN1" X-Position="9.02">
+ <ShotAtGoal CounterAttack="false" AfterFreeKick="false" AssistTypeShotAtGoal="direct" Pressure="0.61" TakerBallControl="volley" DistanceToGoal="11.29" Team="DFL-CLU-00000S" TakerSetup="cornerKick" ExtendedTypeOfShot="frontalVolley" ShotCondition="notComplicated" AmountOfDefenders="2" GoalDistanceGoalkeeper="1.08" ShotOrigin="3" AngleToGoal="31.31" InsideBox="true" BuildUp="cornerKick" AssistShotAtGoal="DFL-OBJ-000172" Player="DFL-OBJ-0027FG" TypeOfShot="rightLeg" PlayerSpeed="19.92" SetupOrigin="left" ChanceEvaluation="chance" BallPossessionPhase="478" AssistAction="cornerKick" xG="0.1542">
+  <SuccessfulShot AssistType="direct" GoalZone="14" RefDecisionEvaluation="correct" DeflectionKeeper="DFL-OBJ-0026NY" Solo="false" CurrentResult="2:0" Assist="DFL-OBJ-000172" />
+ </ShotAtGoal>
+</Event>
+<Event EventId="18226900000675" Y-Position="64.19" EventTime="2023-05-27T16:17:04.431+02:00" X-Source-Position="11.92" Y-Source-Position="65.69" MatchId="DFL-MAT-J03WN1" X-Position="3.71">
+ <Play PlayOrigin="oppositionHalf" Height="high" Recipient="DFL-OBJ-0026NY" FromOpenPlay="true" PlayAngle="267.40" Player="DFL-OBJ-J016C3" FlatCross="false" Evaluation="unsuccessful" PenaltyBox="true" SemiField="false" Team="DFL-CLU-00000S" BallPossessionPhase="675" Rotation="other" Distance="long">
+  <Cross Side="right" GoalKeeperInterference="caught" GoalKeeper="DFL-OBJ-0026NY" />
+ </Play>
+</Event>
+<Event EventId="18226900000722" Y-Position="68.00" EventTime="2023-05-27T16:36:10.288+02:00" X-Source-Position="62.82" Y-Source-Position="68.00" MatchId="DFL-MAT-J03WN1" X-Position="62.82">
+ <ThrowIn Side="right" DecisionTimestamp="2023-05-27T16:36:09.647+02:00" Team="DFL-CLU-00000B">
+  <FaultExecution Player="DFL-OBJ-002GAR" Team="DFL-CLU-00000B" BallPossessionPhase="722" />
+ </ThrowIn>
+</Event>
+<Event Y-PositionFromTracking="39.02" EventId="18226900000878" CalculatedFrame="123231" X-PositionFromTracking="18.55" EndFrame="123312" Y-Position="40.62" StartFrame="123068" EventTime="2023-05-27T16:49:25.496+02:00" CalculatedTimestamp="2023-05-27T16:49:25.080+02:00" X-Source-Position="18.13" Y-Source-Position="40.62" MatchId="DFL-MAT-J03WN1" X-Position="18.13">
+ <FreeKick DecisionTimestamp="2023-05-27T16:48:19.199+02:00" Team="DFL-CLU-00000B" ExecutionMode="direct">
+  <ShotAtGoal CounterAttack="false" AfterFreeKick="true" Pressure="0.00" TakerBallControl="setPiece" DistanceToGoal="19.22" Team="DFL-CLU-00000B" TakerSetup="ownSetPiece" ShotCondition="notComplicated" AmountOfDefenders="8" GoalDistanceGoalkeeper="1.03" ShotOrigin="8" SignificanceEvaluation="average" AngleToGoal="20.88" InsideBox="false" BuildUp="freeKick" DirectFreeKickIntention="nearKeeper" Player="DFL-OBJ-0002LI" Rotation="other" TypeOfShot="rightLeg" PlayerSpeed="8.23" SetupOrigin="insideRight" xG="0.1065" ChanceEvaluation="chance" BallPossessionPhase="878">
+   <BlockedShot Player="DFL-OBJ-002G4G" GoalPrevented="false" />
+  </ShotAtGoal>
+ </FreeKick>
+</Event>
+<Event Y-PositionFromTracking="43.70" EventId="18226900001209" CalculatedFrame="160467" X-PositionFromTracking="89.16" Y-Position="44.23" EventTime="2023-05-27T17:14:17.440+02:00" CalculatedTimestamp="2023-05-27T17:14:14.520+02:00" X-Source-Position="90.17" Y-Source-Position="44.23" MatchId="DFL-MAT-J03WN1" X-Position="90.17">
+ <ShotAtGoal CounterAttack="false" AfterFreeKick="false" AssistTypeShotAtGoal="direct" Pressure="0.06" TakerBallControl="direct" DistanceToGoal="18.57" Team="DFL-CLU-00000S" TakerSetup="otherPassFromOpenPlay" ShotCondition="notComplicated" AmountOfDefenders="0" GoalDistanceGoalkeeper="5.70" ShotOrigin="2" AngleToGoal="19.27" InsideBox="true" BuildUp="passOpenPlay" AssistShotAtGoal="DFL-OBJ-00002Z" Player="DFL-OBJ-000172" TypeOfShot="leftLeg" PlayerSpeed="19.43" ShotContribution="60583" SetupOrigin="insideRight" xG="0.1896" ChanceEvaluation="chance" BallPossessionPhase="1209" AssistAction="otherPassFromOpenPlay">
+  <SuccessfulShot AssistContribution="DFL-OBJ-J01AQV" AssistType="direct" GoalZone="9" RefDecisionEvaluation="correct" Solo="false" CurrentResult="3:0" Assist="DFL-OBJ-00002Z" />
+ </ShotAtGoal>
+</Event>
+<Event EventId="18226900001210" EventTime="2023-05-27T17:15:16.194+02:00" MatchId="DFL-MAT-J03WN1">
+ <CautionTeamofficial PersonSentOff="DFL-OBJ-0001B0" CardColor="yellow" Team="DFL-CLU-00000S" />
+</Event>
+</PutDataRequest>

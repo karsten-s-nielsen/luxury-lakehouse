@@ -1,0 +1,162 @@
+{
+ "11743818": {
+  "id": 11743818,
+  "title": "Mapping of tag identifiers to tag names",
+  "version": 1,
+  "files": [
+   {
+    "id": 21385239,
+    "name": "tags2name.csv",
+    "size": 1754,
+    "computed_md5": "e7acb14918d00e40c80a898b1da8fc39",
+    "supplied_md5": "e7acb14918d00e40c80a898b1da8fc39",
+    "download_url": "https://ndownloader.figshare.com/files/21385239",
+    "is_link_only": false
+   }
+  ]
+ },
+ "11743836": {
+  "id": 11743836,
+  "title": "Mapping of event identifiers to event names",
+  "version": 1,
+  "files": [
+   {
+    "id": 21385245,
+    "name": "eventid2name.csv",
+    "size": 1001,
+    "computed_md5": "46daf16100ece0c743eedc9adcfea162",
+    "supplied_md5": "46daf16100ece0c743eedc9adcfea162",
+    "download_url": "https://ndownloader.figshare.com/files/21385245",
+    "is_link_only": false
+   }
+  ]
+ },
+ "7765196": {
+  "id": 7765196,
+  "title": "Players",
+  "version": 3,
+  "files": [
+   {
+    "id": 15073721,
+    "name": "players.json",
+    "size": 1737347,
+    "computed_md5": "f28ddf6326281efeda6488b2169f5609",
+    "supplied_md5": "f28ddf6326281efeda6488b2169f5609",
+    "download_url": "https://ndownloader.figshare.com/files/15073721",
+    "is_link_only": false
+   }
+  ]
+ },
+ "7765310": {
+  "id": 7765310,
+  "title": "Teams",
+  "version": 3,
+  "files": [
+   {
+    "id": 15073697,
+    "name": "teams.json",
+    "size": 27404,
+    "computed_md5": "1381ff9449f21105090729cf0e086b5b",
+    "supplied_md5": "1381ff9449f21105090729cf0e086b5b",
+    "download_url": "https://ndownloader.figshare.com/files/15073697",
+    "is_link_only": false
+   }
+  ]
+ },
+ "7765316": {
+  "id": 7765316,
+  "title": "Competitions",
+  "version": 4,
+  "files": [
+   {
+    "id": 15073685,
+    "name": "competitions.json",
+    "size": 1209,
+    "computed_md5": "3dc210a4805dda5337b0ff9f7eaa407a",
+    "supplied_md5": "3dc210a4805dda5337b0ff9f7eaa407a",
+    "download_url": "https://ndownloader.figshare.com/files/15073685",
+    "is_link_only": false
+   }
+  ]
+ },
+ "7770422": {
+  "id": 7770422,
+  "title": "Matches",
+  "version": 1,
+  "files": [
+   {
+    "id": 14464622,
+    "name": "matches.zip",
+    "size": 645097,
+    "computed_md5": "51d80beb17480919f69a53a0152c2d71",
+    "supplied_md5": "51d80beb17480919f69a53a0152c2d71",
+    "download_url": "https://ndownloader.figshare.com/files/14464622",
+    "is_link_only": false
+   }
+  ]
+ },
+ "7770599": {
+  "id": 7770599,
+  "title": "Events",
+  "version": 1,
+  "files": [
+   {
+    "id": 14464685,
+    "name": "events.zip",
+    "size": 77323413,
+    "computed_md5": "7c20e8647e7eda58d7838a0c7b1ec6ab",
+    "supplied_md5": "7c20e8647e7eda58d7838a0c7b1ec6ab",
+    "download_url": "https://ndownloader.figshare.com/files/14464685",
+    "is_link_only": false
+   }
+  ]
+ },
+ "8082650": {
+  "id": 8082650,
+  "title": "Coaches",
+  "version": 1,
+  "files": [
+   {
+    "id": 15073868,
+    "name": "coaches.json",
+    "size": 70664,
+    "computed_md5": "ee8afad14b5be622b1d3560d15248778",
+    "supplied_md5": "ee8afad14b5be622b1d3560d15248778",
+    "download_url": "https://ndownloader.figshare.com/files/15073868",
+    "is_link_only": false
+   }
+  ]
+ },
+ "8082665": {
+  "id": 8082665,
+  "title": "Referees",
+  "version": 1,
+  "files": [
+   {
+    "id": 15074030,
+    "name": "referees.json",
+    "size": 196709,
+    "computed_md5": "6b5b5612e128238f0f28a355cc13796a",
+    "supplied_md5": "6b5b5612e128238f0f28a355cc13796a",
+    "download_url": "https://ndownloader.figshare.com/files/15074030",
+    "is_link_only": false
+   }
+  ]
+ },
+ "9361148": {
+  "id": 9361148,
+  "title": "PlayeRanks",
+  "version": 1,
+  "files": [
+   {
+    "id": 16972010,
+    "name": "playerank.json",
+    "size": 6241757,
+    "computed_md5": "dbb3671e04eb37f30ef4006986748812",
+    "supplied_md5": "dbb3671e04eb37f30ef4006986748812",
+    "download_url": "https://ndownloader.figshare.com/files/16972010",
+    "is_link_only": false
+   }
+  ]
+ }
+}

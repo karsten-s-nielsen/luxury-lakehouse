@@ -10,6 +10,8 @@
 
 [![CI](https://github.com/karsten-s-nielsen/luxury-lakehouse/actions/workflows/python-ci.yml/badge.svg)](https://github.com/karsten-s-nielsen/luxury-lakehouse/actions/workflows/python-ci.yml) [![Datasets](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Datasets-blue?style=flat-square)](https://huggingface.co/luxury-lakehouse) [![football2vec v2](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-football2vec%20v2-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/football2vec-v2) [![xG v2 Set Encoder](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-xG%20v2%20Set%20Encoder-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder) [![xG v3 Set Encoder](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-xG%20v3%20Set%20Encoder-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/xg-v3-model-set-encoder)
 
+> **Two trees in this repo.** This README and everything outside `v2/` describe **v1** — the Databricks + Lakebase platform. **v2** is the active, self-contained rewrite that runs on a local or Hugging Face lake (DuckDB + DuckLake, no Databricks). New work happens in **`v2/`** — start at [`v2/README.md`](v2/README.md) for setup, and [`v2/docs/ops/deploy.md`](v2/docs/ops/deploy.md) for the HF deploy runbook. v2 has its own `AGENTS.md`; the v1 rules below do not apply inside `v2/`.
+
 ## What Is This?
 
 A serverless soccer analytics platform built on **Databricks Lakebase** — replacing a 6-service traditional AWS pipeline with a unified lakehouse architecture that scales to zero.
