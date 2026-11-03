@@ -284,6 +284,21 @@ ignores:
     review_trigger: >-
       a databricks-sql-connector release relaxing the oauthlib <4.0.0 cap
 
+  - id: CVE-2026-49272
+    package: oauthlib (3.3.1 in the resolution)
+    fix_in: "4.0.0"
+    blocked_by: "databricks-sql-connector (every available >=4.0.0 release) requires oauthlib>=3.1.0,<4.0.0"
+    justification: >-
+      CVE-2026-49272 affects oauthlib < 4.0.0 (fix 4.0.0) — the same package, version, and blocker as
+      PYSEC-2026-4114. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED — `uv lock` with the
+      `oauthlib>=4.0.0` constraint has no solution; every available databricks-sql-connector >=4.0.0
+      release hard-caps oauthlib>=3.1.0,<4.0.0, so the [analytics] extra becomes unsatisfiable. oauthlib
+      enters only transitively through requests-oauthlib in the Databricks auth chain (client-side OAuth
+      token acquisition); the lakehouse runs no OAuth authorization server or provider endpoint, so the
+      advisory's server-side request-validation paths are not exercised.
+    review_trigger: >-
+      a databricks-sql-connector release relaxing the oauthlib <4.0.0 cap
+
   - id: CVE-2026-104851
     package: fsspec (2025.3.0 in the resolution)
     fix_in: "2026.6.0"
@@ -301,3 +316,588 @@ ignores:
     review_trigger: >-
       a taipy-core release relaxing the pyarrow <19.0 cap (letting datasets>=4.1.0 + fsspec>=2026.6.0
       resolve), OR a datasets release that caps fsspec higher without needing pyarrow>=21.0.0
+
+  - id: CVE-2026-112390
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED — flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112401
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED — flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112391
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED — flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112894
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED — flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112406
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED — flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112399
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED — flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112892
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED — flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112393
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED — flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-96638
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED — flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-96640
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED — flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-96778
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED — flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: GHSA-78g4-xqwv-q3g8
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED — flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: PYSEC-2026-4336
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: PYSEC-2026-4331
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: PYSEC-2026-4332
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: PYSEC-2026-4329
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: PYSEC-2026-4333
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: PYSEC-2026-4342
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112895
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112400
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112897
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112395
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112404
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112899
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112900
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112893
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112891
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: PYSEC-2026-4326
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: PYSEC-2026-4327
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: PYSEC-2026-4328
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: PYSEC-2026-4330
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: PYSEC-2026-4334
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: PYSEC-2026-4335
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: PYSEC-2026-4337
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: PYSEC-2026-4338
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: PYSEC-2026-4339
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: PYSEC-2026-4340
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: PYSEC-2026-4341
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: PYSEC-2026-4343
+    package: pillow (12.3.0 in the resolution)
+    fix_in: "13.0.0"
+    blocked_by: "pillow 13.0.0 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      pillow < 13.0.0 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring pillow>=13.0.0 has no solution because pillow 13 requires Python>=3.11 and this project is pinned to 3.10. pillow renders first-party match visualisations (matplotlib/mplsoccer); it never decodes untrusted uploaded images. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112906
+    package: filelock (4.1.0 in the resolution)
+    fix_in: "4.2.1"
+    blocked_by: "filelock 4.2.1 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      filelock < 4.2.1 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring filelock>=4.2.1 has no solution because filelock 4.2.1 requires Python>=3.11 (pulled by huggingface-hub) and this project is pinned to 3.10. filelock provides advisory file locks for the HF cache and the torch build; it enters only transitively, never imported directly. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112907
+    package: filelock (4.1.0 in the resolution)
+    fix_in: "4.2.1"
+    blocked_by: "filelock 4.2.1 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      filelock < 4.2.1 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring filelock>=4.2.1 has no solution because filelock 4.2.1 requires Python>=3.11 (pulled by huggingface-hub) and this project is pinned to 3.10. filelock provides advisory file locks for the HF cache and the torch build; it enters only transitively, never imported directly. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112908
+    package: filelock (4.1.0 in the resolution)
+    fix_in: "4.2.1"
+    blocked_by: "filelock 4.2.1 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      filelock < 4.2.1 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring filelock>=4.2.1 has no solution because filelock 4.2.1 requires Python>=3.11 (pulled by huggingface-hub) and this project is pinned to 3.10. filelock provides advisory file locks for the HF cache and the torch build; it enters only transitively, never imported directly. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112909
+    package: filelock (4.1.0 in the resolution)
+    fix_in: "4.2.1"
+    blocked_by: "filelock 4.2.1 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      filelock < 4.2.1 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring filelock>=4.2.1 has no solution because filelock 4.2.1 requires Python>=3.11 (pulled by huggingface-hub) and this project is pinned to 3.10. filelock provides advisory file locks for the HF cache and the torch build; it enters only transitively, never imported directly. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112910
+    package: filelock (4.1.0 in the resolution)
+    fix_in: "4.2.1"
+    blocked_by: "filelock 4.2.1 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      filelock < 4.2.1 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring filelock>=4.2.1 has no solution because filelock 4.2.1 requires Python>=3.11 (pulled by huggingface-hub) and this project is pinned to 3.10. filelock provides advisory file locks for the HF cache and the torch build; it enters only transitively, never imported directly. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112911
+    package: filelock (4.1.0 in the resolution)
+    fix_in: "4.2.1"
+    blocked_by: "filelock 4.2.1 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      filelock < 4.2.1 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring filelock>=4.2.1 has no solution because filelock 4.2.1 requires Python>=3.11 (pulled by huggingface-hub) and this project is pinned to 3.10. filelock provides advisory file locks for the HF cache and the torch build; it enters only transitively, never imported directly. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112912
+    package: filelock (4.1.0 in the resolution)
+    fix_in: "4.2.1"
+    blocked_by: "filelock 4.2.1 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      filelock < 4.2.1 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring filelock>=4.2.1 has no solution because filelock 4.2.1 requires Python>=3.11 (pulled by huggingface-hub) and this project is pinned to 3.10. filelock provides advisory file locks for the HF cache and the torch build; it enters only transitively, never imported directly. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112913
+    package: filelock (4.1.0 in the resolution)
+    fix_in: "4.2.1"
+    blocked_by: "filelock 4.2.1 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      filelock < 4.2.1 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring filelock>=4.2.1 has no solution because filelock 4.2.1 requires Python>=3.11 (pulled by huggingface-hub) and this project is pinned to 3.10. filelock provides advisory file locks for the HF cache and the torch build; it enters only transitively, never imported directly. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112914
+    package: filelock (4.1.0 in the resolution)
+    fix_in: "4.2.1"
+    blocked_by: "filelock 4.2.1 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      filelock < 4.2.1 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring filelock>=4.2.1 has no solution because filelock 4.2.1 requires Python>=3.11 (pulled by huggingface-hub) and this project is pinned to 3.10. filelock provides advisory file locks for the HF cache and the torch build; it enters only transitively, never imported directly. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112915
+    package: filelock (4.1.0 in the resolution)
+    fix_in: "4.2.1"
+    blocked_by: "filelock 4.2.1 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      filelock < 4.2.1 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring filelock>=4.2.1 has no solution because filelock 4.2.1 requires Python>=3.11 (pulled by huggingface-hub) and this project is pinned to 3.10. filelock provides advisory file locks for the HF cache and the torch build; it enters only transitively, never imported directly. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112934
+    package: filelock (4.1.0 in the resolution)
+    fix_in: "4.2.1"
+    blocked_by: "filelock 4.2.1 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      filelock < 4.2.1 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring filelock>=4.2.1 has no solution because filelock 4.2.1 requires Python>=3.11 (pulled by huggingface-hub) and this project is pinned to 3.10. filelock provides advisory file locks for the HF cache and the torch build; it enters only transitively, never imported directly. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112935
+    package: filelock (4.1.0 in the resolution)
+    fix_in: "4.2.1"
+    blocked_by: "filelock 4.2.1 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      filelock < 4.2.1 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring filelock>=4.2.1 has no solution because filelock 4.2.1 requires Python>=3.11 (pulled by huggingface-hub) and this project is pinned to 3.10. filelock provides advisory file locks for the HF cache and the torch build; it enters only transitively, never imported directly. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112937
+    package: filelock (4.1.0 in the resolution)
+    fix_in: "4.2.1"
+    blocked_by: "filelock 4.2.1 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      filelock < 4.2.1 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring filelock>=4.2.1 has no solution because filelock 4.2.1 requires Python>=3.11 (pulled by huggingface-hub) and this project is pinned to 3.10. filelock provides advisory file locks for the HF cache and the torch build; it enters only transitively, never imported directly. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112938
+    package: filelock (4.1.0 in the resolution)
+    fix_in: "4.2.1"
+    blocked_by: "filelock 4.2.1 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      filelock < 4.2.1 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring filelock>=4.2.1 has no solution because filelock 4.2.1 requires Python>=3.11 (pulled by huggingface-hub) and this project is pinned to 3.10. filelock provides advisory file locks for the HF cache and the torch build; it enters only transitively, never imported directly. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112939
+    package: filelock (4.1.0 in the resolution)
+    fix_in: "4.2.1"
+    blocked_by: "filelock 4.2.1 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      filelock < 4.2.1 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring filelock>=4.2.1 has no solution because filelock 4.2.1 requires Python>=3.11 (pulled by huggingface-hub) and this project is pinned to 3.10. filelock provides advisory file locks for the HF cache and the torch build; it enters only transitively, never imported directly. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112940
+    package: filelock (4.1.0 in the resolution)
+    fix_in: "4.2.1"
+    blocked_by: "filelock 4.2.1 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      filelock < 4.2.1 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring filelock>=4.2.1 has no solution because filelock 4.2.1 requires Python>=3.11 (pulled by huggingface-hub) and this project is pinned to 3.10. filelock provides advisory file locks for the HF cache and the torch build; it enters only transitively, never imported directly. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-112941
+    package: filelock (4.1.0 in the resolution)
+    fix_in: "4.2.1"
+    blocked_by: "filelock 4.2.1 requires Python>=3.11; this project pins requires-python ==3.10.* (Databricks serverless)"
+    justification: >-
+      filelock < 4.2.1 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED - flooring filelock>=4.2.1 has no solution because filelock 4.2.1 requires Python>=3.11 (pulled by huggingface-hub) and this project is pinned to 3.10. filelock provides advisory file locks for the HF cache and the torch build; it enters only transitively, never imported directly. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: GHSA-xmj3-9gf7-h52w
+    package: setuptools (81.0.0 in the resolution)
+    fix_in: "84.1.0"
+    blocked_by: "setuptools>=84.1.0 resolves only by dropping setuptools and downgrading the pinned torch cu128 stack (torch 2.11.0+cu128 -> 2.10.0, cuda-toolkit removed) — same collateral as PYSEC-2026-3447"
+    justification: >-
+      setuptools < 84.1.0 (GHSA-xmj3-9gf7-h52w). VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: COLLATERAL — flooring setuptools>=84.1.0 resolves only by removing setuptools from the lock and downgrading the pinned torch cu128 stack (torch 2.11.0+cu128 -> 2.10.0+cu128, cuda-toolkit removed, nvidia-cudnn/nccl downgraded). Taking the fix would regress the pinned training stack; this is the same collateral that holds the existing PYSEC-2026-3447 setuptools ignore. setuptools is a build-time tool, never imported at runtime. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      a torch cu128 release above 2.11.0 whose build stack takes setuptools>=84.1.0 without a downgrade, or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-113725
+    package: virtualenv (21.14.5 in the resolution)
+    fix_in: "21.14.9"
+    blocked_by: "virtualenv>=21.14.9 is required only by pre-commit 4.7.0, which requires Python>=3.11; under the requires-python ==3.10.* pin pre-commit resolves to <=4.6.2 (which needs virtualenv<21.14.9), so the floor is unsatisfiable"
+    justification: >-
+      virtualenv < 21.14.9 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED — flooring virtualenv>=21.14.9 has no solution. virtualenv>=21.14.9 is required only by pre-commit 4.7.0, which requires Python>=3.11; this project pins Python 3.10, so pre-commit resolves to <=4.6.2 and nothing requires the fixed virtualenv. virtualenv is a dev/build tool, never imported at runtime. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-113722
+    package: virtualenv (21.14.5 in the resolution)
+    fix_in: "21.14.9"
+    blocked_by: "virtualenv>=21.14.9 is required only by pre-commit 4.7.0, which requires Python>=3.11; under the requires-python ==3.10.* pin pre-commit resolves to <=4.6.2 (which needs virtualenv<21.14.9), so the floor is unsatisfiable"
+    justification: >-
+      virtualenv < 21.14.9 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED — flooring virtualenv>=21.14.9 has no solution. virtualenv>=21.14.9 is required only by pre-commit 4.7.0, which requires Python>=3.11; this project pins Python 3.10, so pre-commit resolves to <=4.6.2 and nothing requires the fixed virtualenv. virtualenv is a dev/build tool, never imported at runtime. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-113714
+    package: virtualenv (21.14.5 in the resolution)
+    fix_in: "21.14.9"
+    blocked_by: "virtualenv>=21.14.9 is required only by pre-commit 4.7.0, which requires Python>=3.11; under the requires-python ==3.10.* pin pre-commit resolves to <=4.6.2 (which needs virtualenv<21.14.9), so the floor is unsatisfiable"
+    justification: >-
+      virtualenv < 21.14.9 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED — flooring virtualenv>=21.14.9 has no solution. virtualenv>=21.14.9 is required only by pre-commit 4.7.0, which requires Python>=3.11; this project pins Python 3.10, so pre-commit resolves to <=4.6.2 and nothing requires the fixed virtualenv. virtualenv is a dev/build tool, never imported at runtime. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-113723
+    package: virtualenv (21.14.5 in the resolution)
+    fix_in: "21.14.9"
+    blocked_by: "virtualenv>=21.14.9 is required only by pre-commit 4.7.0, which requires Python>=3.11; under the requires-python ==3.10.* pin pre-commit resolves to <=4.6.2 (which needs virtualenv<21.14.9), so the floor is unsatisfiable"
+    justification: >-
+      virtualenv < 21.14.9 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED — flooring virtualenv>=21.14.9 has no solution. virtualenv>=21.14.9 is required only by pre-commit 4.7.0, which requires Python>=3.11; this project pins Python 3.10, so pre-commit resolves to <=4.6.2 and nothing requires the fixed virtualenv. virtualenv is a dev/build tool, never imported at runtime. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-113715
+    package: virtualenv (21.14.5 in the resolution)
+    fix_in: "21.14.9"
+    blocked_by: "virtualenv>=21.14.9 is required only by pre-commit 4.7.0, which requires Python>=3.11; under the requires-python ==3.10.* pin pre-commit resolves to <=4.6.2 (which needs virtualenv<21.14.9), so the floor is unsatisfiable"
+    justification: >-
+      virtualenv < 21.14.9 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED — flooring virtualenv>=21.14.9 has no solution. virtualenv>=21.14.9 is required only by pre-commit 4.7.0, which requires Python>=3.11; this project pins Python 3.10, so pre-commit resolves to <=4.6.2 and nothing requires the fixed virtualenv. virtualenv is a dev/build tool, never imported at runtime. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-113720
+    package: virtualenv (21.14.5 in the resolution)
+    fix_in: "21.14.9"
+    blocked_by: "virtualenv>=21.14.9 is required only by pre-commit 4.7.0, which requires Python>=3.11; under the requires-python ==3.10.* pin pre-commit resolves to <=4.6.2 (which needs virtualenv<21.14.9), so the floor is unsatisfiable"
+    justification: >-
+      virtualenv < 21.14.9 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED — flooring virtualenv>=21.14.9 has no solution. virtualenv>=21.14.9 is required only by pre-commit 4.7.0, which requires Python>=3.11; this project pins Python 3.10, so pre-commit resolves to <=4.6.2 and nothing requires the fixed virtualenv. virtualenv is a dev/build tool, never imported at runtime. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-113717
+    package: virtualenv (21.14.5 in the resolution)
+    fix_in: "21.14.9"
+    blocked_by: "virtualenv>=21.14.9 is required only by pre-commit 4.7.0, which requires Python>=3.11; under the requires-python ==3.10.* pin pre-commit resolves to <=4.6.2 (which needs virtualenv<21.14.9), so the floor is unsatisfiable"
+    justification: >-
+      virtualenv < 21.14.9 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED — flooring virtualenv>=21.14.9 has no solution. virtualenv>=21.14.9 is required only by pre-commit 4.7.0, which requires Python>=3.11; this project pins Python 3.10, so pre-commit resolves to <=4.6.2 and nothing requires the fixed virtualenv. virtualenv is a dev/build tool, never imported at runtime. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)
+
+  - id: CVE-2026-113718
+    package: virtualenv (21.14.5 in the resolution)
+    fix_in: "21.14.9"
+    blocked_by: "virtualenv>=21.14.9 is required only by pre-commit 4.7.0, which requires Python>=3.11; under the requires-python ==3.10.* pin pre-commit resolves to <=4.6.2 (which needs virtualenv<21.14.9), so the floor is unsatisfiable"
+    justification: >-
+      virtualenv < 21.14.9 CVE. VERIFIED 2026-11-03 by scripts/check_cve_blockers.py: BLOCKED — flooring virtualenv>=21.14.9 has no solution. virtualenv>=21.14.9 is required only by pre-commit 4.7.0, which requires Python>=3.11; this project pins Python 3.10, so pre-commit resolves to <=4.6.2 and nothing requires the fixed virtualenv. virtualenv is a dev/build tool, never imported at runtime. v1 is scheduled to be decommissioned ~2026-12.
+    review_trigger: >-
+      v1 moving to Python >=3.11 (which lets the fix resolve), or the v1 decommission (~2026-12)

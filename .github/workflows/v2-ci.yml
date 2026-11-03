@@ -2,6 +2,7 @@ name: v2 CI
 
 on:
   push:
+    branches: [main]
     paths:
       - "v2/**"
       - ".github/workflows/v2-ci.yml"
@@ -9,6 +10,13 @@ on:
     paths:
       - "v2/**"
       - ".github/workflows/v2-ci.yml"
+
+# A feature branch is validated by its PR (pull_request); main is validated on merge (push on main only). This stops
+# the duplicate run a branch push + its PR produced for the same commit. The concurrency group then cancels a
+# superseded run when a new commit lands on the same PR or branch.
+concurrency:
+  group: v2-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

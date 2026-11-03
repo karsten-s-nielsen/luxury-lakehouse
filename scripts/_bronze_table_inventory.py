@@ -85,10 +85,24 @@ _LL2_TRIGGER = (
     "Operator confirming the LL2 Path B close-out is settled and the backup can be DROPPED. "
     "Classified, NOT endorsed — without this trigger the exclusion would be permanent by silence."
 )
+# Reclassified TEMPORARY -> PERMANENT on 2026-11-03. The v1 platform is scheduled to be decommissioned
+# (~2026-12) and these migration backups are deleted when v1 is retired, so forcing a drop decision now
+# adds no value; they are kept as a safety net through the v1 -> v2 cutover and removed with v1.
+_LL2_SUNSET = (
+    "Kept through the v1 -> v2 cutover; v1 is decommissioned ~2026-12 and these backups are deleted "
+    "with it, so the 180-day TEMPORARY deadline no longer applies."
+)
+_LL2_DECOMMISSION = "v1 decommission (~2026-12): the pre-close-out / pre-backfill backups are deleted with v1."
+_LL2_PERMANENT_REASON = f"{_LL2} {_LL2_SUNSET}"
 
 # Live bronze tables in a provider's namespace that are deliberately OUTSIDE the contract.
 NON_CONTRACT_TABLES: dict[str, NonContract] = {
-    t: NonContract(reason=_LL2, classification=TEMPORARY, recorded="2026-04-29", review_trigger=_LL2_TRIGGER)
+    t: NonContract(
+        reason=_LL2_PERMANENT_REASON,
+        classification=PERMANENT,
+        recorded="2026-04-29",
+        review_trigger=_LL2_DECOMMISSION,
+    )
     for t in (
         "idsse_events_pre_close_out_backup",
         "idsse_events_pre_ll2_backfill",
