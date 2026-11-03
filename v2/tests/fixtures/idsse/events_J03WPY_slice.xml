@@ -1,0 +1,298 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<PutDataRequest RequestId="c00c1ceb-1769-4d19-bfc8-067af59d1fc1" MessageTime="2022-10-21T06:44:02.026+00:00" TransmissionComplete="true" TransmissionSuspended="false" DataStatus="postmatch">
+<Event EventId="18237400000006" X-Position="52.50" EventTime="2022-10-15T13:01:28.310+02:00" Y-Position="34.00" Y-Source-Position="34.00" MatchId="DFL-MAT-J03WPY" X-Source-Position="52.50">
+ <KickOff TeamLeft="DFL-CLU-000005" TeamRight="DFL-CLU-00000P" GameSection="firstHalf">
+  <Play Recipient="DFL-OBJ-0028FW" Height="flat" FromOpenPlay="false" PlayAngle="177.67" PenaltyBox="false" FlatCross="false" Team="DFL-CLU-00000P" Evaluation="successfullyCompleted" Distance="medium" BallPossessionPhase="6" SemiField="false" PlayOrigin="ownHalf" Player="DFL-OBJ-002G5J">
+   <Pass FreeKickLayup="false" />
+  </Play>
+ </KickOff>
+</Event>
+<Event EventId="18237400000007" X-Position="75.44" EventTime="2022-10-15T13:01:30.007+02:00" Y-Position="34.90" Y-Source-Position="35.00" MatchId="DFL-MAT-J03WPY" X-Source-Position="77.05">
+ <Play Recipient="DFL-OBJ-002FXT" Height="high" FromOpenPlay="true" PlayAngle="326.07" PenaltyBox="false" FlatCross="false" Team="DFL-CLU-00000P" Evaluation="successfullyCompleted" Distance="long" BallPossessionPhase="7" SemiField="false" PlayOrigin="ownHalf" Player="DFL-OBJ-0028FW">
+  <Pass Direction="diagonalBall" FreeKickLayup="false" />
+ </Play>
+</Event>
+<Event EventId="18237400000008" X-Position="35.27" EventTime="2022-10-15T13:01:33.246+02:00" Y-Position="5.89" MatchId="DFL-MAT-J03WPY">
+ <TacklingGame PossessionChange="true" WinnerTeam="DFL-CLU-00000P" WinnerRole="withBallControl" WinnerResult="layoff" LoserTeam="DFL-CLU-000005" Winner="DFL-OBJ-002FXT" GoalKeeperInvolved="false" Loser="DFL-OBJ-002GG4" Type="air" LoserRole="withoutBallControl" />
+</Event>
+<Event EventId="18237400000009" X-Position="31.06" EventTime="2022-10-15T13:01:34.775+02:00" Y-Position="5.22" Y-Source-Position="4.91" MatchId="DFL-MAT-J03WPY" X-Source-Position="30.86">
+ <Play Recipient="DFL-OBJ-0001HW" Height="high" FromOpenPlay="true" PlayAngle="39.11" PenaltyBox="true" FlatCross="false" Team="DFL-CLU-00000P" Evaluation="unsuccessful" Distance="medium" BallPossessionPhase="9" SemiField="false" PlayOrigin="oppositionHalf" Player="DFL-OBJ-002FXT">
+  <Pass FreeKickLayup="false" />
+ </Play>
+</Event>
+<Event EventId="18237400000010" X-Position="8.82" EventTime="2022-10-15T13:01:39.863+02:00" Y-Position="21.76" Y-Source-Position="22.57" MatchId="DFL-MAT-J03WPY" X-Source-Position="9.72">
+ <Play Recipient="DFL-OBJ-002G68" Height="high" FromOpenPlay="true" PlayAngle="282.10" PenaltyBox="false" FlatCross="false" Team="DFL-CLU-000005" Evaluation="successfullyCompleted" Distance="medium" GoalKeeperAction="throwOut" BallPossessionPhase="10" SemiField="false" PlayOrigin="ownHalf" Player="DFL-OBJ-0001HW">
+  <Pass FreeKickLayup="false" />
+ </Play>
+</Event>
+<Event EventId="18237400000011" X-Position="11.72" EventTime="2022-10-15T13:01:43.407+02:00" Y-Position="50.25" Y-Source-Position="51.65" MatchId="DFL-MAT-J03WPY" X-Source-Position="15.23">
+ <Play Recipient="DFL-OBJ-002FYC" Height="flat" FromOpenPlay="true" PlayAngle="307.28" PenaltyBox="false" FlatCross="false" Team="DFL-CLU-000005" Evaluation="successfullyCompleted" Distance="medium" BallPossessionPhase="11" SemiField="false" PlayOrigin="ownHalf" Player="DFL-OBJ-002G68">
+  <Pass FreeKickLayup="false" />
+ </Play>
+</Event>
+<Event EventId="18237400000012" X-Position="19.24" EventTime="2022-10-15T13:01:46.055+02:00" Y-Position="64.29" Y-Source-Position="64.99" MatchId="DFL-MAT-J03WPY" X-Source-Position="22.94">
+ <Play Recipient="DFL-OBJ-002G68" Height="flat" FromOpenPlay="true" PlayAngle="168.01" PenaltyBox="false" FlatCross="false" Team="DFL-CLU-000005" Evaluation="successfullyCompleted" Distance="medium" BallPossessionPhase="12" SemiField="false" PlayOrigin="ownHalf" Player="DFL-OBJ-002FYC">
+  <Pass FreeKickLayup="false" />
+ </Play>
+</Event>
+<Event EventId="18237400000013" X-Position="6.11" EventTime="2022-10-15T13:01:51.440+02:00" Y-Position="61.38" Y-Source-Position="61.48" MatchId="DFL-MAT-J03WPY" X-Source-Position="6.01">
+ <Play Recipient="DFL-OBJ-002GMO" Height="high" FromOpenPlay="true" PlayAngle="0.34" PenaltyBox="false" FlatCross="false" Team="DFL-CLU-000005" Evaluation="unsuccessful" Distance="long" BallPossessionPhase="13" SemiField="false" PlayOrigin="ownHalf" Player="DFL-OBJ-002G68">
+  <Pass Direction="throughBall" FreeKickLayup="false" />
+ </Play>
+</Event>
+<Event EventId="18237400000014" X-Position="58.04" EventTime="2022-10-15T13:01:52.800+02:00" Y-Position="56.92" MatchId="DFL-MAT-J03WPY">
+ <TacklingGame PossessionChange="false" WinnerTeam="DFL-CLU-00000P" WinnerRole="withoutBallControl" WinnerResult="ballcontactSucceeded" LoserTeam="DFL-CLU-000005" Winner="DFL-OBJ-002GMO" GoalKeeperInvolved="false" Loser="DFL-OBJ-0028BZ" Type="air" LoserRole="withBallControl" />
+</Event>
+<Event EventId="18237400000015" X-Position="56.81" EventTime="2022-10-15T13:01:52.800+02:00" Y-Position="61.38" Y-Source-Position="61.08" MatchId="DFL-MAT-J03WPY" X-Source-Position="57.21">
+ <OtherBallAction Team="DFL-CLU-00000P" BallPossessionPhase="15" Player="DFL-OBJ-002GMO" />
+</Event>
+<Event EventId="18237400000016" X-Position="49.90" EventTime="2022-10-15T13:01:58.480+02:00" Y-Position="58.77" Y-Source-Position="59.47" MatchId="DFL-MAT-J03WPY" X-Source-Position="50.80">
+ <Delete />
+</Event>
+<Event EventId="18237400000017" X-Position="49.09" EventTime="2022-10-15T13:01:59.040+02:00" Y-Position="47.24" Y-Source-Position="46.34" MatchId="DFL-MAT-J03WPY" X-Source-Position="50.20">
+ <Play Recipient="DFL-OBJ-J01H9X" Height="flat" FromOpenPlay="true" PlayAngle="242.24" PenaltyBox="false" FlatCross="false" Team="DFL-CLU-000005" Evaluation="unsuccessful" Distance="short" BallPossessionPhase="17" SemiField="false" PlayOrigin="ownHalf" Player="DFL-OBJ-0028T3">
+  <Pass FreeKickLayup="false" />
+ </Play>
+</Event>
+<Event EventId="18237400000018" X-Position="45.46" EventTime="2022-10-15T13:01:59.400+02:00" Y-Position="46.23" MatchId="DFL-MAT-J03WPY">
+ <TacklingGame PossessionChange="false" WinnerTeam="DFL-CLU-00000P" WinnerRole="withoutBallControl" WinnerResult="layoff" LoserTeam="DFL-CLU-000005" Winner="DFL-OBJ-J01H9X" GoalKeeperInvolved="false" Loser="DFL-OBJ-0028T3" Type="ground" LoserRole="withBallControl" />
+</Event>
+<Event EventId="18237400000019" X-Position="44.28" EventTime="2022-10-15T13:02:06.439+02:00" Y-Position="49.95" Y-Source-Position="50.35" MatchId="DFL-MAT-J03WPY" X-Source-Position="45.69">
+ <OtherBallAction Team="DFL-CLU-000005" BallPossessionPhase="19" Player="DFL-OBJ-0000EJ" />
+</Event>
+<Event EventId="18237400000020" EventTime="2022-10-15T13:02:07.239+02:00" MatchId="DFL-MAT-J03WPY">
+ <Delete />
+</Event>
+<Event EventId="18237400000021" X-Position="58.71" EventTime="2022-10-15T13:02:09.471+02:00" Y-Position="63.79" Y-Source-Position="63.79" MatchId="DFL-MAT-J03WPY" X-Source-Position="58.71">
+ <Delete />
+</Event>
+<Event EventId="18237400000022" X-Position="48.75" EventTime="2022-10-15T13:01:54.800+02:00" Y-Position="55.62" MatchId="DFL-MAT-J03WPY">
+ <TacklingGame PossessionChange="false" WinnerTeam="DFL-CLU-000005" WinnerRole="withBallControl" WinnerResult="ballcontactSucceeded" LoserTeam="DFL-CLU-00000P" Winner="DFL-OBJ-002595" GoalKeeperInvolved="false" Loser="DFL-OBJ-00028V" Type="ground" LoserRole="withoutBallControl" />
+</Event>
+<Event EventId="18237400000023" X-Position="63.42" EventTime="2022-10-15T13:02:16.142+02:00" Y-Position="68.00" Y-Source-Position="68.00" MatchId="DFL-MAT-J03WPY" X-Source-Position="63.42">
+ <ThrowIn Side="right" DecisionTimestamp="2022-10-15T13:02:10.879+02:00" Team="DFL-CLU-00000P">
+  <Play Recipient="DFL-OBJ-002GMO" Height="high" FromOpenPlay="false" PlayAngle="190.63" PenaltyBox="false" FlatCross="false" Team="DFL-CLU-00000P" Evaluation="successfullyCompleted" Distance="medium" BallPossessionPhase="23" SemiField="false" PlayOrigin="ownHalf" Player="DFL-OBJ-0000NZ">
+   <Pass FreeKickLayup="false" />
+  </Play>
+ </ThrowIn>
+</Event>
+<Event EventId="18237400000024" X-Position="82.66" EventTime="2022-10-15T13:02:19.015+02:00" Y-Position="64.39" Y-Source-Position="64.39" MatchId="DFL-MAT-J03WPY" X-Source-Position="82.66">
+ <Play Recipient="DFL-OBJ-0028FW" Height="flat" FromOpenPlay="true" PlayAngle="233.05" PenaltyBox="false" FlatCross="false" Team="DFL-CLU-00000P" Evaluation="successfullyCompleted" Distance="medium" BallPossessionPhase="24" SemiField="false" PlayOrigin="ownHalf" Player="DFL-OBJ-002GMO">
+  <Pass FreeKickLayup="false" />
+ </Play>
+</Event>
+<Event EventId="18237400000025" X-Position="100.99" EventTime="2022-10-15T13:02:20.782+02:00" Y-Position="40.02" Y-Source-Position="40.02" MatchId="DFL-MAT-J03WPY" X-Source-Position="100.99">
+ <Play Recipient="DFL-OBJ-0000NZ" Height="high" FromOpenPlay="true" PlayAngle="42.28" PenaltyBox="false" FlatCross="false" Team="DFL-CLU-00000P" Evaluation="successfullyCompleted" Distance="long" BallPossessionPhase="25" SemiField="false" PlayOrigin="ownHalf" Player="DFL-OBJ-0028FW">
+  <Pass Direction="diagonalBall" FreeKickLayup="false" />
+ </Play>
+</Event>
+<Event EventId="18237400000026" X-Position="71.54" EventTime="2022-10-15T13:02:27.735+02:00" Y-Position="66.80" Y-Source-Position="66.80" MatchId="DFL-MAT-J03WPY" X-Source-Position="71.54">
+ <Play Recipient="DFL-OBJ-00028V" Height="flat" FromOpenPlay="true" PlayAngle="294.78" PenaltyBox="false" FlatCross="false" Team="DFL-CLU-00000P" Evaluation="successfullyCompleted" Distance="medium" BallPossessionPhase="26" SemiField="false" PlayOrigin="ownHalf" Player="DFL-OBJ-0000NZ">
+  <Pass FreeKickLayup="false" />
+ </Play>
+</Event>
+<Event EventId="18237400000027" X-Position="56.05" EventTime="2022-10-15T13:01:57.200+02:00" Y-Position="57.52" MatchId="DFL-MAT-J03WPY">
+ <TacklingGame PossessionChange="false" WinnerTeam="DFL-CLU-00000P" WinnerRole="withoutBallControl" WinnerResult="layoff" LoserTeam="DFL-CLU-000005" Winner="DFL-OBJ-0000NZ" GoalKeeperInvolved="false" Loser="DFL-OBJ-0028BZ" Type="ground" LoserRole="withBallControl" />
+</Event>
+<Event EventId="18237400000028" EventTime="2022-10-15T13:02:28.918+02:00" MatchId="DFL-MAT-J03WPY">
+ <Delete />
+</Event>
+<Event EventId="18237400000029" X-Position="65.52" EventTime="2022-10-15T13:02:32.087+02:00" Y-Position="53.76" Y-Source-Position="53.76" MatchId="DFL-MAT-J03WPY" X-Source-Position="65.52">
+ <Play Recipient="DFL-OBJ-002GG4" Height="high" FromOpenPlay="true" PlayAngle="287.60" PenaltyBox="false" FlatCross="false" Team="DFL-CLU-00000P" Evaluation="unsuccessful" Distance="long" BallPossessionPhase="29" SemiField="false" PlayOrigin="ownHalf" Player="DFL-OBJ-00028V">
+  <Pass Direction="diagonalBall" FreeKickLayup="false" />
+ </Play>
+</Event>
+<Event EventId="18237400000030" X-Position="65.12" EventTime="2022-10-15T13:02:35.225+02:00" Y-Position="13.54" Y-Source-Position="8.63" MatchId="DFL-MAT-J03WPY" X-Source-Position="51.20">
+ <Play Recipient="DFL-OBJ-0028T3" Height="flat" FromOpenPlay="true" PlayAngle="301.12" PenaltyBox="false" FlatCross="false" Team="DFL-CLU-000005" Evaluation="successfullyCompleted" Distance="short" BallPossessionPhase="30" SemiField="false" PlayOrigin="oppositionHalf" Player="DFL-OBJ-002GG4">
+  <Pass FreeKickLayup="false" />
+ </Play>
+</Event>
+<Event EventId="18237400000031" X-Position="70.33" EventTime="2022-10-15T13:02:36.999+02:00" Y-Position="22.17" Y-Source-Position="22.17" MatchId="DFL-MAT-J03WPY" X-Source-Position="70.33">
+ <Play Recipient="DFL-OBJ-002GG4" Height="flat" FromOpenPlay="true" PlayAngle="333.65" PenaltyBox="false" FlatCross="false" Team="DFL-CLU-000005" Evaluation="successfullyCompleted" Distance="short" BallPossessionPhase="31" SemiField="false" PlayOrigin="oppositionHalf" Player="DFL-OBJ-0028T3">
+  <Pass FreeKickLayup="false" />
+ </Play>
+</Event>
+<Event EventId="18237400000032" X-Position="80.85" EventTime="2022-10-15T13:02:38.951+02:00" Y-Position="27.38" Y-Source-Position="27.38" MatchId="DFL-MAT-J03WPY" X-Source-Position="80.85">
+ <Play Recipient="DFL-OBJ-J0178P" Height="flat" FromOpenPlay="true" PlayAngle="67.64" PenaltyBox="false" FlatCross="false" Team="DFL-CLU-000005" Evaluation="successfullyCompleted" Distance="medium" BallPossessionPhase="32" SemiField="false" PlayOrigin="oppositionHalf" Player="DFL-OBJ-002GG4">
+  <Pass FreeKickLayup="false" />
+ </Play>
+</Event>
+<Event EventId="18237400000033" EventTime="2022-10-15T13:02:38.159+02:00" MatchId="DFL-MAT-J03WPY">
+ <Delete />
+</Event>
+<Event EventId="18237400000034" X-Position="47.35" EventTime="2022-10-15T13:01:59.040+02:00" Y-Position="45.43" MatchId="DFL-MAT-J03WPY">
+ <TacklingGame PossessionChange="false" WinnerTeam="DFL-CLU-000005" WinnerRole="withBallControl" WinnerResult="ballcontactSucceeded" LoserTeam="DFL-CLU-00000P" Winner="DFL-OBJ-0028T3" GoalKeeperInvolved="false" Loser="DFL-OBJ-0026RH" Type="ground" LoserRole="withoutBallControl" />
+</Event>
+<Event EventId="18237400000035" X-Position="88.07" EventTime="2022-10-15T13:02:42.407+02:00" Y-Position="9.83" Y-Source-Position="9.83" MatchId="DFL-MAT-J03WPY" X-Source-Position="88.07">
+ <Play Recipient="DFL-OBJ-002FYC" Height="high" Rotation="awayFromGoal" FromOpenPlay="true" PlayAngle="284.69" PenaltyBox="true" FlatCross="false" Team="DFL-CLU-000005" Evaluation="successfullyCompleted" Distance="medium" BallPossessionPhase="35" SemiField="false" PlayOrigin="oppositionHalf" Player="DFL-OBJ-J0178P">
+  <Cross Side="right" />
+ </Play>
+</Event>
+<Event EventId="18237400000036" EventTime="2022-10-15T13:02:48.142+02:00" MatchId="DFL-MAT-J03WPY">
+ <Delete />
+</Event>
+<Event EventId="18237400000037" X-Position="90.57" EventTime="2022-10-15T13:02:52.215+02:00" Y-Position="62.38" Y-Source-Position="62.38" MatchId="DFL-MAT-J03WPY" X-Source-Position="90.57">
+ <Play Recipient="DFL-OBJ-002595" Height="flat" FromOpenPlay="true" PlayAngle="181.40" PenaltyBox="false" FlatCross="false" Team="DFL-CLU-000005" Evaluation="successfullyCompleted" Distance="short" BallPossessionPhase="37" SemiField="false" PlayOrigin="oppositionHalf" Player="DFL-OBJ-002FYC">
+  <Pass FreeKickLayup="false" />
+ </Play>
+</Event>
+<Event EventId="18237400000038" X-Position="82.36" EventTime="2022-10-15T13:02:55.560+02:00" Y-Position="62.58" Y-Source-Position="62.58" MatchId="DFL-MAT-J03WPY" X-Source-Position="82.36">
+ <Play Recipient="DFL-OBJ-002GM9" Height="high" Rotation="towardsGoal" FromOpenPlay="true" PlayAngle="61.62" PenaltyBox="true" FlatCross="false" Team="DFL-CLU-000005" Evaluation="unsuccessful" Distance="medium" BallPossessionPhase="38" SemiField="false" PlayOrigin="oppositionHalf" Player="DFL-OBJ-002595">
+  <Cross Side="left" />
+ </Play>
+</Event>
+<Event EventId="18237400000039" X-Position="94.61" EventTime="2022-10-15T13:02:57.151+02:00" Y-Position="31.25" MatchId="DFL-MAT-J03WPY">
+ <TacklingGame PossessionChange="false" WinnerTeam="DFL-CLU-00000P" WinnerRole="withoutBallControl" WinnerResult="ballcontactSucceeded" LoserTeam="DFL-CLU-000005" Winner="DFL-OBJ-002GM9" GoalKeeperInvolved="false" Loser="DFL-OBJ-002GG4" Type="air" LoserRole="withBallControl" />
+</Event>
+<Event EventId="18237400000040" X-Position="97.69" EventTime="2022-10-15T13:02:58.054+02:00" Y-Position="34.20" Y-Source-Position="34.20" MatchId="DFL-MAT-J03WPY" X-Source-Position="97.69">
+ <OtherBallAction Team="DFL-CLU-00000P" BallPossessionPhase="40" Player="DFL-OBJ-002GM9" />
+</Event>
+<Event EventId="18237400000041" X-Position="78.95" EventTime="2022-10-15T13:03:02.991+02:00" Y-Position="35.81" Y-Source-Position="35.81" MatchId="DFL-MAT-J03WPY" X-Source-Position="78.95">
+ <Play Height="high" FromOpenPlay="true" PlayAngle="6.37" PenaltyBox="false" FlatCross="false" Team="DFL-CLU-00000P" Evaluation="successful" Distance="short" BallPossessionPhase="41" SemiField="false" PlayOrigin="ownHalf" Player="DFL-OBJ-002G5J">
+  <Pass FreeKickLayup="false" />
+ </Play>
+</Event>
+<Event EventId="18237400000042" X-Position="43.06" EventTime="2022-10-15T13:02:00.840+02:00" Y-Position="49.83" MatchId="DFL-MAT-J03WPY">
+ <TacklingGame PossessionChange="true" WinnerTeam="DFL-CLU-000005" WinnerRole="withBallControl" WinnerResult="ballcontactSucceeded" LoserTeam="DFL-CLU-00000P" Winner="DFL-OBJ-0000EJ" GoalKeeperInvolved="false" Loser="DFL-OBJ-002G5J" Type="ground" LoserRole="withoutBallControl" />
+</Event>
+<Event EventId="18237400000043" X-Position="65.24" EventTime="2022-10-15T13:03:04.247+02:00" Y-Position="37.05" MatchId="DFL-MAT-J03WPY">
+ <TacklingGame PossessionChange="true" WinnerTeam="DFL-CLU-00000P" WinnerRole="withoutBallControl" WinnerResult="fouled" LoserTeam="DFL-CLU-000005" Winner="DFL-OBJ-002FXT" GoalKeeperInvolved="false" Loser="DFL-OBJ-002G68" Type="air" LoserRole="withBallControl" />
+</Event>
+<Event EventId="18237400000044" EventTime="2022-10-15T13:03:04.743+02:00" MatchId="DFL-MAT-J03WPY">
+ <Foul TeamFouled="DFL-CLU-00000P" FoulType="foul" Fouler="DFL-OBJ-002G68" TeamFouler="DFL-CLU-000005" Fouled="DFL-OBJ-002FXT" />
+</Event>
+<Event EventId="18237400000045" X-Position="60.52" EventTime="2022-10-15T13:03:26.639+02:00" Y-Position="38.51" Y-Source-Position="37.41" MatchId="DFL-MAT-J03WPY" X-Source-Position="64.62">
+ <FreeKick DecisionTimestamp="2022-10-15T13:03:08.887+02:00" Team="DFL-CLU-00000P" ExecutionMode="direct">
+  <Play Recipient="DFL-OBJ-002GM9" Height="flat" FromOpenPlay="false" PlayAngle="237.26" PenaltyBox="false" FlatCross="false" Team="DFL-CLU-00000P" Evaluation="successfullyCompleted" Distance="short" BallPossessionPhase="45" SemiField="false" PlayOrigin="ownHalf" Player="DFL-OBJ-00028V">
+   <Pass FreeKickLayup="false" />
+  </Play>
+ </FreeKick>
+</Event>
+<Event EventId="18237400000104" X-Position="31.26" EventTime="2022-10-15T13:06:38.609+02:00" Y-Position="7.62" Y-Source-Position="7.62" MatchId="DFL-MAT-J03WPY" StartFrame="17724" X-Source-Position="31.26" EndFrame="17974">
+ <FreeKick DecisionTimestamp="2022-10-15T13:06:07.912+02:00" Team="DFL-CLU-00000P" ExecutionMode="direct">
+  <Play Recipient="DFL-OBJ-002GM9" Height="high" Rotation="other" FromOpenPlay="false" PlayAngle="62.27" PenaltyBox="true" FlatCross="false" Team="DFL-CLU-00000P" Evaluation="successfullyCompleted" Distance="long" BallPossessionPhase="104" SemiField="true" PlayOrigin="oppositionHalf" Player="DFL-OBJ-002G5J">
+   <Pass Direction="diagonalBall" FreeKickLayup="false" />
+  </Play>
+ </FreeKick>
+</Event>
+<Event EventId="18237400000110" X-Position="0.00" EventTime="2022-10-15T13:07:18.953+02:00" Y-Position="68.00" Y-Source-Position="68.00" MatchId="DFL-MAT-J03WPY" StartFrame="18681" X-Source-Position="0.00" EndFrame="18977">
+ <CornerKick Rotation="awayFromGoal" Side="right" PostMarking="none" DecisionTimestamp="2022-10-15T13:06:47.169+02:00" Team="DFL-CLU-00000P" TargetArea="center" Placing="center">
+  <Play Recipient="DFL-OBJ-002G68" Height="high" Rotation="awayFromGoal" FromOpenPlay="false" PlayAngle="262.72" PenaltyBox="true" FlatCross="false" Team="DFL-CLU-00000P" Evaluation="unsuccessful" Distance="long" BallPossessionPhase="110" SemiField="false" PlayOrigin="oppositionHalf" Player="DFL-OBJ-002G5J">
+   <Cross Side="right" />
+  </Play>
+ </CornerKick>
+</Event>
+<Event EventId="18237400000125" X-Position="94.48" EventTime="2022-10-15T13:09:08.156+02:00" Y-Position="39.01" Y-Source-Position="39.01" MatchId="DFL-MAT-J03WPY" X-Source-Position="94.48">
+ <ShotAtGoal Team="DFL-CLU-000005" AssistTypeShotAtGoal="direct" AfterFreeKick="false" TypeOfShot="leftLeg" ChanceEvaluation="sitter" TakerBallControl="volley" SetupOrigin="left" ShotOrigin="3" BallPossessionPhase="125" InsideBox="true" AssistShotAtGoal="DFL-OBJ-J0178P" DistanceToGoal="11.72" TakerSetup="otherPassFromOpenPlay" ShotCondition="notComplicated" ExtendedTypeOfShot="frontalVolley" SitterContribution="DFL-OBJ-J0178P" xG="0.5062" AngleToGoal="31.91" SignificanceEvaluation="average" CounterAttack="false" Player="DFL-OBJ-0028BZ" AssistAction="otherPassFromOpenPlay" BuildUp="passOpenPlay">
+  <SavedShot SaveEvaluation="average" SaveType="arms" SaveResult="held" GoalKeeper="DFL-OBJ-0028FW" />
+ </ShotAtGoal>
+</Event>
+<Event EventId="18237400000176" X-Position="27.75" EventTime="2022-10-15T13:11:55.851+02:00" Y-Position="62.99" Y-Source-Position="62.99" MatchId="DFL-MAT-J03WPY" X-Source-Position="27.75">
+ <OtherBallAction DefensiveClearance="true" Team="DFL-CLU-000005" BallPossessionPhase="176" Player="DFL-OBJ-002G68" />
+</Event>
+<Event EventId="18237400000209" X-Position="9.62" CalculatedFrame="28617" X-PositionFromTracking="9.80" EventTime="2022-10-15T13:13:54.996+02:00" Y-Position="29.19" Y-Source-Position="29.19" CalculatedTimestamp="2022-10-15T13:13:54.000+02:00" Y-PositionFromTracking="29.04" MatchId="DFL-MAT-J03WPY" X-Source-Position="9.62">
+ <ShotAtGoal Team="DFL-CLU-00000P" AssistTypeShotAtGoal="direct" AfterFreeKick="false" TypeOfShot="leftLeg" ChanceEvaluation="chance" SetupOrigin="left" TakerBallControl="controlShot" ShotOrigin="3" BallPossessionPhase="209" GoalDistanceGoalkeeper="2.13" InsideBox="true" AmountOfDefenders="1" AssistShotAtGoal="DFL-OBJ-0026RH" DistanceToGoal="10.98" TakerSetup="otherPassFromOpenPlay" ShotCondition="notComplicated" PlayerSpeed="5.25" xG="0.1432" AngleToGoal="33.78" SignificanceEvaluation="average" CounterAttack="false" Player="DFL-OBJ-0000F8" Pressure="0.81" AssistAction="otherPassFromOpenPlay" BuildUp="passOpenPlay">
+  <BlockedShot GoalPrevented="false" Player="DFL-OBJ-002G68" />
+ </ShotAtGoal>
+</Event>
+<Event EventId="18237400000247" EventTime="2022-10-15T13:15:20.085+02:00" MatchId="DFL-MAT-J03WPY">
+ <Foul TeamFouled="DFL-CLU-00000P" CommittingPlayerAction="slidingTackle" FoulType="foul" Fouler="DFL-OBJ-0000EJ" TeamFouler="DFL-CLU-000005" Fouled="DFL-OBJ-0000F8" />
+</Event>
+<Event EventId="18237400000249" EventTime="2022-10-15T13:15:28.960+02:00" MatchId="DFL-MAT-J03WPY">
+ <Caution Reason="foul" CardColor="yellow" Team="DFL-CLU-000005" OtherReason="foul" CardRating="yellow" Player="DFL-OBJ-0000EJ" />
+</Event>
+<Event EventId="18237400000283" X-Position="88.17" CalculatedFrame="35462" X-PositionFromTracking="88.03" EventTime="2022-10-15T13:18:28.119+02:00" Y-Position="35.00" Y-Source-Position="35.00" CalculatedTimestamp="2022-10-15T13:18:27.800+02:00" Y-PositionFromTracking="36.73" MatchId="DFL-MAT-J03WPY" X-Source-Position="88.17">
+ <ShotAtGoal Team="DFL-CLU-000005" AssistTypeShotAtGoal="indirect" AfterFreeKick="false" TypeOfShot="rightLeg" ChanceEvaluation="chance" SetupOrigin="right" TakerBallControl="dribblingLess10m" ShotOrigin="8" BallPossessionPhase="283" GoalDistanceGoalkeeper="0.76" InsideBox="false" AmountOfDefenders="4" AssistShotAtGoal="DFL-OBJ-0000EJ" DistanceToGoal="17.19" TakerSetup="oppositionDefensiveAction" ShotCondition="notComplicated" PlayerSpeed="12.72" xG="0.0554" AngleToGoal="23.77" SignificanceEvaluation="average" CounterAttack="false" Player="DFL-OBJ-0028T3" Pressure="0.77" AssistAction="cornerKick" BuildUp="cornerKick">
+  <ShotWide PitchMarking="overCrossbarRight" Placing="far" />
+ </ShotAtGoal>
+</Event>
+<Event EventId="18237400000284" X-Position="101.69" EventTime="2022-10-15T13:18:34.679+02:00" Y-Position="28.08" Y-Source-Position="28.08" MatchId="DFL-MAT-J03WPY" X-Source-Position="101.69">
+ <GoalKick DecisionTimestamp="2022-10-15T13:18:30.342+02:00" Team="DFL-CLU-00000P">
+  <Play Recipient="DFL-OBJ-002G68" Height="high" FromOpenPlay="false" PlayAngle="23.72" PenaltyBox="false" FlatCross="false" Team="DFL-CLU-00000P" Evaluation="unsuccessful" Distance="long" BallPossessionPhase="284" SemiField="false" PlayOrigin="ownHalf" Player="DFL-OBJ-0028FW">
+   <Pass Direction="diagonalBall" FreeKickLayup="false" />
+  </Play>
+ </GoalKick>
+</Event>
+<Event EventId="18237400000297" X-Position="95.18" EventTime="2022-10-15T13:19:15.775+02:00" Y-Position="37.11" Y-Source-Position="37.11" MatchId="DFL-MAT-J03WPY" X-Source-Position="95.18">
+ <FairPlay Team="DFL-CLU-00000P" BallPossessionPhase="297" Player="DFL-OBJ-0028FW" />
+</Event>
+<Event EventId="18237400000407" X-Position="0.00" EventTime="2022-10-15T13:26:07.169+02:00" Y-Position="0.00" Y-Source-Position="0.00" MatchId="DFL-MAT-J03WPY" StartFrame="46897" X-Source-Position="0.00" EndFrame="47385">
+ <CornerKick Rotation="other" Side="left" PostMarking="none" DecisionTimestamp="2022-10-15T13:25:27.713+02:00" Team="DFL-CLU-00000P" TargetArea="short" Placing="short">
+  <Play Recipient="DFL-OBJ-0026RH" Height="flat" FromOpenPlay="false" PlayAngle="95.64" PenaltyBox="true" FlatCross="false" Team="DFL-CLU-00000P" Evaluation="successfullyCompleted" Distance="medium" BallPossessionPhase="407" SemiField="false" PlayOrigin="oppositionHalf" Player="DFL-OBJ-002G5J">
+   <Pass FreeKickLayup="false" />
+  </Play>
+ </CornerKick>
+</Event>
+<Event EventId="18237400000436" EventTime="2022-10-15T13:27:19.680+02:00" MatchId="DFL-MAT-J03WPY">
+ <Offside Team="DFL-CLU-000005" Player="DFL-OBJ-J0178P" />
+</Event>
+<Event EventId="18237400000762" EventTime="2022-10-15T13:47:31.000+02:00" MatchId="DFL-MAT-J03WPY">
+ <FinalWhistle GameSection="firstHalf" BreakingOff="false" FinalResult="0:0" />
+</Event>
+<Event EventId="18237400000797" X-Position="9.62" CalculatedFrame="102081" X-PositionFromTracking="9.90" EventTime="2022-10-15T14:04:53.524+02:00" Y-Position="32.09" Y-Source-Position="31.99" CalculatedTimestamp="2022-10-15T14:04:53.200+02:00" Y-PositionFromTracking="31.03" MatchId="DFL-MAT-J03WPY" X-Source-Position="10.42">
+ <ShotAtGoal Team="DFL-CLU-000005" AssistTypeShotAtGoal="direct" AfterFreeKick="false" TypeOfShot="rightLeg" ChanceEvaluation="sitter" SetupOrigin="insideRight" TakerBallControl="direct" ShotOrigin="3" BallPossessionPhase="797" GoalDistanceGoalkeeper="3.88" InsideBox="true" AmountOfDefenders="0" AssistShotAtGoal="DFL-OBJ-002GG4" DistanceToGoal="10.34" TakerSetup="otherPassFromOpenPlay" ShotCondition="notComplicated" SitterContribution="DFL-OBJ-002GG4" PlayerSpeed="21.50" xG="0.5674" AngleToGoal="37.80" CounterAttack="false" Player="DFL-OBJ-J0178P" Pressure="0.04" AssistAction="otherPassFromOpenPlay" BuildUp="passOpenPlay">
+  <SuccessfulShot GoalZone="7" Solo="false" Assist="DFL-OBJ-002GG4" CurrentResult="0:1" AssistType="direct" RefDecisionEvaluation="correct" />
+ </ShotAtGoal>
+</Event>
+<Event EventId="18237400000804" X-Position="94.28" EventTime="2022-10-15T14:06:21.646+02:00" Y-Position="0.00" Y-Source-Position="13.14" MatchId="DFL-MAT-J03WPY" X-Source-Position="82.46">
+ <ThrowIn Side="right" DecisionTimestamp="2022-10-15T14:05:58.196+02:00" Team="DFL-CLU-00000P">
+  <Play Recipient="DFL-OBJ-0000F8" Height="high" Rotation="other" FromOpenPlay="false" PlayAngle="277.49" PenaltyBox="true" FlatCross="false" Team="DFL-CLU-00000P" Evaluation="successfullyCompleted" Distance="medium" BallPossessionPhase="804" SemiField="false" PlayOrigin="oppositionHalf" Player="DFL-OBJ-0026RH">
+   <Cross Side="right" />
+  </Play>
+ </ThrowIn>
+</Event>
+<Event EventId="18237400000852" X-Position="5.81" EventTime="2022-10-15T14:09:33.198+02:00" Y-Position="5.82" Y-Source-Position="5.82" MatchId="DFL-MAT-J03WPY" StartFrame="109056" X-Source-Position="5.81" EndFrame="109245">
+ <FreeKick DecisionTimestamp="2022-10-15T14:08:51.734+02:00" Team="DFL-CLU-000005" ExecutionMode="direct">
+  <Play Recipient="DFL-OBJ-0026RH" Height="high" Rotation="towardsGoal" FromOpenPlay="false" PlayAngle="83.91" PenaltyBox="true" FlatCross="false" Team="DFL-CLU-000005" Evaluation="unsuccessful" Distance="medium" BallPossessionPhase="852" SemiField="false" PlayOrigin="oppositionHalf" Player="DFL-OBJ-0000EJ">
+   <Cross Side="left" />
+  </Play>
+ </FreeKick>
+</Event>
+<Event EventId="18237400000867" X-Position="39.78" EventTime="2022-10-15T14:11:47.567+02:00" Y-Position="0.00" Y-Source-Position="0.00" MatchId="DFL-MAT-J03WPY" X-Source-Position="39.78">
+ <ThrowIn Side="left" DecisionTimestamp="2022-10-15T14:11:40.551+02:00" Team="DFL-CLU-000005">
+  <Play Recipient="DFL-OBJ-0028BZ" Height="high" FromOpenPlay="false" PlayAngle="13.27" PenaltyBox="false" FlatCross="false" Team="DFL-CLU-000005" Evaluation="successfullyCompleted" Distance="short" BallPossessionPhase="867" SemiField="false" PlayOrigin="oppositionHalf" Player="DFL-OBJ-002FYC">
+   <Pass FreeKickLayup="false" OneTwo="firstPasser" />
+  </Play>
+ </ThrowIn>
+</Event>
+<Event EventId="18237400000868" X-Position="25.75" EventTime="2022-10-15T14:11:48.999+02:00" Y-Position="3.31" Y-Source-Position="3.31" MatchId="DFL-MAT-J03WPY" X-Source-Position="25.75">
+ <Play Recipient="DFL-OBJ-002FYC" Height="high" FromOpenPlay="true" PlayAngle="165.51" PenaltyBox="false" FlatCross="false" Team="DFL-CLU-000005" Evaluation="successfullyCompleted" Distance="short" BallPossessionPhase="868" SemiField="false" PlayOrigin="oppositionHalf" Player="DFL-OBJ-0028BZ">
+  <Pass FreeKickLayup="false" OneTwo="secondPasser" />
+ </Play>
+</Event>
+<Event EventId="18237400001006" EventTime="2022-10-15T14:20:46.800+02:00" MatchId="DFL-MAT-J03WPY">
+ <Substitution PlayingPosition="STZ" Team="DFL-CLU-00000P" PlayerOut="DFL-OBJ-002G5J" PlayerIn="DFL-OBJ-00008K" />
+</Event>
+<Event EventId="18237400001082" X-Position="97.31" EventTime="2022-10-15T14:27:18.623+02:00" Y-Position="28.86" Y-Source-Position="29.79" MatchId="DFL-MAT-J03WPY" X-Source-Position="96.08">
+ <ShotAtGoal Team="DFL-CLU-00000P" AssistTypeShotAtGoal="direct" AfterFreeKick="false" TypeOfShot="rightLeg" ChanceEvaluation="none" SetupOrigin="insideLeft" TakerBallControl="direct" ShotOrigin="3" BallPossessionPhase="1082" InsideBox="true" AssistShotAtGoal="DFL-OBJ-002GMO" DistanceToGoal="9.25" TakerSetup="header" ShotCondition="complicated" xG="0.1007" AngleToGoal="37.96" SignificanceEvaluation="none" CounterAttack="false" Player="DFL-OBJ-002FXT" AssistAction="header" BuildUp="passOpenPlay">
+  <OtherShot />
+ </ShotAtGoal>
+</Event>
+<Event EventId="18237400001145" X-Position="17.28" EventTime="2022-10-15T14:33:18.681+02:00" Y-Position="21.87" MatchId="DFL-MAT-J03WPY">
+ <TacklingGame PossessionChange="false" WinnerTeam="DFL-CLU-000005" DribblingSide="right" WinnerRole="withBallControl" WinnerResult="dribbledAround" LoserTeam="DFL-CLU-00000P" DribblingType="atTheFoot" Winner="DFL-OBJ-002G78" DribbleEvaluation="successful" GoalKeeperInvolved="false" Loser="DFL-OBJ-002GMO" BallPossessionPhase="1144" Type="ground" WinnerAction="shot" LoserRole="withoutBallControl" />
+</Event>
+<Event EventId="18237400001485" EventTime="2022-10-15T13:02:44.640+02:00" MatchId="DFL-MAT-J03WPY">
+ <SpectacularPlay Team="DFL-CLU-000005" Type="backheel" Player="DFL-OBJ-002FYC" />
+</Event>
+<Event EventId="18237400001487" EventTime="2022-10-15T13:34:37.360+02:00" MatchId="DFL-MAT-J03WPY">
+ <PenaltyNotAwarded CausingPlayer="DFL-OBJ-0000EJ" Reason="foul" PlayerToBeAwarded="DFL-OBJ-0000F8" Team="DFL-CLU-00000P" RefDecisionEvaluation="correct" />
+</Event>
+<Event EventId="18237400001488" X-Position="54.85" EventTime="2022-10-15T13:43:40.600+02:00" Y-Position="37.64" MatchId="DFL-MAT-J03WPY">
+ <Run Team="DFL-CLU-000005" Player="DFL-OBJ-0028T3" />
+</Event>
+<Event EventId="18237400001489" X-Position="26.77" EventTime="2022-10-15T14:04:48.360+02:00" Y-Position="27.36" MatchId="DFL-MAT-J03WPY">
+ <PossessionLossBeforeGoal TypeOfPossessionLoss="other" Team="DFL-CLU-00000P" PossessionLossOrigin="11" Player="DFL-OBJ-002GMO" />
+</Event>
+<Event EventId="18237400001490" EventTime="2022-10-15T14:07:41.120+02:00" MatchId="DFL-MAT-J03WPY">
+ <Nutmeg Team="DFL-CLU-000005" AffectedTeam="DFL-CLU-00000P" AffectedPlayer="DFL-OBJ-0026RH" Player="DFL-OBJ-0001LJ" />
+</Event>
+<Event EventId="18237400300121" X-Position="38.77" EventTime="2022-10-15T13:08:52.274+02:00" Y-Position="20.56" Y-Source-Position="20.56" MatchId="DFL-MAT-J03WPY" X-Source-Position="38.77">
+ <RefereeBall />
+</Event>
+<Event EventId="18237401900524" X-Position="73.94" EventTime="2022-10-15T13:32:19.485+02:00" Y-Position="34.50" Y-Source-Position="34.50" MatchId="DFL-MAT-J03WPY" X-Source-Position="73.94">
+ <BallDeflection Team="DFL-CLU-000005" Type="referee" Player="DFL-OBJ-002FYC" />
+</Event>
+<Event EventId="18237403500029" X-Position="51.20" EventTime="2022-10-15T13:02:35.224+02:00" Y-Position="8.63" MatchId="DFL-MAT-J03WPY">
+ <BallClaiming Team="DFL-CLU-000005" BallPossessionPhase="30" Type="InterceptedBall" Player="DFL-OBJ-002GG4" />
+</Event>
+</PutDataRequest>

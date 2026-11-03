@@ -1,0 +1,174 @@
+[
+ {
+  "team_id": 771,
+  "team_name": "Synthetic United",
+  "lineup": [
+   {
+    "player_id": 5501,
+    "player_name": "Ana Example",
+    "player_nickname": null,
+    "jersey_number": 1,
+    "country": {
+     "id": 68,
+     "name": "Synthetica"
+    },
+    "cards": [
+     {
+      "time": "62:15",
+      "card_type": "Yellow Card",
+      "reason": "Foul Committed",
+      "period": 2
+     }
+    ],
+    "positions": [
+     {
+      "position_id": 3,
+      "position": "Right Center Back",
+      "from": "00:00",
+      "to": "105:30",
+      "from_period": 1,
+      "to_period": 4,
+      "start_reason": "Starting XI",
+      "end_reason": "Final Whistle"
+     },
+     {
+      "position_id": 9,
+      "position": "Right Defensive Midfield",
+      "from": "105:30",
+      "to": null,
+      "from_period": 4,
+      "to_period": null,
+      "start_reason": "Tactical Shift",
+      "end_reason": "Final Whistle"
+     }
+    ]
+   },
+   {
+    "player_id": 5502,
+    "player_name": "Bo Sample",
+    "player_nickname": "Bo",
+    "jersey_number": 2,
+    "country": {
+     "id": 68,
+     "name": "Synthetica"
+    },
+    "cards": [
+     {
+      "time": "62:15",
+      "card_type": "Yellow Card",
+      "reason": "Foul Committed",
+      "period": 2
+     }
+    ],
+    "positions": [
+     {
+      "position_id": 3,
+      "position": "Right Center Back",
+      "from": "00:00",
+      "to": "105:30",
+      "from_period": 1,
+      "to_period": 4,
+      "start_reason": "Starting XI",
+      "end_reason": "Final Whistle"
+     },
+     {
+      "position_id": 9,
+      "position": "Right Defensive Midfield",
+      "from": "105:30",
+      "to": null,
+      "from_period": 4,
+      "to_period": null,
+      "start_reason": "Tactical Shift",
+      "end_reason": "Final Whistle"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "team_id": 772,
+  "team_name": "Example Rovers",
+  "lineup": [
+   {
+    "player_id": 5503,
+    "player_name": "Cé Placeholder",
+    "player_nickname": null,
+    "jersey_number": 1,
+    "country": {
+     "id": 68,
+     "name": "Synthetica"
+    },
+    "cards": [
+     {
+      "time": "62:15",
+      "card_type": "Yellow Card",
+      "reason": "Foul Committed",
+      "period": 2
+     }
+    ],
+    "positions": [
+     {
+      "position_id": 3,
+      "position": "Right Center Back",
+      "from": "00:00",
+      "to": "105:30",
+      "from_period": 1,
+      "to_period": 4,
+      "start_reason": "Starting XI",
+      "end_reason": "Final Whistle"
+     },
+     {
+      "position_id": 9,
+      "position": "Right Defensive Midfield",
+      "from": "105:30",
+      "to": null,
+      "from_period": 4,
+      "to_period": null,
+      "start_reason": "Tactical Shift",
+      "end_reason": "Final Whistle"
+     }
+    ]
+   },
+   {
+    "player_id": 5504,
+    "player_name": "Dürer Test",
+    "player_nickname": null,
+    "jersey_number": 7,
+    "country": {
+     "id": 68,
+     "name": "Synthetica"
+    },
+    "cards": [
+     {
+      "time": "62:15",
+      "card_type": "Yellow Card",
+      "reason": "Foul Committed",
+      "period": 2
+     }
+    ],
+    "positions": [
+     {
+      "position_id": 3,
+      "position": "Right Center Back",
+      "from": "00:00",
+      "to": "105:30",
+      "from_period": 1,
+      "to_period": 4,
+      "start_reason": "Starting XI",
+      "end_reason": "Final Whistle"
+     },
+     {
+      "position_id": 9,
+      "position": "Right Defensive Midfield",
+      "from": "105:30",
+      "to": null,
+      "from_period": 4,
+      "to_period": null,
+      "start_reason": "Tactical Shift",
+      "end_reason": "Final Whistle"
+     }
+    ]
+   }
+  ]
+ }
+]

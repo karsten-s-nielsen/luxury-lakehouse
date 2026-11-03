@@ -1,0 +1,15 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<PutDataRequest RequestId="ba29668b-96d5-44d8-9f6b-4a25200f3fff" MessageTime="2022-08-30T09:12:53.212+00:00" TransmissionComplete="true" TransmissionSuspended="false" DataStatus="postmatch">
+<Event Y-Source-Position="5.69" X-Position="94.00" MatchId="DFL-MAT-J03WOH" X-Source-Position="81.92" EventTime="2022-08-26T19:54:15.640+02:00" EventId="18232100000995" Y-Position="34.00">
+ <Penalty GoalkeeperBehaviour="regular" CausingPlayer="DFL-OBJ-0026UQ" FouledPlayer="DFL-OBJ-0000F8" ProspectiveTaker="DFL-OBJ-002FXT" RefDecisionEvaluation="correct" Team="DFL-CLU-00000P" RetakenPenalty="false" DecisionTimestamp="2022-08-26T19:52:00.002+02:00" GoalkeeperMovement="right" PlayersInBox="both">
+  <ShotAtGoal Pressure="0.00" PenaltyExecution="targetedShot" Team="DFL-CLU-00000P" InsideBox="true" CounterAttack="false" DistanceToGoal="11.00" TypeOfShot="rightLeg" TakerSetup="ownSetPiece" AssistAction="fouled" PenaltyDirection="73" AngleToGoal="37.00" ShotAssistFouledPlayer="DFL-OBJ-0000F8" BuildUp="penaltyKick" BallPossessionPhase="995" ShotOrigin="3" SitterContribution="DFL-OBJ-0000F8" SetupOrigin="right" ShotCondition="notComplicated" ChanceEvaluation="sitter" TakerBallControl="setPiece" AfterFreeKick="false" Player="DFL-OBJ-002FXT" xG="0.7670">
+   <SuccessfulShot Solo="false" CurrentResult="2:0" AssistFouledPlayer="DFL-OBJ-0000F8" RefDecisionEvaluation="correct" GoalZone="6" />
+  </ShotAtGoal>
+ </Penalty>
+</Event>
+<Event Y-Source-Position="38.41" X-Position="103.50" MatchId="DFL-MAT-J03WOH" X-Source-Position="102.60" Y-PositionFromTracking="38.88" EventTime="2022-08-26T20:14:02.680+02:00" CalculatedFrame="158639" X-PositionFromTracking="102.78" EventId="18232100001245" CalculatedTimestamp="2022-08-26T20:14:03.880+02:00" Y-Position="38.04">
+ <ShotAtGoal Pressure="0.79" Team="DFL-CLU-00000P" InsideBox="true" CounterAttack="false" DistanceToGoal="5.36" TypeOfShot="leftLeg" TakerSetup="oppositionOtherAction" AngleToGoal="46.64" AmountOfDefenders="0" BuildUp="lossOfPossession" BallPossessionPhase="1245" ShotOrigin="3" PlayerSpeed="6.56" GoalDistanceGoalkeeper="1.00" SetupOrigin="insideLeft" ShotCondition="notComplicated" ChanceEvaluation="sitter" TakerBallControl="direct" AfterFreeKick="false" Player="DFL-OBJ-002G5J" xG="0.8492">
+  <SuccessfulShot Solo="false" Error="DFL-OBJ-0028SW" CurrentResult="4:0" RefDecisionEvaluation="correct" GoalZone="11" />
+ </ShotAtGoal>
+</Event>
+</PutDataRequest>

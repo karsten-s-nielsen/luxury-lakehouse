@@ -1,0 +1,28 @@
+{
+  "idsse": {
+    "mb_per_match": 23.811,
+    "measured": {
+      "frame_rows": 146211,
+      "mb_per_match": 19.048495,
+      "parse_s": 30.11943187500583,
+      "peak_rss_mb": 8488.861696,
+      "player_rows": 3216642,
+      "total_s": 30.675738959005685
+    },
+    "parse_s": 37.649,
+    "peak_rss_mb": 10611.077
+  },
+  "skillcorner": {
+    "mb_per_match": 3.163,
+    "measured": {
+      "frame_rows": 60530,
+      "mb_per_match": 2.530693,
+      "parse_s": 1.7976834169967333,
+      "peak_rss_mb": 485.425152,
+      "player_rows": 894982,
+      "total_s": 1.9569690839998657
+    },
+    "parse_s": 2.247,
+    "peak_rss_mb": 606.781
+  }
+}

@@ -1,0 +1,307 @@
+{
+  "description": "Known v1 surrogate keys (spec §14.1, §23.6 'Key parity'). Public-source ids only; no private match, team or player.",
+  "formula": "xxhash64(concat_ws('|', provider, cast(native_id as string))), seed 42, signed BIGINT",
+  "rows": [
+    {
+      "entity": "competition",
+      "provider": "gradientsports",
+      "native_id": "38",
+      "key": 4074842662800745980,
+      "source": "v1 Lakebase dev_gold.dim_competitions_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a))"
+    },
+    {
+      "entity": "competition",
+      "provider": "idsse",
+      "native_id": "DFL-COM-000001",
+      "key": -7594254900734488058,
+      "source": "v1 Lakebase dev_gold.dim_competitions_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a))"
+    },
+    {
+      "entity": "competition",
+      "provider": "idsse",
+      "native_id": "DFL-COM-000002",
+      "key": -6960685815274572199,
+      "source": "v1 Lakebase dev_gold.dim_competitions_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a))"
+    },
+    {
+      "entity": "competition",
+      "provider": "skillcorner",
+      "native_id": "61",
+      "key": 1817999824427293632,
+      "source": "v1 Lakebase dev_gold.dim_competitions_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a)); id from SkillCorner opendata (data/matches/1899585/1899585_match.json)"
+    },
+    {
+      "entity": "competition",
+      "provider": "statsbomb",
+      "native_id": "43",
+      "key": -7082152531328249826,
+      "source": "v1 Lakebase dev_gold.dim_competitions_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a)); id from StatsBomb open data (data/lineups/3788741.json, data/matches, data/competitions.json)"
+    },
+    {
+      "entity": "competition",
+      "provider": "statsbomb",
+      "native_id": "55",
+      "key": 676971852792778566,
+      "source": "v1 Lakebase dev_gold.dim_competitions_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a)); id from StatsBomb open data (data/lineups/3788741.json, data/matches, data/competitions.json)"
+    },
+    {
+      "entity": "competition",
+      "provider": "statsbomb",
+      "native_id": null,
+      "key": null,
+      "source": "v1 macro dbt_project/macros/generate_competition_key.sql: the key is NULL when the native id is NULL"
+    },
+    {
+      "entity": "competition",
+      "provider": "wyscout",
+      "native_id": "102",
+      "key": -8217476399228736854,
+      "source": "v1 Lakebase dev_gold.dim_competitions_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a))"
+    },
+    {
+      "entity": "competition",
+      "provider": "wyscout",
+      "native_id": "28",
+      "key": 2894664430257287291,
+      "source": "v1 Lakebase dev_gold.dim_competitions_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a))"
+    },
+    {
+      "entity": "match",
+      "provider": "gradientsports",
+      "native_id": "10502",
+      "key": 6583046496852156909,
+      "source": "v1 Lakebase dev_gold.dim_matches_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a))"
+    },
+    {
+      "entity": "match",
+      "provider": "gradientsports",
+      "native_id": "10503",
+      "key": -5290271701254944421,
+      "source": "v1 Lakebase dev_gold.dim_matches_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a))"
+    },
+    {
+      "entity": "match",
+      "provider": "idsse",
+      "native_id": "J03WMX",
+      "key": 4203055498971744044,
+      "source": "v1 Lakebase dev_gold.dim_matches_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a))"
+    },
+    {
+      "entity": "match",
+      "provider": "idsse",
+      "native_id": "J03WN1",
+      "key": 1373264723904753239,
+      "source": "v1 Lakebase dev_gold.dim_matches_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a))"
+    },
+    {
+      "entity": "match",
+      "provider": "skillcorner",
+      "native_id": "1899585",
+      "key": -3171771160841343602,
+      "source": "v1 Lakebase dev_gold.dim_matches_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a)); id from SkillCorner opendata (data/matches/1899585/1899585_match.json)"
+    },
+    {
+      "entity": "match",
+      "provider": "skillcorner",
+      "native_id": "1925299",
+      "key": -8723689807404216399,
+      "source": "v1 Lakebase dev_gold.dim_matches_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a)); id from SkillCorner opendata (data/matches/1899585/1899585_match.json)"
+    },
+    {
+      "entity": "match",
+      "provider": "statsbomb",
+      "native_id": "3788741",
+      "key": -5822401119797186204,
+      "source": "v1 Lakebase dev_gold.dim_matches_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a)); id from StatsBomb open data (data/lineups/3788741.json, data/matches, data/competitions.json)"
+    },
+    {
+      "entity": "match",
+      "provider": "statsbomb",
+      "native_id": "3869685",
+      "key": -1076453382047475083,
+      "source": "v1 Lakebase dev_gold.dim_matches_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a)); id from StatsBomb open data (data/lineups/3788741.json, data/matches, data/competitions.json)"
+    },
+    {
+      "entity": "match",
+      "provider": "wyscout",
+      "native_id": "1694390",
+      "key": 696206744521222262,
+      "source": "v1 Lakebase dev_gold.dim_matches_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a))"
+    },
+    {
+      "entity": "match",
+      "provider": "wyscout",
+      "native_id": "1694391",
+      "key": 4687327355285258847,
+      "source": "v1 Lakebase dev_gold.dim_matches_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a))"
+    },
+    {
+      "entity": "player",
+      "provider": "gradientsports",
+      "native_id": "1",
+      "key": 7482049718175327001,
+      "source": "v1 Lakebase dev_gold.dim_players_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a))"
+    },
+    {
+      "entity": "player",
+      "provider": "gradientsports",
+      "native_id": "10",
+      "key": 7377882705908643013,
+      "source": "v1 Lakebase dev_gold.dim_players_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a))"
+    },
+    {
+      "entity": "player",
+      "provider": "idsse",
+      "native_id": "DFL-OBJ-00002Z",
+      "key": -7263633350931282791,
+      "source": "v1 Lakebase dev_gold.dim_players_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a))"
+    },
+    {
+      "entity": "player",
+      "provider": "idsse",
+      "native_id": "DFL-OBJ-00003J",
+      "key": 7816896865061410576,
+      "source": "v1 Lakebase dev_gold.dim_players_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a))"
+    },
+    {
+      "entity": "player",
+      "provider": "skillcorner",
+      "native_id": "14736",
+      "key": 796107545342496315,
+      "source": "v1 Lakebase dev_gold.dim_players_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a)); id from SkillCorner opendata (data/matches/1899585/1899585_match.json)"
+    },
+    {
+      "entity": "player",
+      "provider": "skillcorner",
+      "native_id": "27003",
+      "key": 1361494149560363520,
+      "source": "v1 Lakebase dev_gold.dim_players_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a)); id from SkillCorner opendata (data/matches/1899585/1899585_match.json)"
+    },
+    {
+      "entity": "player",
+      "provider": "skillcorner",
+      "native_id": "957734",
+      "key": -8489664783253140618,
+      "source": "v1 Lakebase dev_gold.dim_players_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a)); id from SkillCorner opendata (data/matches/1899585/1899585_match.json)"
+    },
+    {
+      "entity": "player",
+      "provider": "statsbomb",
+      "native_id": "4355",
+      "key": 3640773266128942277,
+      "source": "v1 Lakebase dev_gold.dim_players_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a)); id from StatsBomb open data (data/lineups/3788741.json, data/matches, data/competitions.json)"
+    },
+    {
+      "entity": "player",
+      "provider": "statsbomb",
+      "native_id": "6954",
+      "key": 8136047260050287844,
+      "source": "v1 Lakebase dev_gold.dim_players_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a)); id from StatsBomb open data (data/lineups/3788741.json, data/matches, data/competitions.json)"
+    },
+    {
+      "entity": "player",
+      "provider": "statsbomb",
+      "native_id": "6957",
+      "key": 341273964993554421,
+      "source": "v1 Lakebase dev_gold.dim_players_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a)); id from StatsBomb open data (data/lineups/3788741.json, data/matches, data/competitions.json)"
+    },
+    {
+      "entity": "player",
+      "provider": "statsbomb",
+      "native_id": null,
+      "key": null,
+      "source": "v1 macro dbt_project/macros/generate_player_key.sql: the key is NULL when the native id is NULL"
+    },
+    {
+      "entity": "player",
+      "provider": "wyscout",
+      "native_id": "10014",
+      "key": -875276358284161809,
+      "source": "v1 Lakebase dev_gold.dim_players_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a))"
+    },
+    {
+      "entity": "player",
+      "provider": "wyscout",
+      "native_id": "100140",
+      "key": -1441154757521791164,
+      "source": "v1 Lakebase dev_gold.dim_players_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a))"
+    },
+    {
+      "entity": "team",
+      "provider": "gradientsports",
+      "native_id": "360",
+      "key": -1145497966026347388,
+      "source": "v1 Lakebase dev_gold.dim_teams_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a))"
+    },
+    {
+      "entity": "team",
+      "provider": "gradientsports",
+      "native_id": "361",
+      "key": 1433804374257641486,
+      "source": "v1 Lakebase dev_gold.dim_teams_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a))"
+    },
+    {
+      "entity": "team",
+      "provider": "idsse",
+      "native_id": "DFL-CLU-000005",
+      "key": -2306795972876941779,
+      "source": "v1 Lakebase dev_gold.dim_teams_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a))"
+    },
+    {
+      "entity": "team",
+      "provider": "idsse",
+      "native_id": "DFL-CLU-000008",
+      "key": -2651481552966641778,
+      "source": "v1 Lakebase dev_gold.dim_teams_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a))"
+    },
+    {
+      "entity": "team",
+      "provider": "skillcorner",
+      "native_id": "4177",
+      "key": -8900414484190859150,
+      "source": "v1 Lakebase dev_gold.dim_teams_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a)); id from SkillCorner opendata (data/matches/1899585/1899585_match.json)"
+    },
+    {
+      "entity": "team",
+      "provider": "skillcorner",
+      "native_id": "867",
+      "key": 6878955597029811446,
+      "source": "v1 Lakebase dev_gold.dim_teams_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a)); id from SkillCorner opendata (data/matches/1899585/1899585_match.json)"
+    },
+    {
+      "entity": "team",
+      "provider": "statsbomb",
+      "native_id": "909",
+      "key": 588703619842312236,
+      "source": "v1 Lakebase dev_gold.dim_teams_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a)); id from StatsBomb open data (data/lineups/3788741.json, data/matches, data/competitions.json)"
+    },
+    {
+      "entity": "team",
+      "provider": "statsbomb",
+      "native_id": "914",
+      "key": 3520684787118688938,
+      "source": "v1 Lakebase dev_gold.dim_teams_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a)); id from StatsBomb open data (data/lineups/3788741.json, data/matches, data/competitions.json)"
+    },
+    {
+      "entity": "team",
+      "provider": "statsbomb",
+      "native_id": null,
+      "key": null,
+      "source": "v1 macro dbt_project/macros/generate_team_key.sql: the key is NULL when the native id is NULL"
+    },
+    {
+      "entity": "team",
+      "provider": "wyscout",
+      "native_id": "10451",
+      "key": -3900214968337612958,
+      "source": "v1 Lakebase dev_gold.dim_teams_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a))"
+    },
+    {
+      "entity": "team",
+      "provider": "wyscout",
+      "native_id": "10531",
+      "key": 5226284210826025261,
+      "source": "v1 Lakebase dev_gold.dim_teams_synced, read-only query on 2026-10-26 (Gate G-A, owner option (a))"
+    }
+  ]
+}

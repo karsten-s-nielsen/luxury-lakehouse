@@ -1,0 +1,20 @@
+{
+  "nodes": {
+    "model.lakehouse.stg_statsbomb__matches": {
+      "resource_type": "model",
+      "name": "stg_statsbomb__matches",
+      "config": {"materialized": "view"},
+      "depends_on": {"nodes": ["source.lakehouse.bronze_statsbomb.statsbomb_matches"]}
+    },
+    "model.lakehouse.dim_matches": {
+      "resource_type": "model",
+      "name": "dim_matches",
+      "config": {"materialized": "table"},
+      "depends_on": {"nodes": ["model.lakehouse.stg_statsbomb__matches"]}
+    },
+    "source.lakehouse.bronze_statsbomb.statsbomb_matches": {
+      "resource_type": "source",
+      "name": "statsbomb_matches"
+    }
+  }
+}

@@ -1,0 +1,7 @@
+# Taipy serves this directory (the Gui's _root_dir, set via gui._set_frame to the shell module's dir) as static to
+# signed-in callers. Exclude the Python source and bytecode so only styles.css (and any font assets) are served.
+# Gitignore syntax (Taipy reads it with gitignore_parser). See review V2UI-14.
+*.py
+*.pyc
+__pycache__/
+.taipyignore

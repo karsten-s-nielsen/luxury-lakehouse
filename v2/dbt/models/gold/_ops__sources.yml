@@ -1,0 +1,14 @@
+version: 2
+sources:
+  - name: ops
+    description: Tables that the run writes before dbt (plan Tasks 21 and 22). Resolution keeps its records and the
+      canonical pointers; the match metadata keeps the 360 flag.
+    database: lake
+    schema: main
+    tables:
+      - name: ops_entity_records
+        description: One row per resolved record, with the key of the one Python generator (ADR-003).
+      - name: ops_canonical_pointers
+        description: One row per resolved record, with the canonical member of its cluster (ADR-004).
+      - name: ops_matches
+        description: One row per ingested match; `has_360_frames` for StatsBomb matches (spec §11.3, §29.13).

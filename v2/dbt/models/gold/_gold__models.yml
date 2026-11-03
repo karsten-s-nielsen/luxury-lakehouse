@@ -1,0 +1,145 @@
+version: 2
+# Gold models (spec §11.6). Every one has an enforced contract (dbt_project.yml); every dimension keeps its natural
+# key (provider, native id), its provider key and the canonical pointer (spec §14.3).
+models:
+  - name: dim_players
+    description: One row per provider's player record, with the canonical pointer of its resolved cluster.
+    columns:
+      - name: player_key
+        data_type: bigint
+        data_tests: [not_null, unique]
+      - name: provider
+        data_type: varchar
+        data_tests: [not_null]
+      - name: native_player_id
+        data_type: varchar
+        data_tests: [not_null]
+      - name: canonical_player_key
+        data_type: bigint
+        data_tests: [not_null]
+      - name: player_name
+        data_type: varchar
+      - name: short_name
+        data_type: varchar
+      - name: birth_date
+        data_type: date
+      - name: position
+        data_type: varchar
+      - name: team_name
+        data_type: varchar
+      - name: jersey_number
+        data_type: varchar
+      - name: match_count
+        data_type: bigint
+  - name: dim_teams
+    description: One row per provider's team record, with the canonical pointer of its resolved cluster.
+    columns:
+      - name: team_key
+        data_type: bigint
+        data_tests: [not_null, unique]
+      - name: provider
+        data_type: varchar
+        data_tests: [not_null]
+      - name: native_team_id
+        data_type: varchar
+        data_tests: [not_null]
+      - name: canonical_team_key
+        data_type: bigint
+        data_tests: [not_null]
+      - name: team_name
+        data_type: varchar
+      - name: area_name
+        data_type: varchar
+  - name: dim_competitions
+    description: One row per provider's competition record, with the canonical pointer of its resolved cluster.
+    columns:
+      - name: competition_key
+        data_type: bigint
+        data_tests: [not_null, unique]
+      - name: provider
+        data_type: varchar
+        data_tests: [not_null]
+      - name: native_competition_id
+        data_type: varchar
+        data_tests: [not_null]
+      - name: canonical_competition_key
+        data_type: bigint
+        data_tests: [not_null]
+      - name: competition_name
+        data_type: varchar
+      - name: area_name
+        data_type: varchar
+  - name: dim_seasons
+    description: One row per competition-season of a provider (spec §14.4); seasons are not resolved in cycle 1.
+    columns:
+      - name: season_key
+        data_type: bigint
+        data_tests: [not_null, unique]
+      - name: provider
+        data_type: varchar
+        data_tests: [not_null]
+      - name: native_season_id
+        data_type: varchar
+        data_tests: [not_null]
+      - name: canonical_season_key
+        data_type: bigint
+        data_tests: [not_null]
+      - name: competition_key
+        data_type: bigint
+      - name: season_name
+        data_type: varchar
+  - name: dim_matches
+    description: One row per provider's match record, with the canonical pointer; has_360_frames for StatsBomb only.
+    columns:
+      - name: match_key
+        data_type: bigint
+        data_tests: [not_null, unique]
+      - name: provider
+        data_type: varchar
+        data_tests: [not_null]
+      - name: native_match_id
+        data_type: varchar
+        data_tests: [not_null]
+      - name: canonical_match_key
+        data_type: bigint
+        data_tests: [not_null]
+      - name: match_date
+        data_type: date
+      - name: home_team_key
+        data_type: bigint
+      - name: away_team_key
+        data_type: bigint
+      - name: competition_key
+        data_type: bigint
+      - name: season_key
+        data_type: bigint
+      - name: has_360_frames
+        data_type: boolean
+  - name: tracking_cross_provider
+    description: The thin cross-provider tracking view (spec §16) on the shared core (spec §11.5); it stores no data.
+    columns:
+      - name: provider
+        data_type: varchar
+      - name: match_key
+        data_type: bigint
+      - name: canonical_match_key
+        data_type: bigint
+      - name: period
+        data_type: tinyint
+      - name: frame
+        data_type: integer
+      - name: player_key
+        data_type: bigint
+      - name: canonical_player_key
+        data_type: bigint
+      - name: x_mm
+        data_type: integer
+      - name: y_mm
+        data_type: integer
+      - name: is_visible
+        data_type: boolean
+      - name: _visibility
+        data_type: varchar
+        description: >-
+          The authoritative row visibility on an encrypted-local lake (plan T9); null on an unencrypted-local or
+          HF lake, where the bucket split enforces visibility. The read seam filters on it (spec §6.4).

@@ -1,0 +1,69 @@
+{
+  "description": "Channel id inventory (spec §7.3, §14.4). Public sample ids only; private entries are recorded as an id pattern (9 = digit, a = letter), never as a value (spec §23.4). Recorded 2026-10-26.",
+  "pairs": {
+    "statsbomb": {
+      "overlap": true,
+      "overlap_evidence": "pining statsbomb provenance 'redistributed' is StatsBomb open-data 360 for six tournaments, so its ids are open-data match ids",
+      "public": {
+        "form": "positive integer match_id in data/matches/<competition>/<season>.json",
+        "samples": [3788741, 3857254, 3869685],
+        "evidence": "StatsBomb open data: data/matches/55/43.json (3788741), data/matches/43/106.json (3857254, 3869685)"
+      },
+      "pining": {
+        "form": "string of digits; owner tier only, every entry private on 2026-10-26 (327 entries, provenances original and redistributed)",
+        "private_id_pattern": "9999999",
+        "samples": [],
+        "evidence": "GET /v1/statsbomb/matches with the owner token, 2026-10-26; the public token lists 0 entries"
+      },
+      "canonical": "the decimal string of the integer, for example 3788741 and '3788741' both give '3788741'"
+    },
+    "idsse": {
+      "overlap": true,
+      "overlap_evidence": "the 7 public pining IDSSE entries are the 7 matches of the public HF dataset",
+      "public": {
+        "form": "bare DFL MatchId in the pysport/idsse-data file names",
+        "samples": ["J03WMX", "J03WN1", "J03WPY"],
+        "evidence": "HF dataset pysport/idsse-data; v1 Lakebase dev_gold.dim_matches_synced (J03WMX, J03WN1)"
+      },
+      "pining": {
+        "form": "DFL-MAT- prefix plus the DFL MatchId",
+        "private_id_pattern": null,
+        "samples": ["DFL-MAT-J03WMX", "DFL-MAT-J03WN1", "DFL-MAT-J03WOH"],
+        "evidence": "GET /v1/idsse/matches with the public token, 2026-10-26 (7 public entries)"
+      },
+      "canonical": "the bare DFL MatchId (v1 idsse_native_match_id): strip the DFL-MAT- prefix"
+    },
+    "skillcorner": {
+      "overlap": true,
+      "overlap_evidence": "the 20 public pining SkillCorner entries carry the GitHub opendata match ids",
+      "public": {
+        "form": "numeric string (match.json id)",
+        "samples": ["1886347", "1899585", "1925299"],
+        "evidence": "SkillCorner/opendata data/matches/<id>/<id>_match.json"
+      },
+      "pining": {
+        "form": "numeric string, equal to the GitHub id for public entries",
+        "private_id_pattern": "9999999",
+        "samples": ["1886347", "1899585", "1925299"],
+        "evidence": "GET /v1/skillcorner/matches with the public token (20 public) and the owner token (909 entries, 889 private), 2026-10-26"
+      },
+      "canonical": "the numeric string as delivered (identity)"
+    },
+    "gradientsports": {
+      "overlap": true,
+      "overlap_evidence": "pining gradientsports lists 64 private 'original' entries with 4- or 5-digit ids, and the public Drive dataset (FIFA World Cup 2022) has 64 matches with 4- or 5-digit ids",
+      "public": {
+        "form": "numeric string (Drive file and metadata match id)",
+        "samples": ["10502", "10503", "10504"],
+        "evidence": "public Drive folder 1_a_q1e9CXeEPJ3GdCv_3-rNO3gPqacfa; v1 Lakebase dev_gold.dim_matches_synced (64 rows, id length 4 to 5)"
+      },
+      "pining": {
+        "form": "string of digits (pining entries carry string ids for gradientsports)",
+        "private_id_pattern": "9999 or 99999",
+        "samples": [],
+        "evidence": "GET /v1/gradientsports/matches with the owner token, 2026-10-26 (64 private entries); the public token lists 0 entries"
+      },
+      "canonical": "the numeric string as delivered (identity); an integer input gives its decimal string"
+    }
+  }
+}

@@ -1,0 +1,83 @@
+{
+ "match_id": 9100001,
+ "match_date": "2022-11-20",
+ "kick_off": "19:00:00.000",
+ "competition": {
+  "competition_id": 43,
+  "country_name": "International",
+  "competition_name": "FIFA World Cup"
+ },
+ "season": {
+  "season_id": 106,
+  "season_name": "2022"
+ },
+ "home_team": {
+  "home_team_id": 771,
+  "home_team_name": "Synthetic United",
+  "home_team_gender": "male",
+  "home_team_group": null,
+  "country": null,
+  "managers": [
+   {
+    "id": null,
+    "name": "A. Coach",
+    "nickname": null,
+    "dob": null,
+    "country": null
+   }
+  ]
+ },
+ "away_team": {
+  "away_team_id": 772,
+  "away_team_name": "Example Rovers",
+  "away_team_gender": "male",
+  "away_team_group": null,
+  "country": {
+   "id": 68,
+   "name": "Synthetica"
+  },
+  "managers": [
+   {
+    "id": 9901,
+    "name": "Manager Example",
+    "nickname": null,
+    "dob": "1970-01-31",
+    "country": {
+     "id": 68,
+     "name": "Synthetica"
+    }
+   }
+  ]
+ },
+ "home_score": 2,
+ "away_score": 1,
+ "match_status": "available",
+ "match_status_360": "available",
+ "last_updated": "2023-04-26T23:49:58.956186",
+ "last_updated_360": "2023-04-26T23:51:08.000",
+ "metadata": {
+  "data_version": "1.1.0",
+  "shot_fidelity_version": "2",
+  "xy_fidelity_version": "2"
+ },
+ "match_week": 1,
+ "competition_stage": {
+  "id": null,
+  "name": "Regular Season"
+ },
+ "stadium": {
+  "id": null,
+  "name": "Example Park",
+  "country": null
+ },
+ "referee": {
+  "id": null,
+  "name": "R. Referee",
+  "country": null
+ },
+ "attendance": 1234.0,
+ "behind_closed_doors": false,
+ "neutral_ground": false,
+ "collection_status": "Complete",
+ "play_status": "Normal"
+}

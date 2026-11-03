@@ -1,0 +1,62 @@
+[
+ {
+  "id": 11743836,
+  "title": "Mapping of event identifiers to event names",
+  "url": "https://api.figshare.com/v2/articles/11743836"
+ },
+ {
+  "id": 11743818,
+  "title": "Mapping of tag identifiers to tag names",
+  "url": "https://api.figshare.com/v2/articles/11743818"
+ },
+ {
+  "id": 11473374,
+  "title": "Data paper on soccer-logs",
+  "url": "https://api.figshare.com/v2/articles/11473374"
+ },
+ {
+  "id": 11473365,
+  "title": "Plots replication code of Nature Scientific Data paper",
+  "url": "https://api.figshare.com/v2/articles/11473365"
+ },
+ {
+  "id": 9361148,
+  "title": "PlayeRanks",
+  "url": "https://api.figshare.com/v2/articles/9361148"
+ },
+ {
+  "id": 8082665,
+  "title": "Referees",
+  "url": "https://api.figshare.com/v2/articles/8082665"
+ },
+ {
+  "id": 8082650,
+  "title": "Coaches",
+  "url": "https://api.figshare.com/v2/articles/8082650"
+ },
+ {
+  "id": 7765196,
+  "title": "Players",
+  "url": "https://api.figshare.com/v2/articles/7765196"
+ },
+ {
+  "id": 7765310,
+  "title": "Teams",
+  "url": "https://api.figshare.com/v2/articles/7765310"
+ },
+ {
+  "id": 7765316,
+  "title": "Competitions",
+  "url": "https://api.figshare.com/v2/articles/7765316"
+ },
+ {
+  "id": 7770599,
+  "title": "Events",
+  "url": "https://api.figshare.com/v2/articles/7770599"
+ },
+ {
+  "id": 7770422,
+  "title": "Matches",
+  "url": "https://api.figshare.com/v2/articles/7770422"
+ }
+]

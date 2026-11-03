@@ -1,0 +1,10 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<PutDataRequest RequestId="2ca795f6-a6d3-418c-8813-463c49deec9f" MessageTime="2022-09-13T10:16:25.419+00:00" TransmissionComplete="true" TransmissionSuspended="false" DataStatus="postmatch">
+<Event MatchId="DFL-MAT-J03WOY" Y-PositionFromTracking="37.50" Y-Source-Position="37.84" CalculatedFrame="163176" EventId="18233800001334" X-PositionFromTracking="28.55" StartFrame="163035" CalculatedTimestamp="2022-09-10T22:15:53.920+02:00" X-Source-Position="28.87" EndFrame="163263" EventTime="2022-09-10T22:15:52.206+02:00" X-Position="28.87" Y-Position="37.84">
+ <FreeKick Team="DFL-CLU-00000Q" ExecutionMode="direct" DecisionTimestamp="2022-09-10T22:15:31.245+02:00">
+  <ShotAtGoal PlayerSpeed="9.84" AfterFreeKick="true" TakerSetup="ownSetPiece" Rotation="other" BallPossessionPhase="1334" DirectFreeKickIntention="farKeeper" CounterAttack="false" GoalDistanceGoalkeeper="1.12" SignificanceEvaluation="average" TypeOfShot="leftLeg" Pressure="0.00" ShotOrigin="8" Team="DFL-CLU-00000Q" InsideBox="false" ChanceEvaluation="chance" AngleToGoal="14.40" AmountOfDefenders="3" ShotCondition="notComplicated" TakerBallControl="setPiece" SetupOrigin="insideRight" Player="DFL-OBJ-J01GG9" xG="0.0717" BuildUp="freeKick" DistanceToGoal="28.76">
+   <SavedShot SaveType="arms" SaveResult="held" SaveEvaluation="average" GoalKeeper="DFL-OBJ-0028FW" />
+  </ShotAtGoal>
+ </FreeKick>
+</Event>
+</PutDataRequest>

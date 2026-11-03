@@ -1,0 +1,44 @@
+{#- The dbt profile of a run (plan Task 23), rendered by lakehouse.runs.dbt.render_profile. It attaches the
+    detached working copy as `lake`, applies the run's resource caps, and names no secret value: on HF the gateway
+    key comes from the Job's environment through env_var (spec §10.5.1, §20). -#}
+lakehouse:
+  target: run
+  outputs:
+    run:
+      type: duckdb
+      path: ":memory:"
+      schema: main
+      threads: {{ threads }}
+      extensions:
+{%- for name in extensions %}
+        - {{ name }}
+{%- endfor %}
+      settings:
+        memory_limit: "{{ memory_limit }}"
+{%- if extension_directory %}
+        extension_directory: "{{ extension_directory }}"
+{%- endif %}
+{%- if encrypted %}
+        temp_directory: "{{ temp_directory }}"
+        temp_file_encryption: true
+{%- endif %}
+{%- if secrets or encrypted %}
+      secrets:
+{%- for secret in secrets %}
+        - type: {{ secret.type }}
+{%- for key, value in secret.options %}
+          {{ key }}: "{{ value }}"
+{%- endfor %}
+{%- endfor %}
+{%- if encrypted %}
+        - type: ducklake
+          name: lakesec
+          metadata_path: "{{ catalog_path }}"
+          data_path: "{{ data_path }}"
+          metadata_parameters:
+            encryption_key: "{{ encryption_key_ref }}"
+{%- endif %}
+{%- endif %}
+      attach:
+        - path: "ducklake:{% if encrypted %}lakesec{% else %}{{ catalog_path }}{% endif %}"
+          alias: lake

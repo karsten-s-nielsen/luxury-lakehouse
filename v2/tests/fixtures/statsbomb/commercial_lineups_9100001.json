@@ -1,0 +1,274 @@
+[
+ {
+  "team_id": 771,
+  "team_name": "Synthetic United",
+  "lineup": [
+   {
+    "player_id": 5501,
+    "player_name": "Ana Example",
+    "player_nickname": null,
+    "jersey_number": 1,
+    "country": {
+     "id": 68,
+     "name": "Synthetica"
+    },
+    "cards": [
+     {
+      "time": "62:15",
+      "card_type": "Yellow Card",
+      "reason": "Foul Committed",
+      "period": 2
+     }
+    ],
+    "positions": [
+     {
+      "position_id": 3,
+      "position": "Right Center Back",
+      "from": "00:00:00.000",
+      "to": "01:45:30.000",
+      "from_period": 1,
+      "to_period": 4,
+      "start_reason": "Starting XI",
+      "end_reason": "Final Whistle",
+      "counterpart_id": 9300000,
+      "counterpart_name": "Counterpart Player"
+     },
+     {
+      "position_id": 9,
+      "position": "Right Defensive Midfield",
+      "from": "01:45:30.000",
+      "to": null,
+      "from_period": 4,
+      "to_period": null,
+      "start_reason": "Tactical Shift",
+      "end_reason": "Final Whistle"
+     }
+    ],
+    "birth_date": "1999-04-01",
+    "player_gender": "female",
+    "player_height": 170.0,
+    "player_weight": null,
+    "stats": {
+     "assists": 0,
+     "goals": 1,
+     "own_goals": 0,
+     "penalties_missed": 0,
+     "penalties_saved": 0,
+     "penalties_scored": 0
+    }
+   },
+   {
+    "player_id": 5502,
+    "player_name": "Bo Sample",
+    "player_nickname": "Bo",
+    "jersey_number": 2,
+    "country": {
+     "id": 68,
+     "name": "Synthetica"
+    },
+    "cards": [
+     {
+      "time": "62:15",
+      "card_type": "Yellow Card",
+      "reason": "Foul Committed",
+      "period": 2
+     }
+    ],
+    "positions": [
+     {
+      "position_id": 3,
+      "position": "Right Center Back",
+      "from": "00:00:00.000",
+      "to": "01:45:30.000",
+      "from_period": 1,
+      "to_period": 4,
+      "start_reason": "Starting XI",
+      "end_reason": "Final Whistle",
+      "counterpart_id": 9300000,
+      "counterpart_name": "Counterpart Player"
+     },
+     {
+      "position_id": 9,
+      "position": "Right Defensive Midfield",
+      "from": "01:45:30.000",
+      "to": null,
+      "from_period": 4,
+      "to_period": null,
+      "start_reason": "Tactical Shift",
+      "end_reason": "Final Whistle"
+     }
+    ],
+    "birth_date": null,
+    "player_gender": "female",
+    "player_height": 170.0,
+    "player_weight": 62.5,
+    "stats": []
+   }
+  ],
+  "events": [
+   {
+    "outcome": "Yellow Card",
+    "period": 1,
+    "player_id": 5501,
+    "player_name": "Ana Example",
+    "timestamp": "00:31:12.400",
+    "type": "Card"
+   },
+   {
+    "period": 2,
+    "timestamp": "00:00:00.000",
+    "type": "Half Start"
+   }
+  ],
+  "formations": [
+   {
+    "formation": 433,
+    "period": 1,
+    "reason": "Starting XI",
+    "timestamp": "00:00:00.000"
+   },
+   {
+    "formation": 4231,
+    "period": 2,
+    "reason": "Tactical Shift",
+    "timestamp": "00:12:05.800"
+   }
+  ]
+ },
+ {
+  "team_id": 772,
+  "team_name": "Example Rovers",
+  "lineup": [
+   {
+    "player_id": 5503,
+    "player_name": "Cé Placeholder",
+    "player_nickname": null,
+    "jersey_number": 1,
+    "country": {
+     "id": 68,
+     "name": "Synthetica"
+    },
+    "cards": [
+     {
+      "time": "62:15",
+      "card_type": "Yellow Card",
+      "reason": "Foul Committed",
+      "period": 2
+     }
+    ],
+    "positions": [
+     {
+      "position_id": 3,
+      "position": "Right Center Back",
+      "from": "00:00:00.000",
+      "to": "01:45:30.000",
+      "from_period": 1,
+      "to_period": 4,
+      "start_reason": "Starting XI",
+      "end_reason": "Final Whistle",
+      "counterpart_id": 9300001,
+      "counterpart_name": "Counterpart Player"
+     },
+     {
+      "position_id": 9,
+      "position": "Right Defensive Midfield",
+      "from": "01:45:30.000",
+      "to": null,
+      "from_period": 4,
+      "to_period": null,
+      "start_reason": "Tactical Shift",
+      "end_reason": "Final Whistle"
+     }
+    ],
+    "birth_date": "1999-04-02",
+    "player_gender": "female",
+    "player_height": null,
+    "player_weight": null,
+    "stats": {
+     "assists": 0,
+     "goals": 1,
+     "own_goals": 0,
+     "penalties_missed": 0,
+     "penalties_saved": 0,
+     "penalties_scored": 0
+    }
+   },
+   {
+    "player_id": 5504,
+    "player_name": "Dürer Test",
+    "player_nickname": null,
+    "jersey_number": 7,
+    "country": {
+     "id": 68,
+     "name": "Synthetica"
+    },
+    "cards": [
+     {
+      "time": "62:15",
+      "card_type": "Yellow Card",
+      "reason": "Foul Committed",
+      "period": 2
+     }
+    ],
+    "positions": [
+     {
+      "position_id": 3,
+      "position": "Right Center Back",
+      "from": "00:00:00.000",
+      "to": "01:45:30.000",
+      "from_period": 1,
+      "to_period": 4,
+      "start_reason": "Starting XI",
+      "end_reason": "Final Whistle",
+      "counterpart_id": 9300001,
+      "counterpart_name": "Counterpart Player"
+     },
+     {
+      "position_id": 9,
+      "position": "Right Defensive Midfield",
+      "from": "01:45:30.000",
+      "to": null,
+      "from_period": 4,
+      "to_period": null,
+      "start_reason": "Tactical Shift",
+      "end_reason": "Final Whistle"
+     }
+    ],
+    "birth_date": null,
+    "player_gender": "female",
+    "player_height": 170.0,
+    "player_weight": 62.5,
+    "stats": []
+   }
+  ],
+  "events": [
+   {
+    "outcome": "Yellow Card",
+    "period": 1,
+    "player_id": 5503,
+    "player_name": "Cé Placeholder",
+    "timestamp": "00:31:12.400",
+    "type": "Card"
+   },
+   {
+    "period": 2,
+    "timestamp": "00:00:00.000",
+    "type": "Half Start"
+   }
+  ],
+  "formations": [
+   {
+    "formation": 433,
+    "period": 1,
+    "reason": "Starting XI",
+    "timestamp": "00:00:00.000"
+   },
+   {
+    "formation": 4231,
+    "period": 2,
+    "reason": "Tactical Shift",
+    "timestamp": "00:12:05.800"
+   }
+  ]
+ }
+]

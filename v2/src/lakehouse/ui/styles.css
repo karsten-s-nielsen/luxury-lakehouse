@@ -1,0 +1,649 @@
+/* The Ops shell stylekit (plan Task 28; ported from the v1 hf_taipy_app/src/style_v2.css).
+
+   Strategy mirrors v1: the Taipy Stylekit supplies the base dark-amber theme via gui.run(stylekit={...})
+   (the --color-* tokens below come from there). This file adds the lakehouse chrome and the ll-* vocabulary
+   on top. The Material Symbols font is loaded directly so page/nav icons render on the HF Space and locally.
+   Analytics-only v1 rules (lightbox, per-game summary, workflow cells, data-flow/exec/cost cards) are omitted;
+   add them back only when an Ops page needs them. web/public.py inlines this whole file into the anonymous
+   page body, which a privacy test scans — keep the file free of fixture or game identity words (see
+   public.py for the exact guard). */
+
+/* ── Material Symbols Outlined — direct @font-face (opsz=20,wght=300) ──────────────────────── */
+
+@font-face {
+    font-family: 'Material Symbols Outlined';
+    font-style: normal;
+    font-weight: 300;
+    font-display: swap;
+    src: url(https://fonts.gstatic.com/s/materialsymbolsoutlined/v321/kJF1BvYX7BgnkSrUwT8OhrdQw4oELdPIeeII9v6oDMzByHX9rA6RzaxHMPdY43zj-jCxv3fzvRNU22ZXGJpEpjC_1p-p_4MrImHCIJIZrDDxHOem.ttf) format('truetype');
+}
+
+.material-symbols-outlined {
+    /* !important: the Taipy Stylekit sets a global Source Sans Pro font-family that otherwise wins here, so the
+       icon glyphs never form and the ligature names (warehouse, monitoring, ...) show as text. liga must stay on
+       so the icon name resolves to its glyph. */
+    font-family: 'Material Symbols Outlined' !important;
+    font-feature-settings: 'liga' !important;
+    font-weight: normal;
+    font-style: normal;
+    font-size: 1.125rem;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-block;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    vertical-align: text-bottom;
+    margin-right: 0.35rem;
+    opacity: 0.7;
+}
+
+/* ── 1. Sidebar: padding, border, nav links ───────────────────────────────────────────────── */
+
+.sidebar {
+    padding: 0.75rem 1rem 1.5rem !important;
+    border-top: 3px solid var(--color-primary) !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.ll-nav-header {
+    margin-top: 0.75rem !important;
+    margin-bottom: 0.25rem !important;
+}
+
+.ll-nav-header:first-child {
+    margin-top: 0 !important;
+}
+
+.ll-nav-header strong {
+    font-size: 0.75rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.05rem;
+    color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.sidebar a {
+    display: block !important;
+    text-decoration: none !important;
+    color: rgba(255, 255, 255, 0.7) !important;
+    font-size: 0.875rem !important;
+    padding: 0.125rem 0 !important;
+    transition: all 0.2s ease !important;
+}
+
+.sidebar a:hover {
+    color: #f59e0b !important;
+}
+
+.sidebar a:hover .material-symbols-outlined {
+    opacity: 1;
+}
+
+.sidebar p {
+    margin: 0 !important;
+    line-height: 1.4;
+}
+
+.sidebar h3 {
+    color: var(--color-primary);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 1rem 0 0.4rem 0;
+    font-weight: 700;
+}
+
+/* ── 2. Title row + brand ─────────────────────────────────────────────────────────────────── */
+
+.ll-title-row {
+    padding-bottom: 0.5rem;
+    margin-bottom: 0.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ll-brand,
+.ll-brand * {
+    /* Opaque amber gradient. Earlier this faded to `transparent 85%`, which hid the last word ("Ops") of the brand
+       on the full title text; keep both stops opaque so the whole brand reads. */
+    background: linear-gradient(90deg, #f59e0b 0%, #fbbf24 100%) !important;
+    -webkit-background-clip: text !important;
+    background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    color: transparent !important;
+    font-weight: 800 !important;
+    display: inline-block !important;
+    margin: 0 !important;
+    line-height: 1.2 !important;
+}
+
+.ll-brand .material-symbols-outlined {
+    font-size: 2.5rem !important;
+    vertical-align: middle !important;
+    margin-right: 0.15rem !important;
+    opacity: 1 !important;
+}
+
+.ll-header-btn.taipy-button {
+    background: transparent !important;
+    border: 1px solid var(--color-primary) !important;
+    color: var(--color-primary) !important;
+    border-radius: 4px !important;
+    padding: 2px 10px !important;
+    font-size: 0.8rem !important;
+    box-shadow: none !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    white-space: nowrap !important;
+}
+
+.ll-header-btn.taipy-button:hover {
+    background: rgba(245, 158, 11, 0.1) !important;
+}
+
+/* ── 3. Body form sections, buttons, notices, tables ──────────────────────────────────────── */
+
+.ll-section {
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 8px !important;
+    padding: 1rem !important;
+    margin: 1rem 0 !important;
+}
+
+/* The amber primary button (Apply / Save / Run now / Accept): the emphasis colour on a dark page. */
+.ll-primary.taipy-button,
+.ll-primary {
+    background: var(--color-primary, #f59e0b) !important;
+    color: #1a1a2e !important;
+    font-weight: 700 !important;
+    border: none !important;
+    border-radius: 4px !important;
+}
+
+.ll-primary.taipy-button:hover,
+.ll-primary:hover {
+    background: var(--color-secondary, #d97706) !important;
+}
+
+/* An action row: consecutive buttons side by side with one gap, so a group of actions reads as one unit (the template
+   puts each run of buttons in one row). The buttons share one paragraph, which the row lays out. */
+.ll-actions {
+    margin: 0.75rem 0 !important;
+}
+
+.ll-actions .md-para {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    gap: 0.75rem !important;
+    margin: 0 !important;
+}
+
+/* The shared action-outcome notice at the foot of every page (hidden when empty by a part render). */
+.ll-action-notice {
+    margin-top: 1rem !important;
+    padding: 0.6rem 1rem !important;
+    border-left: 3px solid var(--color-primary) !important;
+    background: rgba(245, 158, 11, 0.08) !important;
+    border-radius: 4px !important;
+    color: #f3f4f6 !important;
+}
+
+/* The sign-in notice shown in place of an operator-only page for an anonymous caller. */
+.ll-signin-notice {
+    margin: 1rem 0 !important;
+    padding: 0.75rem 1rem !important;
+    border: 1px solid rgba(245, 158, 11, 0.4) !important;
+    border-radius: 8px !important;
+    background: rgba(245, 158, 11, 0.08) !important;
+    color: #f3f4f6 !important;
+}
+
+/* A native Ops table marker; the row styling comes from .taipy-table below. */
+.ll-table { width: 100% !important; }
+
+.ll-help {
+    cursor: help;
+    opacity: 0.35;
+    font-size: 0.95rem !important;
+    margin-left: 0.3rem;
+    vertical-align: middle !important;
+    line-height: 1 !important;
+}
+
+.ll-help:hover {
+    opacity: 0.75;
+    color: var(--color-primary) !important;
+    -webkit-text-fill-color: var(--color-primary) !important;
+}
+
+/* ── 4. Footer + empty-state boxes ────────────────────────────────────────────────────────── */
+
+.ll-footer {
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding-top: 0.75rem;
+    margin-top: 2rem;
+    opacity: 0.5;
+    font-size: 0.85rem;
+}
+
+.ll-footer a {
+    color: var(--color-primary) !important;
+}
+
+/* ── 5. Page title icons + header ─────────────────────────────────────────────────────────── */
+
+h2 .material-symbols-outlined {
+    font-size: inherit !important;
+    vertical-align: middle !important;
+    margin-right: 0.3rem !important;
+    opacity: 0.9;
+    color: inherit !important;
+    -webkit-text-fill-color: inherit !important;
+}
+
+.ll-page-header {
+    max-width: 80% !important;
+    margin-bottom: 0.5rem !important;
+}
+
+.ll-reference,
+.ll-reference * {
+    font-style: italic !important;
+    font-size: 0.85rem !important;
+    color: rgba(255, 255, 255, 0.6) !important;
+    -webkit-text-fill-color: rgba(255, 255, 255, 0.6) !important;
+    line-height: 1.5 !important;
+    margin: 0 !important;
+}
+
+/* The header's underline divider. Drawn here, NOT as a Markdown `---`: a `---` before a <|{var}|text|> control in the
+   same page definition breaks that control's reactive binding (build_header_from_config documents this). */
+.ll-reference {
+    display: block !important;
+    padding-bottom: 0.75rem !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.ll-reference a {
+    color: var(--color-primary) !important;
+    -webkit-text-fill-color: var(--color-primary) !important;
+}
+
+.ll-subtitle {
+    font-size: 1rem !important;
+    font-weight: 600 !important;
+    color: rgba(255, 255, 255, 0.85) !important;
+    margin: 1rem 0 0.5rem 0 !important;
+}
+
+/* ── 6. Sidebar filter controls (filters page) ────────────────────────────────────────────── */
+
+.ll-sidebar-section {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+    margin-top: 0.5rem !important;
+}
+
+.ll-sidebar-section > .taipy-part {
+    margin: 0 !important;
+}
+
+.ll-section-header {
+    margin: 0 !important;
+}
+
+.ll-sidebar-section .taipy-selector,
+.ll-sidebar-section .taipy-selector .MuiFormControl-root {
+    margin: 0 !important;
+}
+
+/* The help icon sits at the control's right edge, vertically centred, without taking width from the control (the v1
+   style_v2.css rules, ported and shared by the sidebar widgets and the body selectors/inputs, which the template wraps
+   in `ll-control`). The wrapper becomes the positioning box and the icon is taken out of the flow, so it no longer
+   drops onto its own line under the control. Taipy places the control and the icon in ONE paragraph, so the icon
+   itself is positioned, never its paragraph (that would move the control too). :has() needs Chrome 105+,
+   Firefox 121+, Safari 15.4+. */
+.ll-control:has(.ll-help) {
+    position: relative !important;
+    padding-right: 24px !important; /* the icon's gutter, so it never overlaps the control's outline */
+}
+
+/* One field width for every wrapped control: a selector stretches to its wrapper, but Taipy caps an input at
+   max-width 240px, which left its icon far from it on a wide page. The input fills the wrapper, and the wrapper is
+   capped, so every field and its icon read as one unit at any page width (the sidebar is narrower than the cap). */
+.ll-control {
+    max-width: 40rem;
+}
+
+.ll-control .taipy-input,
+.ll-control .taipy-input .MuiInputBase-root {
+    width: 100% !important;
+    max-width: none !important;
+}
+
+.ll-control > .md-para > .ll-help {
+    position: absolute !important;
+    right: 0 !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    margin-left: 0 !important;
+}
+
+.ll-filter-box {
+    border: 1px solid rgba(255, 255, 255, 0.23) !important;
+    border-radius: 8px !important;
+    padding: 0 12px !important;
+    position: relative !important;
+    height: 48px !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    align-items: center !important;
+}
+
+.ll-filter-box:hover {
+    border-color: rgb(255, 255, 255) !important;
+}
+
+.ll-filter-label {
+    position: absolute !important;
+    top: -8px !important;
+    left: 10px !important;
+    background: var(--color-paper, #1a1a2e) !important;
+    padding: 0 5px !important;
+    font-size: 0.75rem !important;
+    color: rgba(255, 255, 255, 0.7) !important;
+    font-weight: 400 !important;
+    text-transform: none !important;
+    line-height: 1 !important;
+    margin: 0 !important;
+    border: none !important;
+}
+
+/* The sidebar toggle wrapper: a filter box laid out for a label on the left and the switch on the right. */
+.ll-toggle-box {
+    justify-content: space-between !important;
+}
+
+.sidebar .MuiSlider-root,
+.sidebar .MuiSlider-thumb,
+.sidebar .MuiSlider-track {
+    color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.sidebar .MuiSlider-thumb {
+    width: 14px !important;
+    height: 14px !important;
+}
+
+.sidebar .MuiSlider-rail {
+    color: rgba(255, 255, 255, 0.3) !important;
+}
+
+.sidebar .MuiSwitch-switchBase.Mui-checked {
+    color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.sidebar .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track {
+    background-color: rgba(255, 255, 255, 0.4) !important;
+}
+
+.sidebar .MuiSwitch-track {
+    background-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+/* ── 7. Table height bound ────────────────────────────────────────────────────────────────── */
+
+.MuiAccordionDetails-root .MuiTableContainer-root {
+    height: auto !important;
+    max-height: 600px !important;
+}
+
+/* ── 8. General ───────────────────────────────────────────────────────────────────────────── */
+
+h2 {
+    font-size: 1.4rem;
+    margin-bottom: 0.5rem;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.15);
+    margin: 1rem 0;
+}
+
+img {
+    border-radius: 4px;
+    max-width: 100%;
+}
+
+/* ── 9. Table styling ─────────────────────────────────────────────────────────────────────── */
+
+.taipy-table .MuiTableContainer-root,
+.taipy-table .MuiTable-root {
+    background: transparent !important;
+}
+
+.taipy-table .MuiTableHead-root th {
+    background: #2a2010 !important;
+    color: #f59e0b !important;
+    font-weight: 700;
+    border-bottom: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.taipy-table .MuiTableBody-root td {
+    color: #e0e0e0 !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.taipy-table .MuiTableBody-root tr:hover {
+    background: rgba(245, 158, 11, 0.08) !important;
+}
+
+.taipy-table .MuiTablePagination-root {
+    color: #888 !important;
+}
+
+/* A plain lakehouse table on the public (non-Taipy) page and inside .ll-content. */
+.ll-content table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+    margin: 0.5rem 0 !important;
+}
+
+.ll-content th {
+    background: #2a2010 !important;
+    color: #f59e0b !important;
+    font-weight: 700 !important;
+    text-align: left !important;
+    padding: 0.5rem 0.75rem !important;
+    border-bottom: 1px solid rgba(245, 158, 11, 0.3) !important;
+}
+
+.ll-content td {
+    color: #e0e0e0 !important;
+    padding: 0.5rem 0.75rem !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Hide the default Taipy navbar + watermark (we use the sidebar links). */
+header[class*="taipy-navbar"],
+nav[class*="taipy"],
+.taipy-navbar,
+.taipy-watermark {
+    display: none !important;
+}
+
+/* ── 12. Public page (non-Taipy Flask HTML) ───────────────────────────────────────────────── */
+
+/* The anonymous public page is plain HTML (no Taipy); .ll-root paints the lakehouse backdrop so it looks the same. */
+body.ll-root {
+    background: var(--color-background, #0e1117);
+    color: rgba(255, 255, 255, 0.85);
+    font-family: 'Source Sans Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    margin: 0;
+    min-height: 100vh;
+}
+
+.ll-root .ll-public-main {
+    max-width: 72rem;
+    margin: 0 auto;
+    padding: 1.5rem 2rem;
+}
+
+.ll-root h1 {
+    color: transparent;
+    background: linear-gradient(90deg, #f59e0b 0%, transparent 85%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-weight: 800;
+}
+
+.ll-public-main a {
+    color: var(--color-primary);
+}
+
+.ll-public-main h2 {
+    color: rgba(255, 255, 255, 0.85);
+}
+
+/* The public page wears the same chrome as the operator shell: a 300px sidebar nav + a content column. Plain HTML
+   (no Taipy), so the grid is declared here rather than by a Taipy layout. */
+.ll-public-layout {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 0.75rem;
+    min-height: 100vh;
+}
+
+.ll-public-layout .ll-public-main {
+    margin: 0;
+    max-width: none;
+    /* Let the content column shrink below its widest child (a wide table). Without min-width:0 a CSS grid item keeps
+       its min-content width, so a wide table forces the whole layout wider than the viewport and the page scrolls
+       sideways on a phone. The operator shell avoids this because its MUI tables scroll inside their own container;
+       .ll-table-wrap gives the public tables the same internal scroll. */
+    min-width: 0;
+}
+
+/* A horizontal scroll box for a wide table on the public page, so the table scrolls inside its own box instead of
+   widening the page (the plain-HTML counterpart of Taipy's MUI TableContainer). */
+.ll-table-wrap {
+    overflow-x: auto;
+    max-width: 100%;
+}
+
+.sidebar a.ll-nav-active {
+    color: var(--color-primary) !important;
+}
+
+/* A trailing sidebar action (the public sign-in anchor, or the operator sign-out part) sits apart from the last group
+   by the same gap `.ll-nav-header` puts between groups, so it stands out and is not mistaken for a page. The public
+   page inlines this file and test_nav scans the anonymous body for the sign-out label, so keep that label out here. */
+.sidebar .ll-nav-trailing {
+    margin-top: 0.75rem !important;
+}
+
+/* ── 12b. The socket-free sign-in page: a centred card on the dark lakehouse page ──────────── */
+
+.ll-login-wrap {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+
+.ll-login-card {
+    background: var(--color-paper, #1a1a2e);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 2rem;
+    width: min(360px, 92vw);
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.ll-login-brand .ll-brand {
+    font-size: 1.3rem;
+}
+
+.ll-login-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+}
+
+.ll-login-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    font-size: 0.875rem;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.ll-login-form input {
+    padding: 0.5rem 0.6rem;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: var(--color-background, #11111d);
+    color: inherit;
+    font-size: 0.95rem;
+}
+
+.ll-login-form .ll-primary {
+    margin-top: 0.3rem;
+    padding: 0.55rem;
+    cursor: pointer;
+}
+
+.ll-login-alert {
+    margin: 0;
+    color: var(--color-primary, #f5a623);
+    font-size: 0.875rem;
+}
+
+.ll-confirm-text {
+    margin: 0;
+    font-size: 0.95rem;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.ll-cancel-link {
+    text-align: center;
+    font-size: 0.875rem;
+    color: rgba(255, 255, 255, 0.6);
+    text-decoration: none;
+}
+
+.ll-cancel-link:hover {
+    color: var(--color-primary);
+}
+
+/* ── 13. Responsive — viewports narrower than 768px ───────────────────────────────────────── */
+
+@media (max-width: 768px) {
+    .taipy-layout,
+    .ll-public-layout {
+        grid-template-columns: 1fr !important;
+        grid-template-rows: auto 1fr !important;
+    }
+
+    .sidebar {
+        position: static !important;
+        border-right: none !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+    }
+
+    .ll-page-header {
+        max-width: 100% !important;
+    }
+
+    .ll-root .ll-public-main {
+        padding: 1rem 16px;
+    }
+}

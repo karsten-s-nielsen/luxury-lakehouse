@@ -1,0 +1,15 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<PutDataRequest RequestId="0ccbf585-18d8-4d06-92da-cacaf46f2d96" MessageTime="2023-06-27T10:57:47.533+00:00" TransmissionComplete="true" TransmissionSuspended="false" DataStatus="postmatch">
+<Event EventId="18242100000805" Y-PositionFromTracking="28.74" CalculatedTimestamp="2022-11-11T19:38:14.240+01:00" X-Source-Position="99.29" Y-Source-Position="28.48" EventTime="2022-11-11T19:38:14.480+01:00" Y-Position="28.86" CalculatedFrame="107264" X-PositionFromTracking="100.06" MatchId="DFL-MAT-J03WR9" X-Position="99.31">
+ <ShotAtGoal ShotCondition="veryComplicated" TakerBallControl="volley" AfterFreeKick="false" xG="0.1160" TakerSetup="cornerKick" BallPossessionPhase="805" AssistTypeShotAtGoal="direct" GoalDistanceGoalkeeper="0.16" BuildUp="cornerKick" ChanceEvaluation="chance" AssistShotAtGoal="DFL-OBJ-0025YM" CounterAttack="false" InsideBox="true" ExtendedTypeOfShot="frontalVolley" DistanceToGoal="7.22" AssistAction="cornerKick" TypeOfShot="head" PlayerSpeed="2.31" Player="DFL-OBJ-0000F9" AngleToGoal="43.08" Pressure="1.14" ShotOrigin="3" AmountOfDefenders="1" Team="DFL-CLU-00000I" SetupOrigin="right">
+  <SuccessfulShot GoalZone="7" RefDecisionEvaluation="correct" CurrentResult="1:1" AssistType="direct" DeflectionPlayer="DFL-OBJ-J0130T" Solo="false" Assist="DFL-OBJ-0025YM" />
+ </ShotAtGoal>
+</Event>
+<Event EventId="18242100001163" Y-PositionFromTracking="25.46" CalculatedTimestamp="2022-11-11T20:04:01.640+01:00" X-Source-Position="76.73" Y-Source-Position="24.96" EventTime="2022-11-11T20:04:00.634+01:00" Y-Position="24.96" CalculatedFrame="145949" StartFrame="145538" X-PositionFromTracking="76.48" MatchId="DFL-MAT-J03WR9" X-Position="76.73" EndFrame="146022">
+ <FreeKick ExecutionMode="direct" Team="DFL-CLU-00000I" DecisionTimestamp="2022-11-11T20:03:05.698+01:00">
+  <ShotAtGoal ShotCondition="notComplicated" TakerBallControl="setPiece" AfterFreeKick="true" Rotation="other" xG="0.0433" TakerSetup="ownSetPiece" BallPossessionPhase="1163" GoalDistanceGoalkeeper="1.31" BuildUp="freeKick" ChanceEvaluation="chance" CounterAttack="false" SignificanceEvaluation="average" InsideBox="false" DistanceToGoal="29.77" AssistAction="fouled" TypeOfShot="leftLeg" PlayerSpeed="13.79" Player="DFL-OBJ-00017G" ShotAssistFouledPlayer="DFL-OBJ-0001ZY" AngleToGoal="13.45" Pressure="0.01" ShotOrigin="8" DirectFreeKickIntention="underWall" AmountOfDefenders="2" Team="DFL-CLU-00000I" SetupOrigin="insideRight">
+   <ShotWide Placing="near" PitchMarking="right" />
+  </ShotAtGoal>
+ </FreeKick>
+</Event>
+</PutDataRequest>

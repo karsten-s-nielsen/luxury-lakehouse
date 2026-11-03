@@ -1,0 +1,128 @@
+# pip-audit ignores for v2 (spec §23.4: no unexplained ignores).
+#
+# Every entry carries all six fields. `blocked_by` is the upstream cap that stops the fix version from installing;
+# `review_trigger` names the event that retires the entry. `scripts/pip_audit.py` fails on any reported advisory
+# without an entry here, and on any entry whose advisory is no longer reported (a stale ignore).
+#
+# All entries below trace to one blocker: taipy-gui 4.1.1 and taipy-common 4.1.1 pin their own dependency tree.
+# Measured 2026-10-26 with uv 0.9.28 against v2/uv.lock.
+
+[[ignore]]
+id = "PYSEC-2026-327"
+package = "deepdiff 7.0.1"
+fix_in = "8.6.1"
+blocked_by = "taipy-common 4.1.1 requires deepdiff>=6.7.0,<=7.0.1 (dbt-common allows deepdiff<9.0, so it is not the binding cap)"
+justification = "CVE-2025-58367: class pollution through a crafted deepdiff Delta. v2 never builds a Delta from untrusted input; taipy-common and dbt-common use DeepDiff only on their own config objects."
+review_trigger = "a taipy-common release that relaxes the deepdiff <=7.0.1 cap"
+
+[[ignore]]
+id = "PYSEC-2026-2445"
+package = "deepdiff 7.0.1"
+fix_in = "8.6.2"
+blocked_by = "taipy-common 4.1.1 requires deepdiff>=6.7.0,<=7.0.1"
+justification = "CVE-2026-33155: memory exhaustion through deepdiff's restricted unpickler. v2 never unpickles anything (spec §20 forbids pickle.loads), and no dependency feeds untrusted pickles to deepdiff."
+review_trigger = "a taipy-common release that relaxes the deepdiff <=7.0.1 cap"
+
+[[ignore]]
+id = "PYSEC-2026-1383"
+package = "flask-cors 5.0.1"
+fix_in = "6.0.0"
+blocked_by = "taipy-gui 4.1.1 requires flask-cors>=5.0.0,<5.1"
+justification = "CVE-2024-6866: case-insensitive CORS path matching. v2 runs Taipy with the server option cors=False (Task 27, with a test), so flask-cors is never configured and no CORS policy is served."
+review_trigger = "a taipy-gui release that relaxes the flask-cors <5.1 cap"
+
+[[ignore]]
+id = "PYSEC-2026-1384"
+package = "flask-cors 5.0.1"
+fix_in = "6.0.0"
+blocked_by = "taipy-gui 4.1.1 requires flask-cors>=5.0.0,<5.1"
+justification = "CVE-2024-6839: regex path matching that prefers longer patterns. Same posture as PYSEC-2026-1383: flask-cors is never configured in v2 (cors=False, Task 27)."
+review_trigger = "a taipy-gui release that relaxes the flask-cors <5.1 cap"
+
+[[ignore]]
+id = "PYSEC-2026-1385"
+package = "flask-cors 5.0.1"
+fix_in = "6.0.0"
+blocked_by = "taipy-gui 4.1.1 requires flask-cors>=5.0.0,<5.1"
+justification = "CVE-2024-6844: inconsistent CORS matching of '+' in paths. Same posture as PYSEC-2026-1383: flask-cors is never configured in v2 (cors=False, Task 27)."
+review_trigger = "a taipy-gui release that relaxes the flask-cors <5.1 cap"
+
+[[ignore]]
+id = "PYSEC-2026-89"
+package = "markdown 3.6"
+fix_in = "3.8.1"
+blocked_by = "taipy-gui 4.1.1 requires markdown>=3.4.4,<=3.6"
+justification = "CVE-2025-69534: malformed HTML-like Markdown crashes the parser. Taipy parses Markdown only for page definitions in v2's own source (Task 28 builds every page from code); data values are bound to controls as properties and are never parsed as Markdown."
+review_trigger = "a taipy-gui release that relaxes the markdown <=3.6 cap"
+
+[[ignore]]
+id = "PYSEC-2026-160"
+package = "twisted 24.7.0"
+fix_in = "26.4.0"
+blocked_by = "taipy-gui 4.1.1 requires twisted>=24.7.0,<24.8.0"
+justification = "CVE-2026-42304: DoS in twisted.names DNS decompression. taipy-gui imports twisted only in taipy/gui/utils/proxy.py for its Jupyter NotebookProxy; v2 never runs in a notebook and starts no twisted server or DNS resolver."
+review_trigger = "a taipy-gui release that relaxes the twisted <24.8.0 cap"
+
+[[ignore]]
+id = "CVE-2026-83813"
+package = "twisted 24.7.0"
+fix_in = "26.10.0rc1"
+blocked_by = "taipy-gui 4.1.1 requires twisted>=24.7.0,<24.8.0"
+justification = "GHSA-jj36-9pvh-vj5r: the twisted.names DNS client accepts a UDP answer by transaction id alone (off-path spoofing). v2 starts no twisted resolver: it resolves names through the standard library (requests, boto3, huggingface_hub, DuckDB); twisted is present only for taipy-gui's NotebookProxy, which v2 never starts (see PYSEC-2026-160)."
+review_trigger = "a taipy-gui release that relaxes the twisted <24.8.0 cap"
+
+[[ignore]]
+id = "PYSEC-2026-4304"
+package = "twisted 24.7.0"
+fix_in = "none listed"
+blocked_by = "taipy-gui 4.1.1 requires twisted>=24.7.0,<24.8.0"
+justification = "CVE-2026-106454: regex injection in the twisted.mail IMAP4 server. v2 runs no IMAP server; twisted is present only for taipy-gui's NotebookProxy, which v2 never starts."
+review_trigger = "a twisted fix release together with a taipy-gui release that relaxes the twisted <24.8.0 cap"
+
+[[ignore]]
+id = "CVE-2026-115774"
+package = "twisted 24.7.0"
+fix_in = "26.10.0rc1"
+blocked_by = "taipy-gui 4.1.1 requires twisted>=24.7.0,<24.8.0"
+justification = "GHSA-2qrf-pqgx-qh9v: infinite loop in the twisted.mail IMAP4 server. v2 runs no IMAP server (see PYSEC-2026-4304)."
+review_trigger = "a taipy-gui release that relaxes the twisted <24.8.0 cap"
+
+[[ignore]]
+id = "CVE-2026-115775"
+package = "twisted 24.7.0"
+fix_in = "26.10.0rc1"
+blocked_by = "taipy-gui 4.1.1 requires twisted>=24.7.0,<24.8.0"
+justification = "GHSA-3476-c5c2-fr73: unbounded memory in the twisted XML element stream (twisted.words). v2 uses no twisted XML stream; twisted is present only for taipy-gui's NotebookProxy."
+review_trigger = "a taipy-gui release that relaxes the twisted <24.8.0 cap"
+
+[[ignore]]
+id = "CVE-2026-115776"
+package = "twisted 24.7.0"
+fix_in = "26.10.0rc1"
+blocked_by = "taipy-gui 4.1.1 requires twisted>=24.7.0,<24.8.0"
+justification = "GHSA-53xc-49m8-p798: unbounded buffer in the twisted.words IRC server. v2 runs no IRC server."
+review_trigger = "a taipy-gui release that relaxes the twisted <24.8.0 cap"
+
+[[ignore]]
+id = "CVE-2026-115778"
+package = "twisted 24.7.0"
+fix_in = "26.10.0rc1"
+blocked_by = "taipy-gui 4.1.1 requires twisted>=24.7.0,<24.8.0"
+justification = "GHSA-cwm5-jh59-mwxr: unbounded memory in the twisted.conch telnet transport. v2 runs no telnet or SSH server through twisted."
+review_trigger = "a taipy-gui release that relaxes the twisted <24.8.0 cap"
+
+[[ignore]]
+id = "CVE-2026-115877"
+package = "twisted 24.7.0"
+fix_in = "26.10.0rc1"
+blocked_by = "taipy-gui 4.1.1 requires twisted>=24.7.0,<24.8.0"
+justification = "GHSA-q7qq-6mhp-9rc4: header smuggling in the twisted.web HTTP server. v2 serves HTTP through its own Flask/WSGI app (Task 27); the only twisted.web user, taipy-gui's NotebookProxy, is never started."
+review_trigger = "a taipy-gui release that relaxes the twisted <24.8.0 cap"
+
+[[ignore]]
+id = "GHSA-vpp8-g58w-m8mp"
+package = "twisted 24.7.0"
+fix_in = "26.10.0rc1"
+blocked_by = "taipy-gui 4.1.1 requires twisted>=24.7.0,<24.8.0"
+justification = "GHSA-vpp8-g58w-m8mp (CVE-2023-44487-class HTTP/2 Rapid Reset DoS) in the twisted.web HTTP/2 server. v2 serves HTTP through its own Flask/WSGI app (Task 27) and starts no twisted.web server; twisted is present only for taipy-gui's NotebookProxy, which v2 never starts (see CVE-2026-115877). Advisory published 2026-10-29, after the 2026-10-26 ignore measurement."
+review_trigger = "a taipy-gui release that relaxes the twisted <24.8.0 cap"

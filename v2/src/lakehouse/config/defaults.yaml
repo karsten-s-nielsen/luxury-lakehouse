@@ -1,0 +1,52 @@
+# Install defaults (spec §8.2). Every id carries its name. Tasks 15 and 19 confirm the ids against the live sources.
+schema_version: 1
+pining_base_url: https://ozqgk9a3ji.execute-api.us-east-1.amazonaws.com/v1
+modules:
+  - module_id: statsbomb_public
+    active: true
+    statsbomb_360_only: false
+    filter:
+      - {kind: competition, competition_id: "9", seasons: ["281"]}    # 1. Bundesliga 2023/2024 (360 data)
+      - {kind: competition, competition_id: "43", seasons: ["3"]}     # FIFA World Cup 2018 (no 360 data)
+      - {kind: competition, competition_id: "43", seasons: ["106"]}   # FIFA World Cup 2022 (360 data)
+  - module_id: wyscout_public
+    active: true
+    filter:
+      # World Cup; the Wyscout public dataset holds only the 2018 edition (confirmed in Task 19)
+      - {kind: competition, competition_id: "28", seasons: all}
+  - module_id: idsse_public
+    active: true
+    filter:
+      - {kind: all}   # all 7 matches of HF pysport/idsse-data
+  - module_id: skillcorner_public
+    active: true
+    filter:
+      - {kind: all}   # all SkillCorner opendata matches
+  - module_id: gradientsports_public
+    active: false     # large download; switched on by the operator
+    filter:
+      - {kind: all}
+  - module_id: idsse_pining
+    active: false
+    filter: []
+  - module_id: statsbomb_pining
+    active: false
+    statsbomb_360_only: false
+    filter: []
+  - module_id: skillcorner_pining
+    active: false
+    filter: []
+  - module_id: gradientsports_pining
+    active: false
+    filter: []
+schedule: {enabled: false, cron: null}
+retention: {snapshot_days: 8, version_days: 7}
+caps: {threads: 4, memory_limit: 3GB, arrow_cpus: 4}
+checkpoint: {minutes: 5, matches: 50, grace_minutes: 2, move_batch: 50, warn_versions: 200, warn_catalog_mb: 1024}
+maintenance: {merge_budget_seconds: 300}
+sweep_max_fraction: 0.10
+truthset_owner: null
+install_kinds:
+  laptop: {raw_archive: false, auto_accept_recommended: true}
+  hf: {raw_archive: true, auto_accept_recommended: false}
+  staging: {raw_archive: true, auto_accept_recommended: false}

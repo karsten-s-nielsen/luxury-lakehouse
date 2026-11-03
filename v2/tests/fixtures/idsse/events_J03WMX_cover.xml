@@ -1,0 +1,48 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<PutDataRequest RequestId="7f328859-5e48-4289-b2f9-cb7cfeff0b2f" MessageTime="2023-05-29T07:50:27.942+00:00" TransmissionComplete="true" TransmissionSuspended="false" DataStatus="postmatch">
+<Event MatchId="DFL-MAT-J03WMX" StartFrame="32492" X-Source-Position="0.00" EndFrame="32754" EventTime="2023-05-27T15:45:16.620+02:00" Y-Source-Position="0.00" EventId="18226500000327" X-Position="0.00" Y-Position="0.00">
+ <CornerKick Placing="center" Team="DFL-CLU-000008" Side="left" DecisionTimestamp="2023-05-27T15:44:53.895+02:00" Rotation="towardsGoal" PostMarking="none" TargetArea="center">
+  <Play SemiField="false" Player="DFL-OBJ-0027AX" Team="DFL-CLU-000008" FromOpenPlay="false" PenaltyBox="true" FlatCross="false" Height="high" Distance="long" PlayOrigin="oppositionHalf" PlayAngle="92.68" Rotation="towardsGoal" Recipient="DFL-OBJ-0002DR" BallPossessionPhase="327" Evaluation="unsuccessful">
+   <Cross GoalKeeperInterference="fisted" Side="left" GoalKeeper="DFL-OBJ-0002DR" />
+  </Play>
+ </CornerKick>
+</Event>
+<Event MatchId="DFL-MAT-J03WMX" CalculatedFrame="37680" X-Source-Position="98.69" EventTime="2023-05-27T15:48:43.613+02:00" Y-Source-Position="38.91" CalculatedTimestamp="2023-05-27T15:48:39.800+02:00" EventId="18226500000396" X-PositionFromTracking="98.98" X-Position="98.41" Y-PositionFromTracking="37.92" Y-Position="37.54">
+ <ShotAtGoal Team="DFL-CLU-00000G" ExtendedTypeOfShot="frontalVolley" Pressure="1.31" GoalDistanceGoalkeeper="0.84" ShotOrigin="3" AssistTypeShotAtGoal="direct" ShotContribution="51085" AssistShotAtGoal="DFL-OBJ-0027G0" AngleToGoal="49.07" PlayerSpeed="10.07" TakerBallControl="volley" CounterAttack="false" Player="DFL-OBJ-0000IA" ChanceEvaluation="chance" SetupOrigin="right" TypeOfShot="head" TakerSetup="crossFromOpenPlay" AfterFreeKick="false" DistanceToGoal="7.18" InsideBox="true" SignificanceEvaluation="outstanding" BuildUp="crossOpenPlay" AssistAction="crossFromOpenPlay" xG="0.1542" BallPossessionPhase="396" AmountOfDefenders="2" ShotCondition="notComplicated">
+  <ShotWoodWork Location="rightPost" />
+ </ShotAtGoal>
+</Event>
+<Event MatchId="DFL-MAT-J03WMX" X-Source-Position="95.48" EventTime="2023-05-27T16:14:23.080+02:00" Y-Source-Position="22.37" EventId="18226500000855" X-Position="95.48" Y-Position="22.37">
+ <Delete Reason="videoAssistantAction" />
+</Event>
+<Event MatchId="DFL-MAT-J03WMX" EventTime="2023-05-27T16:14:47.360+02:00" EventId="18226500000856">
+ <VideoAssistantAction TeamChallenged="DFL-CLU-00000G" ProofedEvent="goal" RefDecision="decisionOverturned" Linesman2="DFL-OBJ-00011J" Linesman1="DFL-OBJ-00011W" Referee="DFL-OBJ-000141" VideoAssistant="DFL-OBJ-00011R" TimestampStartAction="2023-05-27T16:14:47.360+02:00" RefDecisionEvaluation="controversial" TimestampEndAction="2023-05-27T16:16:37.560+02:00" FinalDecision="eventNotGiven" RefereeinRRA="true" OpponentTeam="DFL-CLU-000008" />
+</Event>
+<Event MatchId="DFL-MAT-J03WMX" EventTime="2023-05-27T16:52:20.280+02:00" EventId="18226500001157">
+ <OtherPlayerAction Player="DFL-OBJ-0002F5" Team="DFL-CLU-00000G" PlayerBecomesGoalkeeper="false" ChangeOfCaptain="true" ChangeContingentExhausted="false" />
+</Event>
+<Event MatchId="DFL-MAT-J03WMX" CalculatedFrame="135032" X-Source-Position="9.39" EventTime="2023-05-27T16:59:05.360+02:00" Y-Source-Position="31.25" CalculatedTimestamp="2023-05-27T16:59:04.640+02:00" EventId="18226500001292" X-PositionFromTracking="9.33" X-Position="9.39" Y-PositionFromTracking="31.54" Y-Position="31.25">
+ <ShotAtGoal Team="DFL-CLU-00000G" ExtendedTypeOfShot="frontalVolley" Pressure="2.97" GoalDistanceGoalkeeper="0.61" ShotOrigin="3" AssistTypeShotAtGoal="direct" AssistShotAtGoal="DFL-OBJ-0002F5" AngleToGoal="40.59" PlayerSpeed="1.97" TakerBallControl="volley" CounterAttack="false" Player="DFL-OBJ-J017RE" ChanceEvaluation="chance" SetupOrigin="right" TypeOfShot="head" TakerSetup="cornerKick" AfterFreeKick="false" DistanceToGoal="9.65" InsideBox="true" SignificanceEvaluation="average" BuildUp="cornerKick" AssistAction="cornerKick" xG="0.0466" BallPossessionPhase="1292" AmountOfDefenders="4" ShotCondition="notComplicated">
+  <BlockedShot Player="DFL-OBJ-0027KL" BlockedByOwnTeam="true" GoalPrevented="false" />
+ </ShotAtGoal>
+</Event>
+<Event MatchId="DFL-MAT-J03WMX" X-Source-Position="87.42" EventTime="2023-05-27T17:10:47.960+02:00" Y-Source-Position="54.12" EventId="18226500001426" X-Position="94.00" Y-Position="34.00">
+ <Penalty Team="DFL-CLU-000008" CausingPlayer="DFL-OBJ-0027G6" GoalkeeperBehaviour="regular" DecisionTimestamp="2023-05-27T17:09:49.240+02:00" ProspectiveTaker="DFL-OBJ-J01BGM" RefDecisionEvaluation="correct" RetakenPenalty="false" PlayersInBox="playerOfExecutiveTeam" GoalkeeperMovement="left">
+  <ShotAtGoal Team="DFL-CLU-000008" Pressure="0.00" ShotOrigin="3" AngleToGoal="37.00" PenaltyDirection="101" TakerBallControl="setPiece" CounterAttack="false" Player="DFL-OBJ-J01BGM" ChanceEvaluation="sitter" SetupOrigin="left" TypeOfShot="rightLeg" TakerSetup="ownSetPiece" AfterFreeKick="false" DistanceToGoal="11.00" InsideBox="true" BuildUp="penaltyKick" PenaltyExecution="targetedShot" xG="0.7670" BallPossessionPhase="1426" ShotCondition="notComplicated">
+   <SuccessfulShot CurrentResult="1:1" GoalZone="11" RefDecisionEvaluation="correct" Solo="false" />
+  </ShotAtGoal>
+ </Penalty>
+</Event>
+<Event MatchId="DFL-MAT-J03WMX" EventTime="2023-05-27T16:02:49.000+02:00" EventId="18226500001675">
+ <PlayerNotSentOff Player="DFL-OBJ-0028BD" Team="DFL-CLU-000008" Reason="foul" RefDecisionEvaluation="correct" Type="red" />
+</Event>
+<Event MatchId="DFL-MAT-J03WMX" EventTime="2023-05-27T16:06:09.920+02:00" EventId="18226500001677" X-Position="12.59" Y-Position="41.54">
+ <ChanceWithoutShot Player="DFL-OBJ-000270" Team="DFL-CLU-000008" Sitter="false" ChanceAssist="DFL-OBJ-J01BGM" PreventionGoalkeeper="false" TakerSetup="otherPassFromOpenPlay" ChanceAssistType="direct" SetupOrigin="insideRight" CounterAttack="false" Situation="passOpenPlay" AssistAction="otherPassFromOpenPlay" />
+</Event>
+<Event MatchId="DFL-MAT-J03WMX" EventTime="2023-05-27T16:14:24.360+02:00" EventId="18226500001681">
+ <GoalDisallowed Player="DFL-OBJ-0002AU" Team="DFL-CLU-00000G" Reason="handBall" RefDecisionEvaluation="controversial" />
+</Event>
+<Event MatchId="DFL-MAT-J03WMX" EventTime="2023-05-27T17:22:15.400+02:00" EventId="18226500001699">
+ <SitterPrevented Player="DFL-OBJ-J01N65" Team="DFL-CLU-00000G" Reason="offside" RefDecisionEvaluation="correct" />
+</Event>
+</PutDataRequest>
