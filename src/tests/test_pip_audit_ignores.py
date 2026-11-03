@@ -47,7 +47,76 @@ _EXPECTED_CHECKABLE_IDS = {
     "PYSEC-2025-194",  # torch — the cu128 index publishes nothing above 2.11.0
     "PYSEC-2026-3716",  # datasets — taipy-core caps pyarrow <19.0; datasets 5.0.1 needs >=21.0.0
     "PYSEC-2026-4114",  # oauthlib — databricks-sql-connector caps <4.0.0
+    "CVE-2026-49272",  # oauthlib — same cap as PYSEC-2026-4114
     "CVE-2026-104851",  # fsspec — datasets caps <=2025.3.0 (newer needs pyarrow >=21, taipy caps <19)
+    # Blocked by the Python 3.10 pin (requires-python ==3.10.*, Databricks serverless). Each fix
+    # exists but its resolution needs Python >=3.11, so the floor is unsatisfiable on this project.
+    # The weekly probe confirms BLOCKED. review_trigger: v1 move to >=3.11 or decommission (~2026-12).
+    "CVE-2026-112390",  # pillow — 13.0.0 needs Python >=3.11
+    "CVE-2026-112401",  # pillow — 13.0.0 needs Python >=3.11
+    "CVE-2026-112391",  # pillow — 13.0.0 needs Python >=3.11
+    "CVE-2026-112894",  # pillow — 13.0.0 needs Python >=3.11
+    "CVE-2026-112406",  # pillow — 13.0.0 needs Python >=3.11
+    "CVE-2026-112399",  # pillow — 13.0.0 needs Python >=3.11
+    "CVE-2026-112892",  # pillow — 13.0.0 needs Python >=3.11
+    "CVE-2026-112393",  # pillow — 13.0.0 needs Python >=3.11
+    "CVE-2026-96638",  # pillow — 13.0.0 needs Python >=3.11
+    "CVE-2026-96640",  # pillow — 13.0.0 needs Python >=3.11
+    "CVE-2026-96778",  # pillow — 13.0.0 needs Python >=3.11
+    "GHSA-78g4-xqwv-q3g8",  # pillow — 13.0.0 needs Python >=3.11
+    "PYSEC-2026-4336",  # pillow — 13.0.0 needs Python >=3.11
+    "PYSEC-2026-4331",  # pillow — 13.0.0 needs Python >=3.11
+    "PYSEC-2026-4332",  # pillow — 13.0.0 needs Python >=3.11
+    "PYSEC-2026-4329",  # pillow — 13.0.0 needs Python >=3.11
+    "PYSEC-2026-4333",  # pillow — 13.0.0 needs Python >=3.11
+    "PYSEC-2026-4342",  # pillow — 13.0.0 needs Python >=3.11
+    "CVE-2026-112895",  # pillow — 13.0.0 needs Python >=3.11
+    "CVE-2026-112400",  # pillow — 13.0.0 needs Python >=3.11
+    "CVE-2026-112897",  # pillow — 13.0.0 needs Python >=3.11
+    "CVE-2026-112395",  # pillow — 13.0.0 needs Python >=3.11
+    "CVE-2026-112404",  # pillow — 13.0.0 needs Python >=3.11
+    "CVE-2026-112899",  # pillow — 13.0.0 needs Python >=3.11
+    "CVE-2026-112900",  # pillow — 13.0.0 needs Python >=3.11
+    "CVE-2026-112893",  # pillow — 13.0.0 needs Python >=3.11
+    "CVE-2026-112891",  # pillow — 13.0.0 needs Python >=3.11
+    "PYSEC-2026-4326",  # pillow — 13.0.0 needs Python >=3.11
+    "PYSEC-2026-4327",  # pillow — 13.0.0 needs Python >=3.11
+    "PYSEC-2026-4328",  # pillow — 13.0.0 needs Python >=3.11
+    "PYSEC-2026-4330",  # pillow — 13.0.0 needs Python >=3.11
+    "PYSEC-2026-4334",  # pillow — 13.0.0 needs Python >=3.11
+    "PYSEC-2026-4335",  # pillow — 13.0.0 needs Python >=3.11
+    "PYSEC-2026-4337",  # pillow — 13.0.0 needs Python >=3.11
+    "PYSEC-2026-4338",  # pillow — 13.0.0 needs Python >=3.11
+    "PYSEC-2026-4339",  # pillow — 13.0.0 needs Python >=3.11
+    "PYSEC-2026-4340",  # pillow — 13.0.0 needs Python >=3.11
+    "PYSEC-2026-4341",  # pillow — 13.0.0 needs Python >=3.11
+    "PYSEC-2026-4343",  # pillow — 13.0.0 needs Python >=3.11
+    "CVE-2026-112906",  # filelock — 4.2.1 needs Python >=3.11
+    "CVE-2026-112907",  # filelock — 4.2.1 needs Python >=3.11
+    "CVE-2026-112908",  # filelock — 4.2.1 needs Python >=3.11
+    "CVE-2026-112909",  # filelock — 4.2.1 needs Python >=3.11
+    "CVE-2026-112910",  # filelock — 4.2.1 needs Python >=3.11
+    "CVE-2026-112911",  # filelock — 4.2.1 needs Python >=3.11
+    "CVE-2026-112912",  # filelock — 4.2.1 needs Python >=3.11
+    "CVE-2026-112913",  # filelock — 4.2.1 needs Python >=3.11
+    "CVE-2026-112914",  # filelock — 4.2.1 needs Python >=3.11
+    "CVE-2026-112915",  # filelock — 4.2.1 needs Python >=3.11
+    "CVE-2026-112934",  # filelock — 4.2.1 needs Python >=3.11
+    "CVE-2026-112935",  # filelock — 4.2.1 needs Python >=3.11
+    "CVE-2026-112937",  # filelock — 4.2.1 needs Python >=3.11
+    "CVE-2026-112938",  # filelock — 4.2.1 needs Python >=3.11
+    "CVE-2026-112939",  # filelock — 4.2.1 needs Python >=3.11
+    "CVE-2026-112940",  # filelock — 4.2.1 needs Python >=3.11
+    "CVE-2026-112941",  # filelock — 4.2.1 needs Python >=3.11
+    "GHSA-xmj3-9gf7-h52w",  # setuptools — 84.1.0 only resolves by downgrading the torch cu128 stack (COLLATERAL)
+    "CVE-2026-113725",  # virtualenv — 21.14.9 pulls pre-commit 4.7.0, which needs Python >=3.11
+    "CVE-2026-113722",  # virtualenv — 21.14.9 pulls pre-commit 4.7.0, which needs Python >=3.11
+    "CVE-2026-113714",  # virtualenv — 21.14.9 pulls pre-commit 4.7.0, which needs Python >=3.11
+    "CVE-2026-113723",  # virtualenv — 21.14.9 pulls pre-commit 4.7.0, which needs Python >=3.11
+    "CVE-2026-113715",  # virtualenv — 21.14.9 pulls pre-commit 4.7.0, which needs Python >=3.11
+    "CVE-2026-113720",  # virtualenv — 21.14.9 pulls pre-commit 4.7.0, which needs Python >=3.11
+    "CVE-2026-113717",  # virtualenv — 21.14.9 pulls pre-commit 4.7.0, which needs Python >=3.11
+    "CVE-2026-113718",  # virtualenv — 21.14.9 pulls pre-commit 4.7.0, which needs Python >=3.11
 }
 
 #: Entries with NO patched release upstream. The probe cannot test these; each must name the
