@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = "==3.12.*"
 
 [manifest]
@@ -1016,7 +1016,7 @@ requires-dist = [
     { name = "scikit-learn", specifier = "==1.9.1" },
     { name = "silly-kicks", extras = ["parse-dfl"], specifier = "==4.139.1" },
     { name = "sparse-dot-topn", specifier = "==1.2.0" },
-    { name = "taipy-gui", specifier = "==4.1.1" },
+    { name = "taipy-gui", specifier = "==4.1.2" },
     { name = "unidecode", specifier = "==1.4.0" },
     { name = "xxhash", specifier = "==4.0.2" },
     { name = "zstandard", specifier = "==0.25.0" },
@@ -1982,7 +1982,7 @@ sdist = { url = "https://files.pythonhosted.org/packages/19/cd/a6de774214a87055d
 
 [[package]]
 name = "taipy-gui"
-version = "4.1.1"
+version = "4.1.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "charset-normalizer" },
@@ -2003,7 +2003,7 @@ dependencies = [
     { name = "tzlocal" },
     { name = "watchdog" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/89/a1/1f74d178832955180e42d29a72ecf8e0c4dd35fb7c28af76656eaa9b61ad/taipy_gui-4.1.1.tar.gz", hash = "sha256:0b51d348e0a0fb56dd4629deb3f093daa95774077d82e543748ecdef60ff1607", size = 3044958, upload-time = "2026-02-16T14:48:24.756Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/11/2c/6a8c4cfb599fa24da80f0d77c17b90419daeccd06a33225423c04438abaa/taipy_gui-4.1.2.tar.gz", hash = "sha256:b4ce91e5bfc4023dd74d15eff1af185107de65b117b3473637e768be8ce367a1", size = 3044974, upload-time = "2026-04-29T09:51:06.645Z" }
 
 [[package]]
 name = "text-unidecode"
