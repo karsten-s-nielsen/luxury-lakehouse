@@ -9,7 +9,7 @@ dependencies = [
     "boto3==1.43.119",
     "cryptography==50.0.2",  # raw AEAD (raw/encryption.py); a direct import, pinned not transitive (audit S1-IMPL-06)
     "dbt-core==1.12.6",
-    "dbt-duckdb==1.11.0",
+    "dbt-duckdb==1.11.1",
     "defusedxml==0.7.1",
     "duckdb==2.0.0",
     "filelock==4.2.4",
