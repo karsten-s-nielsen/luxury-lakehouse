@@ -99,6 +99,14 @@ updates:
       - dependency-name: "flask-cors"     # transitive via mlflow (PYSEC-2024-271)
       - dependency-name: "joblib"         # transitive via scikit-learn (PYSEC-2024-277)
       - dependency-name: "dbt-core"       # dbt-databricks 1.12.4 caps dbt-core<1.12.1; and dbt-core 1.12.0-1.12.2 regressed their sqlparse cap to <0.6.0, colliding with our sqlparse>=0.6.0 floor (PYSEC-2026-3696/-3697/-3698/-3699). 1.12.3 restored sqlparse<0.7.0 but stays gated by the adapter cap, so no dbt-core 1.12.x resolves. We run 1.11.14 (latest 1.11.x, secure). Unpin when a stable dbt-databricks lifts dbt-core<1.12.1 (was PR #504).
+      # 2026-11-03 advisory flood — fixes blocked by the requires-python ==3.10.* pin (Databricks
+      # serverless) or a hard upstream cap. Lockstep with .pip-audit-ignores.yml (all probe-verified
+      # BLOCKED/COLLATERAL by scripts/check_cve_blockers.py); shrink when v1 moves off 3.10 or is
+      # decommissioned (~2026-12).
+      - dependency-name: "pillow"         # pillow 13.0.0 (the fix) requires Python>=3.11
+      - dependency-name: "filelock"       # filelock 4.2.1 (the fix) requires Python>=3.11 (via huggingface-hub)
+      - dependency-name: "virtualenv"     # 21.14.9 only required by pre-commit 4.7.0, which needs Python>=3.11
+      - dependency-name: "oauthlib"       # databricks-sql-connector caps oauthlib<4.0.0 (CVE-2026-49272 / PYSEC-2026-4114)
       # numpy MAJOR (2.x) is held — see the review trigger below. Unlike the whole-dependency
       # ignores above, this scopes to `semver-major` only, so 1.x patch/minor bumps keep flowing
       # (each with its ADR-046 env-pin lockstep). numpy 2.0 is ABI-breaking + NEP-50 dtype-promotion
@@ -110,6 +118,32 @@ updates:
       # ships numpy 2. NOT a Dependabot auto-merge (was PR #554).
       - dependency-name: "numpy"
         update-types: ["version-update:semver-major"]
+
+  # v2 (the gold-standard rewrite, Python 3.12). Managed here so it is a FIRST-CLASS ecosystem
+  # rather than an auto-discovered orphan manifest — that orphan state is what makes Dependabot's
+  # repo-wide security scan mis-fire `security_update_not_needed` jobs on v2/uv.lock (the failing
+  # "uv in /v2 for filelock/Twisted" runs). v2 is NOT on the 3.10 pin, so the pillow/filelock fixes
+  # resolve on 3.12 and are deliberately NOT ignored here (hiding a fixable CVE would be wrong);
+  # only structurally-capped twisted is ignored, same as the "/" entry.
+  - package-ecosystem: "uv"
+    directory: "/v2"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    allow:
+      - dependency-type: "direct"
+    groups:
+      v2-dev-tooling:
+        applies-to: version-updates
+        dependency-type: development
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      v2-python-security:
+        applies-to: security-updates
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "twisted"        # taipy-gui 4.1.1 caps twisted>=24.7.0,<24.8.0 (same cap as the "/" entry)
 
   - package-ecosystem: "github-actions"
     directory: "/"
