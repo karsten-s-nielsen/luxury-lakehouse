@@ -107,6 +107,14 @@ updates:
       - dependency-name: "filelock"       # filelock 4.2.1 (the fix) requires Python>=3.11 (via huggingface-hub)
       - dependency-name: "virtualenv"     # 21.14.9 only required by pre-commit 4.7.0, which needs Python>=3.11
       - dependency-name: "oauthlib"       # databricks-sql-connector caps oauthlib<4.0.0 (CVE-2026-49272 / PYSEC-2026-4114)
+      # uv conflict-fork cases: uv.lock resolves these via per-extra conflict forks (CI is green), but
+      # Dependabot's updater resolves all extras TOGETHER and reports `update_not_possible` /
+      # `dependency_file_not_resolvable`, failing the "uv in /." job every cycle. We lose nothing by
+      # ignoring — Dependabot cannot produce a resolvable PR for them regardless. Retire with v1 (~2026-12).
+      - dependency-name: "datasets"               # [training] datasets needs pyarrow>=24 vs taipy caps pyarrow<19 (PYSEC-2026-3716)
+      - dependency-name: "databricks-sdk"         # dbt-databricks caps databricks-sdk<0.118.0; we run ==0.121.0 via the dbt fork split
+      - dependency-name: "databricks-sql-connector"  # dbt-databricks caps the connector; resolvable only in the analytics fork
+      - dependency-name: "pydantic"               # dbt-databricks caps pydantic<2.13.0; we run 2.14.1 via the non-dbt fork split
       # numpy MAJOR (2.x) is held — see the review trigger below. Unlike the whole-dependency
       # ignores above, this scopes to `semver-major` only, so 1.x patch/minor bumps keep flowing
       # (each with its ADR-046 env-pin lockstep). numpy 2.0 is ABI-breaking + NEP-50 dtype-promotion
