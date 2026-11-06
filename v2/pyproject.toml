@@ -46,7 +46,7 @@ dev = [
     "pytest-benchmark==5.3.0",
     "ruff==0.17.3",
     "types-boto3[s3]==1.43.120",
-    "types-requests==2.33.0.20261006",
+    "types-requests==2.33.0.20261030",
 ]
 
 [build-system]
