@@ -8,6 +8,7 @@ typed columns after the core.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from typing import Final, NewType
 
 import pyarrow as pa
@@ -38,7 +39,8 @@ TRACKING_PLAYERS_CORE: Final = pa.schema(
     ]
 )
 
-# One row per frame. `timestamp` is the time since the start of the period; an absolute wall clock, where the
+# One row per frame. `timestamp_us` is the time since the start of the period, in int64 microseconds (ADR-018: no
+# duration type in bronze); an absolute wall clock, where the
 # source has one, is a provider column `wall_clock` (timestamp, UTC). `ball_z_mm` is null where the source has none.
 # `period` is null for a frame outside every period (for example SkillCorner pre-match and half-time frames, which the
 # source writes with `period: null`); a player row always has a period.
@@ -47,13 +49,20 @@ TRACKING_FRAMES_CORE: Final = pa.schema(
         pa.field("match_key", pa.int64(), nullable=False),
         pa.field("period", pa.int8()),
         pa.field("frame", pa.int32(), nullable=False),
-        pa.field("timestamp", pa.duration("us")),  # GS gives 6 decimals of a second
+        pa.field("timestamp_us", pa.int64()),  # int64 MICROSECONDS since the period start (GS gives 6 decimals)
         pa.field("ball_x_mm", pa.int32()),
         pa.field("ball_y_mm", pa.int32()),
         pa.field("ball_z_mm", pa.int32()),
         pa.field("ball_detected", pa.bool_()),
     ]
 )
+
+# Provider extensions of the tracking frames core that a provider MUST carry, with exact types (no-duration spec §4
+# guard 2): skillcorner's code-built match clock, and the frame rate derived from its cadence (the owner-tier match
+# file has no `match_periods`). `check_tracking_schema` enforces them like the core.
+TRACKING_FRAMES_EXTRA: Final[Mapping[str, pa.Schema]] = {
+    "skillcorner": pa.schema([pa.field("match_clock_ms", pa.int64()), pa.field("frame_rate", pa.int32())]),
+}
 
 # Every non-tracking bronze row carries these (§11.2). Tracking tables keep them once per file in the match metadata.
 AUDIT_COLUMNS: Final = pa.schema(

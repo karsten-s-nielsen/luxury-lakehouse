@@ -120,7 +120,7 @@ def _verify_written(path: Path, rows: int) -> Path:
 def prepare_tracking_table(table: BronzeTable, data: pa.Table, *, match_key: int, content_version: str) -> pa.Table:
     """Validate and sort a tracking table (§10.2), returning the arrow a file write or a native write both use."""
     kind = tracking_kind(table)
-    check_tracking_schema(kind, data.schema)
+    check_tracking_schema(kind, data.schema, provider=table.split("_tracking_", 1)[0])
     _check_rows(data, match_key, content_version)
     return sort_table(data, sort_keys(kind))
 

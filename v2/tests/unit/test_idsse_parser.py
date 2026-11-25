@@ -171,8 +171,8 @@ def test_minute_of_play_kept(parsed: ParsedMatch) -> None:
 
 def test_tracking_players_frames_split(parsed: ParsedMatch) -> None:
     players, frames = parsed.tables[TRACKING_PLAYERS], parsed.tables[TRACKING_FRAMES]
-    check_tracking_schema("players", players.schema)
-    check_tracking_schema("frames", frames.schema)
+    check_tracking_schema("players", players.schema, provider="idsse")
+    check_tracking_schema("frames", frames.schema, provider="idsse")
     assert players.schema.names[: len(TRACKING_PLAYERS_CORE)] == TRACKING_PLAYERS_CORE.names
     assert frames.schema.names[: len(TRACKING_FRAMES_CORE)] == TRACKING_FRAMES_CORE.names
     assert players.num_rows == 2650  # 53 player FrameSets x 50 frames in the slice
@@ -194,11 +194,11 @@ def test_types_and_exactness(parsed: ParsedMatch) -> None:
     first = next(r for r in frames.to_pylist() if (r["period"], r["frame"]) == (1, 10000))
     assert first["wall_clock"] == dt.datetime(2022, 10, 15, 11, 1, 29, 320000, dt.UTC)
     assert first["wall_clock_utc_offset_min"] == 0
-    assert first["timestamp"] == dt.timedelta(0)
+    assert first["timestamp_us"] == 0
     assert (first["ball_x_mm"], first["ball_y_mm"], first["ball_z_mm"]) == (6400, -40, 150)
     assert (first["ball_speed"], first["ball_possession"], first["ball_status"]) == (60.77, 1, 1)
     later = next(r for r in frames.to_pylist() if (r["period"], r["frame"]) == (1, 10049))
-    assert later["timestamp"] == dt.timedelta(milliseconds=49 * 40)
+    assert later["timestamp_us"] == 49 * 40 * 1000
     events = parsed.tables[EVENTS]
     kickoff = events.to_pylist()[0]
     assert (kickoff["event_type"], kickoff["x_position_mm"], kickoff["y_position_mm"]) == ("KickOff", 52500, 34000)

@@ -1,0 +1,117 @@
+version: 2
+sources:
+- name: bronze_compute
+  description: >-
+    Bronze tables written by the layer-1/2 compute steps (spec D3/D9) — not a provider ingest. Each is one file per
+    match written through the bronze writer with the standard audit columns. Declared here so the staging views can
+    `source()` them under a `lake_table_present` guard (empty-but-typed before the compute first writes).
+  database: lake
+  schema: main
+  tables:
+  - name: pitch_control_values
+    description: >-
+      Per (canonical_match_key, period, frame, canonical_team_key) the team's mean pitch-control fraction over the
+      pitch (plan Task 4). Written by the pitch_control compute.
+    columns:
+    - name: canonical_match_key
+      description: Canonical match key (spec §14).
+    - name: period
+      description: The period.
+    - name: frame
+      description: The frame number.
+    - name: canonical_team_key
+      description: Canonical team key (spec §14).
+    - name: control_fraction
+      description: The team's mean pitch-control fraction in [0, 1] (home + away sum to 1 per frame).
+    - name: _ingested_at
+      description: When the compute wrote the row (UTC).
+    - name: _run_id
+      description: The run that wrote the row.
+    - name: _source_hash
+      description: Deterministic hash of the match's frame input (idempotency + skip-guard).
+  - name: spadl_actions
+    description: >-
+      Per on-ball action (canonical_match_key, period_id, action_id) the SPADL action: canonical player/team, the
+      period-relative time, 0-105/0-68 start/end coords, and type/result/bodypart ids (plan Task 4b). Written by the
+      spadl_actions compute (per provider); read by line_breaking via fct_actions.
+    columns:
+    - name: canonical_match_key
+      description: Canonical match key (spec §14).
+    - name: period_id
+      description: The period.
+    - name: action_id
+      description: The action's ordinal within the match.
+    - name: original_event_id
+      description: The provider's source event id (string).
+    - name: canonical_player_key
+      description: Canonical key of the acting player (spec §14); null for a null-actor action.
+    - name: canonical_team_key
+      description: Canonical key of the acting team (spec §14); null for a null-actor action.
+    - name: time_seconds
+      description: Period-relative seconds of the action.
+    - name: start_x
+      description: Action start x in the SPADL 0-105 frame.
+    - name: start_y
+      description: Action start y in the SPADL 0-68 frame.
+    - name: end_x
+      description: Action end x in the SPADL 0-105 frame.
+    - name: end_y
+      description: Action end y in the SPADL 0-68 frame.
+    - name: type_id
+      description: SPADL action type id.
+    - name: result_id
+      description: SPADL action result id.
+    - name: bodypart_id
+      description: SPADL bodypart id.
+    - name: _ingested_at
+      description: When the compute wrote the row (UTC).
+    - name: _run_id
+      description: The run that wrote the row.
+    - name: _source_hash
+      description: Deterministic hash of the match's event input (idempotency + skip-guard).
+  - name: line_breaking_results
+    description: >-
+      Per pass/cross action (canonical_match_key, period_id, action_id) its line-breaking result: line_break (nullable
+      bool), lines_broken (0-3), line_breaking_type (plan Task 5). Written by the layer-2 line_breaking compute.
+    columns:
+    - name: canonical_match_key
+      description: Canonical match key (spec §14).
+    - name: period_id
+      description: The period.
+    - name: action_id
+      description: The action's ordinal within the match.
+    - name: canonical_player_key
+      description: Canonical key of the acting player (spec §14).
+    - name: line_break
+      description: Whether the pass/cross broke a defensive line (nullable boolean; NA when unresolved).
+    - name: lines_broken
+      description: Number of defensive lines broken (0-3).
+    - name: line_breaking_type
+      description: The break type — between_lines, around_line, or null.
+    - name: _ingested_at
+      description: When the compute wrote the row (UTC).
+    - name: _run_id
+      description: The run that wrote the row.
+    - name: _source_hash
+      description: Deterministic hash of the match's action input (idempotency + skip-guard).
+  - name: shape_graph_labels
+    description: >-
+      Per (canonical_match_key, period, frame, canonical_player_key) the outfield player's inferred tactical position
+      label (5x5 decomposition, e.g. "RCB"; plan Task 6). Written by the shape_graphs compute; goalkeepers excluded.
+    columns:
+    - name: canonical_match_key
+      description: Canonical match key (spec §14).
+    - name: period
+      description: The period.
+    - name: frame
+      description: The frame number.
+    - name: canonical_player_key
+      description: Canonical player key (spec §14).
+    - name: position_label
+      description: The player's tactical position label (horizontal + vertical, e.g. "RCB").
+    - name: _ingested_at
+      description: When the compute wrote the row (UTC).
+    - name: _run_id
+      description: The run that wrote the row.
+    - name: _source_hash
+      description: Deterministic hash of the match's frame input (idempotency + skip-guard).

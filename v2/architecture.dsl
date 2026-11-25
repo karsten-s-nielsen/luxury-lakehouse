@@ -10,13 +10,16 @@ workspace "Luxury Lakehouse v2" "Serverless soccer-data lakehouse (DuckDB + Duck
                 services = component "Services layer" "Settings, Modules, Filters, Runs, Review, Schedule. The only path from the UI to the lake (import-linter)." "Python"
                 schedule = component "HfJobsSchedule" "Reads LAKEHOUSE_HF_JOBS_TOKEN only here; inspects/reschedules/suspends/resumes/triggers the HF scheduled job." "Python, huggingface_hub"
                 auth = component "Web auth + sessions" "HF OAuth sign-in (https callback), allow-list, login registry, per-socket principal." "Python, authlib, Flask"
+                workflows = component "AI/ML Workflows page" "Renders the typed WorkflowCard calc-layer DAG via a content-provider iframe (ADR-016); reads no match identity." "Python, Taipy, SVG"
             }
             jobImage = container "Job image / scheduled run" "The only production writer. Holds the S3 gateway key. Runs under the secret mask." "Python, DuckDB, dbt" {
                 runEngine = component "Run engine" "Orders the run: lease, list, fetch, parse, resolve, dbt, checkpoint publish, cleanup." "Python"
                 adapters = component "Provider adapters + parsers" "Fetch each provider's deliveries and parse them into exact, typed bronze tables." "Python"
                 resolver = component "Entity resolution" "Links players, teams, competitions and matches across providers; feeds the review queue." "Python"
-                dbtRunner = component "dbt runner" "Builds the silver and gold dbt models and the contract-enforced dimensions." "dbt, DuckDB"
+                dbtRunner = component "dbt runner" "Builds the silver and gold dbt models, the contract-enforced dimensions, and the calc-layer tracking marts (fct_actions, fct_tracking_metrics, ...)." "dbt, DuckDB"
                 catalog = component "Catalog + checkpoint" "Registers files, publishes catalog versions under the single-writer lease, prunes and sweeps." "DuckLake"
+                compute = component "Calc-layer compute" "Layered seam between dbt builds: SPADL (5 providers), line_breaking; pitch_control + shape_graphs registered, off by default (D10). Skips on the exact input key; stops at its deadline and defers." "Python, silly-kicks, DuckDB"
+                publishSink = component "HF publish sink (seam)" "Multi-dataset publish sink DEFINED but UNWIRED this cycle; nothing in the graph reads a published HF artifact (HF is optional)." "Python"
             }
             lakeBucket = container "Lake bucket" "Published data, the DuckLake catalog, config and run records. Local folder or hf://buckets/<ns>/lake." "DuckLake on Parquet" "Database"
             restrictedBucket = container "Restricted bucket" "Bronze and raw files of private matches only. Never shared or made public." "Parquet" "Database"
@@ -26,22 +29,25 @@ workspace "Luxury Lakehouse v2" "Serverless soccer-data lakehouse (DuckDB + Duck
         pining = softwareSystem "Pining API" "The owner's private data API; lists and serves private-tier provider entries (needs an owner or list-only token)." "External"
         providers = softwareSystem "Provider sources" "StatsBomb, Wyscout, IDSSE, SkillCorner, Gradient Sports: public GitHub, figshare, HF dataset and Drive sources." "External"
         hfPlatform = softwareSystem "Hugging Face platform" "OAuth identity, Spaces runtime, Storage Buckets, the S3 gateway and the Jobs API." "External"
+        sillyKicks = softwareSystem "silly-kicks library" "SPADL / VAEP / xT / tracking math (convert_to_actions, convert_to_frames, pitch_control, line_breaking, keeper_identity); owned upstream, never edited here." "External"
 
         operator -> opsSpace "Signs in and operates" "HTTPS, websocket"
         viewer -> opsSpace "Views monitoring only" "HTTPS"
         opsSpace -> hfPlatform "OAuth sign-in; triggers/reschedules the Job" "HTTPS, Jobs API"
-        opsSpace -> lakeBucket "Reads the catalog and config; writes config" "hf:// + HF_TOKEN"
+        opsSpace -> lakeBucket "Reads a local, sha256-checked copy of the published catalog version, and the config; writes config" "hf:// + HF_TOKEN"
         opsSpace -> jobImage "Run now / schedule triggers the Job" "HF Jobs API"
         jobImage -> providers "Downloads deliveries" "HTTPS"
         jobImage -> pining "Lists and fetches private entries" "HTTPS + token"
         jobImage -> lakeBucket "Writes bronze, catalog, gold marts" "S3 gateway + DuckLake"
         jobImage -> restrictedBucket "Writes private-match files" "S3 gateway"
         jobImage -> controlRepo "Acquires the single-writer lease" "HF commit, parent-matched"
+        jobImage -> sillyKicks "Uses silly-kicks for SPADL + tracking math" "Python call"
 
         shell -> services "Reads display data; dispatches actions" "Python call"
+        shell -> workflows "Renders the AI/ML Workflows page" "Python call"
         services -> schedule "Reads schedule status; applies changes" "Python call"
         schedule -> hfPlatform "Inspect/reschedule/suspend/resume/trigger" "Jobs API"
-        services -> lakeBucket "Reads the catalog and config; writes config" "hf:// + HF_TOKEN"
+        services -> lakeBucket "Reads a local, sha256-checked copy of the published catalog version, and the config; writes config" "hf:// + HF_TOKEN"
         auth -> hfPlatform "OAuth authorization-code flow" "HTTPS"
 
         runEngine -> adapters "Fetches and parses each module" "Python call"
@@ -51,6 +57,10 @@ workspace "Luxury Lakehouse v2" "Serverless soccer-data lakehouse (DuckDB + Duck
         adapters -> restrictedBucket "Writes private-match bronze" "S3 gateway"
         catalog -> lakeBucket "Registers files; publishes versions" "DuckLake"
         catalog -> controlRepo "Holds the single-writer lease" "HF commit"
+        runEngine -> compute "Runs the layered compute seam (layer 1 + layer 2) between dbt builds" "Python call"
+        compute -> sillyKicks "SPADL + tracking math" "Python call"
+        compute -> lakeBucket "Writes compute bronze (spadl_actions, line_breaking_results; pitch_control_values, shape_graph_labels when run)" "DuckLake"
+        publishSink -> hfPlatform "Would publish gold datasets (OPTIONAL seam; build deferred)" "HF Hub API"
 
         production = deploymentEnvironment "Hugging Face" {
             deploymentNode "Hugging Face" "The HF platform" "SaaS" {

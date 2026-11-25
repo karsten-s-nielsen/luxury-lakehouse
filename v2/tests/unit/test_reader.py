@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 import shutil
+import tempfile
 from pathlib import Path
 
 import pytest
 
 from lakehouse.catalog.duck import EXTENSION_DIR_ENV, connect_duckdb
-from lakehouse.catalog.publish import CurrentPointer, publish_current, read_current, roots_record
+from lakehouse.catalog.publish import VERSION_PREFIX, CurrentPointer, publish_current, read_current, roots_record
 from lakehouse.catalog.reader import CatalogReader
 from lakehouse.catalog.working import WorkingCatalog
 from lakehouse.config.model import ResourceCaps, load_defaults
 from lakehouse.errors import IntegrityError
-from lakehouse.storage.keys import RootMap, StorageRootInfo
+from lakehouse.storage.keys import Root, RootMap, StorageRootInfo
 from lakehouse.storage.local import LocalStorage
 from lakehouse.storage.roots import ResolvedRoots, init_lake
 
@@ -115,6 +116,62 @@ def test_reader_rerooted_native_files(tmp_path: Path) -> None:
     with CatalogReader(moved).session() as conn:
         # sum, not count(*): a count can come from catalog statistics without opening any file (spec §25.5)
         assert conn.execute("SELECT sum(i) FROM lake.t").fetchone() == (sum(range(5000)),)
+
+
+class _RemoteCatalogStorage(LocalStorage):
+    """A local lake whose catalog versions are named by an hf:// URI, as on an HF lake. The URI is unreachable, so a
+    session works only through the reader's local copy of the version. `tamper` flips one byte of every version read."""
+
+    tamper = False
+
+    def read_uri(self, root: Root, key: str) -> str:
+        if key.startswith(VERSION_PREFIX):
+            return f"hf://buckets/org/lake/{key}"
+        return super().read_uri(root, key)
+
+    def get(self, root: Root, key: str) -> bytes:
+        data = super().get(root, key)
+        if self.tamper and key.startswith(VERSION_PREFIX):
+            return data[:-1] + bytes([data[-1] ^ 1])
+        return data
+
+
+def _remote(base: Path) -> _RemoteCatalogStorage:
+    _commit(_lake(base), "CREATE TABLE lake.main.t AS SELECT range AS i FROM range(5000)", base / "w")
+    return _RemoteCatalogStorage(_roots(base))
+
+
+def test_reader_attaches_a_local_copy_of_a_remote_version(tmp_path: Path) -> None:
+    """DuckDB 2.0.0 deadlocks a DuckLake scan of many data files when the catalog itself is read over hf:// (measured
+    2026-11-24, ADR-001 amendment): the reader reads a remote version through a local, checked copy."""
+    reader = CatalogReader(_remote(tmp_path))
+    with reader.session() as conn:
+        # sum, not count(*): a count can come from catalog statistics without opening any file (spec §25.5)
+        assert conn.execute("SELECT sum(i) FROM lake.t").fetchone() == (sum(range(5000)),)
+        attached = conn.execute("SELECT path FROM duckdb_databases() WHERE database_name = 'lake'").fetchone()
+    assert attached is not None and not str(attached[0]).startswith("hf://")
+    reader.close()
+
+
+def test_reader_refuses_a_remote_version_that_fails_its_checksum(tmp_path: Path) -> None:
+    storage = _remote(tmp_path)
+    storage.tamper = True
+    with pytest.raises(IntegrityError, match="sha256"), CatalogReader(storage).session():
+        pass
+
+
+def test_reader_removes_the_local_copy_when_the_attachment_closes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spool = tmp_path / "spool"
+    spool.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(spool))
+    reader = CatalogReader(_remote(tmp_path / "lake-base"))
+    with reader.session() as conn:
+        conn.execute("SELECT count(*) FROM lake.t").fetchone()
+        assert any(spool.rglob("*.ducklake")), "the session reads a local copy of the version"
+    reader.close()
+    assert not any(spool.iterdir()), "closing the reader removes the copy"
 
 
 def test_extension_directory_from_env(tmp_path: Path) -> None:

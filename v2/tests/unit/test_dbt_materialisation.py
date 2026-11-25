@@ -19,6 +19,7 @@ from lakekit import LakeKit
 from lakehouse.catalog.working import WorkingCatalog
 from lakehouse.config.model import load_defaults
 from lakehouse.ids.keys import match_key, team_key
+from lakehouse.ids.native import idsse_native_team_id
 from lakehouse.resolve.decisions import DecisionStore, MustLink
 from lakehouse.resolve.links import run_resolution
 from lakehouse.resolve.model import RecordRef
@@ -72,7 +73,16 @@ def test_row_level_models_are_views(manifest: dict[str, Any], tmp_path: Path) ->
 
 def test_gold_contracts_enforced(manifest: dict[str, Any]) -> None:
     gold = {name: node for name, node in _models(manifest).items() if node["fqn"][1] == "gold"}
-    assert set(gold) == {*DIMS, "tracking_cross_provider"}
+    assert set(gold) == {
+        *DIMS,
+        "tracking_cross_provider",
+        "fct_tracking_frames",
+        "fct_tracking_ball",
+        "fct_roster_gk",
+        "fct_match_params",
+        "fct_actions",
+        "fct_tracking_metrics",
+    }
     for name, node in gold.items():
         assert node["config"]["contract"]["enforced"] is True, name
         assert all(column.get("data_type") for column in node["columns"].values()), name
@@ -126,15 +136,24 @@ def _statsbomb_lake(cat: WorkingCatalog) -> tuple[int, int]:
         "'2020'), (3788742, DATE '2021-06-12', 773, 'Wales', 'Wales', 1110, 'Switzerland', 'Switzerland', 55, "
         "'UEFA Euro', 'Europe', 43, '2020')"
     )
+    # the real bronze carries the surrogate keys the parser adds (match_key, home/guest_team_key); fct_match_params
+    # (R9) reads match_key + home_team_key, so the stub must model them, not just the general_* fields the dims use.
+    idsse_mk = match_key("idsse", "J03WMX")
+    home_tk = team_key("idsse", idsse_native_team_id("DFL-CLU-00000G"))
+    guest_tk = team_key("idsse", idsse_native_team_id("DFL-CLU-000017"))
     conn.execute(
-        "CREATE TABLE lake.main.idsse_match_information (native_match_id VARCHAR, general_kickoff_time TIMESTAMPTZ, "
+        "CREATE TABLE lake.main.idsse_match_information "
+        "(match_key BIGINT, home_team_key BIGINT, guest_team_key BIGINT, "
+        "native_match_id VARCHAR, general_kickoff_time TIMESTAMPTZ, "
         "general_home_team_id VARCHAR, general_home_team_name VARCHAR, general_guest_team_id VARCHAR, "
         "general_guest_team_name VARCHAR, general_competition_id VARCHAR, general_competition_name VARCHAR, "
         "general_season_id VARCHAR, "
         "general_season VARCHAR, environment_country VARCHAR)"
     )
     conn.execute(
-        "INSERT INTO lake.main.idsse_match_information VALUES ('J03WMX', TIMESTAMPTZ '2022-08-05 18:30:00+00', "
+        # test fixture; the interpolated values are integer surrogate keys, not user input
+        f"INSERT INTO lake.main.idsse_match_information VALUES ({idsse_mk}, {home_tk}, {guest_tk}, 'J03WMX', "  # noqa: S608 - test constants, no outside input
+        "TIMESTAMPTZ '2022-08-05 18:30:00+00', "
         "'DFL-CLU-00000G', 'FC Bayern', 'DFL-CLU-000017', 'Frankfurt', 'DFL-COM-000001', 'Bundesliga', "
         "'DFL-SEA-0001K6', "
         "'2022/2023', 'Germany')"
@@ -234,3 +253,26 @@ def test_run_dbt_reports_a_failed_model(kit: LakeKit, working: WorkingCatalog, t
     assert failed.status == "error" and failed.message
     assert working.conn.execute("SELECT 1").fetchone() == (1,)  # attached again after a failure too
     assert kit.storage.exists("lake", result.run_results_key)
+
+
+def test_fct_tracking_ball_reads_timestamp_us_as_seconds(kit: LakeKit, working: WorkingCatalog) -> None:
+    """idsse/gradientsports bronze stores `timestamp_us` as int64 microseconds on every write path (ADR-018), so
+    fct_tracking_ball derives `time_seconds = timestamp_us / 1e6`. This materialises the view over a real BIGINT column
+    and READS it back (the old duration column surfaced as INTERVAL on encrypted lakes and BIGINT on register lakes,
+    and each of `cast(... as bigint)` and `epoch()` failed one of them — the both-write-paths guard is
+    tests/e2e/test_time_both_write_paths.py)."""
+    _statsbomb_lake(working)  # seeds idsse_match_information (match J03WMX) + the registry so run_dbt/resolution work
+    conn = working.conn
+    mk = match_key("idsse", "J03WMX")
+    conn.execute(
+        "CREATE TABLE lake.main.idsse_tracking_frames (match_key BIGINT, period BIGINT, frame BIGINT, "
+        "ball_x_mm BIGINT, ball_y_mm BIGINT, ball_detected BOOLEAN, ball_possession BIGINT, timestamp_us BIGINT)"
+    )
+    conn.execute(
+        # test fixture; mk is an integer surrogate key, not user input
+        f"INSERT INTO lake.main.idsse_tracking_frames VALUES ({mk}, 1, 100, 500, -300, true, 1, 2730500000)"  # noqa: S608 - test constants, no outside input
+    )
+    run_resolution(conn, storage=kit.storage, settings=load_defaults("laptop"), run_id="run-dbt")
+    assert run_dbt(working, run_id="run-dbt", caps=CAPS).success
+    rows = conn.execute("SELECT period, frame, time_seconds FROM lake.main.fct_tracking_ball").fetchall()
+    assert rows == [(1, 100, 2730.5)]  # 2_730_500_000 us == 2730.5 s

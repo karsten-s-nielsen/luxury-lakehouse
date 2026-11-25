@@ -231,9 +231,22 @@ def _pointers(conn: duckdb.DuckDBPyConnection, state: _Entity, clusters: Mapping
                     "moved_at": state.at,
                 }
             )
+    _refuse_duplicate_pointers(state.entity, rows)
     replace_rows(conn, "ops_canonical_pointers", rows, entity=state.entity)
     insert(conn, "ops_pointer_moves", moves)
     return len(moves)
+
+
+def _refuse_duplicate_pointers(entity: Entity, rows: Sequence[Mapping[str, Any]]) -> None:
+    """Fail loudly on two pointers for one (entity, record_key) (perf spec §7.4a item 2; owner ruling 2026-11-23).
+
+    The tracking views look a pointer up with a scalar subquery, so a second pointer would fail every reader that
+    meets it. Resolution cannot make one (one pointer per cluster record, record keys hashed from provider and native
+    id); this guard keeps that invariant visible at its source instead of in a view read."""
+    counts = Counter(int(row["record_key"]) for row in rows)
+    duplicated = sorted(key for key, count in counts.items() if count > 1)
+    if duplicated:
+        raise ValueError(f"duplicate pointer for entity {entity!r}: record keys {duplicated} have more than one row")
 
 
 def resolve_all(

@@ -53,8 +53,8 @@ def parsed() -> ParsedMatch:
 
 def test_tracking_players_frames_split(parsed: ParsedMatch) -> None:
     players, frames = parsed.tables[TRACKING_PLAYERS], parsed.tables[TRACKING_FRAMES]
-    check_tracking_schema("players", players.schema)
-    check_tracking_schema("frames", frames.schema)
+    check_tracking_schema("players", players.schema, provider="gradientsports")
+    check_tracking_schema("frames", frames.schema, provider="gradientsports")
     assert players.schema.names[: len(TRACKING_PLAYERS_CORE)] == TRACKING_PLAYERS_CORE.names
     assert frames.schema.names[: len(TRACKING_FRAMES_CORE)] == TRACKING_FRAMES_CORE.names
     oracle = _frames_oracle()
@@ -78,7 +78,7 @@ def test_duplicate_frames_kept(parsed: ParsedMatch) -> None:
 def test_types_and_exactness(parsed: ParsedMatch) -> None:
     frames = {(r["period"], r["frame"], r["record_index"]): r for r in parsed.tables[TRACKING_FRAMES].to_pylist()}
     first = frames[(1, 101, 1)]
-    assert first["timestamp"] == dt.timedelta(microseconds=33041)  # 0.033041 s, exact
+    assert first["timestamp_us"] == 33041  # 0.033041 s, exact int64 microseconds
     assert (first["ball_x_mm"], first["ball_y_mm"], first["ball_z_mm"], first["ball_detected"]) == (
         125,
         -250,
@@ -86,7 +86,7 @@ def test_types_and_exactness(parsed: ParsedMatch) -> None:
         False,
     )
     assert (first["ball_smoothed_x_mm"], first["ball_smoothed_visibility"]) == (133, "VISIBLE")
-    assert frames[(2, 5000, 4)]["timestamp"] == dt.timedelta(0)
+    assert frames[(2, 5000, 4)]["timestamp_us"] == 0
     assert first["generated_time"] == dt.datetime(2030, 6, 2, 8, 0, 0, 123456, tzinfo=dt.UTC)
     assert first["video_time_ms"] == 3333.492
     no_ball = frames[(1, 102, 3)]

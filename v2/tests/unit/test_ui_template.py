@@ -9,11 +9,13 @@ import pytest
 
 from lakehouse.ui.template import (
     Button,
+    Content,
     Control,
     NavSection,
     PageConfig,
     PageEntry,
     Prose,
+    RawHtml,
     Section,
     Table,
     Text,
@@ -60,6 +62,23 @@ def test_body_renders_elements_in_order() -> None:
     assert "<|Run now|button|on_action=on_run_now|class_name=ll-primary|>" in md
     # order: prose before text before table before button
     assert md.index("A fixed sentence.") < md.index("{runs_progress}") < md.index("{runs_rows}") < md.index("Run now")
+
+
+def test_content_element_renders_a_content_provider_part() -> None:
+    """A `Content` element embeds raw HTML/SVG via a Taipy content provider (an iframe) — the ONE path that escapes
+    Taipy's Markdown->JSX host-tag whitelist. An inline `<svg>` in `Prose` is dropped as "Component svg is not
+    registered" (verified live on the Mac Space 2026-11-05); a content provider renders it verbatim. The content part
+    does not auto-size, so it carries a fixed `height` (the v1 `<|part|content=…|height=Npx|>` shape)."""
+    md = build_page(_cfg(body=(Content("dag_html", height="560px"),)))
+    assert "<|part|content={dag_html}|height=560px|>" in md  # the content-provider part, bound to the RawHtml var
+    assert "{dag_html}|text" not in md  # NOT a text control (that would escape the HTML)
+
+
+def test_rawhtml_wraps_a_markup_string() -> None:
+    """`RawHtml` is the opaque-HTML marker the shell registers a content provider for; `str()` is the literal markup
+    the provider returns (the iframe body)."""
+    raw = RawHtml("<svg><rect/></svg>")
+    assert str(raw) == "<svg><rect/></svg>"
 
 
 def test_body_has_no_metrics_rail() -> None:

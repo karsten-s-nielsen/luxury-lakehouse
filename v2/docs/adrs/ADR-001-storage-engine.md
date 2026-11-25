@@ -117,3 +117,36 @@ Also (D1/D2): the process raises its open-file soft limit at every entry point b
 DuckLake scan of a large table opens hundreds of file descriptors (300 files → 369–478; 10,000 → 834). The catalog
 commands stop with a clear error below a minimum soft limit; the scheduled-task definitions carry the raised limit
 (`docs/ops/deploy.md`).
+
+## Amendment (2026-11-24): the reader attaches a local copy of a remote version (owner ruling 2026-11-24)
+
+DuckDB 2.0.0 stops making progress on a DuckLake scan of many data files when the catalog itself is attached over
+`hf://`. Measured from the AI-PC against the HF lake on 2026-11-24. The table was `spadl_actions`, with one data file per
+match, so the scans selected N match keys with `list_contains`. Each case ran in a fresh process with a 90 s to 300 s cap.
+A "hang" is a scan that had not returned at the cap, with idle CPU:
+
+| Catalog attached from | `async_threads` | Match keys that completed | Match keys that hung |
+|---|---|---|---|
+| `hf://` (the old reader) | 16 | 15, 16 | 20, 40, 70 |
+| `hf://` | 64 (the AI-PC default) | 60, 62, 63 | 64, 65, 70, 91 |
+| `hf://` | 128 | 91 (5.1 s) | — |
+| `hf://` | 1 | — | 91 |
+| `hf://` | 0 (no async I/O) | 91 (10.0 s) | — |
+| a local copy of the same version | 64 | 91 (0.6 s) | — |
+
+In every case the data files themselves were read over `hf://`. Bronze files are registered under absolute `hf://` URIs
+(`bronze/writer.py`, `reader_uri`), so the writer and dbt read bronze over `hf://` too. They attach a local working copy
+of the catalog, and the nightly HF run (dbt builds and tests included) did not hang. `read_parquet` over the same 91
+files completed. `http_client_pool_capacity`, `threads = 1`, the external file cache and Parquet prefetching did not
+change the result. During one hang the process held 64 open connections to one HF host (async_threads 64). HF
+`cpu-basic` defaults `async_threads` to 8 (one-off job, 2026-11-24). A line_breaking profile job, which reads through the
+reader, printed nothing for more than 40 minutes on `cpu-basic` and was cancelled. A hang of the Ops Space pages was not
+observed directly.
+
+Decision: `CatalogReader` attaches a remote version from a local copy. It downloads the version file (versions are
+create-only, so the copy is exact), checks its size and sha256 against `CURRENT`, writes it into the attachment's
+private folder and removes it with the attachment. Async I/O stays at DuckDB's default everywhere. The cost is one
+download of the version file per new `CURRENT` (about 10 MB on the HF lake). Tests: `tests/unit/test_reader.py` (local
+copy, checksum refusal, removal) and `tests/hf/test_reader_many_files_hf_live.py` (registered `hf://` files, more than
+the host's default `async_threads`, read by the Space's storage in a child process that is killed at a time limit).
+Revisit when a DuckDB release fixes the remote-catalog case.

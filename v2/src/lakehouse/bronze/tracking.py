@@ -13,7 +13,12 @@ from typing import Final, Literal
 import pyarrow as pa
 
 from lakehouse.bronze.arrow import SortOrder, column_types
-from lakehouse.bronze.schemas import TRACKING_FRAMES_CORE, TRACKING_PLAYERS_CORE, BronzeTable
+from lakehouse.bronze.schemas import (
+    TRACKING_FRAMES_CORE,
+    TRACKING_FRAMES_EXTRA,
+    TRACKING_PLAYERS_CORE,
+    BronzeTable,
+)
 
 __all__ = ["TrackingKind", "check_tracking_schema", "encoding_options", "sort_keys", "tracking_kind"]
 
@@ -26,7 +31,7 @@ _SORT: Final[dict[TrackingKind, tuple[str, ...]]] = {
 }
 _DELTA: Final[dict[TrackingKind, tuple[str, ...]]] = {
     "players": ("frame", "x_mm", "y_mm"),
-    "frames": ("frame", "timestamp", "ball_x_mm", "ball_y_mm", "ball_z_mm"),
+    "frames": ("frame", "timestamp_us", "ball_x_mm", "ball_y_mm", "ball_z_mm"),
 }
 _DICTIONARY: Final[dict[TrackingKind, tuple[str, ...]]] = {
     "players": ("match_key", "period", "player_key"),
@@ -43,12 +48,16 @@ def tracking_kind(table: BronzeTable) -> TrackingKind:
     raise ValueError(f"{table} is not a tracking table: its name must end in _tracking_players or _tracking_frames")
 
 
-def check_tracking_schema(kind: TrackingKind, schema: pa.Schema) -> None:
-    """Every core column must be present with its exact type. Extra provider columns are allowed."""
+def check_tracking_schema(kind: TrackingKind, schema: pa.Schema, *, provider: str) -> None:
+    """Every core column, and every column of the provider's declared frames extension (`TRACKING_FRAMES_EXTRA`), must
+    be present with its exact type. Other provider columns are allowed."""
     found = column_types(schema)
-    for name, wanted in column_types(_CORE[kind]).items():
+    required = dict(column_types(_CORE[kind]))
+    if kind == "frames" and provider in TRACKING_FRAMES_EXTRA:
+        required.update(column_types(TRACKING_FRAMES_EXTRA[provider]))
+    for name, wanted in required.items():
         if name not in found:
-            raise ValueError(f"tracking {kind} data lacks the core column {name}")
+            raise ValueError(f"tracking {kind} data lacks the declared column {name}")
         if found[name] != wanted:
             raise ValueError(f"tracking {kind} column {name} has type {found[name]}, the core needs {wanted}")
 

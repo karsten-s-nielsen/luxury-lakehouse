@@ -1214,8 +1214,9 @@ sources:
       description: The period of the GameSection.
     - name: frame
       description: The frame number `N`.
-    - name: timestamp
-      description: 'Time since the first frame of the period: (N - first N) x 40 ms (25 frames per second).'
+    - name: timestamp_us
+      description: 'Time since the first frame of the period, in int64 microseconds: (N - first N) x 40 ms (25 frames per
+        second).'
     - name: ball_x_mm
       description: The ball's `Frame@X` (metres), as exact int32 millimetres; null without a ball frame.
     - name: ball_y_mm

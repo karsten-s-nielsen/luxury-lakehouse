@@ -22,7 +22,7 @@ KEY_A = "a" * 64
 KEY_B = "b" * 64
 
 
-def _dbt(cat: Any, *, run_id: str, caps: ResourceCaps) -> DbtResult:
+def _dbt(cat: Any, *, run_id: str, caps: ResourceCaps, select: str | None = None) -> DbtResult:
     return DbtResult(success=True, results=[], run_results_key=f"runs/dbt/{run_id}/run_results.json")
 
 

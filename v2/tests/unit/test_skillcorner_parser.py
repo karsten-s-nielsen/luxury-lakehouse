@@ -52,8 +52,8 @@ def _row(table: pa.Table, frame: int) -> dict[str, Any]:
 
 def test_tracking_players_frames_split(parsed: ParsedMatch) -> None:
     players, frames = parsed.tables[TRACKING_PLAYERS], parsed.tables[TRACKING_FRAMES]
-    check_tracking_schema("players", players.schema)
-    check_tracking_schema("frames", frames.schema)
+    check_tracking_schema("players", players.schema, provider="skillcorner")
+    check_tracking_schema("frames", frames.schema, provider="skillcorner")
     assert players.schema.names[: len(TRACKING_PLAYERS_CORE)] == TRACKING_PLAYERS_CORE.names
     assert frames.schema.names[: len(TRACKING_FRAMES_CORE)] == TRACKING_FRAMES_CORE.names
     oracle = _frames_oracle()
@@ -69,7 +69,7 @@ def test_prematch_frames_kept(parsed: ParsedMatch) -> None:
     frames = parsed.tables[TRACKING_FRAMES]
     by_frame = {r["frame"]: r for r in frames.to_pylist()}
     for frame in [*range(10), *range(29761, 29770)]:
-        assert (by_frame[frame]["period"], by_frame[frame]["timestamp"], by_frame[frame]["ball_x_mm"]) == (
+        assert (by_frame[frame]["period"], by_frame[frame]["timestamp_us"], by_frame[frame]["ball_x_mm"]) == (
             None,
             None,
             None,
@@ -98,19 +98,19 @@ def test_types_and_exactness(parsed: ParsedMatch) -> None:
         260,
         True,
     )
-    assert (first["match_clock"], first["timestamp"]) == (dt.timedelta(0), dt.timedelta(0))
+    assert (first["match_clock_ms"], first["timestamp_us"]) == (0, 0)
     second_half = _row(parsed.tables[TRACKING_FRAMES], 29771)
-    assert second_half["match_clock"] == dt.timedelta(minutes=45, milliseconds=100)
-    assert second_half["timestamp"] == dt.timedelta(milliseconds=100)  # period-relative (§11.5)
+    assert second_half["match_clock_ms"] == 45 * 60_000 + 100
+    assert second_half["timestamp_us"] == 100_000  # period-relative (§11.5), int64 microseconds
     rows = [r for r in parsed.tables[TRACKING_PLAYERS].to_pylist() if r["frame"] == 10]
     keeper = next(r for r in rows if r["player_key"] == player_key("skillcorner", "34718"))
     assert (keeper["period"], keeper["x_mm"], keeper["y_mm"], keeper["is_visible"]) == (1, -39610, 710, False)
     events = parsed.tables[DYNAMIC_EVENTS]
     first_event = events.to_pylist()[0]
-    assert (first_event["event_id"], first_event["x_start_mm"], first_event["time_start"]) == (
+    assert (first_event["event_id"], first_event["x_start_mm"], first_event["time_start_ms"]) == (
         "8_0",
         490,
-        dt.timedelta(milliseconds=100),
+        100,  # 00:00.1 as int64 milliseconds
     )
     match = parsed.tables[MATCHES].to_pylist()[0]
     assert match["date_time"] == dt.datetime(2024, 12, 7, 4, tzinfo=dt.UTC)

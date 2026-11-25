@@ -17,7 +17,7 @@ FIELDS = (
     Field("type_id", "type.id", pa.int64()),
     Field("type_name", "type.name", pa.string()),
     Field("location", "location", pa.list_(pa.float64())),
-    Field("timestamp", "timestamp", pa.duration("ms"), convert="clock_ms"),
+    Field("timestamp_ms", "timestamp", pa.int64(), convert="clock_ms"),
     Field("match_date", "match_date", pa.date32(), convert="date"),
     Field("kick_off", "kick_off", pa.time32("ms"), convert="time_ms"),
     Field("last_updated", "last_updated", pa.timestamp("us"), convert="timestamp"),
@@ -29,7 +29,7 @@ FIELDS = (
     Field(
         "positions",
         "positions",
-        pa.list_(pa.struct([("position", pa.string()), ("from", pa.duration("s"))])),
+        pa.list_(pa.struct([("position", pa.string()), ("from_s", pa.int64())])),
         nested={"[].from": "clock_s"},
     ),
 )
@@ -63,16 +63,16 @@ def test_records_to_table_types_and_values() -> None:
     table = records_to_table(records, FIELDS, artifact="events")
     assert table.column_names == [f.column for f in FIELDS]
     row = table.to_pylist()[0]
-    assert row["timestamp"] == dt.timedelta(minutes=12, seconds=34, milliseconds=567)
+    assert row["timestamp_ms"] == (12 * 60 + 34) * 1000 + 567
     assert row["match_date"] == dt.date(2022, 11, 20)
     assert row["kick_off"] == dt.time(19, 0)
     assert row["last_updated"] == dt.datetime(2023, 4, 26, 23, 49, 58, 956186)
     assert row["freeze_frame"][0]["player"] == {"id": 7, "name": "Näme"}
-    assert row["positions"][0]["from"] == dt.timedelta(minutes=105, seconds=30)
+    assert row["positions"][0]["from_s"] == 105 * 60 + 30  # the nested time key carries its unit suffix
     second = table.to_pylist()[1]
     assert second["location"] is None
     assert second["freeze_frame"] is None
-    assert column_types(table.schema)["timestamp"] == pa.duration("ms")
+    assert column_types(table.schema)["timestamp_ms"] == pa.int64()
 
 
 def test_unmapped_field_fails_loudly() -> None:
@@ -101,8 +101,8 @@ def test_float_text_round_trip_checked() -> None:
 )
 def test_converters_refuse_inexact_text(convert: str, text: str) -> None:
     field_type = {
-        "clock_ms": pa.duration("ms"),
-        "clock_s": pa.duration("s"),
+        "clock_ms": pa.int64(),
+        "clock_s": pa.int64(),
         "date": pa.date32(),
         "time_ms": pa.time32("ms"),
         "timestamp": pa.timestamp("us"),
@@ -130,7 +130,7 @@ def test_type_mismatch_fails_loudly() -> None:
 
 def test_clock_hms_and_utc_timestamps() -> None:
     fields = (
-        Field("start", "start", pa.duration("s"), convert="clock_hms"),
+        Field("start_s", "start", pa.int64(), convert="clock_hms"),
         Field("at", "at", pa.timestamp("us", tz="UTC"), convert="timestamp_utc"),
     )
     table = records_to_table(
@@ -141,10 +141,7 @@ def test_clock_hms_and_utc_timestamps() -> None:
         fields,
         artifact="x",
     )
-    assert table.column("start").to_pylist() == [
-        dt.timedelta(minutes=45, seconds=3),
-        dt.timedelta(hours=1, seconds=426),
-    ]
+    assert table.column("start_s").to_pylist() == [45 * 60 + 3, 3600 + 426]
     assert table.column("at").to_pylist() == [
         dt.datetime(2024, 12, 7, 4, tzinfo=dt.UTC),
         dt.datetime(2026, 4, 1, 13, 19, 3, 72753, tzinfo=dt.UTC),
@@ -164,7 +161,7 @@ def test_clock_hms_and_utc_timestamps() -> None:
     ],
 )
 def test_clock_hms_and_utc_timestamps_refuse_inexact_text(convert: str, text: str) -> None:
-    arrow_type = pa.duration("s") if convert == "clock_hms" else pa.timestamp("us", tz="UTC")
+    arrow_type = pa.int64() if convert == "clock_hms" else pa.timestamp("us", tz="UTC")
     field = Field("value", "value", arrow_type, convert=convert)  # type: ignore[arg-type]
     with pytest.raises(InexactValueError):
         records_to_table([{"value": text}], (field,), artifact="x")
@@ -244,17 +241,12 @@ def test_scalar_in_place_of_an_object_fails() -> None:
 
 def test_clock_ms_or_s_accepts_both_statsbomb_forms() -> None:
     """Open-data lineups write position times as `MM:SS`, the commercial deliveries as `HH:MM:SS.fff` (measured on
-    the pining owner tier, 2026-10-27); both become the same millisecond duration, each form checked exactly."""
-    field = Field("t", "t", pa.duration("ms"), convert="clock_ms_or_s")
+    the pining owner tier, 2026-10-27); both become the same int64 milliseconds, each form checked exactly."""
+    field = Field("t_ms", "t", pa.int64(), convert="clock_ms_or_s")
     table = records_to_table(
         [{"t": "45:00"}, {"t": "00:45:00.000"}, {"t": "01:30:00.250"}, {"t": None}], (field,), artifact="x"
     )
-    assert table.column("t").to_pylist() == [
-        dt.timedelta(minutes=45),
-        dt.timedelta(minutes=45),
-        dt.timedelta(hours=1, minutes=30, milliseconds=250),
-        None,
-    ]
+    assert table.column("t_ms").to_pylist() == [2_700_000, 2_700_000, 5_400_250, None]
     for text in ("45:0", "0:45:00.000", "00:45:00.00"):
         with pytest.raises(InexactValueError):
             records_to_table([{"t": text}], (field,), artifact="x")

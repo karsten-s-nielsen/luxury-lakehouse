@@ -132,6 +132,10 @@ models:
         data_type: bigint
       - name: canonical_player_key
         data_type: bigint
+      - name: team_key
+        data_type: bigint
+      - name: canonical_team_key
+        data_type: bigint
       - name: x_mm
         data_type: integer
       - name: y_mm
@@ -143,3 +147,171 @@ models:
         description: >-
           The authoritative row visibility on an encrypted-local lake (plan T9); null on an unencrypted-local or
           HF lake, where the bucket split enforces visibility. The read seam filters on it (spec §6.4).
+  - name: fct_tracking_frames
+    description: >-
+      Layer-0 input view for the tracking computes (spec D3 + D8): one row per player per frame, canonical keys,
+      positions, team, and provider (velocity + goalkeeper are derived in the compute pass, not here). Tagged
+      compute_input. One row per (canonical_match_key, provider, period, frame, canonical_player_key); the frame
+      builder fails a match with a duplicate (owner 2026-11-08; a full-table test does not scale).
+    columns:
+      - name: canonical_match_key
+        data_type: bigint
+      - name: match_key
+        data_type: bigint
+        description: >-
+          The provider record key. The compute key reads filter on it as well as on canonical_match_key, because only
+          a match_key filter reaches the per-provider dedup windows (perf spec 7.4a).
+      - name: canonical_player_key
+        data_type: bigint
+      - name: team_key
+        data_type: bigint
+      - name: canonical_team_key
+        data_type: bigint
+      - name: provider
+        data_type: varchar
+        description: The source provider (spec D8 / R6); selects the frame builder's pitch-size + roster source.
+      - name: period
+        data_type: tinyint
+      - name: frame
+        data_type: integer
+      - name: x_mm
+        data_type: integer
+      - name: y_mm
+        data_type: integer
+      - name: is_visible
+        data_type: boolean
+      - name: _visibility
+        data_type: varchar
+        description: The row visibility (see tracking_cross_provider._visibility).
+  - name: fct_tracking_ball
+    description: >-
+      Layer-0 ball + possession input view for the tracking computes (spec D7): per (canonical_match_key, period,
+      frame) the ball position and a canonical possession_team_key from the provider's own possession signal
+      (idsse ball_possession, skillcorner possession_group; null for gradientsports and wherever a provider gives
+      none — never invented). Tagged compute_input. One row per (canonical_match_key, period, frame); the frame
+      builder fails a match with a duplicate (owner 2026-11-08).
+    columns:
+      - name: canonical_match_key
+        data_type: bigint
+      - name: match_key
+        data_type: bigint
+        description: The provider record key (see fct_tracking_frames.match_key).
+      - name: period
+        data_type: tinyint
+      - name: frame
+        data_type: integer
+      - name: ball_x_mm
+        data_type: integer
+      - name: ball_y_mm
+        data_type: integer
+      - name: ball_detected
+        data_type: boolean
+      - name: time_seconds
+        data_type: double
+        description: >-
+          Period-relative seconds (R8), the clock the long converters need: idsse/gradientsports `timestamp_us / 1e6`
+          (bronze stores int64 microseconds, ADR-018); null for skillcorner (its wide shaper derives frame/frame_rate).
+      - name: possession_team_key
+        data_type: bigint
+        description: Canonical key of the team in possession where the provider supplies it; null otherwise.
+  - name: fct_roster_gk
+    description: >-
+      Layer-0 native-goalkeeper view (spec D8 / R9): the starting keeper per (canonical_match_key, canonical_team_key)
+      from each provider's roster position token (gradientsports GK/GOALKEEPER+started, idsse PlayingPosition=TW,
+      skillcorner player_role.acronym=GK). Feeds resolve_roster_goalkeepers; teams absent here fall to the convert
+      derive fallback. Tagged compute_input.
+    columns:
+      - name: canonical_match_key
+        data_type: bigint
+      - name: canonical_team_key
+        data_type: bigint
+      - name: canonical_player_key
+        data_type: bigint
+  - name: fct_match_params
+    description: >-
+      Layer-0 per-match converter parameters (spec D8 / R9): the provider, canonical home_team_key, orientation flags,
+      frame_rate and pitch size each silly-kicks convert_to_frames needs. A skillcorner match has a row only when it
+      has tracking frames (an events-only match has nothing to convert; owner 2026-11-24). Tagged compute_input.
+    columns:
+      - name: canonical_match_key
+        data_type: bigint
+      - name: provider
+        data_type: varchar
+      - name: home_team_key
+        data_type: bigint
+      - name: home_team_start_left
+        data_type: boolean
+        description: Orientation flag for the long converters; null for skillcorner (geometric) + where not yet derived.
+      - name: home_team_start_left_extra_time
+        data_type: boolean
+      - name: frame_rate
+        data_type: double
+        description: >-
+          Tracking frames per second. gradientsports `fps`, idsse 25, skillcorner the bronze `frame_rate` (derived
+          from the match-clock cadence). Never null: every tracking compute needs it.
+        data_tests: [not_null]
+      - name: pitch_length
+        data_type: double
+      - name: pitch_width
+        data_type: double
+  - name: fct_actions
+    description: >-
+      Gold SPADL actions view (spec D9): one row per on-ball action, canonical keys + period-relative time + 0-105/0-68
+      start/end coords + SPADL type/result/bodypart ids. Built by COMPUTE_L1_SELECT between the layer-1 and layer-2
+      compute stages; read by line_breaking.
+    columns:
+      - name: canonical_match_key
+        data_type: bigint
+      - name: period_id
+        data_type: tinyint
+      - name: action_id
+        data_type: integer
+      - name: original_event_id
+        data_type: varchar
+      - name: canonical_player_key
+        data_type: bigint
+      - name: canonical_team_key
+        data_type: bigint
+      - name: time_seconds
+        data_type: double
+      - name: start_x
+        data_type: double
+      - name: start_y
+        data_type: double
+      - name: end_x
+        data_type: double
+      - name: end_y
+        data_type: double
+      - name: type_id
+        data_type: integer
+      - name: result_id
+        data_type: integer
+      - name: bodypart_id
+        data_type: integer
+  - name: fct_tracking_metrics
+    description: >-
+      Layer-2 tracking-metrics mart (spec D3): one row per (canonical_match_key, canonical_player_key) with the
+      player's mean controlled-area fraction (pitch_control), modal position + time-in-position (shape_graphs), and
+      line-breaking pass count (line_breaking). A contracted view; built in the final +fct_tracking_metrics pass.
+    columns:
+      - name: canonical_match_key
+        data_type: bigint
+      - name: canonical_player_key
+        data_type: bigint
+      - name: mean_controlled_fraction
+        data_type: double
+        description: The player's team's mean pitch-control fraction over the frames the player appears in (0-1).
+      - name: modal_position
+        data_type: varchar
+        description: The player's most frequent shape-graph position label (e.g. "RCB"); null if never outfield.
+      - name: time_in_position
+        data_type: double
+        description: Fraction of the player's labelled frames spent in the modal position (0-1).
+      - name: line_breaking_passes
+        data_type: integer
+        description: Count of the player's pass/cross actions that broke a defensive line.
+      - name: _visibility
+        data_type: varchar
+        description: >-
+          The match's authoritative row visibility on an encrypted-local lake (spec §6.4); null on an
+          unencrypted-local or HF lake, where the bucket split enforces visibility. The read seam filters on it.

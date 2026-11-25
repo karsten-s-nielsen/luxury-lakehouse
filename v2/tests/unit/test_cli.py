@@ -24,6 +24,7 @@ from lakehouse.catalog.reader import CatalogReader
 from lakehouse.catalog.restore import RestoreRecord
 from lakehouse.catalog.verify import VerifyReport
 from lakehouse.catalog.working import VersionInfo
+from lakehouse.compute.registry import DEFAULT_COMPUTE_STEPS
 from lakehouse.config.model import load_defaults
 from lakehouse.errors import GuardStopError, LeaseMarkerError
 from lakehouse.ids.keys import match_key
@@ -93,6 +94,62 @@ def test_init_profile_and_usage(tmp_path: Path, env: dict[str, str]) -> None:
     assert not (tmp_path / "h").exists()
 
 
+_HF_ROOTS = ("--lake", "hf://buckets/ns/lake", "--restricted", "hf://buckets/ns/lake-restricted")
+
+
+def _hf_cli(tmp_path: Path, env: dict[str, str]) -> tuple[Cli, list[ResolvedRoots]]:
+    """A CLI whose `open_storage` serves the owner's EXISTING buckets from a local stand-in, and whose `init_lake`
+    (the root creator) must never run for HF roots."""
+    stand_in = tmp_path / "buckets"
+    (stand_in / "lake").mkdir(parents=True)
+    (stand_in / "restricted").mkdir(parents=True)
+    opened: list[ResolvedRoots] = []
+
+    def open_storage(resolved: ResolvedRoots, env: Mapping[str, str]) -> Storage:
+        opened.append(resolved)
+        lake, restricted = str(stand_in / "lake"), str(stand_in / "restricted")
+        local = resolve_roots(cli_lake=lake, cli_restricted=restricted, env={}, bootstrap_file=stand_in)
+        return LocalStorage(local.roots)
+
+    def init_lake(*_: Any, **__: Any) -> Storage:
+        raise AssertionError("init created roots for an HF lake (the owner creates the buckets)")
+
+    hf = {**env, "HF_TOKEN": "hf_not_a_real_token"}
+    return Cli(hf, open_storage=open_storage, init_lake=init_lake), opened
+
+
+def test_init_saves_the_hf_defaults_on_existing_buckets(tmp_path: Path, env: dict[str, str]) -> None:
+    # ADR-018 clean slate (owner 2026-11-06): an emptied HF lake gets its first config from `init --profile hf`. The
+    # owner creates the buckets; init opens them (the token and the lease ledger are checked by `open_storage`), saves
+    # the hf defaults, creates no root and writes no bootstrap file on the operator's machine.
+    c, opened = _hf_cli(tmp_path, env)
+    code, [line] = c("init", *_HF_ROOTS, "--profile", "hf")
+    assert (code, line["status"], line["config"], line["config_version"]) == (0, "ok", "saved", 1)
+    assert line["profile"] == "hf"
+    assert [r.roots.lake.hf_bucket for r in opened] == ["ns/lake"]
+    assert line["bootstrap_file"] is None and not default_bootstrap_file(env).exists()
+    assert "warning" not in line  # the local-encryption warning is for local lakes only
+    stored = LocalStorage(
+        resolve_roots(
+            cli_lake=str(tmp_path / "buckets" / "lake"),
+            cli_restricted=str(tmp_path / "buckets" / "restricted"),
+            env={},
+            bootstrap_file=tmp_path / "none.json",
+        ).roots
+    )
+    assert SettingsService(stored, opened[0]).load() == (load_defaults("hf"), 1)
+    code, [again] = c("init", *_HF_ROOTS, "--profile", "hf")
+    assert (code, again["config"], again["config_version"]) == (0, "kept", 1)  # an existing config is never overwritten
+
+
+def test_init_profile_must_match_the_roots(tmp_path: Path, env: dict[str, str]) -> None:
+    c, opened = _hf_cli(tmp_path, env)
+    for profile in ("laptop", "staging"):
+        code, [line] = c("init", *_HF_ROOTS, "--profile", profile)
+        assert (code, line["status"]) == (2, "error") and "--profile hf" in line["message"], profile
+    assert opened == []  # refused before the lake is opened
+
+
 def test_global_root_flags_override_env(tmp_path: Path, env: dict[str, str]) -> None:
     _init(env, tmp_path / "a")
     _init(env, tmp_path / "b")  # the bootstrap file now names b
@@ -131,6 +188,7 @@ def test_run_builds_the_run_from_the_saved_config(tmp_path: Path, env: dict[str,
         parsers,
     )
     assert call["storage"].roots.lake.local_path == tmp_path / "lake"
+    assert call["compute"] == DEFAULT_COMPUTE_STEPS  # a CLI run executes the calc layer (spec D9)
     assert adapters.calls[0]["args"] == (load_defaults("laptop"),)
     assert Cli(env, run=run, adapters=adapters, parsers=dict)("run")[0] == 0
     assert run.calls[-1]["trigger"] == "cli"
@@ -215,6 +273,7 @@ def test_reparse_targets(tmp_path: Path, env: dict[str, str]) -> None:
     assert c("reparse", "--match", "idsse:J03WPY")[0] == 0
     assert c("reparse", "--all")[0] == 0
     assert [call["target"] for call in reparse.calls] == [("idsse", "J03WPY"), "all"]
+    assert all(call["compute"] == DEFAULT_COMPUTE_STEPS for call in reparse.calls)  # reparse runs the calc layer too
     for bad in (["reparse"], ["reparse", "--match", "J03WPY"], ["reparse", "--match", "nobody:1"]):
         assert c(*bad)[0] == 2
     assert len(reparse.calls) == 2

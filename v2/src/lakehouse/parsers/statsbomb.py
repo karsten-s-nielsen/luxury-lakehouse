@@ -54,7 +54,7 @@ __all__ = [
 ]
 
 PROVIDER: Final = "statsbomb"
-PARSER_VERSION: Final = "1"  # the bronze output version (spec §13.2)
+PARSER_VERSION: Final = "2"  # the bronze output version (spec §13.2)
 _MATCH_LIST_KIND: Final = re.compile(r"^matches/\d+/\d+$")
 EVENTS: Final = bronze_table("statsbomb_events")
 LINEUPS: Final = bronze_table("statsbomb_lineups")
@@ -229,7 +229,7 @@ EVENT_FIELDS: Final[tuple[Field, ...]] = (
     Field("event_id", "id", _STR),
     Field("index", "index", _I64),
     Field("period", "period", _I64),
-    Field("timestamp", "timestamp", pa.duration("ms"), convert="clock_ms"),
+    Field("timestamp_ms", "timestamp", pa.int64(), convert="clock_ms"),
     Field("minute", "minute", _I64),
     Field("second", "second", _I64),
     *_idname("type", "type"),
@@ -281,7 +281,7 @@ _PLAYER_ROW_FIELDS: Final[tuple[Field, ...]] = (
     Field(
         "cards",
         "cards",
-        pa.list_(pa.struct([("time", pa.duration("s")), ("card_type", _STR), ("reason", _STR), ("period", _I64)])),
+        pa.list_(pa.struct([("time_s", pa.int64()), ("card_type", _STR), ("reason", _STR), ("period", _I64)])),
         nested={"[].time": "clock_s"},
     ),
     Field(
@@ -292,8 +292,8 @@ _PLAYER_ROW_FIELDS: Final[tuple[Field, ...]] = (
                 [
                     ("position_id", _I64),
                     ("position", _STR),
-                    ("from", pa.duration("ms")),
-                    ("to", pa.duration("ms")),
+                    ("from_ms", pa.int64()),
+                    ("to_ms", pa.int64()),
                     ("from_period", _I64),
                     ("to_period", _I64),
                     ("start_reason", _STR),
@@ -334,7 +334,7 @@ LINEUP_TEAM_FIELDS: Final[tuple[Field, ...]] = (
                     ("period", _I64),
                     ("player_id", _I64),
                     ("player_name", _STR),
-                    ("timestamp", pa.duration("ms")),
+                    ("timestamp_ms", pa.int64()),
                     ("type", _STR),
                 ]
             )
@@ -344,9 +344,7 @@ LINEUP_TEAM_FIELDS: Final[tuple[Field, ...]] = (
     Field(
         "formations",
         "formations",
-        pa.list_(
-            pa.struct([("formation", _I64), ("period", _I64), ("reason", _STR), ("timestamp", pa.duration("ms"))])
-        ),
+        pa.list_(pa.struct([("formation", _I64), ("period", _I64), ("reason", _STR), ("timestamp_ms", pa.int64())])),
         nested={"[].timestamp": "clock_ms"},
     ),
 )

@@ -8,13 +8,14 @@ under the reader's own root through `override_data_path`.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import tempfile
 import threading
 from collections.abc import Generator, Mapping
 from contextlib import contextmanager
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import duckdb
 
@@ -39,7 +40,7 @@ class _Attachment:
     def __init__(self, conn: duckdb.DuckDBPyConnection, pointer: CurrentPointer, temp: Path | None) -> None:
         self.conn = conn
         self.pointer = pointer
-        self.temp = temp  # the private spill folder of an encrypted read (audit T13), removed with the connection
+        self.temp = temp  # the private folder: an encrypted read's spill, a remote version's local copy
         self.users = 0
         self.retired = False
 
@@ -103,12 +104,18 @@ class CatalogReader:
         if stored.size != pointer.size:
             raise IntegrityError(f"version {pointer.seq} has size {stored.size}, but CURRENT names size {pointer.size}")
         key = resolve_encryption_key(self._storage.roots, self._env)
-        # an encrypted read spills into its own folder: DuckDB refuses `temp_file_encryption` while another instance
-        # has temp files in the same folder, and the default `./.tmp` is shared (audit T13)
-        temp = Path(tempfile.mkdtemp(prefix="lakehouse-reader-")) if key is not None else None
+        uri = self._storage.read_uri("lake", pointer.version_key)
+        remote = uri.startswith("hf://")
+        # One private folder per attachment, removed with it. An encrypted read spills into it: DuckDB refuses
+        # `temp_file_encryption` while another instance has temp files in the same folder, and the default `./.tmp`
+        # is shared (audit T13). A remote version is attached from a local copy in it (`_local_copy`).
+        temp = Path(tempfile.mkdtemp(prefix="lakehouse-reader-")) if key is not None or remote else None
         try:
             conn = connect_duckdb(
-                env=self._env, caps=self._caps, extensions=catalog_extensions(self._storage), temp_directory=temp
+                env=self._env,
+                caps=self._caps,
+                extensions=catalog_extensions(self._storage),
+                temp_directory=temp if key is not None else None,
             )
         except BaseException:
             if temp is not None:
@@ -118,8 +125,7 @@ class CatalogReader:
         try:
             for statement in self._storage.duckdb_secrets():
                 conn.execute(statement)
-            uri = self._storage.read_uri("lake", pointer.version_key)
-            location = uri if uri.startswith("hf://") else Path(uri).as_posix()
+            location = self._local_copy(pointer, temp) if remote and temp is not None else Path(uri).as_posix()
             data_path = reader_data_path(self._storage.roots)
             opts = ["READ_ONLY", f"DATA_PATH {sql_text(data_path)}", "OVERRIDE_DATA_PATH true"]
             opts.extend(encryption_options(key))
@@ -135,6 +141,21 @@ class CatalogReader:
             raise
         self.attach_count += 1
         return attachment
+
+    def _local_copy(self, pointer: CurrentPointer, folder: Path) -> str:
+        """The path of a local copy of a remote version. DuckDB 2.0.0 deadlocks a DuckLake scan of many data files
+        when the catalog itself is read over hf:// (ADR-001 amendment 2026-11-24); with a local catalog the same scan
+        completes. A version is create-only, so the copy is exact; its size and sha256 are checked against CURRENT."""
+        data = self._storage.get("lake", pointer.version_key)
+        digest = hashlib.sha256(data).hexdigest()
+        if len(data) != pointer.size or digest != pointer.sha256:
+            raise IntegrityError(
+                f"version {pointer.seq}: the downloaded copy has size {len(data)} and sha256 {digest}, but CURRENT "
+                f"names size {pointer.size} and sha256 {pointer.sha256}"
+            )
+        target = folder / PurePosixPath(pointer.version_key).name
+        target.write_bytes(data)
+        return target.as_posix()
 
     def close(self) -> None:
         with self._lock:

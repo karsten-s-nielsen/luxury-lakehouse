@@ -179,6 +179,34 @@ class MaintenanceConfig(_Frozen):
     merge_budget_seconds: int = Field(default=300, ge=0)
 
 
+class ComputeConfig(_Frozen):
+    """The compute phase's time budget (perf spec §7.5, lever R; ADR-017).
+
+    `budget_seconds` counts from the run's start; with `startup_allowance_seconds` (job start -> run start) it must
+    stay within the scheduled job's `--timeout` (21,600 s, `docs/ops/deploy.md`). The compute stops at its own
+    deadline: a layer's hard deadline is `budget - finish_reserve` (layer 1 also leaves `layer2_reserve` for layer 2);
+    its soft deadline, after which no new match starts, is the hard deadline minus `worst_match_seconds`.
+    `check_every_frames` is how often a scorer checks for a stop inside a match. The defaults are the HF `cpu-basic`
+    calibration (perf plan Task 11 Step 3, 2026-11-24), each with a margin of 25 % or more: see `docs/ops/deploy.md`."""
+
+    budget_seconds: int = Field(default=21300, ge=60)
+    startup_allowance_seconds: int = Field(default=300, ge=0)
+    finish_reserve_seconds: int = Field(default=450, ge=0)
+    layer2_reserve_seconds: int = Field(default=7200, ge=0)
+    worst_match_seconds: int = Field(default=105, ge=0)
+    check_every_frames: int = Field(default=500, ge=1)
+
+    @model_validator(mode="after")
+    def _room(self) -> ComputeConfig:
+        needed = self.finish_reserve_seconds + self.layer2_reserve_seconds + self.worst_match_seconds
+        if self.budget_seconds <= needed:
+            raise ValueError(
+                f"budget_seconds ({self.budget_seconds}) must exceed finish_reserve + layer2_reserve + worst_match "
+                f"({needed}): no time would be left for the compute"
+            )
+        return self
+
+
 class Settings(_Frozen):
     schema_version: Literal[1]
     modules: list[ModuleConfig]
@@ -187,6 +215,7 @@ class Settings(_Frozen):
     caps: ResourceCaps
     checkpoint: CheckpointConfig = Field(default_factory=CheckpointConfig)  # a pre-T3 saved config has no block
     maintenance: MaintenanceConfig = Field(default_factory=MaintenanceConfig)  # nor has a pre-T12 one
+    compute: ComputeConfig = Field(default_factory=ComputeConfig)  # nor a pre-perf-plan one (safe defaults)
     raw_archive: bool
     auto_accept_recommended: bool
     sweep_max_fraction: float = Field(default=0.10, gt=0, le=1)

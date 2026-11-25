@@ -11,7 +11,6 @@ clock with tenths of a second.
 from __future__ import annotations
 
 import csv
-import datetime as dt
 import io
 import re
 from collections.abc import Mapping
@@ -35,7 +34,7 @@ _ARROW: Final[dict[CsvKind, pa.DataType]] = {
     "int": pa.int64(),
     "float": pa.float64(),
     "mm": pa.int32(),
-    "clock_ds": pa.duration("ms"),
+    "clock_ds": pa.int64(),
 }
 
 
@@ -45,18 +44,19 @@ _KIND_TEXT: Final[dict[CsvKind, str]] = {
     "int": "as int64.",
     "float": "as float64; the source text round-trips exactly (spec §12.4).",
     "mm": "in metres in the source; stored as exact int32 millimetres (spec §10.2).",
-    "clock_ds": "a `MM:SS.d` match clock; stored as a duration in milliseconds.",
+    "clock_ds": "a `MM:SS.d` match clock; stored as exact int64 milliseconds (column `<name>_ms`).",
 }
 
 
-def _clock_ds(text: str) -> dt.timedelta:
+def _clock_ds(text: str) -> int:
+    """`MM:SS.d` as exact int milliseconds (no-duration spec §2: column `<name>_ms`)."""
     match = _CLOCK_DS.match(text)
     if match is None:
         raise InexactValueError(f"the clock {text!r} is not in MM:SS.d form")
     minutes, seconds, tenths = (int(part) for part in match.groups())
     if seconds > 59:
         raise InexactValueError(f"the clock {text!r} is out of range")
-    return dt.timedelta(minutes=minutes, seconds=seconds, milliseconds=100 * tenths)
+    return (minutes * 60 + seconds) * 1000 + 100 * tenths
 
 
 def convert_csv(text: str, kind: CsvKind) -> object:
@@ -98,7 +98,12 @@ def convert_typed(value: object, kind: CsvKind) -> object:
 
 
 def _column_name(name: str, kind: CsvKind) -> str:
-    return f"{name}_mm" if kind == "mm" else name
+    """The bronze column name: a unit kind carries its unit suffix (`_mm` coordinates, `_ms` clocks)."""
+    if kind == "mm":
+        return f"{name}_mm"
+    if kind == "clock_ds":
+        return f"{name}_ms"
+    return name
 
 
 def _rows(decoded: bytes, artifact: str) -> tuple[list[str], list[list[str]]]:
@@ -149,6 +154,13 @@ class CsvColumns:
     @property
     def names(self) -> tuple[str, ...]:
         return self._names
+
+    def kind_of(self, column: str) -> CsvKind:
+        """The source kind of a bronze column name (the suffixed name for a unit kind)."""
+        for name, kind in self.kinds.items():
+            if _column_name(name, kind) == column:
+                return kind
+        raise KeyError(column)
 
     def describe(self) -> list[tuple[str, str]]:
         """`(column, description)` for every column, in schema order (spec §12.8)."""

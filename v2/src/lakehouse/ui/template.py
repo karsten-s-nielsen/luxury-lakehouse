@@ -33,6 +33,7 @@ __all__ = [
     "FOOTER_URL",
     "TABLE_HEIGHT",
     "Button",
+    "Content",
     "Control",
     "Element",
     "NavGroup",
@@ -41,6 +42,7 @@ __all__ = [
     "PageConfig",
     "PageEntry",
     "Prose",
+    "RawHtml",
     "Section",
     "Table",
     "Text",
@@ -144,6 +146,32 @@ class Text:
     var: str
 
 
+@dataclass(frozen=True)
+class RawHtml:
+    """Opaque HTML/SVG rendered verbatim through a Taipy content provider (an iframe). It is the ONE way to put raw
+    markup on a page: Taipy's Markdown->JSX layer renders only whitelisted host tags, so an inline `<svg>` in a `Prose`
+    element is dropped ("Component svg is not registered", seen live on the Mac Space 2026-11-05). A page binds a
+    `RawHtml` to a `Content` element and `shell` registers the provider (the v1 `hf_taipy_app/src/main.py` pattern).
+    Carry only NON-identity structure here (a static DAG): a content provider is an iframe, so its markup bypasses the
+    `render_for` text proof (spec §6.2); a page whose raw HTML could hold match identity must not be anon-viewable."""
+
+    html: str
+
+    def __str__(self) -> str:
+        return self.html
+
+
+@dataclass(frozen=True)
+class Content:
+    """A raw-HTML/SVG block embedded via a Taipy content provider (an iframe), bound to a `RawHtml` variable `var`. Use
+    it where `Prose` cannot: Taipy's Markdown renderer drops a non-whitelisted tag (`<svg>`), but a content provider
+    renders the markup verbatim. `height` sizes the iframe (the content part does NOT auto-size); pass the content's
+    own pixel height (e.g. the DAG's `dag_frame_height`). The v1 shape is `<|part|content={var}|height=Npx|>`."""
+
+    var: str
+    height: str = "400px"
+
+
 # The default table height. Taipy's `table` caps its scroll container at `height` (default 80vh), so a long table
 # filled most of the screen. 24rem shows about ten rows and scrolls inside the box; a shorter table shrinks to fit.
 TABLE_HEIGHT: Final = "24rem"
@@ -173,7 +201,7 @@ class Section:
     render_var: str = ""
 
 
-Element = Prose | Text | Table | Control | Button | Section
+Element = Prose | Text | Table | Control | Button | Section | Content
 
 
 @dataclass(frozen=True)
@@ -433,6 +461,11 @@ def _build_element(element: Element) -> str:
         return f"<|{{{element.var}}}|text|mode=markdown|>"
     if isinstance(element, Table):
         return _build_table(element)
+    if isinstance(element, Content):
+        # a Taipy content provider (an iframe): it renders the bound `RawHtml` markup VERBATIM — the only path that
+        # escapes the Markdown->JSX host-tag whitelist (a raw `<svg>` in `Prose` is dropped). The content part does not
+        # auto-size, so the iframe height is fixed to the content's own pixel height.
+        return f"<|part|content={{{element.var}}}|height={element.height}|>"
     if isinstance(element, Button):
         return _build_button(element)
     if isinstance(element, Control):

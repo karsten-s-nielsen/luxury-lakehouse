@@ -191,12 +191,12 @@ sources:
       description: Source field `players[].player_role.name`, as string.
     - name: player_role_acronym
       description: Source field `players[].player_role.acronym`, as string.
-    - name: start_time
-      description: Source field `players[].start_time`, as duration[s]. Converted from text (clock_hms) with a round-trip
-        check (spec §12.4).
-    - name: end_time
-      description: Source field `players[].end_time`, as duration[s]. Converted from text (clock_hms) with a round-trip check
+    - name: start_time_s
+      description: Source field `players[].start_time`, as int64. Converted from text (clock_hms) with a round-trip check
         (spec §12.4).
+    - name: end_time_s
+      description: Source field `players[].end_time`, as int64. Converted from text (clock_hms) with a round-trip check (spec
+        §12.4).
     - name: yellow_card
       description: Source field `players[].yellow_card`, as int64.
     - name: red_card
@@ -250,10 +250,10 @@ sources:
       description: Source column `frame_end`, as int64.
     - name: frame_physical_start
       description: Source column `frame_physical_start`, as int64.
-    - name: time_start
-      description: Source column `time_start`, a `MM:SS.d` match clock; stored as a duration in milliseconds.
-    - name: time_end
-      description: Source column `time_end`, a `MM:SS.d` match clock; stored as a duration in milliseconds.
+    - name: time_start_ms
+      description: Source column `time_start`, a `MM:SS.d` match clock; stored as exact int64 milliseconds (column `<name>_ms`).
+    - name: time_end_ms
+      description: Source column `time_end`, a `MM:SS.d` match clock; stored as exact int64 milliseconds (column `<name>_ms`).
     - name: minute_start
       description: Source column `minute_start`, as int64.
     - name: second_start
@@ -935,10 +935,10 @@ sources:
       description: Source column `frame_start`, as int64.
     - name: frame_end
       description: Source column `frame_end`, as int64.
-    - name: time_start
-      description: Source column `time_start`, a `MM:SS.d` match clock; stored as a duration in milliseconds.
-    - name: time_end
-      description: Source column `time_end`, a `MM:SS.d` match clock; stored as a duration in milliseconds.
+    - name: time_start_ms
+      description: Source column `time_start`, a `MM:SS.d` match clock; stored as exact int64 milliseconds (column `<name>_ms`).
+    - name: time_end_ms
+      description: Source column `time_end`, a `MM:SS.d` match clock; stored as exact int64 milliseconds (column `<name>_ms`).
     - name: minute_start
       description: Source column `minute_start`, as int64.
     - name: second_start
@@ -1145,7 +1145,7 @@ sources:
     - name: period
       description: Source field `period` of the frame (1 or 2); a frame with players always has one.
     - name: frame
-      description: Source field `frame` (10 frames per second).
+      description: Source field `frame`.
     - name: player_key
       description: Surrogate player key of `player_data[].player_id` (spec §14).
     - name: x_mm
@@ -1163,9 +1163,10 @@ sources:
     - name: period
       description: Source field `period`; null for a frame outside every period (pre-match, half time).
     - name: frame
-      description: Source field `frame` (10 frames per second).
-    - name: timestamp
-      description: 'Time since the first frame of the period: `match_clock` minus the period''s first.'
+      description: Source field `frame`.
+    - name: timestamp_us
+      description: 'Time since the first frame of the period, in int64 microseconds: `match_clock_ms` minus the period''s
+        first.'
     - name: ball_x_mm
       description: Source field `ball_data.x` (metres), as exact int32 millimetres.
     - name: ball_y_mm
@@ -1174,8 +1175,11 @@ sources:
       description: Source field `ball_data.z` (height, metres), as exact int32 millimetres.
     - name: ball_detected
       description: Source field `ball_data.is_detected`.
-    - name: match_clock
-      description: Source field `timestamp` (`HH:MM:SS.cc`, the match time; period 2 starts at 45:00).
+    - name: match_clock_ms
+      description: Source field `timestamp` (`HH:MM:SS.cc`, the match time; period 2 starts at 45:00), in int64 milliseconds.
+    - name: frame_rate
+      description: 'Frames per second of the match, derived from the `match_clock_ms` cadence: 1/median step within each period,
+        snapped to 10, 25 or 30 (within 5 %). The same on every row of the match.'
     - name: possession_player_key
       description: Surrogate player key of `possession.player_id` (spec §14).
     - name: possession_group

@@ -90,6 +90,30 @@ def test_security_headers_on_every_response(kit: LakeKit) -> None:
     assert response.headers.get("X-Frame-Options") == "DENY"
 
 
+def test_content_provider_endpoint_allows_same_origin_framing(kit: LakeKit) -> None:
+    """Taipy content providers (`<|part|content=…|>`, e.g. the Workflows DAG SVG) render in a SAME-ORIGIN iframe served
+    from `/taipy-user-content/`. The default `X-Frame-Options: DENY` / `frame-ancestors 'none'` blocked the page from
+    framing its own content — the iframe showed a broken-content icon (seen live on the Mac 2026-11-05, the content
+    endpoint returned 200 with the real `<svg>` but DENY). That ONE endpoint family is relaxed to same-origin framing;
+    cross-origin clickjacking stays blocked and every real page keeps `DENY` / `'none'` (asserted above)."""
+    from lakehouse.web import main
+
+    save_settings(kit.storage, [active("idsse_public")])
+    env = {
+        "LAKEHOUSE_LAKE_ROOT": str(kit.roots.lake.local_path),
+        "LAKEHOUSE_RESTRICTED_ROOT": str(kit.roots.restricted.local_path),
+        "LAKEHOUSE_SESSION_SECRET": "a-long-enough-session-secret-value",
+    }
+    app, _ = main.serve(env, run=False)
+    app.testing = True
+    response = app.test_client().get("/taipy-user-content/TaIpY?variable_name=x", base_url="https://localhost")
+
+    assert response.headers.get("X-Frame-Options") == "SAMEORIGIN"  # the page may frame its own content endpoint
+    csp = response.headers.get("Content-Security-Policy", "")
+    assert "frame-ancestors 'self'" in csp and "frame-ancestors 'none'" not in csp  # same-origin, not nobody
+    assert "default-src 'self'" in csp and "object-src 'none'" in csp  # the rest of the strong policy is unchanged
+
+
 def test_taipyignore_excludes_python_source_from_static_serving() -> None:
     """Taipy serves the Gui's _root_dir (the ui/ package) as static; .taipyignore must exclude the .py source from
     signed-in callers while keeping styles.css served (review V2UI-14)."""
