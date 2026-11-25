@@ -76,15 +76,15 @@ def test_types_and_exactness() -> None:
     events = parsed.tables[EVENTS]
     types = column_types(events.schema)
     assert types["location"] == pa.list_(pa.float64())
-    assert types["timestamp"] == pa.duration("ms")
+    assert types["timestamp_ms"] == pa.int64()
     assert types["pass_end_location"] == pa.list_(pa.float64())
     assert types["shot_statsbomb_xg"] == pa.float64()
     rows = events.to_pylist()
     assert rows[1]["location"] == [60.5, 40.1]
-    assert rows[1]["timestamp"] == dt.timedelta(seconds=1, milliseconds=1)
+    assert rows[1]["timestamp_ms"] == 1001
     lineups = parsed.tables[LINEUPS].to_pylist()
-    assert lineups[0]["positions"][0]["to"] == dt.timedelta(minutes=105, seconds=30)
-    assert lineups[0]["cards"][0]["time"] == dt.timedelta(minutes=62, seconds=15)
+    assert lineups[0]["positions"][0]["to_ms"] == (105 * 60 + 30) * 1000
+    assert lineups[0]["cards"][0]["time_s"] == 62 * 60 + 15
     # a number whose text a float64 cannot hold fails loudly
     raw = json.loads(deliveries["events"].decoded)
     text = json.dumps(raw).replace("60.5", "60.50000000000000000001", 1)
@@ -195,7 +195,7 @@ def test_lineup_teams_table() -> None:
     assert [t["team_id"] for t in teams] == [t["team_id"] for t in json.loads(_raw("commercial_lineups_9100001.json"))]
     card = teams[0]["events"][0]
     assert (card["type"], card["outcome"], card["period"]) == ("Card", "Yellow Card", 1)
-    assert card["timestamp"] == dt.timedelta(minutes=31, seconds=12, milliseconds=400)
+    assert card["timestamp_ms"] == (31 * 60 + 12) * 1000 + 400
     assert teams[0]["events"][1]["player_id"] is None
     assert [f["formation"] for f in teams[0]["formations"]] == [433, 4231]
     assert teams[0]["team_key"] is not None
@@ -302,12 +302,14 @@ def test_position_times_in_both_forms() -> None:
     def times(table: pa.Table) -> list[tuple[object, object]]:
         rows: list[dict[str, Any]] = table.to_pylist()
         return [
-            (pos["from"], pos["to"]) for row in rows for pos in cast("list[dict[str, Any]]", row["positions"] or [])
+            (pos["from_ms"], pos["to_ms"])
+            for row in rows
+            for pos in cast("list[dict[str, Any]]", row["positions"] or [])
         ]
 
     public = times(_parsed()[0].tables[LINEUPS])
     assert public == times(_commercial().tables[LINEUPS])
-    assert all(isinstance(start, dt.timedelta) for start, _ in public)
+    assert all(isinstance(start, int) for start, _ in public)
 
 
 def test_metadata_of_another_match_fails() -> None:

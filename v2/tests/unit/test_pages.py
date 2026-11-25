@@ -199,10 +199,10 @@ def test_every_page_requires_login(kit: LakeKit) -> None:
     app = create_app(load_defaults("laptop"), mode="local", accounts=cast("Any", _NoAccount()), env={})
     app.testing = True
     routes = shell.page_routes()
-    # the five operator pages (logs folded into Runs, F6; "What to download" into Data sources, F7; Schedule into
-    # Settings, F8). The per-caller anon opening of monitoring is wired into the web guard in plan Task 10; every other
-    # page still needs login.
-    assert sorted(routes) == ["modules", "monitoring", "review", "runs", "settings"]
+    # the operator pages (logs folded into Runs, F6; "What to download" into Data sources, F7; Schedule into
+    # Settings, F8; AI/ML Workflows added by the calc-layer cycle). The per-caller anon opening of monitoring is wired
+    # into the web guard in plan Task 10; every other page still needs login.
+    assert sorted(routes) == ["modules", "monitoring", "review", "runs", "settings", "workflows"]
     for route in routes:  # a Taipy page carries no decorator of its own: only the global guard covers it
         app.add_url_rule(f"/{route}", f"page_{route}", lambda: "page")
     client = app.test_client()

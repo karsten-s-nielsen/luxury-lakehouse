@@ -15,9 +15,8 @@ sources:
       description: Source field `index`, as int64.
     - name: period
       description: Source field `period`, as int64.
-    - name: timestamp
-      description: Source field `timestamp`, as duration[ms]. Converted from text (clock_ms) with a round-trip check (spec
-        §12.4).
+    - name: timestamp_ms
+      description: Source field `timestamp`, as int64. Converted from text (clock_ms) with a round-trip check (spec §12.4).
     - name: minute
       description: Source field `minute`, as int64.
     - name: second
@@ -401,11 +400,11 @@ sources:
     - name: country_name
       description: Source field `country.name`, as string.
     - name: cards
-      description: 'Source field `cards`, as list<struct<time: duration[s], card_type: string, reason: string, period: int64>>.'
+      description: 'Source field `cards`, as list<struct<time_s: int64, card_type: string, reason: string, period: int64>>.'
     - name: positions
-      description: 'Source field `positions`, as list<struct<position_id: int64, position: string, from: duration[ms], to:
-        duration[ms], from_period: int64, to_period: int64, start_reason: string, end_reason: string, counterpart_id: int64,
-        counterpart_name: string>>.'
+      description: 'Source field `positions`, as list<struct<position_id: int64, position: string, from_ms: int64, to_ms:
+        int64, from_period: int64, to_period: int64, start_reason: string, end_reason: string, counterpart_id: int64, counterpart_name:
+        string>>.'
     - name: birth_date
       description: Source field `birth_date`, as date32[day]. Converted from text (date) with a round-trip check (spec §12.4).
     - name: player_gender
@@ -443,10 +442,10 @@ sources:
       description: Source field `team_name`, as string.
     - name: events
       description: 'Source field `events`, as list<struct<outcome: string, period: int64, player_id: int64, player_name: string,
-        timestamp: duration[ms], type: string>>.'
+        timestamp_ms: int64, type: string>>.'
     - name: formations
-      description: 'Source field `formations`, as list<struct<formation: int64, period: int64, reason: string, timestamp:
-        duration[ms]>>.'
+      description: 'Source field `formations`, as list<struct<formation: int64, period: int64, reason: string, timestamp_ms:
+        int64>>.'
     - name: provider
       description: The provider name (`statsbomb`).
     - name: native_match_id

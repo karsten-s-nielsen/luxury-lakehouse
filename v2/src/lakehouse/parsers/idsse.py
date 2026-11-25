@@ -30,7 +30,7 @@ import io
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal, cast
 from xml.sax import SAXParseException
@@ -90,7 +90,7 @@ __all__ = [
 ]
 
 PROVIDER: Final = "idsse"
-PARSER_VERSION: Final = "1"  # the bronze output version (spec §13.2)
+PARSER_VERSION: Final = "2"  # the bronze output version (spec §13.2)
 Artifact = Literal["metadata", "events", "positions"]
 ARTIFACTS: Final[tuple[Artifact, ...]] = ("metadata", "events", "positions")
 
@@ -714,9 +714,7 @@ def _frames(scan: _PositionsScan, native: str) -> pa.Table:
             "match_key": constant(match_key(PROVIDER, native), rows, _I64),
             "period": pa.array([p for p, _ in keys], pa.int8()),
             "frame": pa.array([n for _, n in keys], pa.int32()),
-            "timestamp": pa.array(
-                [timedelta(milliseconds=(n - scan.first_frame[p]) * FRAME_MS) for p, n in keys], pa.duration("us")
-            ),
+            "timestamp_us": pa.array([(n - scan.first_frame[p]) * FRAME_MS * 1000 for p, n in keys], pa.int64()),
             "ball_x_mm": pa.array(ball_values("X", "mm"), pa.int32()),
             "ball_y_mm": pa.array(ball_values("Y", "mm"), pa.int32()),
             "ball_z_mm": pa.array(ball_values("Z", "mm"), pa.int32()),
@@ -817,7 +815,11 @@ _FRAME_TRACKING_DOCS: Final = [
     ("match_key", "Surrogate match key (spec §14)."),
     ("period", "The period of the GameSection."),
     ("frame", "The frame number `N`."),
-    ("timestamp", "Time since the first frame of the period: (N - first N) x 40 ms (25 frames per second)."),
+    (
+        "timestamp_us",
+        "Time since the first frame of the period, in int64 microseconds: (N - first N) x 40 ms "
+        "(25 frames per second).",
+    ),
     ("ball_x_mm", "The ball's `Frame@X` (metres), as exact int32 millimetres; null without a ball frame."),
     ("ball_y_mm", "The ball's `Frame@Y` (metres), as exact int32 millimetres; null without a ball frame."),
     ("ball_z_mm", "The ball's `Frame@Z` (height, metres), as exact int32 millimetres."),

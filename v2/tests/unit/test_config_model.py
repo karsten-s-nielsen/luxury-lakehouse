@@ -12,6 +12,7 @@ from lakehouse.config.model import (
     AllClause,
     CheckpointConfig,
     CompetitionClause,
+    ComputeConfig,
     MaintenanceConfig,
     MatchClause,
     ModuleConfig,
@@ -183,3 +184,34 @@ def test_settings_are_frozen() -> None:
 def test_json_round_trip() -> None:
     s = load_defaults("staging")
     assert Settings.model_validate_json(s.model_dump_json()) == s
+
+
+def test_saved_config_without_compute_block_gets_safe_defaults() -> None:
+    """perf plan Task 4 / Review Focus 1: a saved config that predates `compute` (as the HF lake config did before
+    2026-11-24) loads with the calibrated defaults (a 21,300 s budget), never fails and never runs unbounded."""
+    data: dict[str, Any] = load_defaults("hf").model_dump(mode="json")
+    del data["compute"]
+    settings = Settings.model_validate(data)
+    assert settings.compute == ComputeConfig()
+    assert settings.compute.budget_seconds == 21300
+
+
+def test_compute_config_rejects_a_budget_without_room() -> None:
+    with pytest.raises(ValidationError, match="budget_seconds"):
+        ComputeConfig(budget_seconds=3000, finish_reserve_seconds=2700, layer2_reserve_seconds=1800)
+
+
+def test_compute_defaults_are_the_cpu_basic_calibration() -> None:
+    """perf plan Task 11 Step 3 (2026-11-24): the defaults are the HF cpu-basic measurements with a margin of 25 % or
+    more. Startup 14-17 s measured (300: a cold image pull is not measured); budget = the 21,600 s job timeout minus the
+    startup allowance; finish reserve: post-compute tail 34 s + merge budget 300 s + one publish 6.3 s, x1.3; worst
+    match: line_breaking 83.3 s, x1.25; layer 2 keeps 2 h (about 150 new line_breaking matches at a 46-52 s median,
+    less the skip checks of done matches, a median 7.9 s each)."""
+    assert ComputeConfig() == ComputeConfig(
+        budget_seconds=21300,
+        startup_allowance_seconds=300,
+        finish_reserve_seconds=450,
+        layer2_reserve_seconds=7200,
+        worst_match_seconds=105,
+        check_every_frames=500,
+    )

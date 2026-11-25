@@ -39,6 +39,7 @@ from lakehouse.catalog.restore import RestoreRecord
 from lakehouse.catalog.restore import restore as restore_version
 from lakehouse.catalog.verify import VerifyReport, verify_lake
 from lakehouse.catalog.working import VersionInfo
+from lakehouse.compute.registry import DEFAULT_COMPUTE_STEPS
 from lakehouse.config.model import InstallKind, Settings, load_defaults
 from lakehouse.errors import ConfigError, ConflictError, LakehouseError, MissingRootError, RootMismatchError
 from lakehouse.ids.native import Provider
@@ -72,7 +73,9 @@ from lakehouse.wiring import build_adapters, default_parsers
 __all__ = ["Deps", "main"]
 
 _PROVIDERS: Final[frozenset[str]] = frozenset(get_args(Provider))
-_INIT_PROFILES: Final = ("laptop", "staging")  # `init` creates local roots only; the owner creates HF buckets
+# `init` creates local roots (laptop, staging); for HF roots (`--profile hf`) the owner creates the buckets and init
+# only saves their first config (ADR-018 clean slate).
+_INIT_PROFILES: Final = ("laptop", "staging", "hf")
 # The non-secret variables a scheduled task gets from the environment that installs it (§18), besides `LAKEHOUSE_*`.
 _TASK_ENV: Final = frozenset({"UV_CACHE_DIR", "UV_PYTHON_INSTALL_DIR", "HF_HOME", "TMPDIR"})
 # the commands that open a catalog: they stop below the open-file minimum (T12 spec D1)
@@ -195,8 +198,20 @@ def _init(ctx: _Context) -> int:
     if not lake:
         raise UsageError("init needs the lake folder: lakehouse init --lake <path>")
     resolved = ctx.resolve(lake, args.init_restricted or args.restricted)
+    hf = resolved.roots.lake.hf_bucket is not None
+    if hf != (args.profile == "hf"):
+        raise UsageError(
+            "HF roots take --profile hf: the owner creates the HF buckets, and init saves their first config"
+            if hf
+            else "--profile hf takes HF roots (hf://buckets/<namespace>/<name>); a local lake takes laptop or staging"
+        )
     key = resolve_encryption_key(resolved.roots, ctx.deps.env)  # also validates a set-but-bad key before creating
-    storage = ctx.deps.init_lake(resolved, bootstrap_file=ctx.bootstrap_file)
+    if hf:
+        # The owner's EXISTING buckets: `open_storage` checks the token and the lease ledger and creates nothing. HF
+        # installs resolve their roots from the environment, so no bootstrap file is written on this machine.
+        storage, bootstrap = ctx.deps.open_storage(resolved, ctx.env), None
+    else:
+        storage, bootstrap = ctx.deps.init_lake(resolved, bootstrap_file=ctx.bootstrap_file), ctx.bootstrap_file
     service = SettingsService(storage, resolved)
     try:
         version, config = service.load()[1], "kept"
@@ -209,7 +224,7 @@ def _init(ctx: _Context) -> int:
         "status": "ok",
         "lake": record["lake"],
         "restricted": record["restricted"],
-        "bootstrap_file": ctx.bootstrap_file,
+        "bootstrap_file": bootstrap,
         "profile": args.profile,
         "config": config,
         "config_version": version,
@@ -271,6 +286,7 @@ def _run(ctx: _Context) -> int:
                 work_dir=work,
                 env=ctx.env,
                 settings=settings,
+                compute=DEFAULT_COMPUTE_STEPS,  # a CLI run executes the calc layer (spec D9); library default stays ()
             )
     finally:
         shutil.rmtree(work, ignore_errors=True)  # a scratch folder: the run has published or kept nothing in it
@@ -301,6 +317,7 @@ def _reparse(ctx: _Context) -> int:
                 holder_id=_holder("reparse"),
                 work_dir=work,
                 env=ctx.env,
+                compute=DEFAULT_COMPUTE_STEPS,  # a CLI reparse executes the calc layer too (spec D9)
             )
     finally:
         shutil.rmtree(work, ignore_errors=True)  # a scratch folder, as for a run
@@ -549,7 +566,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--operator", help="the name recorded for a save or a restore (default: the login name)")
     commands = parser.add_subparsers(dest="command", required=True, metavar="<command>")
 
-    init = commands.add_parser("init", help="create the local roots, write the bootstrap file, save the defaults")
+    init = commands.add_parser(
+        "init", help="create the local roots and the bootstrap file (or open existing HF buckets), save the defaults"
+    )
     init.add_argument("--lake", dest="init_lake", help="the lake folder to create")
     init.add_argument("--restricted", dest="init_restricted", help="the restricted folder to create")
     init.add_argument("--profile", choices=_INIT_PROFILES, default="laptop", help="the install defaults to save")

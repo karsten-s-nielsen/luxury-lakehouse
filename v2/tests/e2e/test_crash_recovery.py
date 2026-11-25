@@ -364,7 +364,7 @@ def test_crash_during_dbt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     for name, value in KEY_ENV.items():
         monkeypatch.setenv(name, value)  # a run with a dbt step needs the key in the process environment (audit T10)
 
-    def dbt(cat: Any, *, run_id: str, caps: Any) -> Any:
+    def dbt(cat: Any, *, run_id: str, caps: Any, select: str | None = None) -> Any:
         cat.conn.execute("CREATE TABLE lake.main.gold_probe AS SELECT range AS x FROM range(1000)")  # a native write
         raise _Crash
 

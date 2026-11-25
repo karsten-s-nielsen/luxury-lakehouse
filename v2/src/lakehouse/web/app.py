@@ -60,6 +60,17 @@ _SECURITY_HEADERS: Final[dict[str, str]] = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
 }
+
+# Taipy content providers (`<|part|content={var}|>`, e.g. the AI/ML Workflows DAG SVG) render raw HTML in a SAME-ORIGIN
+# iframe served from `/taipy-user-content/`. The default `X-Frame-Options: DENY` / CSP `frame-ancestors 'none'` blocks
+# the page from framing its OWN content (the iframe renders a broken-content icon; the endpoint returns 200 with the
+# real `<svg>` but the frame headers block it — verified live on the Mac 2026-11-05). This ONE endpoint family is
+# relaxed to same-origin framing: a cross-origin attacker still cannot frame the app (no clickjacking), and every real
+# page keeps `DENY` / `'none'`.
+_CONTENT_FRAME_PREFIX: Final = "/taipy-user-content/"
+_CONTENT_FRAME_CSP: Final = _SECURITY_HEADERS["Content-Security-Policy"].replace(
+    "frame-ancestors 'none'", "frame-ancestors 'self'"
+)
 # The endpoints an anonymous visitor may reach: the whole sign-in flow and Flask's static files.
 _OPEN_ENDPOINTS = frozenset(
     {
@@ -185,8 +196,14 @@ def create_app(
     @app.after_request
     def _security_headers(response: Response) -> Response:
         # Set the defence-in-depth headers on every response (audit S2); `setdefault` never overrides a header a
-        # handler already set (e.g. the CSRF token or `Cache-Control` above).
+        # handler already set (e.g. the CSRF token or `Cache-Control` above). The Taipy content-provider endpoint is
+        # relaxed to same-origin framing so the page can render its own content iframes (the Workflows DAG SVG).
+        frames_self = request.path.startswith(_CONTENT_FRAME_PREFIX)
         for header, value in _SECURITY_HEADERS.items():
+            if frames_self and header == "X-Frame-Options":
+                value = "SAMEORIGIN"
+            elif frames_self and header == "Content-Security-Policy":
+                value = _CONTENT_FRAME_CSP
             response.headers.setdefault(header, value)
         return response
 

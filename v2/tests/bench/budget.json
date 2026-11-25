@@ -24,5 +24,46 @@
     },
     "parse_s": 2.247,
     "peak_rss_mb": 606.781
+  },
+  "tracking_compute": {
+    "gradientsports": {
+      "line_breaking_ms_per_frame": 0.211,
+      "measured": {
+        "frames": 254242,
+        "line_breaking_ms_per_frame": 0.1689902940230125,
+        "match_key": 5854690524724772064,
+        "peak_rss_mb": 10405.904384,
+        "skip_check_s": 2.787452499,
+        "total_s": 42.964430332998745
+      },
+      "peak_rss_mb": 13007.38,
+      "skip_check_s": 3.484
+    },
+    "idsse": {
+      "line_breaking_ms_per_frame": 0.194,
+      "measured": {
+        "frames": 145967,
+        "line_breaking_ms_per_frame": 0.1551560244232904,
+        "match_key": 4203055498971744044,
+        "peak_rss_mb": 5716.099072,
+        "skip_check_s": 1.781994083,
+        "total_s": 22.64765941699443
+      },
+      "peak_rss_mb": 7145.124,
+      "skip_check_s": 2.227
+    },
+    "skillcorner": {
+      "line_breaking_ms_per_frame": 0.245,
+      "measured": {
+        "frames": 62595,
+        "line_breaking_ms_per_frame": 0.196232752216555,
+        "match_key": 6619791913853594692,
+        "peak_rss_mb": 3241.984,
+        "skip_check_s": 1.124280417,
+        "total_s": 12.28318912499526
+      },
+      "peak_rss_mb": 4052.48,
+      "skip_check_s": 1.405
+    }
   }
 }

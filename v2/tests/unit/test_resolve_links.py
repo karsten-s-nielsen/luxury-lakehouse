@@ -222,6 +222,26 @@ def test_pointer_move_logged() -> None:
     assert len(rows(conn, "SELECT * FROM lake.main.ops_pointer_moves")) == 2  # no change, no new row
 
 
+def test_resolution_refuses_a_duplicate_pointer() -> None:
+    """perf spec §7.4a item 2 (owner ruling 2026-11-23, fail loud + writer guard): the tracking views look pointers up
+    with scalar subqueries, so a second pointer for one (entity, record_key) would fail every reader that meets it.
+    The writer refuses it at the source, naming the entity and the key, and writes nothing."""
+    from lakehouse.resolve import links
+    from lakehouse.resolve.model import EntityRecord, RecordRef
+
+    conn = lake()
+    a = EntityRecord(ref=RecordRef("wyscout", "10"), key=42, name="Germany")
+    b = EntityRecord(ref=RecordRef("idsse", "DFL-CLU-000017"), key=42, name="Germany")  # a forced key collision
+    state = links._Entity("team", {"wyscout": [a], "idsse": [b]}, "r1", NOW)  # pyright: ignore[reportPrivateUsage]
+    with pytest.raises(ValueError, match=r"duplicate pointer.*team.*42"):
+        links._pointers(conn, state, {a.ref: a.ref, b.ref: b.ref})  # pyright: ignore[reportPrivateUsage]
+    found = conn.execute(
+        "SELECT count(*) FROM duckdb_tables() WHERE database_name = 'lake' AND table_name = 'ops_canonical_pointers'"
+    ).fetchone()
+    if found is not None and found[0]:
+        assert rows(conn, "SELECT * FROM lake.main.ops_canonical_pointers WHERE entity = 'team'") == []
+
+
 def test_records_are_kept_for_the_dimensions() -> None:
     """The pass keeps every record it resolved in `ops_entity_records`, with the key of the one generator; the dbt
     dimensions read them (plan Task 23), so dbt never hashes or builds an id."""

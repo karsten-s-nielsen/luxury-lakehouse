@@ -34,6 +34,7 @@ SpanName = Literal[
     "lakehouse.run.commit",
     "lakehouse.run.resolve",
     "lakehouse.run.dbt",
+    "lakehouse.run.compute",
     "lakehouse.run.merge",
     "lakehouse.run.cleanup",
     "lakehouse.restore",

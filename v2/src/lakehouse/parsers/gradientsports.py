@@ -21,7 +21,7 @@ import json
 import re
 from array import array
 from collections.abc import Iterator, Mapping
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Final, Literal, cast
 
@@ -76,7 +76,9 @@ __all__ = [
 ]
 
 PROVIDER: Final = "gradientsports"
-PARSER_VERSION: Final = "2"  # the bronze output version (spec §13.2); 2 adds 27 rare GS event grade/player columns
+# The bronze output version (spec §13.2): 2 adds 27 rare GS event grade/player columns; 3 stores the tracking times
+# as exact int64 microseconds (`timestamp_us`, ADR-018).
+PARSER_VERSION: Final = "3"
 Artifact = Literal["metadata", "roster", "events", "tracking"]
 ARTIFACTS: Final[tuple[Artifact, ...]] = ("metadata", "roster", "events", "tracking")
 
@@ -117,7 +119,7 @@ _MICRO: Final = Decimal(1_000_000)
 _ARROW: Final[dict[TrackingKind, pa.DataType]] = {
     "int": pa.int64(),
     "float": pa.float64(),
-    "us": pa.duration("us"),
+    "us": pa.int64(),  # exact int64 MICROSECONDS (no-duration spec §2)
     "ts": pa.timestamp("us"),
     "ts_utc": pa.timestamp("us", tz="UTC"),
     "str": _STR,
@@ -191,7 +193,7 @@ def _typed(value: object, kind: TrackingKind, where: str) -> object:
             raise UnexpectedPayloadError(f"{where}={text} is not an integer")
         return int(text)
     if kind == "us":
-        return timedelta(microseconds=_seconds_to_us(text))
+        return _seconds_to_us(text)
     # GS's JSON serialiser emits floats the xmlmap exactness guard would refuse: trailing digits below the float64 ULP
     # (e.g. a videoTimeMs of 524491.1580000001, whose float64 is 524491.158) and exponent forms (e.g. 9e-06, whose
     # repr keeps the exponent). The owner decided GS floats ingest as the nearest float64 (ADR-001, 2026-10-27), so
@@ -413,7 +415,7 @@ def _frames_table(scan: _TrackingScan, native: str) -> pa.Table:
         "match_key": constant(match_key(PROVIDER, native), rows, _I64),
         "period": pa.array(lists.get("period", []), pa.int8()),
         "frame": pa.array(lists.get("frameNum", []), pa.int32()),
-        "timestamp": pa.array(lists.get("periodElapsedTime", []), pa.duration("us")),
+        "timestamp_us": pa.array(lists.get("periodElapsedTime", []), pa.int64()),
         "ball_x_mm": pa.array(lists.get("ball_x_mm", []), pa.int32()),
         "ball_y_mm": pa.array(lists.get("ball_y_mm", []), pa.int32()),
         "ball_z_mm": pa.array(lists.get("ball_z_mm", []), pa.int32()),
@@ -770,7 +772,7 @@ _MATCH_KEY_DOCS: Final = [
 _KIND_TEXT: Final[dict[TrackingKind, str]] = {
     "int": "as int64",
     "float": "as float64 (the source text round-trips exactly)",
-    "us": "seconds, as an exact duration in microseconds",
+    "us": "seconds, as exact int64 microseconds",
     "ts": "a local ISO time, as timestamp",
     "ts_utc": "an ISO time ending in Z, as timestamp (UTC)",
     "str": "as string",
@@ -892,8 +894,8 @@ def bronze_docs() -> list[tuple[BronzeTable, str, list[tuple[str, str]]]]:
                 ("period", "Source field `period`."),
                 ("frame", "Source field `frameNum`."),
                 (
-                    "timestamp",
-                    "Source field `periodElapsedTime`: seconds since the period start, exact in microseconds.",
+                    "timestamp_us",
+                    "Source field `periodElapsedTime`: seconds since the period start, as exact int64 microseconds.",
                 ),
                 ("ball_x_mm", "Source field `balls[].x` (metres), as exact int32 millimetres; null without a ball."),
                 ("ball_y_mm", "Source field `balls[].y` (metres), as exact int32 millimetres."),

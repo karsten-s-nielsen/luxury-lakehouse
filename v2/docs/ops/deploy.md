@@ -274,17 +274,20 @@ HF has no in-place edit for a scheduled job's environment or secrets. The API of
 resume, trigger, update schedule and update labels only. To change the environment or the secrets, recreate the
 job:
 
-1. Dry-run and check the resolved configuration:
+1. Create the new job suspended, so it cannot fire before it is checked:
 
    ```sh
-   hf jobs scheduled run --dry-run --no-concurrency --flavor cpu-basic --timeout 21600 \
+   hf jobs scheduled run --suspend --no-concurrency --flavor cpu-basic --timeout 21600 \
      --label name=lakehouse-ingest --env-file <job.env> --secrets-file <secrets.env> \
      --secrets HF_TOKEN --secrets PINING_FOR_THE_DATA_TOKEN \
      "0 3 * * *" hf.co/spaces/karstenskyt/jobs \
      sh -c "python -m lakehouse.mask -- lakehouse run --trigger schedule"
    ```
 
-2. Run the same command without `--dry-run`. Note the new id.
+   `hf jobs run` and `hf jobs scheduled run` (huggingface_hub 2.3.0) have no `--dry-run`. An unknown option before
+   the image is taken as the image name: `hf jobs run --dry-run …` starts a real job that fails with "Invalid image
+   name … docker.io/--dry-run". Check the resolved configuration with `inspect_scheduled_job` (step 5) instead.
+2. Note the new id. Resume it (`HfApi().resume_scheduled_job(...)`) only after step 5.
 3. Point the ops variable at it:
    `HfApi().add_space_variable("karstenskyt/ops", "LAKEHOUSE_HF_SCHEDULED_JOB_ID", "<new id>")`.
 4. Delete the old job: `HfApi().delete_scheduled_job(scheduled_job_id="<old id>")`.
@@ -345,6 +348,29 @@ cancelled or timed-out HF run is a crash: the next run redoes the lost interval 
 plus a 2-minute takeover grace). Version retention (`retention.version_days`) and snapshot retention
 (`retention.snapshot_days`) are unchanged: in-run versions are pruned after G, run-end versions after
 `version_days`.
+
+### Compute budget (ADR-017)
+
+On HF only a deadline the run sets for itself ends a run cleanly, so the compute phase stops at its own deadline
+and a later run continues (resume across nights). The `compute` block of the saved settings holds:
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `compute.budget_seconds` | 21300 | The run's time budget, counted from the run's start: the job `--timeout` (21600) minus the startup allowance. |
+| `compute.startup_allowance_seconds` | 300 | Job start to run start (measured 14-17 s on `cpu-basic`; the margin covers a cold image pull, which is not measured). `budget + startup_allowance` must stay within the job `--timeout` (21600). |
+| `compute.finish_reserve_seconds` | 450 | Time kept for the work after the compute: the dbt builds, maintenance, cleanup, a publish and the run-end commit (measured: a 34 s tail + `maintenance.merge_budget_seconds` 300 + one publish 6.3 s, x1.3). Raise it with the merge budget. |
+| `compute.layer2_reserve_seconds` | 7200 | Time layer 1 leaves for layer 2 (line_breaking), so both progress every night. It buys about 150 new line_breaking matches at the measured 46-52 s median, less the skip checks of done matches (median 7.9 s each on `cpu-basic`; 900 done matches take about 2 h of it). Layer 1 costs about 1.6-2.7 s per new match. |
+| `compute.worst_match_seconds` | 105 | The worst single-match compute time (line_breaking 83.3 s on `cpu-basic`, x1.25). No match starts later than this before the hard deadline. |
+| `compute.check_every_frames` | 500 | How often a scorer checks for a stop inside a match. |
+
+Hard deadline = budget − finish_reserve (layer 1 also subtracts layer2_reserve); soft deadline = hard − worst_match.
+A match not reached is deferred (a `compute_deferred` warning, not a failure); the next run continues it. The
+defaults are the HF `cpu-basic` calibration of 2026-11-24 (perf plan Task 11 Step 3). In-run checkpoint publishes
+took about 2 % of the compute window, so the checkpoint defaults stay. Change a value with
+`lakehouse config set compute.<field> <n>`.
+
+**Rollback order.** `Settings` forbids unknown keys, so code older than ADR-017 cannot load a config that holds a
+`compute.*` key. To roll back, first restore the config without the `compute` block, then redeploy the older image.
 
 ## Run-end file merge and the open-file limit (T12, 2026-11-01)
 
@@ -410,6 +436,52 @@ platform-encrypted and takes no key.
   protection against an attacker who can read that file — the key and the ciphertext would sit on the same host.
   The S1 design does not harden the scheduled-process key delivery beyond this guidance; a keychain/credential-
   store fetch is the recommended path, and a plaintext env file is a documented tradeoff, not the default.
+
+## Bronze schema rebuild (durations)
+
+ADR-018 replaces every bronze `pa.duration` with an int64 time that carries its unit suffix (`_us`, `_ms`, `_s`) and
+bumps the parser version of statsbomb, idsse, skillcorner and gradientsports. v2 lakes are rebuilt from a CLEAN SLATE,
+never migrated in place: a lake on the old bronze shape cannot take a write from the new code (additive-only schema
+evolution raises `IntegrityError`).
+
+Per lake, in this order:
+
+1. **Stop the writers.** Mac: unload a local schedule (launchd or cron) if installed, and stop the web app. HF: the
+   owner suspends the scheduled job in ops Settings (the job definition is not changed) and pauses the ops Space,
+   whose token can write the config.
+2. **Record the config** that is not secret (the active modules and their filters), so the fresh install gets it.
+3. **Delete the lake's data.** This is irreversible and needs the owner's yes.
+   - Local: delete the `lake` and `lake-restricted` roots. That removes bronze, the catalog, the raw archive, the runs
+     and `config/` (the settings and their `history/`, the operator account, the review `decisions` and `requests`).
+     Tar-over-ssh never deletes, so a code refresh does not do this.
+   - HF: empty the `luxury-lakehouse/lake` and `luxury-lakehouse/restricted` buckets. The buckets, their tokens and
+     their grants stay. KEEP the lease ledger repository `luxury-lakehouse/lake-control`: `open_storage` checks it,
+     and the lease heals a kept ledger over an emptied bucket.
+4. **Install fresh.** Deploy the code, then save the first config:
+   - Local: `lakehouse init --lake <root> --restricted <root> --profile staging` (or `laptop`), with
+     `LAKEHOUSE_ENCRYPTION_KEY` in the environment for an encrypted lake (`env.sh` on the Mac). init creates the roots
+     and the bootstrap file. Re-create the operator account: generate the password on that machine into an owner-only
+     file and pass it with `lakehouse account create ops --password-stdin`; the password never enters a development
+     session.
+   - HF: a one-off `hf jobs run --flavor cpu-basic` with the scheduled job's image, env and secrets, command
+     `sh -c "python -m lakehouse.mask -- lakehouse init --lake hf://buckets/luxury-lakehouse/lake --restricted
+     hf://buckets/luxury-lakehouse/restricted --profile hf"`. init creates no bucket and no bootstrap file; it saves
+     the `hf` defaults when the lake has no config and keeps an existing one. The ops Space signs in with OAuth, so
+     there is no account to create.
+   Then set the recorded modules with `lakehouse config set modules.<id>.<field> <value>` (on HF as one-off jobs).
+5. **Ingest fresh.** `lakehouse run` (it computes too). Local: repeat until no compute step reports
+   `deferred_matches > 0`. HF: one one-off `hf jobs run --flavor cpu-basic --timeout 21600`, or more only until the
+   ingest is complete (after a `--timeout` kill wait 12 minutes for the lease, or re-run after a `skipped` result).
+   Keep the job ids and logs: they are the cpu-basic calibration data. After the resume, the nightly runs continue
+   the backfill.
+6. **Verify.**
+   - `catalog/CURRENT` records the expected `encrypted` flag: `true` for an encrypted local lake (the
+     `LocalNativeWriter` path), `false` for HF (platform-encrypted buckets, the `RegisterWriter` path).
+   - `DESCRIBE` of the tracking frames and the statsbomb and skillcorner bronze shows every time column as `BIGINT`
+     with its unit suffix and no `INTERVAL`.
+   - `fct_tracking_ball.time_seconds` is period-relative seconds; statsbomb SPADL `time_seconds` are seconds, not
+     about 1e-6 of them; the run records no `compute_failed`.
+7. **Restart** the web app (Mac), or **resume** the ops Space and the schedule (HF, owner), only after step 6.
 
 ## Secrets are owner-only
 

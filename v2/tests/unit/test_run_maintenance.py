@@ -45,7 +45,7 @@ def _run(kit: LakeKit, **kwargs: Any) -> RunResult:
 
 
 def _dbt_into(order: list[str]) -> Any:
-    def dbt(cat: Any, *, run_id: str, caps: Any) -> DbtResult:
+    def dbt(cat: Any, *, run_id: str, caps: Any, select: str | None = None) -> DbtResult:
         order.append("dbt")
         return DbtResult(success=True, results=[], run_results_key=f"runs/dbt/{run_id}/run_results.json")
 

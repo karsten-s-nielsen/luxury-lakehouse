@@ -92,3 +92,25 @@ def test_resolve_all_runs_on_fixture_bronze(conn: duckdb.DuckDBPyConnection) -> 
     )
     assert sum(result.links_written.values()) == 0  # no measured bands yet: nothing links automatically
     assert set(result.queued) == set(ENTITIES)
+
+
+def _owner_tier_lake() -> duckdb.DuckDBPyConnection:
+    """The pining owner tier: StatsBomb delivers a per-match `metadata` artifact, but no open-data `matches` or
+    `competitions` listing (the 2026-11-08 Mac lake: 95 statsbomb matches, no `statsbomb_matches` table)."""
+    connection = fixture_lake()
+    connection.execute("DROP TABLE lake.main.statsbomb_matches")
+    connection.execute("DROP TABLE lake.main.statsbomb_competitions")
+    return connection
+
+
+@pytest.mark.parametrize("entity", ["match", "competition"])
+def test_statsbomb_owner_tier_gives_the_listing_records(conn: duckdb.DuckDBPyConnection, entity: Entity) -> None:
+    owner = _owner_tier_lake()
+    try:
+        found = load_records(owner, entity).get("statsbomb", [])
+    finally:
+        owner.close()
+    listed = {r.ref: r for r in load_records(conn, entity)["statsbomb"]}
+    assert found, f"the owner tier gives no statsbomb {entity} records"
+    for record in found:
+        assert record == listed[record.ref]  # the metadata gives the same record the open-data listing gives

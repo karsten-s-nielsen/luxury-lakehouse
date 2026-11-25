@@ -35,6 +35,15 @@ from lakehouse.catalog.maintenance import MaintenanceReport, maintain_tables
 from lakehouse.catalog.manifest import read_manifest
 from lakehouse.catalog.moves import delete_moved_leftovers, prune_settled_raw_records, read_moves
 from lakehouse.catalog.working import WorkingCatalog
+from lakehouse.compute.backend import numba_active
+from lakehouse.compute.base import (
+    COMPUTE_L1_SELECT,
+    COMPUTE_MART_SELECT,
+    ComputeStep,
+    ComputeStepGroup,
+    run_compute,
+)
+from lakehouse.compute.control import ComputeControl
 from lakehouse.config.model import ModuleId, ResourceCaps, Settings
 from lakehouse.config.store import ConfigStore
 from lakehouse.entries import ArtifactRef, SourceEntry
@@ -131,7 +140,9 @@ class RunResult:
 class DbtStep(Protocol):
     """The dbt step of a run: `run_dbt` (plan Task 23). `None` in its place skips dbt; only tests of other steps do."""
 
-    def __call__(self, cat: WorkingCatalog, *, run_id: str, caps: ResourceCaps) -> DbtResult: ...
+    def __call__(
+        self, cat: WorkingCatalog, *, run_id: str, caps: ResourceCaps, select: str | None = None
+    ) -> DbtResult: ...
 
 
 def exit_code(result: RunResult) -> int:
@@ -663,7 +674,7 @@ class _Run:
 
     # --- end of the run -----------------------------------------------------------------------------------------
 
-    def finish(self, *, dbt: DbtStep | None) -> Status:
+    def finish(self, *, dbt: DbtStep | None, compute: Sequence[ComputeStep | ComputeStepGroup] = ()) -> Status:
         self._writer.flush_unchanged()  # resolution, dbt and the run end read the refreshed rows (T3 spec O-5)
         if not self.terminated:
             self.lease.confirm()  # resolution writes (T3 spec D5)
@@ -672,40 +683,51 @@ class _Run:
                     self.cat.conn, storage=self.storage, settings=self.settings, run_id=self.run_id, now=self.now
                 )
                 step.set("lakehouse.rows", sum(resolution.links_written.values()))
-            if dbt is not None:
-                self.lease.confirm()  # dbt writes (T3 spec D5)
-                with step_span("lakehouse.run.dbt", {"lakehouse.layer": "dbt"}, log=_log) as step:
-                    built = dbt(self.cat, run_id=self.run_id, caps=self.settings.caps)
-                    step.set("lakehouse.rows", len(built.results))
-                if not built.success:
-                    failed = [r.unique_id for r in built.results if r.status in ("error", "fail", "runtime error")]
-                    self._error(
-                        kind="dbt_failed",
-                        message=(
-                            f"dbt build failed: {', '.join(failed) or 'no node result'} (see {built.run_results_key})"
-                        ),
-                        severity="error",
+            # A stop request (local SIGTERM, 60 s grace) is honoured between every phase from here on: `stopped()` is
+            # called and every later phase — dbt, compute, maintenance AND cleanup — is skipped, so the run goes
+            # straight to its run row and run-end commit (perf spec §7.5; the cleanup skip is today's terminated path).
+            if dbt is not None and not self._halt_if_stopped():
+                # First build: the full graph (no selector), so dimensions and every non-compute model build; on a
+                # calc run the mart + layer-1 staging views build here too, empty until the compute writes (spec D2).
+                self._dbt_build(dbt, select=None)
+                if compute and not self._halt_if_stopped():
+                    # Layer-driven alternation (spec D9): layer-1 compute -> +fct_actions build -> layer-2 compute ->
+                    # +fct_tracking_metrics build. The middle build materialises fct_actions off the layer-1 bronze, so
+                    # line_breaking (layer 2) reads a populated view, never another compute's bronze directly. Each
+                    # layer runs under its own deadline control (perf spec §7.5).
+                    _log.info("compute backend", extra={"run_id": self.run_id, "numba": numba_active()})
+                    self._compute_layer(compute, layer=1)
+                    if not self._halt_if_stopped():
+                        # Middle build: `+fct_actions` materialises the one layer-1 output view layer 2 reads.
+                        self._dbt_build(dbt, select=COMPUTE_L1_SELECT)
+                    if not self._halt_if_stopped():
+                        self._compute_layer(compute, layer=2)
+                    if not self._halt_if_stopped():
+                        # Final build: `+fct_tracking_metrics` rebuilds the pitch/shape/line_breaking staging views +
+                        # the mart, now the bronze exists, so they pick up the compute's rows (spec D2/D9).
+                        self._dbt_build(dbt, select=COMPUTE_MART_SELECT)
+            if not self._halt_if_stopped():
+                self.lease.confirm()  # maintenance writes (T12 spec D3)
+                with step_span("lakehouse.run.merge", {"lakehouse.layer": "maintenance"}, log=_log) as step:
+                    try:
+                        self.maintenance = maintain_tables(
+                            self.cat, budget_s=float(self.settings.maintenance.merge_budget_seconds)
+                        )
+                        step.set("lakehouse.rows", sum(t.files_before - t.files_after for t in self.maintenance.tables))
+                    except GuardStopError as exc:
+                        # a guard stop leaves every file as it was; the run still cleans up and publishes its data,
+                        # and ends failed (Reviewer B T12-PLAN-04)
+                        self.problem("maintenance_guard", str(exc))
+            if not self._halt_if_stopped():
+                with step_span("lakehouse.run.cleanup", log=_log):
+                    run_cleanup(
+                        self.cat,
+                        self.storage,
+                        settings=self.settings,
+                        lease=self.lease,
+                        allow_large_sweep=False,
+                        now=self.now(),
                     )
-            self.lease.confirm()  # maintenance writes (T12 spec D3)
-            with step_span("lakehouse.run.merge", {"lakehouse.layer": "maintenance"}, log=_log) as step:
-                try:
-                    self.maintenance = maintain_tables(
-                        self.cat, budget_s=float(self.settings.maintenance.merge_budget_seconds)
-                    )
-                    step.set("lakehouse.rows", sum(t.files_before - t.files_after for t in self.maintenance.tables))
-                except GuardStopError as exc:
-                    # a guard stop leaves every file as it was; the run still cleans up and publishes its data, and
-                    # ends failed (Reviewer B T12-PLAN-04)
-                    self.problem("maintenance_guard", str(exc))
-            with step_span("lakehouse.run.cleanup", log=_log):
-                run_cleanup(
-                    self.cat,
-                    self.storage,
-                    settings=self.settings,
-                    lease=self.lease,
-                    allow_large_sweep=False,
-                    now=self.now(),
-                )
         status: Status = "failed" if self.failed_run or self.terminated else "ok"
         totals = self.totals
         write_run(
@@ -752,6 +774,63 @@ class _Run:
             extra={"run_id": self.run_id, "peak_rss_mb": peak_rss_mb(), "peak_footprint_mb": peak_footprint_mb()},
         )
         return status
+
+    def _dbt_build(self, dbt: DbtStep, *, select: str | None) -> None:
+        """One dbt build of `finish` (`select=None` builds the full graph). A failed build records `dbt_failed`."""
+        self.lease.confirm()  # dbt writes (T3 spec D5)
+        with step_span("lakehouse.run.dbt", {"lakehouse.layer": "dbt"}, log=_log) as step:
+            built = dbt(self.cat, run_id=self.run_id, caps=self.settings.caps, select=select)
+            step.set("lakehouse.rows", len(built.results))
+        if built.success:
+            return
+        failed = [r.unique_id for r in built.results if r.status in ("error", "fail", "runtime error")]
+        self._error(
+            kind="dbt_failed",
+            message=f"dbt build failed: {', '.join(failed) or 'no node result'} (see {built.run_results_key})",
+            severity="error",
+        )
+
+    def _compute_layer(self, steps: Sequence[ComputeStep | ComputeStepGroup], *, layer: int) -> None:
+        """One compute layer of `finish`, under that layer's deadline control (spec D9, perf spec §7.5)."""
+        self.lease.confirm()  # the compute phase writes bronze (spec D2/D9)
+        with step_span("lakehouse.run.compute", {"lakehouse.layer": "compute"}, log=_log) as step:
+            result = run_compute(
+                self.cat,
+                run_id=self.run_id,
+                caps=self.settings.caps,
+                now=self.now,
+                steps=steps,
+                layer=layer,
+                error=self._error,
+                control_for=self._compute_control,
+            )
+            step.set("lakehouse.rows", sum(outcome.rows for outcome in result.outcomes))
+
+    def _halt_if_stopped(self) -> bool:
+        """True when the run must skip its remaining phases: it was already terminated, or a stop was requested now
+        (then `stopped()` records it). Polled between the `finish` phases (perf spec §7.5)."""
+        if self.terminated:
+            return True
+        if self.stop():
+            self.stopped()
+            return True
+        return False
+
+    def _compute_control(self, layer: int) -> ComputeControl:
+        """One compute layer's deadline control: deadlines from the run's start and `settings.compute`, the run's stop
+        flag, and durable progress — each written match is a deferrable checkpoint unit (perf spec §7.5)."""
+
+        def on_written() -> None:
+            self.checkpoints.maybe("compute")
+
+        return ComputeControl.for_layer(
+            self.settings.compute,
+            started_at=self.started_at,
+            layer=layer,
+            now=self.now,
+            stop=self.stop,
+            on_written=on_written,
+        )
 
     def problem(self, kind: str, message: str) -> None:
         """An error of the run itself (not of one match): recorded, and the run ends `failed`."""
@@ -916,6 +995,7 @@ def reparse_matches(
     work_dir: Path | None = None,
     env: Mapping[str, str] | None = None,
     dbt: DbtStep | None = run_dbt,
+    compute: Sequence[ComputeStep | ComputeStepGroup] = (),
     stop: Callable[[], bool] | None = None,
 ) -> RunResult:
     """The offline re-parse (§13.2): one run that re-parses, from the raw archive, every match whose parser version
@@ -964,7 +1044,7 @@ def reparse_matches(
                     run.reparse(targets)
                 except _Stop:
                     run.stopped()
-                status = run.finish(dbt=dbt)
+                status = run.finish(dbt=dbt, compute=compute)
                 return RunResult(rid, status, run.counts(), run.errors)
             finally:
                 cat.close()
@@ -1017,6 +1097,7 @@ def run_ingestion(
     work_dir: Path | None = None,
     env: Mapping[str, str] | None = None,
     dbt: DbtStep | None = run_dbt,
+    compute: Sequence[ComputeStep | ComputeStepGroup] = (),
     stop: Callable[[], bool] | None = None,
     settings: Settings | None = None,
 ) -> RunResult:
@@ -1062,7 +1143,7 @@ def run_ingestion(
                     run.modules(listings)
                 except _Stop:
                     run.stopped()
-                status = run.finish(dbt=dbt)
+                status = run.finish(dbt=dbt, compute=compute)
                 return RunResult(rid, status, run.counts(), run.errors)
             finally:
                 cat.close()

@@ -61,10 +61,12 @@ from lakehouse.ui.template import (
     FOOTER_LEAD,
     FOOTER_URL,
     Button,
+    Content,
     Control,
     PageConfig,
     PageEntry,
     Prose,
+    RawHtml,
     Section,
     Table,
     Text,
@@ -117,6 +119,18 @@ STYLES_CSS = Path(__file__).resolve().parent / "styles.css"
 # operator pages and the public page cannot drift (spec S06). style_v2.css reads the --color-* tokens from the stylekit.
 STYLEKIT: dict[str, str] = palette_stylekit()
 
+
+def _raw_html_provider(content: RawHtml) -> str:
+    """Taipy content provider: render a `RawHtml` as its literal markup inside a content-provider iframe."""
+    return content.html
+
+
+# Register the provider ONCE, at import (Taipy keeps a class-level provider registry every Gui shares). `<|part|content=
+# {var}|>` then renders a `RawHtml` var verbatim in an iframe — the only way to put raw HTML/SVG on a page, because
+# Taipy's Markdown->JSX layer drops a non-whitelisted tag such as `<svg>` ("Component svg is not registered"). The v1
+# app registers the same way (hf_taipy_app/src/main.py); the `Content` template element binds a RawHtml to this seam.
+Gui.register_content_provider(RawHtml, _raw_html_provider)  # pyright: ignore[reportUnknownMemberType] - Taipy has no stubs
+
 _log = get_logger(__name__)
 
 # The route of the page the operator is on, set by the navigation hook. The sidebar filter sections render only for
@@ -147,7 +161,7 @@ _SIGNIN_NOTICE: str = "<|part|class_name=ll-signin-notice|\n**Sign in to view th
 # "logs" folded into the Runs run-detail drill-down (audit F6); "filters" ("What to download") folded into the Data
 # sources page (audit F7); "schedule" folded into the Settings page as a section (audit F8). None is a top-level page
 # any more.
-PAGE_MODULES: tuple[str, ...] = ("monitoring", "modules", "runs", "review", "settings")
+PAGE_MODULES: tuple[str, ...] = ("monitoring", "modules", "runs", "review", "settings", "workflows")
 
 
 @dataclass(frozen=True)
@@ -328,6 +342,8 @@ def _resolved_text(cfg: PageConfig, state: _RecordingState) -> str:
                 if isinstance(columns, dict):
                     for cells in cast("dict[str, list[str]]", columns).values():
                         out.extend(str(cell) for cell in cells)
+            elif isinstance(element, Content):
+                pass  # a content provider (an iframe): non-identity structure (the static DAG); no text to proof (§6.2)
             elif isinstance(element, Button):
                 out.append(element.label)
             elif isinstance(element, Control):

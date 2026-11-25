@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import datetime as dt
-
 import pyarrow as pa
 import pytest
 
@@ -32,7 +30,7 @@ def test_schema_names_and_types() -> None:
     assert list(column_types(COLUMNS.schema()).items()) == [
         ("event_id", pa.string()),
         ("frame_start", pa.int64()),
-        ("time_start", pa.duration("ms")),
+        ("time_start_ms", pa.int64()),
         ("x_start_mm", pa.int32()),
         ("xthreat", pa.float64()),
         ("penalty_area_start", pa.bool_()),
@@ -43,9 +41,9 @@ def test_table_from_csv() -> None:
     table = COLUMNS.table(DATA, artifact="dynamic_events")
     assert table.column("event_id").to_pylist() == ["8_0", "8_1, quoted"]
     assert table.column("frame_start").to_pylist() == [11, 30]
-    assert table.column("time_start").to_pylist() == [
-        dt.timedelta(milliseconds=100),
-        dt.timedelta(minutes=95, seconds=12.3),
+    assert table.column("time_start_ms").to_pylist() == [
+        100,  # 00:00.1 as int64 milliseconds (no-duration spec §2)
+        (95 * 60 + 12) * 1000 + 300,
     ]
     assert table.column("x_start_mm").to_pylist() == [490, -20780]
     assert table.column("xthreat").to_pylist() == [0.0007, None]  # an empty field is a null

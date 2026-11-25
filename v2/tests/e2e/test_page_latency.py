@@ -27,7 +27,8 @@ from lakehouse.storage.roots import ResolvedRoots
 from lakehouse.ui import shell
 
 NOW = datetime(2026, 10, 27, 12, tzinfo=UTC)
-_LAKE_PAGES = frozenset({"monitoring", "runs", "review", "modules"})  # §19.5: ≤ 500 ms cached
+# §19.5: ≤ 500 ms cached. `workflows` reads no lake (a static card DAG), so it meets the tightest budget too.
+_LAKE_PAGES = frozenset({"monitoring", "runs", "review", "modules", "workflows"})
 # Data sources loads its what-to-download editor on demand (audit D1), so navigate is a lake read. Settings carries
 # the schedule section, which reads the schedule backend / HF-jobs API (audit F8), so it keeps the §19.4 (≤ 3 s) bound.
 _EXTERNAL_PAGES = frozenset({"settings"})  # network / HF-jobs API; §19.4 page-load bound: ≤ 3 s

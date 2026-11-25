@@ -49,6 +49,16 @@ Convert = Literal[
     "int_text",
 ]
 
+#: The time converter kinds and the unit suffix their output carries (no-duration spec §2): a time is stored as an
+#: exact int64 in that unit, never as an Arrow duration (whose physical type depends on the bronze write path).
+TIME_KINDS: Final[dict[str, str]] = {
+    "clock_ms": "_ms",
+    "clock_s": "_s",
+    "clock_ms_or_s": "_ms",
+    "clock_hms": "_s",
+    "clock_ds": "_ms",
+}
+
 _CLOCK_MS: Final = re.compile(r"^(\d{2}):(\d{2}):(\d{2})\.(\d{3})$")
 _MINUTES: Final = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$")
 _CLOCK_S: Final = re.compile(r"^(\d{2,3}):(\d{2})$")
@@ -87,8 +97,17 @@ def _type_paths(prefix: str, arrow_type: pa.DataType) -> set[str]:
 
 
 def covered_paths(column: Field) -> frozenset[str]:
-    """The payload field paths that this column holds (inventory syntax of `json_field_paths`)."""
-    return frozenset(_type_paths(column.path, column.type))
+    """The payload field paths that this column holds (inventory syntax of `json_field_paths`). A nested time field is
+    declared under its suffixed output name; it covers the payload's source key."""
+    paths = set(_type_paths(column.path, column.type))
+    for sub_path, convert in column.nested.items():
+        if convert in TIME_KINDS:
+            source = column.path + sub_path
+            output = source.rsplit(".", 1)[0] + "." + nested_output_name(sub_path, convert)
+            if output in paths:
+                paths.discard(output)
+                paths.add(source)
+    return frozenset(paths)
 
 
 def describe_fields(fields: Sequence[Field], *, prefix: str = "") -> list[tuple[str, str]]:
@@ -146,40 +165,43 @@ def _time_ms(text: str) -> dt.time:
     return value
 
 
-def _clock_ms(text: str) -> dt.timedelta:
+def _clock_ms(text: str) -> int:
+    """`HH:MM:SS.fff` as exact int milliseconds."""
     match = _CLOCK_MS.match(text)
     if match is None:
         raise InexactValueError(f"the clock {text!r} is not in HH:MM:SS.fff form")
     hours, minutes, seconds, millis = (int(part) for part in match.groups())
     if minutes > 59 or seconds > 59:
         raise InexactValueError(f"the clock {text!r} is out of range")
-    return dt.timedelta(hours=hours, minutes=minutes, seconds=seconds, milliseconds=millis)
+    return ((hours * 60 + minutes) * 60 + seconds) * 1000 + millis
 
 
-def _clock_s(text: str) -> dt.timedelta:
+def _clock_s(text: str) -> int:
+    """`MM:SS` as exact int seconds."""
     match = _CLOCK_S.match(text)
     if match is None:
         raise InexactValueError(f"the clock {text!r} is not in MM:SS form")
     minutes, seconds = (int(part) for part in match.groups())
     if seconds > 59:
         raise InexactValueError(f"the clock {text!r} is out of range")
-    return dt.timedelta(minutes=minutes, seconds=seconds)
+    return minutes * 60 + seconds
 
 
-def _clock_ms_or_s(text: str) -> dt.timedelta:
+def _clock_ms_or_s(text: str) -> int:
     """`HH:MM:SS.fff` or `MM:SS`, each checked exactly in its own form (StatsBomb position times: commercial and
-    open-data deliveries write the two forms)."""
-    return _clock_ms(text) if _CLOCK_MS.match(text) else _clock_s(text)
+    open-data deliveries write the two forms), as exact int MILLISECONDS either way."""
+    return _clock_ms(text) if _CLOCK_MS.match(text) else _clock_s(text) * 1000
 
 
-def _clock_hms(text: str) -> dt.timedelta:
+def _clock_hms(text: str) -> int:
+    """`HH:MM:SS` as exact int seconds."""
     match = _CLOCK_HMS.match(text)
     if match is None:
         raise InexactValueError(f"the clock {text!r} is not in HH:MM:SS form")
     hours, minutes, seconds = (int(part) for part in match.groups())
     if minutes > 59 or seconds > 59:
         raise InexactValueError(f"the clock {text!r} is out of range")
-    return dt.timedelta(hours=hours, minutes=minutes, seconds=seconds)
+    return (hours * 60 + minutes) * 60 + seconds
 
 
 def _timestamp_utc(text: str) -> dt.datetime:
@@ -240,8 +262,16 @@ def convert_text(value: object, convert: Convert) -> object:
     return _convert(value, convert)
 
 
+def nested_output_name(sub_path: str, convert: Convert) -> str:
+    """The output name of a nested field converted at `sub_path`: its last key, plus the unit suffix for a time kind
+    (`[].time` with `clock_s` -> `time_s`). The struct type declares that name; the payload keeps the source key."""
+    leaf = sub_path.rsplit(".", 1)[-1]
+    return leaf + TIME_KINDS.get(convert, "")
+
+
 def _convert_nested(value: object, path: str, convert: Convert) -> object:
-    """Apply `convert` at `path` (`[]` for list items, `.key` for keys) inside a nested value."""
+    """Apply `convert` at `path` (`[]` for list items, `.key` for keys) inside a nested value. A time kind stores its
+    value under the key plus its unit suffix (`nested_output_name`) and removes the source key."""
     if value is None:
         return None
     if not path:
@@ -261,7 +291,10 @@ def _convert_nested(value: object, path: str, convert: Convert) -> object:
             return value
         mapping = dict(cast("Mapping[str, object]", value))
         if key in mapping:
-            mapping[key] = _convert_nested(mapping[key], rest, convert)
+            if not rest and convert in TIME_KINDS:
+                mapping[key + TIME_KINDS[convert]] = _convert(mapping.pop(key), convert)
+            else:
+                mapping[key] = _convert_nested(mapping[key], rest, convert)
         return mapping
     raise ValueError(f"invalid nested path {path!r}: it must start with '[]' or '.'")
 

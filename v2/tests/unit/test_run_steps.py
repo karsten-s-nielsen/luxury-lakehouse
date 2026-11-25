@@ -223,7 +223,7 @@ def test_dbt_runs_after_resolution_and_a_failure_fails_the_run(kit: LakeKit) -> 
     which still writes its history and its run-end commit."""
     calls: list[tuple[str, bool]] = []
 
-    def failing_dbt(cat: Any, *, run_id: str, caps: Any) -> DbtResult:
+    def failing_dbt(cat: Any, *, run_id: str, caps: Any, select: str | None = None) -> DbtResult:
         tables = {
             n
             for (n,) in cat.conn.execute(

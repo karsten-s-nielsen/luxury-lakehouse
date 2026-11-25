@@ -76,14 +76,16 @@ def test_confirm_runs_before_resolution_and_dbt(kit: LakeKit, confirms: list[str
     run end confirms twice: resolution and the maintenance."""
     save_settings(kit.storage, [active("idsse_public")])
 
-    def dbt(cat: Any, *, run_id: str, caps: Any) -> DbtResult:
+    def dbt(cat: Any, *, run_id: str, caps: Any, select: str | None = None) -> DbtResult:
         return DbtResult(success=True, results=[], run_results_key="runs/dbt/x.json")
 
     _run(kit, _adapter("J03WPY"), Clock(datetime.now(UTC)), dbt=dbt)
-    assert confirms.count("finish") == 3  # resolution, dbt, maintenance
+    assert confirms.count("finish") == 2  # resolution, maintenance
+    assert confirms.count("_dbt_build") == 1  # the one dbt build (no compute steps), through the run-end helper
     confirms.clear()
     _run(kit, _adapter("J03WPY"), Clock(datetime.now(UTC)))  # no dbt step
     assert confirms.count("finish") == 2  # resolution, maintenance
+    assert confirms.count("_dbt_build") == 0
 
 
 def test_stalled_writer_stops_at_its_next_match(kit: LakeKit) -> None:

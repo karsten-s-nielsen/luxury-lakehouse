@@ -758,8 +758,8 @@ sources:
       description: Source field `period`.
     - name: frame
       description: Source field `frameNum`.
-    - name: timestamp
-      description: 'Source field `periodElapsedTime`: seconds since the period start, exact in microseconds.'
+    - name: timestamp_us
+      description: 'Source field `periodElapsedTime`: seconds since the period start, as exact int64 microseconds.'
     - name: ball_x_mm
       description: Source field `balls[].x` (metres), as exact int32 millimetres; null without a ball.
     - name: ball_y_mm

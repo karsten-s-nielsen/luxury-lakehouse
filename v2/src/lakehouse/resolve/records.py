@@ -2,7 +2,9 @@
 
 One query per provider and entity type reads the raw columns of the bronze tables that exist in the lake; a missing
 table means that provider has no records of that type. The rows are grouped in Python by native id, and each
-attribute takes its most frequent value (ties: the smallest), so a record never depends on row order. Native ids
+attribute takes its most frequent value (ties: the smallest), so a record never depends on row order. Match records
+are the exception: a match takes the first row of its group whole, and the queries run in their declared order, so
+the first query that holds the match decides it (for statsbomb the listing, then the owner-tier metadata). Native ids
 and keys come from the one generator of each format (`lakehouse.ids`, ADR-018).
 """
 
@@ -202,6 +204,11 @@ _COMPETITIONS: Final[dict[Provider, Sequence[_Query]]] = {
             ("statsbomb_matches",),
             "SELECT competition_id, competition_name, competition_country_name FROM lake.main.statsbomb_matches",
         ),
+        # The pining owner tier delivers a per-match `metadata` artifact (the match shape) and no open-data listing.
+        _Query(
+            ("statsbomb_match_metadata",),
+            "SELECT competition_id, competition_name, competition_country_name FROM lake.main.statsbomb_match_metadata",
+        ),
     ),
     "wyscout": (
         _Query(("wyscout_competitions",), "SELECT competition_id, name, area_name FROM lake.main.wyscout_competitions"),
@@ -238,6 +245,13 @@ _MATCHES: Final[dict[Provider, Sequence[_Query]]] = {
             ("statsbomb_matches",),
             "SELECT match_id, match_date, home_team_id, home_team_name, away_team_id, away_team_name, "
             "competition_id, season_id, season_name FROM lake.main.statsbomb_matches",
+        ),
+        # The owner tier: the per-match `metadata` artifact, the same match fields. The listing query runs first, so
+        # its row is the record when both hold the match (`_matches` takes the first row).
+        _Query(
+            ("statsbomb_match_metadata",),
+            "SELECT match_id, match_date, home_team_id, home_team_name, away_team_id, away_team_name, "
+            "competition_id, season_id, season_name FROM lake.main.statsbomb_match_metadata",
         ),
     ),
     "wyscout": (

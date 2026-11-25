@@ -12,7 +12,13 @@ import pytest
 
 from lakehouse.bronze import tracking
 from lakehouse.bronze.arrow import column_types, read_parquet, schema_field
-from lakehouse.bronze.schemas import TRACKING_FRAMES_CORE, TRACKING_PLAYERS_CORE, BronzeTable, bronze_table
+from lakehouse.bronze.schemas import (
+    TRACKING_FRAMES_CORE,
+    TRACKING_FRAMES_EXTRA,
+    TRACKING_PLAYERS_CORE,
+    BronzeTable,
+    bronze_table,
+)
 from lakehouse.bronze.writer import parse_file_name, write_bronze_file, write_tracking_file
 
 PLAYERS = bronze_table("skillcorner_tracking_players")
@@ -47,13 +53,17 @@ def _frames(frames: list[tuple[int, int]]) -> pa.Table:
             "match_key": pa.array([MATCH] * len(frames), pa.int64()),
             "period": pa.array([f[0] for f in frames], pa.int8()),
             "frame": pa.array([f[1] for f in frames], pa.int32()),
-            "timestamp": pa.array([f[1] * 100_000 for f in frames], pa.duration("us")),
+            "timestamp_us": pa.array([f[1] * 100_000 for f in frames], pa.int64()),
             "ball_x_mm": pa.array([f[1] for f in frames], pa.int32()),
             "ball_y_mm": pa.array([f[1] for f in frames], pa.int32()),
             "ball_z_mm": pa.array([None] * len(frames), pa.int32()),
             "ball_detected": pa.array([True] * len(frames), pa.bool_()),
+            # skillcorner's declared frames extension (ADR-018): the source match clock in int64 milliseconds
+            "match_clock_ms": pa.array([f[1] * 100 for f in frames], pa.int64()),
+            # the frame rate the parser derives from that clock cadence (v1 parity), the same on every row
+            "frame_rate": pa.array([10] * len(frames), pa.int32()),
         },
-        schema=TRACKING_FRAMES_CORE,
+        schema=pa.schema([*_core_fields(TRACKING_FRAMES_CORE), *_core_fields(TRACKING_FRAMES_EXTRA["skillcorner"])]),
     )
 
 
@@ -99,7 +109,7 @@ def test_tracking_encodings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
         FRAMES, _frames([(1, f) for f in range(20)]), match_key=MATCH, content_version="v1", out_dir=tmp_path
     )
     frame_encodings = _encodings(frames)
-    for column in ("frame", "timestamp", "ball_x_mm", "ball_y_mm"):
+    for column in ("frame", "timestamp_us", "ball_x_mm", "ball_y_mm"):
         assert "DELTA_BINARY_PACKED" in frame_encodings[column]
 
 
@@ -291,5 +301,7 @@ def test_frames_period_may_be_null(tmp_path: Path) -> None:
 
 def test_frames_timestamp_is_microseconds() -> None:
     """GS gives the time since the period start with 6 decimals (`periodElapsedTime: 0.033041`), so the shared core
-    holds microseconds; milliseconds (IDSSE, SkillCorner) fit it exactly."""
-    assert column_types(TRACKING_FRAMES_CORE)["timestamp"] == pa.duration("us")
+    holds microseconds; milliseconds (IDSSE, SkillCorner) fit it exactly. ADR-018: an exact int64 whose name carries
+    the unit, never a duration (its physical type depends on the write path)."""
+    assert column_types(TRACKING_FRAMES_CORE)["timestamp_us"] == pa.int64()
+    assert "timestamp" not in column_types(TRACKING_FRAMES_CORE)

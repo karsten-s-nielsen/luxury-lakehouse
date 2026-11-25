@@ -7,17 +7,22 @@ read line by line: every number keeps its source text (`json.loads` with text ho
 `int32` millimetres by the text rule of §10.2 and nothing passes through float first. Each frame's keys are checked
 against the declared field set, so an unknown field fails the match (§12.3). Every frame is kept, including the
 pre-match and half-time frames that the source writes with `period: null` and no player data (IRIS dropped them,
-§12.6), and the frame's `possession` and its 8 `image_corners_projection` values. The core `timestamp` is
-period-relative (§11.5); the source's match clock (`timestamp`, period 2 starts at 45:00) stays in `match_clock`.
+§12.6), and the frame's `possession` and its 8 `image_corners_projection` values. The core `timestamp_us` is
+period-relative int64 microseconds (§11.5); the source's match clock (`timestamp`, period 2 starts at 45:00) stays in
+`match_clock_ms` (int64 milliseconds, declared in `TRACKING_FRAMES_EXTRA["skillcorner"]`). The frame rate is derived
+from that clock's cadence (`derive_frame_rate`, the v1 rule) and stored as the `frame_rate` column: the owner-tier
+match file has no `match_periods`, so the match file cannot give it.
 """
 
 from __future__ import annotations
 
+import itertools
 import json
 import re
+import statistics
 from array import array
-from collections.abc import Callable, Iterator, Mapping
-from datetime import UTC, datetime, timedelta
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from datetime import UTC, datetime
 from typing import Any, Final, Literal, cast
 
 import numpy as np
@@ -59,10 +64,11 @@ __all__ = [
     "TRACKING_ROSTER",
     "SkillCornerParser",
     "bronze_docs",
+    "derive_frame_rate",
 ]
 
 PROVIDER: Final = "skillcorner"
-PARSER_VERSION: Final = "1"  # the bronze output version (spec §13.2)
+PARSER_VERSION: Final = "3"  # the bronze output version (spec §13.2)
 Artifact = Literal[
     "match",
     "tracking",
@@ -132,6 +138,39 @@ _MATCH_RAW_PATHS: Final = (
 )
 _STR: Final = pa.string()
 _I64: Final = pa.int64()
+
+#: The tracking frame rates SkillCorner delivers (v1 `_ALLOWED_FRAME_RATES`): broadcast 10 fps, full format 25 or 30.
+_ALLOWED_FRAME_RATES: Final = (10, 25, 30)
+#: The raw cadence is not exactly nominal (a 0.04004 s step is 24.97 fps), so snap within +-5 % (v1 tolerance).
+_FRAME_RATE_TOLERANCE: Final = 0.05
+
+
+def derive_frame_rate(periods: Sequence[int | None], clocks_ms: Sequence[int | None]) -> int:
+    """The tracking frame rate from the match clock cadence: 1/median(step), snapped to an allowed rate (v1 rule).
+
+    The steps are taken WITHIN each period only (the half-time gap would skew the median) and pooled; a frame
+    outside every period, or without a clock, is left out. Fail loud, never a default: the frame rate drives the
+    velocity and the frame-to-event alignment of every tracking compute, so a wrong rate silently corrupts them.
+    """
+    by_period: dict[int, list[int]] = {}
+    for period, clock in zip(periods, clocks_ms, strict=True):
+        if period is not None and clock is not None:
+            by_period.setdefault(period, []).append(clock)
+    steps: list[int] = []
+    for clocks in by_period.values():
+        ordered = sorted(clocks)
+        steps.extend(b - a for a, b in itertools.pairwise(ordered) if b > a)
+    if not steps:
+        raise UnexpectedPayloadError("cannot derive the SkillCorner frame rate: no within-period clock steps")
+    median_ms = statistics.median(steps)
+    raw = 1000.0 / median_ms
+    for rate in _ALLOWED_FRAME_RATES:
+        if abs(raw - rate) / rate <= _FRAME_RATE_TOLERANCE:
+            return rate
+    raise UnexpectedPayloadError(
+        f"the SkillCorner frame rate {raw:.2f} fps (median clock step {median_ms} ms) is not within "
+        f"+-{_FRAME_RATE_TOLERANCE:.0%} of an allowed rate {_ALLOWED_FRAME_RATES}"
+    )
 
 
 class _Number(str):
@@ -382,21 +421,20 @@ def _frames_table(scan: _TrackingScan, native: str) -> pa.Table:
         if period is not None and clock is not None and (period not in first or clock < first[period]):
             first[period] = clock
     stamps = [
-        None if period is None or clock is None else timedelta(milliseconds=clock - first[period])
+        None if period is None or clock is None else (clock - first[period]) * 1000
         for period, clock in zip(scan.period, scan.clock, strict=True)
     ]
     columns: dict[str, pa.Array[Any]] = {
         "match_key": constant(match_key(PROVIDER, native), rows, _I64),
         "period": pa.array(scan.period, pa.int8()),
         "frame": pa.array(scan.frame, pa.int32()),
-        "timestamp": pa.array(stamps, pa.duration("us")),
+        "timestamp_us": pa.array(stamps, pa.int64()),
         "ball_x_mm": pa.array(scan.ball["x"], pa.int32()),
         "ball_y_mm": pa.array(scan.ball["y"], pa.int32()),
         "ball_z_mm": pa.array(scan.ball["z"], pa.int32()),
         "ball_detected": pa.array(scan.ball_detected, pa.bool_()),
-        "match_clock": pa.array(
-            [None if c is None else timedelta(milliseconds=c) for c in scan.clock], pa.duration("ms")
-        ),
+        "match_clock_ms": pa.array(scan.clock, pa.int64()),
+        "frame_rate": constant(derive_frame_rate(scan.period, scan.clock), rows, pa.int32()),
         "possession_player_key": _keys_of(scan.possession_player, _player_key),
         "possession_group": pa.array(scan.possession_group, _STR),
     }
@@ -727,7 +765,7 @@ def bronze_docs() -> list[tuple[BronzeTable, str, list[tuple[str, str]]]]:
             [
                 ("match_key", "Surrogate match key (spec §14)."),
                 ("period", "Source field `period` of the frame (1 or 2); a frame with players always has one."),
-                ("frame", "Source field `frame` (10 frames per second)."),
+                ("frame", "Source field `frame`."),
                 ("player_key", "Surrogate player key of `player_data[].player_id` (spec §14)."),
                 ("x_mm", "Source field `player_data[].x` (metres), as exact int32 millimetres (spec §10.2)."),
                 ("y_mm", "Source field `player_data[].y` (metres), as exact int32 millimetres (spec §10.2)."),
@@ -745,13 +783,26 @@ def bronze_docs() -> list[tuple[BronzeTable, str, list[tuple[str, str]]]]:
             [
                 ("match_key", "Surrogate match key (spec §14)."),
                 ("period", "Source field `period`; null for a frame outside every period (pre-match, half time)."),
-                ("frame", "Source field `frame` (10 frames per second)."),
-                ("timestamp", "Time since the first frame of the period: `match_clock` minus the period's first."),
+                ("frame", "Source field `frame`."),
+                (
+                    "timestamp_us",
+                    "Time since the first frame of the period, in int64 microseconds: `match_clock_ms` minus the "
+                    "period's first.",
+                ),
                 ("ball_x_mm", "Source field `ball_data.x` (metres), as exact int32 millimetres."),
                 ("ball_y_mm", "Source field `ball_data.y` (metres), as exact int32 millimetres."),
                 ("ball_z_mm", "Source field `ball_data.z` (height, metres), as exact int32 millimetres."),
                 ("ball_detected", "Source field `ball_data.is_detected`."),
-                ("match_clock", "Source field `timestamp` (`HH:MM:SS.cc`, the match time; period 2 starts at 45:00)."),
+                (
+                    "match_clock_ms",
+                    "Source field `timestamp` (`HH:MM:SS.cc`, the match time; period 2 starts at 45:00), in int64 "
+                    "milliseconds.",
+                ),
+                (
+                    "frame_rate",
+                    "Frames per second of the match, derived from the `match_clock_ms` cadence: 1/median step within "
+                    "each period, snapped to 10, 25 or 30 (within 5 %). The same on every row of the match.",
+                ),
                 ("possession_player_key", "Surrogate player key of `possession.player_id` (spec §14)."),
                 ("possession_group", "Source field `possession.group`: `home team` or `away team`."),
                 *corners,
